@@ -70,6 +70,41 @@ const PROVED: &[Proved] = &[
         tokens: &["a", "xy", "s", "i"],
         max_len: 4,
     },
+    Proved {
+        suffix: "-suffix-feeds",
+        tokens: &["a", "p", "i", "xy"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-prefix-feeds",
+        tokens: &["a", "p", "s", "xy"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-affix-feeds",
+        tokens: &["a", "p", "s", "i"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-template-feeds",
+        tokens: &["a", "p", "s", "i"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-template-free-feeds",
+        tokens: &["a", "p", "s", "e"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-multirule",
+        tokens: &["a", "xy", "p", "^0"],
+        max_len: 4,
+    },
+    Proved {
+        suffix: "-multirule-affixes",
+        tokens: &["a", "p", "s", "i"],
+        max_len: 4,
+    },
 ];
 
 fn fixture_named(label: &str) -> pg_conformance_fixtures::FixtureRef {
@@ -149,13 +184,6 @@ fn compound_shapes_outside_the_proof_keep_the_typed_spelling_refusal() {
         (
             "the non-head stem dropped",
             xml.replace(copy_pair, "<CopyFromInput index=\"h0\" />"),
-        ),
-        (
-            "a self-feeding compound",
-            xml.replace(
-                "<CompoundingRule id=\"cr1\">",
-                "<CompoundingRule id=\"cr1\" multipleApplication=\"2\">",
-            ),
         ),
     ];
     for (what, mutated) in cases {
@@ -505,4 +533,208 @@ fn aliases_feature_completion_and_duplicate_definition_controls_are_observable()
         &format!("{duplicate}</SegmentDefinitions>")
     ))
     .is_err());
+}
+
+/// The multirule fixture widened to `rules` distinct compounding rules in one stratum, so the rule-count ceiling is `rules + 1` while HC still allows two stems.
+fn many_rule_xml(rules: usize) -> String {
+    let xml = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar_xml();
+    let start = xml
+        .find("<CompoundingRule id=\"cr2\"")
+        .expect("second rule");
+    let end = start + xml[start..].find("</CompoundingRule>").unwrap() + "</CompoundingRule>".len();
+    let template = xml[start..end].to_string();
+    let mut extra = String::new();
+    let mut names = String::from("cr1 cr2");
+    for n in 3..=rules {
+        extra.push_str(&template.replace("cr2", &format!("cr{n}")));
+        names.push_str(&format!(" cr{n}"));
+    }
+    xml[..end].to_string().replace(
+        "morphologicalRules=\"cr1 cr2\"",
+        &format!("morphologicalRules=\"{names}\""),
+    ) + &extra
+        + &xml[end..]
+}
+
+fn ceiling(g: &pg_grammar::model::Grammar) -> usize {
+    pg_foma::capability::characterize(g)
+        .compounding_details()
+        .map(|d| d.max_depth)
+        .max()
+        .unwrap()
+}
+
+#[test]
+fn the_operative_stem_bound_is_the_smaller_of_the_ceiling_and_hcs_stem_count() {
+    let mut eight = pg_grammar::load(&many_rule_xml(8)).expect("eight rule grammar loads");
+    assert_eq!((ceiling(&eight), eight.max_stem_count), (9, 2));
+    assert_eq!(pg_foma::emit::effective_compound_stems(&eight), 2);
+    eight.max_stem_count = 4;
+    assert_eq!(pg_foma::emit::effective_compound_stems(&eight), 4);
+    eight.max_stem_count = 0;
+    assert_eq!(pg_foma::emit::effective_compound_stems(&eight), 1);
+    let mut two = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar();
+    assert_eq!(ceiling(&two), 3);
+    two.max_stem_count = 5;
+    assert_eq!(pg_foma::emit::effective_compound_stems(&two), 3);
+}
+
+/// Eight rules in one stratum (the shape of the real grammar this slice targets) are proved at two stems; the construction is cut to one extra level and no three-stem word is proposed.
+#[test]
+fn many_distinct_rules_are_proved_at_two_stems_and_the_chain_is_cut_to_one_level() {
+    let g = pg_grammar::load(&many_rule_xml(8)).unwrap();
+    let emitted = emit_tuned_surface(&g);
+    assert!(
+        matches!(emitted.report.tier, FomaTier::Full),
+        "{:?}",
+        emitted.report
+    );
+    let counts = &emitted.report.counts;
+    assert_eq!(counts.compound_certificate_subrules, 8);
+    assert_eq!(
+        (counts.compound_stem_bound, counts.compound_depth_ceiling),
+        (2, 9)
+    );
+    assert!(emitted.lexc_source.contains("LEXICON TLCmp"));
+    for deeper in ["LEXICON TLCmp2", "LEXICON TLCmp3", "LEXICON TLCmp8"] {
+        assert!(!emitted.lexc_source.contains(deeper), "{deeper}");
+    }
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).unwrap();
+    for two_stems in ["ap", "pa", "aa", "pxy"] {
+        assert!(!proposer.propose(two_stems).is_empty(), "{two_stems}");
+    }
+    for three_stems in ["apa", "pap", "aaa", "papa"] {
+        assert!(
+            proposer.propose(three_stems).is_empty(),
+            "{three_stems} has more stems than HC accepts"
+        );
+    }
+}
+
+/// A self-feeding rule is covered at the grammar's two-stem cap, and refused again once the cap is raised past what the proof covers.
+#[test]
+fn a_self_feeding_compound_is_proved_only_at_a_two_stem_cap() {
+    let base = fixture_named(&format!("{COMPOUND}-repeated-root")).load_grammar_xml();
+    let xml = base.replace(
+        "<CompoundingRule id=\"cr1\">",
+        "<CompoundingRule id=\"cr1\" multipleApplication=\"2\">",
+    );
+    let mut g = pg_grammar::load(&xml).unwrap();
+    assert_eq!(ceiling(&g), 3);
+    let emitted = emit_tuned_surface(&g);
+    assert!(
+        matches!(emitted.report.tier, FomaTier::Full),
+        "{:?}",
+        emitted.report
+    );
+    assert_eq!(emitted.report.counts.compound_stem_bound, 2);
+    let words = neighbor_words(Vec::<String>::new(), &["a", "\u{e1}", "xy", "e", "p"], 4);
+    let morpher = pg_parse::Morpher::new(&g, usize::MAX);
+    let mut analyzer = pg_foma::composite::compile_analyzer(&g).unwrap();
+    let mut compared = 0;
+    for (index, word) in words.iter().enumerate() {
+        let row = pg_foma::differential::measure_word(
+            &g,
+            &morpher,
+            Some(&mut analyzer),
+            index,
+            word,
+            &pg_foma::compose_budget::ApplyBudget::unbounded(),
+            None,
+        )
+        .unwrap();
+        if row.hc_status == "invalid_shape" {
+            continue;
+        }
+        assert!(!row.incomplete, "{word}: {row:?}");
+        assert_eq!(row.proposal_misses.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.spurious_confirmed.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.confirmed_multiset_equal, Some(true), "{word}");
+        compared += 1;
+    }
+    assert!(compared > 200, "{compared}");
+    g.max_stem_count = 3;
+    assert_refused_everywhere(&g, "a self-feeding compound under a three-stem cap");
+}
+
+/// A grammar whose HC stem cap is three needs a proof for three stems, which this construction does not have.
+#[test]
+fn a_three_stem_grammar_keeps_the_typed_spelling_refusal() {
+    let mut g = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar();
+    g.max_stem_count = 3;
+    assert_eq!(pg_foma::emit::effective_compound_stems(&g), 3);
+    assert_refused_everywhere(&g, "a three-stem multirule compound");
+    let mut eight = pg_grammar::load(&many_rule_xml(8)).unwrap();
+    eight.max_stem_count = 3;
+    assert_refused_everywhere(&eight, "eight rules under a three-stem cap");
+}
+
+/// A confirming parser that accepts more stems than the proposer was built for makes every word incomplete, on every analysis path, instead of returning a complete row that misses identities.
+#[test]
+fn a_parser_cap_above_the_proposers_stem_bound_is_incomplete_on_every_word() {
+    use pg_foma::compose_budget::{ApplyBudget, ApplyDimension};
+    use pg_foma::composite::FomaApplyOutcome;
+    let g = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar();
+    assert_eq!(ceiling(&g), 3);
+    let analyzer = pg_foma::composite::compile_analyzer(&g).unwrap();
+    assert_eq!(analyzer.stem_bound_trip(), None);
+    let (proposer, peeler, owners, _morpher, filter) = analyzer.into_parts_with_morpher();
+    let raised = pg_parse::Morpher::new(&g, usize::MAX).with_max_stem_count(3);
+    let mut raised_analyzer = pg_foma::composite::FomaAnalyzer::from_cached_with_morpher(
+        &g, proposer, peeler, owners, raised, filter,
+    );
+    assert_eq!(raised_analyzer.stem_bound_trip(), Some((3, 2)));
+    let words = neighbor_words(Vec::<String>::new(), &["a", "p", "xy"], 3);
+    for word in &words {
+        match raised_analyzer.analyze_word_budgeted(word, &ApplyBudget::unbounded()) {
+            FomaApplyOutcome::Incomplete {
+                dimension,
+                value,
+                limit,
+            } => assert_eq!(
+                (dimension, value, limit),
+                (ApplyDimension::StemBound, 3, 2),
+                "{word}"
+            ),
+            FomaApplyOutcome::Complete(_) => {
+                panic!("{word}: a complete row under a raised stem cap")
+            }
+        }
+        assert!(
+            matches!(
+                raised_analyzer.analyze_word_with_diagnostics_budgeted_with_candidates(
+                    word,
+                    &ApplyBudget::unbounded()
+                ),
+                pg_foma::composite::ProfiledFomaApplyOutcomeWithCandidates::Incomplete {
+                    dimension: ApplyDimension::StemBound,
+                    ..
+                }
+            ),
+            "{word}"
+        );
+    }
+    let (proposer, peeler, owners, _morpher, filter) = raised_analyzer.into_parts_with_morpher();
+    let at_cap = pg_foma::composite::FomaAnalyzer::from_cached_with_morpher(
+        &g,
+        proposer,
+        peeler,
+        owners,
+        pg_parse::Morpher::new(&g, usize::MAX).with_max_stem_count(2),
+        filter,
+    );
+    assert_eq!(at_cap.stem_bound_trip(), None);
+}
+
+#[test]
+#[should_panic(expected = "this proposer was built for 2")]
+fn the_unbudgeted_analysis_panics_on_a_parser_cap_above_the_proposers_stem_bound() {
+    let g = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar();
+    let analyzer = pg_foma::composite::compile_analyzer(&g).unwrap();
+    let (proposer, peeler, owners, _morpher, filter) = analyzer.into_parts_with_morpher();
+    let raised = pg_parse::Morpher::new(&g, usize::MAX).with_max_stem_count(3);
+    let mut raised_analyzer = pg_foma::composite::FomaAnalyzer::from_cached_with_morpher(
+        &g, proposer, peeler, owners, raised, filter,
+    );
+    let _ = raised_analyzer.analyze_word("a");
 }

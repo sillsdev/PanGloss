@@ -102,6 +102,10 @@ pub struct EmitCounts {
     pub compound_certificate_subrules: usize,
     /// Compound chain builds that consumed that proof.
     pub compound_certificate_uses: usize,
+    /// Stems per word the proved compound construction covers (`min(rule-count ceiling, Grammar::max_stem_count)`); 0 when the construction is not cut to a stem bound.
+    pub compound_stem_bound: usize,
+    /// The rule-count ceiling on stems per word, recorded with `compound_stem_bound`; 0 when that is 0.
+    pub compound_depth_ceiling: usize,
     /// `Grammar::entries.len()` (grammar-wide lexical entry count).
     pub entries: usize,
     /// `Grammar::mrules.len()` (grammar-wide morphological rule count).
