@@ -1,0 +1,52 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundDepthPrefixHop
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 4
+fieldworks_producible: true
+words:
+  - word: "aasp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|[aá][+-=]?[aá][+-=]?sp"
+        rules: ["PRE", "cr2"]
+  - word: "aaasp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|[aá][+-=]?[aá][+-=]?[aá][+-=]?sp"
+        rules: ["PRE", "cr2"]
+  - word: "aaspa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|[aá][+-=]?[aá][+-=]?sp[+-=]?[aá]"
+        rules: ["PRE", "cr2"]
+  - word: "aass"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aspa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|[aá][+-=]?sp[+-=]?[aá]"
+        rules: ["PRE", "cr2"]
+  - word: "aaaas"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|[aá][+-=]?[aá][+-=]?[aá]"
+        rules: ["cr2"]
+  - word: "aaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|[aá][+-=]?[aá][+-=]?[aá][+-=]?[aá]"
+        rules: ["cr2"]
+  - word: "aaaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "apsta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+PRE+Z|[aá][+-=]?p[+-=]?st[+-=]?[aá]"
+        rules: ["PRE", "cr2"]

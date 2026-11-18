@@ -20,6 +20,14 @@ pub enum ProposalRecallGap {
     TruncationComposition,
     NarrowingClassOutput,
     SymbolicEpenthesis,
+    RecursiveCompoundDepth,
+    RecursiveCompoundSpelling,
+    CompoundBoundarySpelling,
+    CompoundJunctionTokenization,
+    RecursiveCompoundAsymmetricLicense,
+    RecursiveCompoundMprRestriction,
+    RecursiveCompoundMprOutput,
+    RecursiveCompoundAffixPlacement,
 }
 
 /// Compiler-owned causes; grammar-health maps these exhaustively to author findings or budgets.

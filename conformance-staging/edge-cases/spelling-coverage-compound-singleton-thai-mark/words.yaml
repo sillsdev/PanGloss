@@ -1,0 +1,53 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundSingletonThaiMark
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 2
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|[a่]"
+        rules: []
+  - word: "่p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "W|[a่]p"
+        rules: []
+      - signature: "X+Y|[a่]+?p"
+        rules: ["cr1"]
+      - signature: "X+Y|[a่]+?p"
+        rules: ["cr2"]
+  - word: "a่p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+W|[a่]+?[a่]p"
+        rules: ["cr1"]
+      - signature: "X+W|[a่]+?[a่]p"
+        rules: ["cr2"]
+  - word: "่pa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "W+X|[a่]p+?[a่]"
+        rules: ["cr1"]
+      - signature: "W+X|[a่]p+?[a่]"
+        rules: ["cr2"]
+  - word: "a+่p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+W|[a่]+?[a่]p"
+        rules: ["cr1"]
+      - signature: "X+W|[a่]+?[a่]p"
+        rules: ["cr2"]
+  - word: "p่p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+W|p+?[a่]p"
+        rules: ["cr1"]
+      - signature: "Y+W|p+?[a่]p"
+        rules: ["cr2"]
+  - word: "่p+a+p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true

@@ -122,6 +122,10 @@ fn backend_seam_shape_key_table_is_pinned() {
     let expected: BTreeSet<ShapeRow> = [
         ("alpha-environment.tuned", NO_ADVICE),
         ("reduplication.peel-eligible-rule-kind", NO_ADVICE),
+        (
+            "surface-probe.circumfix-zone-exclusive-allomorph",
+            NO_ADVICE,
+        ),
         ("surface-probe.root-spelling-cap", NO_ADVICE),
         ("surface-probe.proposal-recall", NO_ADVICE),
     ]
@@ -136,6 +140,7 @@ fn backend_seam_shape_key_table_is_pinned() {
     let expected_ids: BTreeSet<&'static str> = [
         "alpha-environment.tuned",
         "reduplication.peel-eligible-rule-kind",
+        "surface-probe.circumfix-zone-exclusive-allomorph",
         "surface-probe.root-spelling-cap",
         "surface-probe.proposal-recall",
     ]

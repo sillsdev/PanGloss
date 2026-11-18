@@ -84,7 +84,8 @@ pub fn main(_args: &[String]) {
                 expect_fail_count: 0,
                 expect_skip_count: 0,
             },
-            Ok(grammar) => {
+            Ok(mut grammar) => {
+                words_yaml.morpher.apply_to(&mut grammar);
                 let total_words = words_yaml.words.len();
                 let expect_fail_count = words_yaml.words.iter().filter(|w| w.expect_fail).count();
                 let expect_skip_count = words_yaml.words.iter().filter(|w| w.expect_skip).count();

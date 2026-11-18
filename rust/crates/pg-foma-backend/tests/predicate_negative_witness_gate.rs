@@ -11,7 +11,6 @@ const WITHOUT_NEGATIVE_WITNESS: &[&str] = &[
     "circumfix-output-action.faithful-structural-composite",
     "compounding.non-recursive",
     "epenthesis.structural-composite-route",
-    "surface-probe.circumfix-zone-exclusive-allomorph",
     "mpr-group.append-output",
     "mpr-group.overwrite-output",
     "multi-table.faithful-table-threading",

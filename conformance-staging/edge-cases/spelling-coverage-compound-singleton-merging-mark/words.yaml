@@ -1,0 +1,30 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundSingletonMergingMark
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 2
+fieldworks_producible: true
+words:
+  - word: "́p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "W|́p"
+        rules: []
+  - word: "áp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+W|áp"
+        rules: ["cr1"]
+      - signature: "X+W|áp"
+        rules: ["cr2"]
+  - word: "́pa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "W+X|́pa"
+        rules: ["cr1"]
+      - signature: "W+X|́pa"
+        rules: ["cr2"]
+  - word: "ápa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
