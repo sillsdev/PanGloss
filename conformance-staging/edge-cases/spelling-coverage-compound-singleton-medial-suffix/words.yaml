@@ -1,0 +1,46 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundSingletonMedialSuffix
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 3
+fieldworks_producible: true
+words:
+  - word: "apst"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+SUF+Z|apst"
+        rules: ["SUF", "cr1", "cr2"]
+      - signature: "X+Y+SUF+Z|apst"
+        rules: ["SUF", "cr1", "cr2"]
+      - signature: "X+Y+SUF+Z|apst"
+        rules: ["SUF", "cr1", "cr2"]
+  - word: "apt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+Z|apt"
+        rules: ["cr1", "cr2"]
+      - signature: "X+Y+Z|apt"
+        rules: ["cr1", "cr2"]
+  - word: "aspt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "as"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+SUF|as"
+        rules: ["SUF"]
+  - word: "apts"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+Z+SUF|apts"
+        rules: ["SUF", "cr1", "cr2"]
+      - signature: "X+Y+Z+SUF|apts"
+        rules: ["SUF", "cr1", "cr2"]
+      - signature: "X+Y+Z+SUF|apts"
+        rules: ["SUF", "cr1", "cr2"]

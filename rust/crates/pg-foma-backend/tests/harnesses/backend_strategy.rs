@@ -25,6 +25,8 @@ mod bare_root_compile_time_discharge;
 mod grammar_health_publication_gate;
 #[path = "../proposal_recall_gate.rs"]
 mod proposal_recall_gate;
+#[path = "../recursive_compound_spelling_gate.rs"]
+mod recursive_compound_spelling_gate;
 #[path = "../spelling_coverage_gate.rs"]
 mod spelling_coverage_gate;
 #[path = "../strategy_aware_capability_gate.rs"]

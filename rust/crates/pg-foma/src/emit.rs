@@ -829,11 +829,11 @@ pub fn root_variant_census(g: &Grammar) -> Vec<RootVariantFact> {
     out
 }
 
-/// Escapes lexc's special characters (`% < : > 0 ; !` and space) in literal text — `0` matters for any text, not just tag numerals (gate F0, `tests/f0_viability.rs`).
-fn escape_lexc_text(s: &str) -> String {
+/// Escapes literal lexc text, including the quoted gloss delimiter and foma's epsilon symbol `0`.
+pub(crate) fn escape_lexc_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if matches!(c, '%' | '<' | '>' | ':' | '0' | ';' | '!' | ' ') {
+        if matches!(c, '%' | '<' | '>' | ':' | '0' | ';' | '!' | ' ' | '"') {
             out.push('%');
         }
         out.push(c);
@@ -842,37 +842,33 @@ fn escape_lexc_text(s: &str) -> String {
 }
 
 /// Whether `c` is a Unicode combining mark, per the same ranges vendored `apply.rs::is_combining` (a literal port of foma's C `utf8iscombining`) checks.
-fn char_is_combining(c: char) -> bool {
+pub(crate) fn char_is_combining(c: char) -> bool {
     let mut buf = [0u8; 4];
     is_combining(c.encode_utf8(&mut buf).as_bytes()) != 0
 }
 
+pub(crate) fn combining_runs(text: &str) -> impl Iterator<Item = &str> {
+    let mut start = 0;
+    text.char_indices()
+        .filter_map(|(index, c)| (index != 0 && !char_is_combining(c)).then_some(index))
+        .chain(std::iter::once(text.len()))
+        .filter_map(move |end| {
+            let run = &text[start..end];
+            start = end;
+            run.chars().nth(1).is_some().then_some(run)
+        })
+}
+
 /// Declares every base-char-plus-trailing-combining-mark run in the surface `CharDefTable` as a lexc `Multichar_Symbols` entry, fixing a real 100%-recall bug (not a reference-grammar gap).
 /// Root cause, fix, and scope: docs/research/pg-foma-emit-design-notes.md.
-fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for (_, cd) in table.iter() {
-        if cd.kind() != CharDefKind::Segment {
-            continue;
-        }
-        for rep in cd.representations_nfd() {
-            let chars: Vec<char> = rep.chars().collect();
-            let mut i = 0usize;
-            while i < chars.len() {
-                let mut j = i + 1;
-                while j < chars.len() && char_is_combining(chars[j]) {
-                    j += 1;
-                }
-                if j - i >= 2 {
-                    // Escapes just this slice — per-char escaping is context-free, so this matches what `write_tag_entry` produces over the full string.
-                    let run: String = chars[i..j].iter().collect();
-                    out.insert(escape_lexc_text(&run));
-                }
-                i = j;
-            }
-        }
-    }
-    out
+pub(crate) fn combining_run_symbols(table: &CharDefTable) -> BTreeSet<String> {
+    table
+        .iter()
+        .filter(|(_, def)| def.kind() == CharDefKind::Segment)
+        .flat_map(|(_, def)| def.representations_nfd())
+        .flat_map(|rep| combining_runs(rep))
+        .map(escape_lexc_text)
+        .collect()
 }
 
 /// Every Segment char-def representation as an NFD char vector; shared by `boundary_combining_run_symbols`, which needs the set twice (once filtered to mark-initial).
@@ -1426,13 +1422,6 @@ fn consume_compound_proof(spelling: Option<&SpellingRoutePlan<'_>>, counts: &mut
     }
 }
 
-/// The proved boundary spellings between compound stems; empty without a spelling plan, where the singleton route never wrote any.
-fn compound_boundary_spellings<'a>(spelling: Option<&'a SpellingRoutePlan<'_>>) -> &'a [String] {
-    spelling
-        .and_then(|plan| plan.compound.as_ref())
-        .map_or(&[], |proof| proof.boundary_spellings.as_slice())
-}
-
 /// Resolves a `RootRec`'s owning `LexEntryId` via `g.allomorph_owners`; `None` only if the registry doesn't classify this id as a root — defensive, not expected to fire in practice.
 fn root_lex_entry(g: &Grammar, id: AllomorphId) -> Option<LexEntryId> {
     match g.allomorph_owners.get(id.0 as usize)? {
@@ -1566,25 +1555,22 @@ pub(crate) fn build_compound_chain<R, C>(
 /// Checks `compound_extra_levels` against `crate::construction::DEFAULT_COMPOUND_DEPTH` before any chain lexc text is written, shared by both emitters so the discipline never drifts; `result_large_err` is deliberate, since the `Err` IS the full `EmitResult` refusal the caller returns verbatim.
 #[allow(clippy::result_large_err)]
 fn compound_chain_depth_and_budget_check(
-    g: &Grammar,
+    stems: usize,
     uncovered: &[UncoveredItem],
     counts: &EmitCounts,
     chain_depth_cap: Option<usize>,
-    stem_bound: Option<usize>,
 ) -> Result<usize, EmitResult> {
-    let compound_depth_bound = stem_bound.unwrap_or_else(|| compound_depth_bound(g));
-    let (depth, limit) =
-        match compound_extra_levels_checked_with_cap(g, chain_depth_cap, stem_bound) {
-            Ok(levels) => return Ok(levels),
-            Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
-            Err(ComposeError::CannotRepresent { reason }) => {
-                unreachable!("chain depth check: {reason}")
-            }
-        };
+    let (depth, limit) = match compound_extra_levels_checked_with_cap(stems, chain_depth_cap) {
+        Ok(levels) => return Ok(levels),
+        Err(ComposeError::ChainDepthExceeded { depth, limit, .. }) => (depth, limit),
+        Err(ComposeError::CannotRepresent { reason }) => {
+            unreachable!("chain depth check: {reason}")
+        }
+    };
     {
         let reason = format!(
             "compound chain depth ({depth} extra non-head compound-root level(s), from a computed \
-             max_depth of {compound_depth_bound} total stems across this grammar's CompoundingRule(s)) \
+             max_depth of {stems} total stems across this grammar's CompoundingRule(s)) \
              exceeds this path's compound chain-depth budget (limit {limit}). This grammar's \
              self-feeding compounding recursion is deeper than this construction will unroll -- raise \
              --fst-compound-depth (or HC_COMPOUND_CHAIN_DEPTH_BUDGET when the request leaves that \
@@ -1621,17 +1607,17 @@ pub(crate) fn compound_depth_bound(g: &Grammar) -> usize {
 
 /// The operative stem bound `S`: HC accepts at most `Grammar::max_stem_count` stems in one word, and no derivation exceeds the rule-count ceiling `compound_depth_bound`, so `min` of the two bounds every word the grammar can analyze. At least 1.
 pub fn effective_compound_stems(g: &Grammar) -> usize {
-    let ceiling = compound_depth_bound(g);
+    effective_compound_stems_at_ceiling(g, compound_depth_bound(g))
+}
+
+fn effective_compound_stems_at_ceiling(g: &Grammar, ceiling: usize) -> usize {
     ceiling.min(g.max_stem_count as usize).max(1)
 }
 
-/// `stem_bound` is `Some(S)` only for a construction whose spelling proof covers `S` stems; every other construction keeps the ceiling-sized unrolling.
 fn compound_extra_levels_checked_with_cap(
-    g: &Grammar,
+    stems: usize,
     chain_depth_cap: Option<usize>,
-    stem_bound: Option<usize>,
 ) -> Result<usize, ComposeError> {
-    let stems = stem_bound.unwrap_or_else(|| compound_depth_bound(g));
     let compound_extra_levels = stems.saturating_sub(1).max(1);
     let budget = match chain_depth_cap {
         Some(cap) => ComposeBudget {
@@ -2450,7 +2436,7 @@ fn standalone_rule_unclaimed_role(g: &Grammar, mid: MRuleId) -> Option<Role> {
 }
 
 /// The `(in_prefix, in_suffix)` derivational-zone membership the standalone loop assigns one rule, shared with `eager_route_refuses_mixed_circumfix_zone` so the two never drift.
-fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
+pub(crate) fn standalone_rule_zones(g: &Grammar, mid: MRuleId) -> (bool, bool) {
     let (mut in_prefix, mut in_suffix) = match rule_role(g, mid) {
         Role::Prefix => (true, false),
         Role::Suffix => (false, true),
@@ -3629,15 +3615,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     if alpha_environment_refusal(g) {
         return alpha_environment_emit_refusal(g);
     }
-    let singleton_spelling = eager_route_has_single_segment_spellings(g);
-    let spelling_plan = (!singleton_spelling)
-        .then(|| SpellingRoutePlan::prepare(g))
-        .flatten();
-    let recall_refusals = crate::proposal_recall::refusals_with_spelling(
-        g,
-        singleton_spelling || spelling_plan.is_some(),
-    )
-    .diagnostics;
+    let spelling = SpellingRoutePlan::for_surface(g);
+    let recall_refusals =
+        crate::proposal_recall::refusals_with_spelling(g, spelling.as_ref().err().copied())
+            .diagnostics;
     if !recall_refusals.is_empty() {
         return EmitResult {
             lexc_source: String::new(),
@@ -3653,6 +3634,8 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             },
         };
     }
+    let spelling = spelling.expect("a spelling proof failure must refuse emission");
+    let spelling_plan = spelling.plan();
     let structural_limits = match strategy
         .structural_limits
         .map(Ok)
@@ -3672,7 +3655,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     let mut counts = EmitCounts {
         entries: g.entries.len(),
         rules: g.mrules.len(),
-        spelling_certificate_paths: spelling_plan.as_ref().map_or(0, |p| {
+        spelling_certificate_paths: spelling_plan.map_or(0, |p| {
             p.roots
                 .values()
                 .chain(p.affixes.values())
@@ -3680,7 +3663,6 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 .sum()
         }),
         compound_certificate_subrules: spelling_plan
-            .as_ref()
             .and_then(|p| p.compound.as_ref())
             .map_or(0, |c| c.subrules),
         ..Default::default()
@@ -3728,7 +3710,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
         &rule_cache,
         morpher.as_ref(),
         allowed_entries,
-        spelling_plan.as_ref(),
+        spelling_plan,
     );
     if let Some(p) = profile.as_deref_mut() {
         p.push_stage(CompileStage::RootCollection, stage_start.elapsed());
@@ -3808,7 +3790,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 phon.as_ref(),
                 closure_trace,
                 &structural_trace,
-                spelling_plan.as_ref(),
+                spelling_plan,
             );
         counts.composite_structural_entries = struct_composites.len();
         composites.extend(struct_composites);
@@ -4119,22 +4101,22 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
     } else {
         None
     };
-    // Only a proved compound route is cut to the operative stem bound; the artifact records both bounds so assembly can refuse a confirming parser whose cap exceeds what was built.
+    // The legacy singleton route records its operative cap too, while keeping its ceiling-sized chain.
     let proved_stem_bound = spelling_plan
-        .as_ref()
-        .is_some_and(|plan| plan.compound.is_some())
-        .then(|| effective_compound_stems(g));
-    if let Some(stems) = proved_stem_bound {
-        counts.compound_stem_bound = stems;
+        .and_then(|plan| plan.compound.as_ref())
+        .map(|proof| proof.stem_bound);
+    if has_compounding_rules {
         counts.compound_depth_ceiling = compound_depth_bound(g);
+        counts.compound_stem_bound = proved_stem_bound.unwrap_or_else(|| {
+            effective_compound_stems_at_ceiling(g, counts.compound_depth_ceiling)
+        });
     }
     if compound_license.is_some() {
         compound_extra_levels = match compound_chain_depth_and_budget_check(
-            g,
+            proved_stem_bound.unwrap_or(counts.compound_depth_ceiling),
             &uncovered,
             &counts,
             closure_trace.map(crate::characterization::ClosureTrace::compound_chain_depth_cap),
-            proved_stem_bound,
         ) {
             Ok(levels) => levels,
             Err(mut early_return) => {
@@ -4181,7 +4163,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
         // Deduped: templates with no prefix slots all point straight at their group's prefix-derivation entry. classify_template here only probes prefix-emptiness; its uncovered routing happens on the real pass below.
         write_lexicon_header(&mut out, "TmplDispatch");
@@ -4214,7 +4196,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
     }
 
@@ -4234,7 +4216,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             true,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
         write_lexicon_header(&mut out, "TLRoots");
         // Splits into head-eligible (TLPost: both TLSfx0 and TLCmp) vs. head-ineligible (TLPostNoCmp: TLSfx0 only); both reach TLSfx0, so plain-word recall never regresses, only the TLCmp option is withheld from an unlicensed head.
@@ -4286,10 +4268,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                     phon.as_ref(),
                     true,
                     pk,
-                    spelling_plan.as_ref(),
+                    spelling_plan,
                 );
             };
-            consume_compound_proof(spelling_plan.as_ref(), &mut counts);
+            consume_compound_proof(spelling_plan, &mut counts);
             build_compound_chain(
                 &mut out,
                 "TLCmp",
@@ -4300,7 +4282,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 &mut pk,
                 phon.is_some(),
-                compound_boundary_spellings(spelling_plan.as_ref()),
+                spelling.compound_boundary_spellings(),
                 &mut tl_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
@@ -4319,7 +4301,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 phon.as_ref(),
                 false,
                 &mut pk,
-                spelling_plan.as_ref(),
+                spelling_plan,
             );
         }
         if !tl_head_no.is_empty() {
@@ -4341,7 +4323,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
     }
 
@@ -4370,7 +4352,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                     &mut counts,
                     phon.as_ref(),
                     &mut pk,
-                    spelling_plan.as_ref(),
+                    spelling_plan,
                 );
                 join_lines.insert(entry);
             }
@@ -4395,7 +4377,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             false,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
 
         let post_name = format!("G{gi}Post");
@@ -4430,10 +4412,10 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                         phon.as_ref(),
                         true,
                         pk,
-                        spelling_plan.as_ref(),
+                        spelling_plan,
                     );
                 };
-            consume_compound_proof(spelling_plan.as_ref(), &mut counts);
+            consume_compound_proof(spelling_plan, &mut counts);
             build_compound_chain(
                 &mut out,
                 &cmp_name,
@@ -4444,7 +4426,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 &mut pk,
                 phon.is_some(),
-                compound_boundary_spellings(spelling_plan.as_ref()),
+                spelling.compound_boundary_spellings(),
                 &mut group_prefix_hop,
                 &write_root_entries,
                 &write_stripped_root_entries,
@@ -4463,7 +4445,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 phon.as_ref(),
                 false,
                 &mut pk,
-                spelling_plan.as_ref(),
+                spelling_plan,
             );
         }
 
@@ -4520,7 +4502,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
             phon.as_ref(),
             true,
             &mut pk,
-            spelling_plan.as_ref(),
+            spelling_plan,
         );
 
         for &ti in &group_templates[gi] {
@@ -4543,7 +4525,7 @@ fn emit_with_budget_profiled_with_strategy_and_trace_limits(
                 &mut counts,
                 phon.as_ref(),
                 &mut pk,
-                spelling_plan.as_ref(),
+                spelling_plan,
             );
         }
 

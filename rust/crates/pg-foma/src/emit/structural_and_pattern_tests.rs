@@ -629,7 +629,10 @@ fn metathesis_probe_refusal_keeps_affix_candidates_per_root() {
 
 #[test]
 fn compound_head_prefix_confirms_polysynthetic_fixture() {
-    assert_grammar_confirms(&scalar_polysynthetic_control(), &["silamanuk"]);
+    assert_grammar_confirms(
+        &scalar_polysynthetic_control(),
+        &["silamanuk", "sila+manuk"],
+    );
 }
 
 /// redupMorphType="prefix" reduplication needs the peel to prepend the redup morpheme, not append it, or confirm's positional match fails.

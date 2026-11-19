@@ -30,17 +30,56 @@ fn has_class(g: &Grammar, nodes: &[PatternNode], segment_list: bool) -> bool {
 
 /// These checks never parse words or infer capability from emitted diagnostic text.
 pub(crate) fn refusals(g: &Grammar) -> RefusalReport {
-    let spelling_covered = crate::emit::eager_route_has_single_segment_spellings(g)
-        || crate::spelling_route::SpellingRoutePlan::prepare(g).is_some();
-    refusals_with_spelling(g, spelling_covered)
+    let spelling_gap = crate::spelling_route::SpellingRoutePlan::for_surface(g).err();
+    refusals_with_spelling(g, spelling_gap)
 }
 
-pub(crate) fn refusals_with_spelling(g: &Grammar, spelling_covered: bool) -> RefusalReport {
+pub(crate) fn refusals_with_spelling(
+    g: &Grammar,
+    spelling_gap: Option<ProposalRecallGap>,
+) -> RefusalReport {
     let mut gaps = Vec::new();
-    if !spelling_covered {
-        gaps.push((ProposalRecallGap::AmbiguousSegmentSpelling,
-            "referenced character table lacks a singleton spelling closure",
-            "literal root and affix emission do not preserve every spelling accepted by the character table's feature-unification closure"));
+    if let Some(gap) = spelling_gap {
+        let (construct, witness) = match gap {
+            ProposalRecallGap::AmbiguousSegmentSpelling => (
+                "referenced character table lacks a singleton spelling closure",
+                "literal root and affix emission do not preserve every spelling accepted by the character table's feature-unification closure",
+            ),
+            ProposalRecallGap::RecursiveCompoundDepth => (
+                "recursive compound beyond the proved stem bound",
+                "the spelling and identity proof covers at most four stems",
+            ),
+            ProposalRecallGap::RecursiveCompoundSpelling => (
+                "recursive compound without a spelling proof",
+                "the proof requires one table, no phonology, literal roots, and two intact stem blocks with only a boundary insertion at the junction",
+            ),
+            ProposalRecallGap::CompoundBoundarySpelling => (
+                "written compound junction without a spelling proof",
+                "the singleton route omits junction insertions and the spelling route could not certify this grammar",
+            ),
+            ProposalRecallGap::CompoundJunctionTokenization => (
+                "compound spelling with unproved junction tokenization",
+                "literal pieces must retain their foma symbols after the query is joined and normalized",
+            ),
+            ProposalRecallGap::RecursiveCompoundAsymmetricLicense => (
+                "recursive compound with asymmetric stem licenses",
+                "left growth can move a root from the first physical slot to a later slot; every subrule must license the same entries in both slots",
+            ),
+            ProposalRecallGap::RecursiveCompoundMprRestriction => (
+                "recursive compound with MPR restrictions",
+                "the restrictions inspect the compound head's MPR set, which the physical root path cannot certify",
+            ),
+            ProposalRecallGap::RecursiveCompoundMprOutput => (
+                "recursive compound with MPR output",
+                "the spelling proof does not cover changes to the compound head's MPR set",
+            ),
+            ProposalRecallGap::RecursiveCompoundAffixPlacement => (
+                "recursive compound with unproved affix placement",
+                "the recursive chain covers free prefixes on intact hosts at each stem; it cannot certify affixes that can move to an unsupported position between stems",
+            ),
+            _ => unreachable!("spelling proof returned an unrelated proposal recall gap"),
+        };
+        gaps.push((gap, construct, witness));
     }
     let template_count: usize = g.strata.iter().map(|s| s.templates.len()).sum();
     if template_count > 1

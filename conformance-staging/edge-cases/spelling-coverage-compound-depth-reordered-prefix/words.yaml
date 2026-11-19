@@ -1,0 +1,42 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundDepthReorderedPrefix
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 3
+fieldworks_producible: true
+words:
+  - word: "spat"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y+X+Z|sp[aá][+-=]?[+-=]?t"
+        rules: ["PRE", "cr1", "cr2"]
+  - word: "sap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X+Y|s[aá]p[+-=]?"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+X+Y|s[aá]p[+-=]?"
+        rules: ["PRE", "cr2"]
+  - word: "apt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+Z|[aá][+-=]?p[+-=]?t"
+        rules: ["cr1", "cr2"]
+      - signature: "X+Y+Z|[aá][+-=]?p[+-=]?t"
+        rules: ["cr1", "cr2"]
+  - word: "stpa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z+Y+X|stp[+-=]?[+-=]?[aá]"
+        rules: ["PRE", "cr1", "cr2"]
+  - word: "psat"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE+X+Z|p[+-=]?s[aá]t[+-=]?"
+        rules: ["PRE", "cr1", "cr2"]
+  - word: "aspt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y+Z|[aá][+-=]?spt[+-=]?"
+        rules: ["PRE", "cr1", "cr2"]

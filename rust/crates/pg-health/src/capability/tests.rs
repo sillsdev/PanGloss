@@ -22,6 +22,38 @@ fn proposal_recall_cause_wire_names_are_stable() {
             "narrowing_class_output",
         ),
         (ProposalRecallGap::SymbolicEpenthesis, "symbolic_epenthesis"),
+        (
+            ProposalRecallGap::RecursiveCompoundDepth,
+            "recursive_compound_depth",
+        ),
+        (
+            ProposalRecallGap::RecursiveCompoundSpelling,
+            "recursive_compound_spelling",
+        ),
+        (
+            ProposalRecallGap::CompoundBoundarySpelling,
+            "compound_boundary_spelling",
+        ),
+        (
+            ProposalRecallGap::CompoundJunctionTokenization,
+            "compound_junction_tokenization",
+        ),
+        (
+            ProposalRecallGap::RecursiveCompoundAsymmetricLicense,
+            "recursive_compound_asymmetric_license",
+        ),
+        (
+            ProposalRecallGap::RecursiveCompoundMprRestriction,
+            "recursive_compound_mpr_restriction",
+        ),
+        (
+            ProposalRecallGap::RecursiveCompoundMprOutput,
+            "recursive_compound_mpr_output",
+        ),
+        (
+            ProposalRecallGap::RecursiveCompoundAffixPlacement,
+            "recursive_compound_affix_placement",
+        ),
     ] {
         let cause = CapabilityRefusal::ProposalRecall(gap);
         let expected = json!({"kind": "proposal_recall", "details": name});

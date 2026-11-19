@@ -42,7 +42,8 @@ struct DifferentialCounts {
 
 fn observe(name: &str, strategy: EmissionStrategy) -> Option<Row> {
     let fixture = discover().into_iter().find(|f| f.label() == name)?;
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).ok()?;
+    let mut grammar = pg_grammar::load(&fixture.load_grammar_xml()).ok()?;
+    fixture.load_words_yaml().morpher.apply_to(&mut grammar);
     if grammar.char_tables.is_empty() {
         return None;
     }
@@ -211,10 +212,10 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
     );
 }
 
-/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make. `claimed == 0` is the currently-measured state (its one witness, `machine:edge-cases/circumfix-non-first-allomorph-selection`, now compiles), not a proof the condition can never recur -- a genuinely unowned zone mismatch on a future grammar can still trip it.
+/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make.
 #[test]
 fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
-    let mut claimed = 0usize;
+    let mut claimed = Vec::new();
     for fixture in discover() {
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
             continue;
@@ -225,7 +226,7 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
         if !pg_foma::emit::eager_route_refuses_mixed_circumfix_zone(&grammar) {
             continue;
         }
-        claimed += 1;
+        claimed.push(fixture.label());
         assert!(
             pg_foma::analyzer::compile_proposer(&grammar).is_err(),
             "{}: the mixed-circumfix-zone fact claims the eager route refuses, but it compiled",
@@ -233,10 +234,9 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
         );
     }
     assert_eq!(
-        claimed, 0,
-        "mixed-circumfix-zone fact fired on {claimed} fixture(s) -- update this assertion \
-         deliberately (its stale value was 1, this fixture's own commit made it 0) rather than \
-         reverting to a bare non-vacuity check"
+        claimed,
+        ["staging:edge-cases/spelling-coverage-compound-depth-prefix-zone"],
+        "the set of mixed-circumfix-zone witnesses changed"
     );
 }
 

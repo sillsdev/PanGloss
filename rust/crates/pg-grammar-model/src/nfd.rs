@@ -3,6 +3,7 @@
 //! layer-1 NFD parity gate (§8) diffs this against .NET's output over every corpus word and
 //! grammar string rep to catch Unicode-version skew before it becomes a parse difference.
 
+pub use unicode_normalization::char::canonical_combining_class;
 use unicode_normalization::UnicodeNormalization;
 
 /// Canonical decomposition (NFD) of `s`, matching .NET `String.Normalize(FormD)`.

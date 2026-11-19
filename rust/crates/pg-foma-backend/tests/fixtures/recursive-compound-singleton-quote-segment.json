@@ -1,0 +1,10 @@
+{
+  "a": [{"identity":{"morphemes":["x"],"rootIndex":0,"category":"v"},"count":1}],
+  "a\"": [{"identity":{"morphemes":["w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","y"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","y"],"rootIndex":1,"category":"v"},"count":1}],
+  "a\"+p": [{"identity":{"morphemes":["w","y"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["w","y"],"rootIndex":1,"category":"v"},"count":1}],
+  "a\"aa": [],
+  "as\"p": [{"identity":{"morphemes":["x","PRE","y"],"rootIndex":2,"category":"v"},"count":1}],
+  "pa\"": [{"identity":{"morphemes":["y","w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["y","w"],"rootIndex":1,"category":"v"},"count":1}],
+  "s\"a": [{"identity":{"morphemes":["PRE","x"],"rootIndex":1,"category":"v"},"count":1}],
+  "s\"s\"s\"a": []
+}

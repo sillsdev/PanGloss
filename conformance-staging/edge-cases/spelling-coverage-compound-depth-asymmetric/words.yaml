@@ -1,0 +1,179 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundDepthAsymmetric
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 3
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|[aá]"
+        rules: []
+  - word: "p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "aa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|[aá][+-=]?p"
+        rules: ["cr1"]
+  - word: "pa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "pp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "apa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "app"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|[aá][+-=]?p[+-=]?p"
+        rules: ["cr1"]
+  - word: "paa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "pap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ppa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ppp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aapa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aapp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "apaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "apap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "appa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "appp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "paaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "paap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "papa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "papp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ppaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ppap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "pppa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "pppp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "á"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|[aá]"
+        rules: []
+  - word: "t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t"
+        rules: []
+  - word: "at"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|[aá][+-=]?p"
+        rules: ["cr1"]
+  - word: "a=p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|[aá][+-=]?p"
+        rules: ["cr1"]
+  - word: "a=p-t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-ps-t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a=ps-t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a=sp-t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-p-p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|[aá][+-=]?p[+-=]?p"
+        rules: ["cr1"]
+  - word: "a+sp+t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-sp-t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a=p-t-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaaaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-p-t-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-ps-t-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a=sp-t-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-a-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "a-a-a-a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true

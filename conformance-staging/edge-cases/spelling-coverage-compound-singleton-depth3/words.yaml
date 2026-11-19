@@ -1,0 +1,47 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundSingletonDepth3
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 3
+fieldworks_producible: true
+words:
+  - word: "apt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y+Z|apt"
+        rules: ["cr1", "cr2"]
+      - signature: "X+Y+Z|apt"
+        rules: ["cr1", "cr2"]
+  - word: "aapt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "ap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|ap"
+        rules: ["cr1"]
+      - signature: "X+Y|ap"
+        rules: ["cr2"]
+  - word: "apst"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    expect_fail: true
+  - word: "aaa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|aaa"
+        rules: ["cr1", "cr2"]
+      - signature: "X|aaa"
+        rules: ["cr1", "cr2"]
+  - word: "spa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y+X|spa"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+Y+X|spa"
+        rules: ["PRE", "cr1"]
+      - signature: "PRE+Y+X|spa"
+        rules: ["PRE", "cr2"]

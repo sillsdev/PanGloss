@@ -16,9 +16,10 @@ fn load_and_measure(fixture: &pg_conformance_fixtures::FixtureRef) -> Loaded {
     if words_yaml.expect_crash {
         return Loaded::ExcludedByExpectCrash { label };
     }
-    let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+    let Ok(mut grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
         return Loaded::Scored(scoreboard::unmeasurable(&label, "grammar failed to load"));
     };
+    words_yaml.morpher.apply_to(&mut grammar);
     let all_words: Vec<String> = words_yaml.words.iter().map(|w| w.word.clone()).collect();
     let words: Vec<String> = if all_words.len() > MAX_WORDS_PER_FIXTURE {
         all_words[..MAX_WORDS_PER_FIXTURE].to_vec()
@@ -46,9 +47,9 @@ impl Bucket {
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 154,
+        oracle_exact: 162,
         compiles_but_misses: 0,
-        refused: 107,
+        refused: 118,
         unmeasurable: 0,
     },
 )];

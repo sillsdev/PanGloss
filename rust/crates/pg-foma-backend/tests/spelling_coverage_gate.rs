@@ -611,9 +611,9 @@ fn many_distinct_rules_are_proved_at_two_stems_and_the_chain_is_cut_to_one_level
     }
 }
 
-/// A self-feeding rule is covered at the grammar's two-stem cap, and refused again once the cap is raised past what the proof covers.
+/// The self-feeding rule stays covered at the default cap and can be proved at three stems.
 #[test]
-fn a_self_feeding_compound_is_proved_only_at_a_two_stem_cap() {
+fn a_self_feeding_compound_is_proved_at_two_and_three_stems() {
     let base = fixture_named(&format!("{COMPOUND}-repeated-root")).load_grammar_xml();
     let xml = base.replace(
         "<CompoundingRule id=\"cr1\">",
@@ -654,19 +654,54 @@ fn a_self_feeding_compound_is_proved_only_at_a_two_stem_cap() {
     }
     assert!(compared > 200, "{compared}");
     g.max_stem_count = 3;
-    assert_refused_everywhere(&g, "a self-feeding compound under a three-stem cap");
+    let emitted = emit_tuned_surface(&g);
+    assert!(matches!(emitted.report.tier, FomaTier::Full));
+    assert_eq!(emitted.report.counts.compound_stem_bound, 3);
+    assert_complete_compound_identities(&g);
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g).unwrap();
+    assert!(!proposer.propose("aaa").is_empty());
+    assert!(proposer.propose("aaaa").is_empty());
 }
 
-/// A grammar whose HC stem cap is three needs a proof for three stems, which this construction does not have.
 #[test]
-fn a_three_stem_grammar_keeps_the_typed_spelling_refusal() {
-    let mut g = fixture_named(&format!("{COMPOUND}-multirule")).load_grammar();
-    g.max_stem_count = 3;
-    assert_eq!(pg_foma::emit::effective_compound_stems(&g), 3);
-    assert_refused_everywhere(&g, "a three-stem multirule compound");
+fn the_recursive_gate_uses_the_stem_bound_instead_of_the_rule_count() {
     let mut eight = pg_grammar::load(&many_rule_xml(8)).unwrap();
     eight.max_stem_count = 3;
-    assert_refused_everywhere(&eight, "eight rules under a three-stem cap");
+    let emitted = emit_tuned_surface(&eight);
+    assert!(matches!(emitted.report.tier, FomaTier::Full));
+    assert_eq!(
+        (emitted.report.counts.compound_stem_bound, ceiling(&eight)),
+        (3, 9)
+    );
+    assert_complete_compound_identities(&eight);
+}
+
+fn assert_complete_compound_identities(g: &pg_grammar::model::Grammar) {
+    let morpher = pg_parse::Morpher::new(g, usize::MAX);
+    let mut analyzer = pg_foma::composite::compile_analyzer(g).unwrap();
+    for (index, (word, accepted)) in [("aa", true), ("aaa", true), ("aaaa", false)]
+        .into_iter()
+        .enumerate()
+    {
+        let row = pg_foma::differential::measure_word(
+            g,
+            &morpher,
+            Some(&mut analyzer),
+            index,
+            word,
+            &pg_foma::compose_budget::ApplyBudget::unbounded(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            (&*row.hc_status, &*row.fst_status),
+            ("complete", "complete"),
+            "{row:?}"
+        );
+        assert_eq!(!row.oracle.is_empty(), accepted, "{row:?}");
+        assert_eq!(row.proposal_misses.as_deref(), Some(&[][..]), "{row:?}");
+        assert_eq!(row.confirmed, row.oracle, "{row:?}");
+    }
 }
 
 /// A confirming parser that accepts more stems than the proposer was built for makes every word incomplete, on every analysis path, instead of returning a complete row that misses identities.
