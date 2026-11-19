@@ -67,7 +67,9 @@ impl WordFlags {
 ///
 /// `Real.order` is a positioned run's start; singleton statuses use their node anchor. The vector
 /// stores top-level range order with each genuine child block immediately before its host.
+// C layout keeps defined fields at bytes 8..16: with passed_over there, None left that word undefined and the compiler filled it from a register holding glibc's tcache key, so every later free took the double-free scan.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(C)]
 pub struct MorphRecord {
     pub allomorph: AllomorphId,
     pub morpheme: MorphemeId,
@@ -75,6 +77,11 @@ pub struct MorphRecord {
     /// Diagnostic application identity within the word. The primary root is zero, and
     /// separate positioned runs of one application keep the same identity.
     pub observation_occurrence: u16,
+    /// How this record is anchored — see `MorphStatus` and `pg_rules::morph::attribute_morphs`'s
+    /// doc comment for the C# mechanism each variant ports. `Real` for root records.
+    pub status: MorphStatus,
+    /// Runtime root payload attached to this morph (never word-wide), for supplied/guessed roots.
+    pub runtime_root: Option<Rc<RuntimeRoot>>,
     /// The same-rule allomorph indices that successfully
     /// applied *before* this one within the same `SynthesisAffixProcessRule.Apply` loop — C#'s
     /// per-morphID `Word._disjunctiveAllomorphIndices` entry (`appliedAllomorphIndices`,
@@ -86,11 +93,6 @@ pub struct MorphRecord {
     /// rule applications by `attribute_morphs`' record inheritance, mirroring how C#'s dictionary
     /// rides along in `Word`'s copy constructor (Word.cs:112-115).
     pub passed_over: Option<Box<[u16]>>,
-    /// How this record is anchored — see `MorphStatus` and `pg_rules::morph::attribute_morphs`'s
-    /// doc comment for the C# mechanism each variant ports. `Real` for root records.
-    pub status: MorphStatus,
-    /// Runtime root payload attached to this morph (never word-wide), for supplied/guessed roots.
-    pub runtime_root: Option<Rc<RuntimeRoot>>,
 }
 
 /// The current annotation role used by the flat postorder representation.
@@ -415,7 +417,9 @@ pub struct WordKey {
     final_template_state: FinalTemplateState,
 }
 
+// C layout keeps defined fields at bytes 8..16, see MorphRecord.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(C)]
 struct MorphKey {
     allomorph: AllomorphId,
     morpheme: MorphemeId,
