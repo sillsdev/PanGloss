@@ -1,0 +1,194 @@
+# oracle-provenance: founding-oracle
+language: SpellingCompoundSingletonJunctionMetathesis
+requires: [phonology, morpher-settings]
+morpher:
+  MaxRoots: 2
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "t"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t"
+        rules: []
+  - word: "aa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|aa"
+        rules: [cr1]
+      - signature: "X|aa"
+        rules: [cr2]
+  - word: "ap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|ap"
+        rules: [cr1]
+      - signature: "X+Y|ap"
+        rules: [cr2]
+  - word: "at"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Z|at"
+        rules: [cr1]
+      - signature: "X+Z|at"
+        rules: [cr2]
+  - word: "pa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+X|pa"
+        rules: [cr1]
+      - signature: "Y+X|pa"
+        rules: [cr2]
+  - word: "pp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|pp"
+        rules: [cr1]
+      - signature: "Y|pp"
+        rules: [cr2]
+  - word: "ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+X|ta"
+        rules: [cr1]
+      - signature: "Z+X|ta"
+        rules: [cr2]
+  - word: "tt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|tt"
+        rules: [cr1]
+      - signature: "Z|tt"
+        rules: [cr2]
+  - word: "sa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X|sa"
+        rules: [PRE]
+  - word: "sp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y|sp"
+        rules: [PRE]
+  - word: "st"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z|st"
+        rules: [PRE]
+  - word: "asa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE|asa"
+        rules: [PRE, cr2]
+  - word: "asp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|asp"
+        rules: [PRE, cr2]
+  - word: "ast"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Z|ast"
+        rules: [PRE, cr2]
+  - word: "psa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE+X|psa"
+        rules: [PRE, cr2]
+  - word: "psp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE|psp"
+        rules: [PRE, cr2]
+  - word: "pst"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE+Z|pst"
+        rules: [PRE, cr2]
+  - word: "tsa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+PRE+X|tsa"
+        rules: [PRE, cr2]
+  - word: "tsp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+PRE+Y|tsp"
+        rules: [PRE, cr2]
+  - word: "tst"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+PRE|tst"
+        rules: [PRE, cr2]
+  - word: "saa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X|saa"
+        rules: [PRE, cr1]
+      - signature: "PRE+X|saa"
+        rules: [PRE, cr1]
+      - signature: "PRE+X|saa"
+        rules: [PRE, cr2]
+  - word: "sap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X+Y|sap"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Y|sap"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Y|sap"
+        rules: [PRE, cr2]
+  - word: "sat"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X+Z|sat"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Z|sat"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Z|sat"
+        rules: [PRE, cr2]
+  - word: "spa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y+X|spa"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y+X|spa"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y+X|spa"
+        rules: [PRE, cr2]
+  - word: "spp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y|spp"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y|spp"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y|spp"
+        rules: [PRE, cr2]
+  - word: "sta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z+X|sta"
+        rules: [PRE, cr1]
+      - signature: "PRE+Z+X|sta"
+        rules: [PRE, cr1]
+      - signature: "PRE+Z+X|sta"
+        rules: [PRE, cr2]
+  - word: "stt"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z|stt"
+        rules: [PRE, cr1]
+      - signature: "PRE+Z|stt"
+        rules: [PRE, cr1]
+      - signature: "PRE+Z|stt"
+        rules: [PRE, cr2]

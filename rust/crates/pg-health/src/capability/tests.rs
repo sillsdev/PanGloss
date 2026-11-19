@@ -39,6 +39,14 @@ fn proposal_recall_cause_wire_names_are_stable() {
             "compound_junction_tokenization",
         ),
         (
+            ProposalRecallGap::SingletonRootBoundary,
+            "singleton_root_boundary",
+        ),
+        (
+            ProposalRecallGap::CompoundJunctionPhonology,
+            "compound_junction_phonology",
+        ),
+        (
             ProposalRecallGap::RecursiveCompoundAsymmetricLicense,
             "recursive_compound_asymmetric_license",
         ),

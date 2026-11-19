@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, CompoundingRuleDef, Grammar, LexEntryId, MorphRuleDef,
-    OutputAction, PartRef, TableId,
+    OutputAction, PartRef, Pattern, PatternNode, PhonRuleDef, TableId,
 };
 use pg_health::capability::ProposalRecallGap;
 use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
@@ -83,6 +83,12 @@ impl<'g> SpellingRoutePlan<'g> {
                 for stratum in &g.strata {
                     check_compound_segment_starters(&g.char_tables[stratum.table.0 as usize])?;
                 }
+            }
+            if entries_spell_a_boundary(g) {
+                return Err(SingletonRootBoundary);
+            }
+            if compounds_are_staged(g) && phonology_spans_junction(g) {
+                return Err(CompoundJunctionPhonology);
             }
             let writes_junction =
                 compounds
@@ -482,6 +488,61 @@ fn compound_junction_order_is_nfd<'a>(pieces: impl Iterator<Item = &'a str>) -> 
         }
     }
     highest_trailing_class <= lowest_leading_mark_class
+}
+
+/// Root spellings on the singleton route drop boundary nodes, so a boundary typed inside a root is never proposed.
+fn entries_spell_a_boundary(g: &Grammar) -> bool {
+    g.entries.iter().any(|entry| {
+        entry.allomorphs.iter().any(|allo| {
+            allo.shape
+                .shape
+                .interior()
+                .any(|(_, kind, _, _)| kind == NodeKind::Boundary)
+        })
+    })
+}
+
+/// Only a compounding rule some stratum applies can form a compound.
+fn compounds_are_staged(g: &Grammar) -> bool {
+    g.strata
+        .iter()
+        .flat_map(|stratum| &stratum.mrules)
+        .any(|id| matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)))
+}
+
+/// A stratum rule whose target or environment can span two stems can rewrite across the compound junction, which the singleton route does not certify.
+pub(crate) fn phonology_spans_junction(g: &Grammar) -> bool {
+    g.strata
+        .iter()
+        .flat_map(|stratum| &stratum.prules)
+        .any(|id| rule_spans_junction(&g.prules[id.0 as usize]))
+}
+
+/// A rewrite stays inside one stem only when it reads and writes one node and matches no neighbour; metathesis always spans two.
+pub(crate) fn rule_spans_junction(rule: &PhonRuleDef) -> bool {
+    match rule {
+        PhonRuleDef::Rewrite(rule) => rule.subrules.iter().any(|sub| {
+            let matched = pattern_width(&rule.lhs)
+                .saturating_add(sub.left_env.as_ref().map_or(0, pattern_width))
+                .saturating_add(sub.right_env.as_ref().map_or(0, pattern_width));
+            pattern_width(&rule.lhs) != 1 || pattern_width(&sub.rhs) != 1 || matched != 1
+        }),
+        PhonRuleDef::Metathesis(_) => true,
+    }
+}
+
+/// Nodes a pattern consumes; anchors consume none, and anything of unbounded or unknown width counts as too wide.
+fn pattern_width(pattern: &Pattern) -> usize {
+    pattern
+        .nodes
+        .iter()
+        .map(|node| match node {
+            PatternNode::Context(_) | PatternNode::CharDef(_) => 1,
+            PatternNode::Anchor(_) => 0,
+            PatternNode::Segments { shape, .. } => shape.shape.interior().count(),
+            PatternNode::Quantifier { .. } => usize::MAX / 4,
+        })
+        .fold(0, usize::saturating_add)
 }
 
 fn shared_surface_table(g: &Grammar) -> Option<TableId> {

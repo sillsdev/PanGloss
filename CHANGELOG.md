@@ -5,6 +5,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
+- The two-stem singleton FST route no longer compiles and misses in two shapes. It refuses with typed `singleton_root_boundary` any grammar whose lexical entry spells a boundary inside a root, with or without a compounding rule. It refuses with typed `compound_junction_phonology` a grammar with a staged compounding rule and a stratum phonological rule that can span a stem junction: any metathesis, any deletion or epenthesis, any rewrite that reads or writes more than one node or has a left or right environment with a segment, and any rewrite with a quantified node. A one-node change with no environment or only a word-boundary environment is not refused. The three-stem route is not checked. Each shape previously compiled and missed analyses that pinned C# accepts. A double quote in segment or affix text is already escaped by #367; this adds a unit test for it. No persisted-artifact cache key exists in this repository to version (#366).
 - Plain HC `batch` no longer pays an allocator double-free check on every freed morph buffer that trace slice 2 introduced: the synthetic 96-input grammar returns from 1.076x to 1.002x the v0.25.0 instruction count, with unchanged output (#369).
 
 ## 0.27.0

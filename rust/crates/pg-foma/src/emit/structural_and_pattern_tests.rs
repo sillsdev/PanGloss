@@ -376,6 +376,20 @@ fn pattern_variants_enumerates_mandatory_class_members() {
     assert_eq!(sorted, vec!["bat".to_string(), "bet".to_string()]);
 }
 
+/// The singleton compound route refuses phonology that can span a stem junction, so a control about compounds keeps only the rules it accepts.
+fn without_junction_spanning_rewrites(mut g: Grammar) -> Grammar {
+    let spanning: Vec<_> = g
+        .strata
+        .iter()
+        .flat_map(|s| s.prules.iter().copied())
+        .filter(|id| crate::spelling_route::rule_spans_junction(&g.prules[id.0 as usize]))
+        .collect();
+    for stratum in &mut g.strata {
+        stratum.prules.retain(|id| !spanning.contains(id));
+    }
+    g
+}
+
 fn scalar_polysynthetic_control() -> Grammar {
     let fixture = pg_conformance_fixtures::require_fixture(
         "languages",
@@ -388,10 +402,23 @@ fn scalar_polysynthetic_control() -> Grammar {
     pg_grammar::load(&xml).expect("scalar vowel control must load")
 }
 
+/// The scalar control without its compounding rules, which the singleton route refuses beside deleting phonology.
+fn scalar_polysynthetic_control_without_compounds() -> Grammar {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "languages",
+        "polysynthetic-stratal-derivation-chain",
+    );
+    let xml =
+        pg_conformance_fixtures::grammar_xml_without_compounding_rules(&fixture.load_grammar_xml());
+    let target = r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHighVowel" /><SimpleContext naturalClass="ncHighVowel" /></PhoneticSequence></PhoneticInput>"#;
+    let xml = xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#);
+    pg_grammar::load(&xml).expect("scalar vowel control must load")
+}
+
 /// The compiled TSP network accepts a NOVEL spelling through an unbounded (`[Any]*`) pattern root via its regex entry, and decodes to that pattern entry's own tag identity -- the point of a guesser pattern: representing a language, not a spelling list.
 #[test]
 fn pattern_route_accepts_a_novel_spelling_under_the_pattern_entrys_own_tag() {
-    let g = scalar_polysynthetic_control();
+    let g = scalar_polysynthetic_control_without_compounds();
     let pattern_entry = entry_id_of(&g, "eGuessPat");
     let pattern_morpheme = g.entries[pattern_entry.0 as usize].morpheme;
     let mut proposer =
@@ -482,7 +509,7 @@ fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
 /// probe_surface is POS-blind, so a bare root in a grammar that scopes different phonological rules to different POS in the same stratum needs generate_words' genuinely POS-gated pipeline instead.
 #[test]
 fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
-    let g = scalar_polysynthetic_control();
+    let g = scalar_polysynthetic_control_without_compounds();
     let table = surface_table(&g);
     let cache = RuleCache::build(&g);
     let entry = &g.entries[entry_id_of(&g, "eBuiibuii").0 as usize];
@@ -630,7 +657,7 @@ fn metathesis_probe_refusal_keeps_affix_candidates_per_root() {
 #[test]
 fn compound_head_prefix_confirms_polysynthetic_fixture() {
     assert_grammar_confirms(
-        &scalar_polysynthetic_control(),
+        &without_junction_spanning_rewrites(scalar_polysynthetic_control()),
         &["silamanuk", "sila+manuk"],
     );
 }
@@ -1483,4 +1510,11 @@ fn grammar_health_unbounded_affix_is_a_process_gap_not_a_surface_table_gap() {
         affix_spelling_gap(MRuleId(0), VariantLimit::BytesExhausted { bytes: 1 }),
         EmissionHealth::Budget { value: 1, .. }
     ));
+}
+
+/// An unescaped `"` ends a lexc identifier and opens a quoted gloss in an entry.
+#[test]
+fn lexc_text_escapes_the_double_quote() {
+    assert_eq!(escape_lexc_text("a\"b"), "a%\"b");
+    assert_eq!(escape_lexc_text("\"\""), "%\"%\"");
 }

@@ -1,0 +1,47 @@
+# oracle-provenance: founding-oracle
+language: SpellingCompoundSingletonRootBoundaryFree
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 2
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t+?a"
+        rules: []
+  - word: "sa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X|sa"
+        rules: [PRE]
+  - word: "sp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y|sp"
+        rules: [PRE]
+  - word: "t+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t+?a"
+        rules: []
+  - word: "sta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z|st+?a"
+        rules: [PRE]
+  - word: "st+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z|st+?a"
+        rules: [PRE]

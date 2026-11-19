@@ -273,6 +273,75 @@ fn singleton_thai_xml() -> String {
 }
 
 #[test]
+fn singleton_compounds_refuse_a_typed_boundary_inside_a_root() {
+    assert_pinned_refusal(
+        "singleton-root-boundary",
+        "t+a",
+        ProposalRecallGap::SingletonRootBoundary,
+    );
+}
+
+#[test]
+fn singleton_routes_refuse_a_typed_boundary_inside_a_root_without_compounds() {
+    assert_pinned_refusal(
+        "singleton-root-boundary-free",
+        "t+a",
+        ProposalRecallGap::SingletonRootBoundary,
+    );
+}
+
+#[test]
+fn singleton_compounds_refuse_a_feature_change_across_the_junction() {
+    assert_pinned_refusal(
+        "singleton-junction-featchange",
+        "sp",
+        ProposalRecallGap::CompoundJunctionPhonology,
+    );
+}
+
+#[test]
+fn singleton_compounds_refuse_epenthesis_across_the_junction() {
+    assert_pinned_refusal(
+        "singleton-junction-epenthesis",
+        "tap",
+        ProposalRecallGap::CompoundJunctionPhonology,
+    );
+}
+
+#[test]
+fn singleton_compounds_refuse_metathesis_across_the_junction() {
+    assert_pinned_refusal(
+        "singleton-junction-metathesis",
+        "pa",
+        ProposalRecallGap::CompoundJunctionPhonology,
+    );
+}
+
+#[test]
+fn singleton_compounds_refuse_deletion_across_the_junction() {
+    assert_pinned_refusal(
+        "singleton-junction-deletion",
+        "p",
+        ProposalRecallGap::CompoundJunctionPhonology,
+    );
+}
+
+#[test]
+fn singleton_phonology_is_not_refused_when_no_stratum_applies_a_compounding_rule() {
+    let xml = fixture("singleton-junction-deletion")
+        .load_grammar_xml()
+        .replace(
+            "morphologicalRules=\"cr1 cr2 PRE\"",
+            "morphologicalRules=\"PRE\"",
+        );
+    let g = pg_grammar::load(&xml).unwrap();
+    assert!(
+        compile_proposer(&g).is_ok(),
+        "defined but unstaged compounding rules cannot form a compound"
+    );
+}
+
+#[test]
 fn singleton_compounds_refuse_merging_marks_even_without_written_junctions() {
     assert_pinned_refusal(
         "singleton-merging-mark",
