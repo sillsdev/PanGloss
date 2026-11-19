@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- Plain HC `batch` no longer pays an allocator double-free check on every freed morph buffer that trace slice 2 introduced: the synthetic 96-input grammar returns from 1.076x to 1.002x the v0.25.0 instruction count, with unchanged output (#369).
+
 ## 0.27.0
 
 Released 2026-11-19.

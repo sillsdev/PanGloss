@@ -18,7 +18,9 @@ use crate::word::{runtime_id, FinalTemplateState, MorphStatus, Word};
 ///
 /// Deliberately omits procedural fields such as `passed_over`, which do not identify source
 /// morphology and would split otherwise identical arrivals.
+// C layout keeps defined fields at bytes 8..16, see MorphRecord.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[repr(C)]
 pub struct MorphHistoryKey {
     pub allomorph: AllomorphId,
     pub morpheme: MorphemeId,
@@ -164,6 +166,18 @@ pub fn key_of(w: &Word, max_apps: &impl Fn(MRuleId) -> u32) -> AnalysisStateKey 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn morph_history_key_keeps_written_fields_in_its_second_word() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(size_of::<MorphHistoryKey>(), 40);
+        for field in [
+            offset_of!(MorphHistoryKey, order),
+            offset_of!(MorphHistoryKey, status),
+        ] {
+            assert!((8..16).contains(&field));
+        }
+    }
     use crate::word::{GuessedRoot, MorphRecord, RuntimeRoot};
     use pg_featstruct::{FeatId, FeatureStructBuilder, FeatureValue, SymbolBits};
     use pg_grammar_model::model::LexEntryId;

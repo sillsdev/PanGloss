@@ -207,3 +207,25 @@ fn supplied_mpr_charges_include_each_retained_nonhead_payload() {
     }
     assert_eq!(charged - retained_word_bytes(&word), 2 * charge);
 }
+
+#[test]
+fn morph_record_keeps_written_fields_in_its_second_word() {
+    use std::mem::{offset_of, size_of};
+    assert_eq!(size_of::<MorphRecord>(), 40);
+    for field in [
+        offset_of!(MorphRecord, order),
+        offset_of!(MorphRecord, observation_occurrence),
+        offset_of!(MorphRecord, status),
+    ] {
+        assert!((8..16).contains(&field));
+    }
+}
+
+#[test]
+fn morph_key_keeps_written_fields_in_its_second_word() {
+    use std::mem::{offset_of, size_of};
+    assert_eq!(size_of::<MorphKey>(), 40);
+    for field in [offset_of!(MorphKey, order), offset_of!(MorphKey, status)] {
+        assert!((8..16).contains(&field));
+    }
+}
