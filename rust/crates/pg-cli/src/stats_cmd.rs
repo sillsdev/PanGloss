@@ -269,11 +269,10 @@ fn refuse_if_cache_engine_differs(
 pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 4;
 
 fn prior_options(
-    cache: &pg_stats::StatsCache,
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
 ) -> Result<Vec<serde_json::Map<String, Value>>, String> {
-    let mut stmt = cache
-        .connection()
+    let mut stmt = conn
         .prepare("SELECT options_json FROM run ORDER BY run_id")
         .map_err(|e| e.to_string())?;
     let prior: Vec<String> = stmt
@@ -301,11 +300,11 @@ fn prior_options(
 }
 
 fn refuse_if_final_template_policy_differs(
-    cache: &pg_stats::StatsCache,
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
     requested: bool,
 ) -> Result<(), String> {
-    for object in prior_options(cache, cache_path)? {
+    for object in prior_options(conn, cache_path)? {
         let recorded = match object.get("always_enforce_final_templates") {
             None => false,
             Some(Value::Bool(value)) => *value,
@@ -327,10 +326,10 @@ fn refuse_if_final_template_policy_differs(
 }
 
 fn refuse_if_search_budget_semantics_differ(
-    cache: &pg_stats::StatsCache,
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
 ) -> Result<(), String> {
-    for object in prior_options(cache, cache_path)? {
+    for object in prior_options(conn, cache_path)? {
         if object
             .get("search_budget_semantics")
             .and_then(Value::as_u64)
@@ -506,11 +505,12 @@ pub(crate) fn batch_stats_word(
     prune_rows: &[pg_rules::stats::PruneRow],
 ) -> Result<BatchStatsWord, String> {
     let prunes = sum_prune_rows(prune_rows);
-    let mut facts: Vec<_> = rows
-        .iter()
-        .map(|row| fact_record_from_stats_row(grammar, identities, row))
-        .collect::<Result<_, _>>()?;
-    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let mut facts = Vec::with_capacity(rows.len() + 1);
+    let mut attributed = 0;
+    for row in rows {
+        facts.push(fact_record_from_stats_row(grammar, identities, row)?);
+        attributed += row.counters.work_steps;
+    }
     let unattributed = (outcome.outcome.work_steps as u64)
         .checked_sub(attributed)
         .expect("object work steps exceed the word budget");
@@ -687,11 +687,7 @@ fn syntactic_gate_key(
 }
 
 pub(crate) struct BatchStatsCache {
-    cache: Option<pg_stats::StatsCache>,
-    buffer: Option<pg_stats::cache::StatsRunBuffer>,
-    replay: Option<BatchStatsReplay>,
-    run: pg_stats::RunMetadata,
-    last_run_id: Option<i64>,
+    writer: Option<pg_stats::cache::staged::BatchWriter>,
     analyzed: usize,
     elapsed_ns: u128,
     profile: StatsProfile,
@@ -715,59 +711,6 @@ enum BatchStatsCacheMode {
     },
 }
 
-type ReplayResult = Result<(pg_stats::StatsCache, i64), String>;
-
-struct BatchStatsReplay {
-    sender: Option<std::sync::mpsc::SyncSender<pg_stats::cache::StatsRunBuffer>>,
-    worker: Option<std::thread::JoinHandle<ReplayResult>>,
-}
-
-impl BatchStatsReplay {
-    fn start(cache: pg_stats::StatsCache, run: pg_stats::RunMetadata) -> Result<Self, String> {
-        let (sender, receiver) =
-            std::sync::mpsc::sync_channel::<pg_stats::cache::StatsRunBuffer>(0);
-        let worker = std::thread::Builder::new()
-            .name("stats-replay".into())
-            .spawn(move || {
-                let mut cache = cache;
-                let mut last_run_id = None;
-                for buffer in receiver {
-                    let (next_cache, run_id) =
-                        buffer.flush(cache, &run).map_err(|e| e.to_string())?;
-                    cache = next_cache;
-                    last_run_id = Some(run_id);
-                }
-                Ok((
-                    cache,
-                    last_run_id.ok_or("stats replay did not create a run")?,
-                ))
-            })
-            .map_err(|e| format!("start stats replay: {e}"))?;
-        Ok(Self {
-            sender: Some(sender),
-            worker: Some(worker),
-        })
-    }
-
-    fn join(&mut self) -> ReplayResult {
-        drop(self.sender.take());
-        self.worker
-            .take()
-            .expect("stats replay joined once")
-            .join()
-            .map_err(|_| "stats replay thread panicked".to_string())?
-    }
-}
-
-impl Drop for BatchStatsReplay {
-    fn drop(&mut self) {
-        if self.worker.is_some() {
-            // Complete the most recent handoff even if parsing or TSV output subsequently failed.
-            let _ = self.join();
-        }
-    }
-}
-
 impl BatchStatsCache {
     pub(crate) fn pack_on_finish(&mut self) {
         self.pack = true;
@@ -785,18 +728,6 @@ impl BatchStatsCache {
         if self.contains(&word.record.form) {
             return Ok(());
         }
-        let reusable = matches!(self.mode, BatchStatsCacheMode::Reusable { .. });
-        self.buffer
-            .get_or_insert_with(|| {
-                if reusable {
-                    // One spool can be replaying while the next is filled, so split the 4 MiB cap.
-                    pg_stats::cache::StatsRunBuffer::with_capacity(2 * 1024 * 1024)
-                } else {
-                    pg_stats::cache::StatsRunBuffer::default()
-                }
-            })
-            .write_word(&word.record)
-            .map_err(|e| e.to_string())?;
         self.analyzed += 1;
         self.elapsed_ns += u128::from(word.record.elapsed_ns);
         if let (Some(total), Some(prunes)) = (&mut self.prune_totals, word.prunes) {
@@ -804,61 +735,28 @@ impl BatchStatsCache {
         }
         if matches!(self.mode, BatchStatsCacheMode::Frozen { .. }) {
             self.observations.push(pg_stats::FrozenWordSummary {
-                form: word.record.form,
+                form: word.record.form.clone(),
                 elapsed_ns: word.record.elapsed_ns,
                 passes: word.record.passes,
                 capped: word.record.capped,
                 timed_out: word.record.timed_out,
                 invalid_shape: word.record.invalid_shape,
             });
-        } else if self.analyzed.is_multiple_of(STATS_FLUSH_BATCH) {
-            self.commit_run()?;
         }
-        Ok(())
+        self.writer
+            .as_mut()
+            .expect("active stats writer")
+            .write_word(word.record)
+            .map_err(|e| e.to_string())
     }
 
-    fn commit_run(&mut self) -> Result<(), String> {
-        let Some(buffer) = self.buffer.take() else {
-            return Ok(());
-        };
-        if matches!(self.mode, BatchStatsCacheMode::Frozen { .. }) {
-            let (cache, run_id) = buffer
-                .flush(self.cache.take().expect("idle stats cache"), &self.run)
-                .map_err(|e| e.to_string())?;
-            self.cache = Some(cache);
-            self.last_run_id = Some(run_id);
-            return Ok(());
-        }
-        if self.replay.is_none() {
-            self.replay = Some(BatchStatsReplay::start(
-                self.cache.take().expect("idle stats cache"),
-                self.run.clone(),
-            )?);
-        }
-        let replay = self.replay.as_mut().expect("stats replay started");
-        if replay
-            .sender
-            .as_ref()
-            .expect("stats replay sender")
-            .send(buffer)
-            .is_err()
-        {
-            replay.join()?;
-            return Err("stats replay stopped accepting runs".into());
-        }
-        Ok(())
-    }
-
-    fn finish_writing(&mut self) -> Result<i64, String> {
-        if self.buffer.is_none() && self.replay.is_none() && self.last_run_id.is_none() {
-            self.buffer = Some(pg_stats::cache::StatsRunBuffer::default());
-        }
-        self.commit_run()?;
-        if let Some(mut replay) = self.replay.take() {
-            let (cache, run_id) = replay.join()?;
-            self.cache = Some(cache);
-            self.last_run_id = Some(run_id);
-        }
+    fn finish_writing(&mut self) -> Result<(pg_stats::StatsCache, i64), String> {
+        let (cache, run_id) = self
+            .writer
+            .take()
+            .expect("active stats writer")
+            .finish()
+            .map_err(|error| error.to_string())?;
         let elapsed = Duration::from_nanos(self.elapsed_ns.min(u128::from(u64::MAX)) as u64);
         println!(
             "stats: analyzed={} skipped={} summed_word_ms={:.3}",
@@ -866,8 +764,7 @@ impl BatchStatsCache {
             self.skipped,
             elapsed.as_secs_f64() * 1e3
         );
-        self.last_run_id
-            .ok_or_else(|| "stats flush did not create a run".to_string())
+        Ok((cache, run_id))
     }
 }
 
@@ -964,13 +861,11 @@ fn prepare_batch_stats_hc_inner(
     if frozen {
         refuse_nonempty_frozen_cache(&cache_path)?;
     }
-    let open = match (profile, compact) {
-        (StatsProfile::WordOnly, true) => return Err("--stats-compact requires full stats".into()),
-        (StatsProfile::WordOnly, false) => pg_stats::StatsCache::open_word_only,
-        (StatsProfile::Full, true) => pg_stats::StatsCache::open_compact,
-        (StatsProfile::Full, false) => pg_stats::StatsCache::open,
-    };
-    let outcome = open(&cache_path, grammar_hash).map_err(|e| e.to_string())?;
+    if profile == StatsProfile::WordOnly && compact {
+        return Err("--stats-compact requires full stats".into());
+    }
+    let outcome = pg_stats::StatsCache::open_batch(&cache_path, grammar_hash, profile, compact)
+        .map_err(|e| e.to_string())?;
     if frozen && outcome.wiped {
         return Err(format!(
             "stats manifest requires an initially empty cache: {}",
@@ -984,12 +879,19 @@ fn prepare_batch_stats_hc_inner(
         );
     }
     refuse_if_cache_engine_differs(&outcome.cache, "hc", &cache_path)?;
-    refuse_if_final_template_policy_differs(
-        &outcome.cache,
-        &cache_path,
-        always_enforce_final_templates,
-    )?;
-    refuse_if_search_budget_semantics_differ(&outcome.cache, &cache_path)?;
+    let check_run = {
+        let cache_path = cache_path.clone();
+        move |conn: &rusqlite::Connection| {
+            refuse_if_final_template_policy_differs(
+                conn,
+                &cache_path,
+                always_enforce_final_templates,
+            )
+            .and_then(|()| refuse_if_search_budget_semantics_differ(conn, &cache_path))
+            .map_err(pg_stats::StatsError::IncompatibleRunOptions)
+        }
+    };
+    check_run(outcome.cache.connection()).map_err(|e| e.to_string())?;
     outcome
         .cache
         .refuse_if_work_cap_differs(work_cap)
@@ -1022,12 +924,20 @@ fn prepare_batch_stats_hc_inner(
         ));
     }
 
+    let run = stats_run_metadata(grammar_path, grammar_hash, &options)?;
+    let chunk = if frozen {
+        None
+    } else {
+        std::num::NonZeroUsize::new(STATS_FLUSH_BATCH)
+    };
+    #[cfg(not(test))]
+    let writer = pg_stats::cache::staged::BatchWriter::new_supervised;
+    #[cfg(test)]
+    let writer = pg_stats::cache::staged::BatchWriter::new;
+    let writer = writer(outcome.cache, run, chunk, check_run).map_err(|e| e.to_string())?;
+
     Ok(BatchStatsCache {
-        cache: Some(outcome.cache),
-        buffer: None,
-        replay: None,
-        run: stats_run_metadata(grammar_path, grammar_hash, &options)?,
-        last_run_id: None,
+        writer: Some(writer),
         analyzed: 0,
         elapsed_ns: 0,
         profile,
@@ -1070,17 +980,13 @@ pub(crate) fn finish_batch_stats_hc(
     if matches!(prepared.mode, BatchStatsCacheMode::Frozen { .. }) {
         return Err("frozen stats cache requires the manifest finalizer".into());
     }
-    prepared.finish_writing()?;
+    let (cache, _) = prepared.finish_writing()?;
     let prune_totals = prepared.prune_totals;
     if prepared.pack {
         let BatchStatsCacheMode::Reusable { cache_path } = prepared.mode else {
             return Err("frozen stats cache requires the manifest finalizer".into());
         };
-        prepared
-            .cache
-            .expect("finished stats cache")
-            .checkpoint_and_close()
-            .map_err(|e| e.to_string())?;
+        cache.checkpoint_and_close().map_err(|e| e.to_string())?;
         pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
     }
     if let Some(counters) = prune_totals {
@@ -1103,9 +1009,8 @@ pub(crate) fn finish_frozen_batch_stats_hc(
     }
     let completion = frozen_completion(input_words, &prepared.observations)?;
     let input = crate::stats_manifest::input_identity(input_words)?;
-    let run_id = prepared.finish_writing()?;
+    let (cache, run_id) = prepared.finish_writing()?;
     let BatchStatsCache {
-        cache,
         grammar_hash,
         options,
         mode,
@@ -1118,7 +1023,6 @@ pub(crate) fn finish_frozen_batch_stats_hc(
         unreachable!("frozen mode checked before committing");
     };
     let options_identity = stats_options_identity(&options)?;
-    let cache = cache.expect("finished stats cache");
     cache
         .checkpoint_and_close()
         .map_err(|error| format!("close frozen stats cache: {error}"))?;

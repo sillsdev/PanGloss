@@ -62,6 +62,10 @@ containment = { max-threads = 1 }
 filter = "package(pg-worker-containment)"
 test-group = "containment"
 
+[[profile.default.overrides]]
+filter = "package(pg-cli) & test(stats_memory::batch_stats_memory_is_bounded_across_the_corpus)"
+success-output = "immediate"
+
 # Opt-in profile for deliberately-long MEASUREMENT tests (pg-foma's `aweti_enum_census` family:
 # an uncapped Aweti composite-entry census legitimately runs ~8 minutes). Same kill-don't-hang
 # discipline as the default profile, just a higher ceiling; nothing selects this profile unless a

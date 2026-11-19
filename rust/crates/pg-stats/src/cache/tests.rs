@@ -1,10 +1,11 @@
 use super::*;
 use crate::model::Direction;
 use crate::test_support::TempDir;
+use std::io::Write;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-fn sample_word(form: &str) -> WordRecord {
+pub(super) fn sample_word(form: &str) -> WordRecord {
     WordRecord {
         gates: Some(Vec::new()),
         form: form.to_string(),
@@ -40,7 +41,7 @@ fn finite(n: u64) -> WorkCap {
     WorkCap::Finite(std::num::NonZeroU64::new(n).unwrap())
 }
 
-fn sample_run() -> RunMetadata {
+pub(super) fn sample_run() -> RunMetadata {
     RunMetadata {
         build_info: "test-build".to_string(),
         fwdata_path: "C:/x/project.fwdata".to_string(),
@@ -63,6 +64,8 @@ fn streamed_run_matches_slice_flush_row_for_row_in_both_schemas() {
         };
         let mut baseline = open();
         let mut observed = sample_word("apu");
+        observed.facts[0].allomorph = Some(StructuralLocator::new("allo-a", "Allomorph A"));
+        observed.facts[0].morpheme = Some(StructuralLocator::new("morph-a", "Morpheme A"));
         observed.gates = Some(vec![GateRecord {
             object_key: "entry-a".into(),
             object_kind: ObjectKind::LexEntry,
@@ -104,8 +107,11 @@ fn streamed_run_matches_slice_flush_row_for_row_in_both_schemas() {
             for word in &words {
                 buffer.write_word(word).unwrap();
             }
-            buffer.records.flush().unwrap();
-            assert_eq!(buffer.records.get_ref().is_rolled(), capacity == 1);
+            buffer.encoder().unwrap().flush().unwrap();
+            assert_eq!(
+                buffer.encoder().unwrap().get_ref().get_ref().is_rolled(),
+                capacity == 1
+            );
             let (buffered, _) = buffer.flush(open(), &sample_run()).unwrap();
             assert_same_rows(&baseline, &buffered);
         }
@@ -143,6 +149,311 @@ fn assert_same_rows(baseline: &StatsCache, streamed: &StatsCache) {
         };
         assert_eq!(read(baseline), read(streamed), "{table}");
     }
+}
+
+#[test]
+fn atomic_chunks_keep_run_ids_totals_and_last_observation_in_order() {
+    let open = || StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let chunk = NonZeroUsize::new(2).unwrap();
+    let mut again = sample_word("a");
+    again.elapsed_ns = 73;
+    again.facts[0].attempts = 11;
+    let words = [
+        sample_word("a"),
+        sample_word("b"),
+        again,
+        sample_word("c"),
+        sample_word("d"),
+    ];
+    for n in 0..=words.len() {
+        let mut direct = open();
+        if n == 0 {
+            direct.flush(&sample_run(), &[]).unwrap();
+        }
+        for group in words[..n].chunks(chunk.get()) {
+            direct.flush(&sample_run(), group).unwrap();
+        }
+        for capacity in [1, 4 * 1024 * 1024] {
+            let mut buffer = StatsRunBuffer::with_capacity(capacity);
+            for word in &words[..n] {
+                buffer.write_word(word).unwrap();
+            }
+            let (cache, last_id) = buffer
+                .seal()
+                .unwrap()
+                .replay(open(), &sample_run(), Some(chunk))
+                .unwrap();
+            assert_eq!(last_id, n.div_ceil(chunk.get()).max(1) as i64);
+            assert_same_rows(&direct, &cache);
+        }
+    }
+}
+
+#[test]
+fn staged_and_replayed_chunks_preserve_concurrent_ids_labels_and_replacements() {
+    let group = NonZeroUsize::new(2).unwrap();
+    for version in [schema::SCHEMA_VERSION, schema::COMPACT_SCHEMA_VERSION] {
+        for prior in ["none", "before", "during"] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("cache.sqlite");
+            let open = || {
+                StatsCache::open_with_version(&path, "hash-a", version)
+                    .unwrap()
+                    .cache
+            };
+            let mut direct = StatsCache::open_on_version(
+                Connection::open_in_memory().unwrap(),
+                "hash-a",
+                version,
+            )
+            .unwrap()
+            .cache;
+            let mut seed = sample_word("duplicate");
+            seed.facts[0].object_label = "First label".into();
+            let seed_words = [sample_word("prior"), seed];
+            if prior != "none" {
+                direct.flush(&sample_run(), &seed_words).unwrap();
+            }
+            if prior == "before" {
+                open().flush(&sample_run(), &seed_words).unwrap();
+            }
+            let mut stage =
+                staged::BatchWriter::new(open(), sample_run(), Some(group), |_| Ok(())).unwrap();
+            let mut large = sample_word("middle");
+            large.facts[0].object_key = "large".repeat(4096);
+            large.facts[0].object_label = "Spilled label".into();
+            let mut replaced = sample_word("duplicate");
+            replaced.work += 1;
+            let words = [sample_word("duplicate"), large, replaced];
+            stage.write_word(words[0].clone()).unwrap();
+            assert_eq!(stage.spilled_bytes(), 0);
+            stage.limit_raw_queue(1);
+            stage.write_word(words[1].clone()).unwrap();
+            let spill = stage.spilled_bytes();
+            assert!(spill > 16 * 1024);
+            stage.limit_raw_queue(1024 * 1024);
+            stage.write_word(words[2].clone()).unwrap();
+            assert_eq!(stage.spilled_bytes(), spill);
+            if prior == "during" {
+                open().flush(&sample_run(), &seed_words).unwrap();
+            }
+            for chunk in words.chunks(group.get()) {
+                direct.flush(&sample_run(), chunk).unwrap();
+            }
+            let (result, _) = stage.finish().unwrap();
+            assert_same_rows(&direct, &result);
+        }
+    }
+}
+
+#[test]
+fn spill_file_is_truncated_and_offsets_reused_without_mixing_words() {
+    let group = NonZeroUsize::new(2).unwrap();
+    for cap in [1, 2_000] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.sqlite");
+        let mut direct = StatsCache::open_on_version(
+            Connection::open_in_memory().unwrap(),
+            "hash-a",
+            schema::SCHEMA_VERSION,
+        )
+        .unwrap()
+        .cache;
+        let open = StatsCache::open(&path, "hash-a").unwrap().cache;
+        let mut stage =
+            staged::BatchWriter::new(open, sample_run(), Some(group), |_| Ok(())).unwrap();
+        stage.limit_raw_queue(1);
+        stage.limit_spill(cap);
+        let words: Vec<_> = (0..12)
+            .map(|i| {
+                let mut word = sample_word(&format!("w{i}"));
+                word.work += i;
+                word.facts[0].object_key = format!("key-{i}-{}", "x".repeat(300));
+                word.facts[0].object_label = format!("Label {i}");
+                word
+            })
+            .collect();
+        let mut high_water = 0;
+        for word in &words {
+            stage.write_word(word.clone()).unwrap();
+            high_water = high_water.max(stage.spilled_bytes());
+        }
+        let total: u64 = stage.spilled_bytes();
+        // Truncation must have kept the file below the unbounded total.
+        assert!(
+            high_water < 12 * 300 && total <= high_water,
+            "cap {cap}: {high_water}"
+        );
+        for chunk in words.chunks(group.get()) {
+            direct.flush(&sample_run(), chunk).unwrap();
+        }
+        let (result, _) = stage.finish().unwrap();
+        assert_same_rows(&direct, &result);
+        let forms: Vec<String> = result
+            .conn
+            .prepare("SELECT form FROM word ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let expected: Vec<String> = (0..12).map(|i| format!("w{i}")).collect();
+        assert_eq!(forms, expected, "cap {cap}");
+    }
+}
+
+#[test]
+fn final_checkpoint_waits_for_a_reader_instead_of_failing_the_batch() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cache.sqlite");
+    let mut cache = StatsCache::open_batch(&path, "hash-a", schema::StatsProfile::Full, false)
+        .unwrap()
+        .cache;
+    cache.flush(&sample_run(), &[sample_word("first")]).unwrap();
+    // A snapshot older than the last commit blocks a TRUNCATE checkpoint.
+    let reader = Connection::open(&path).unwrap();
+    reader.execute_batch("BEGIN").unwrap();
+    let before: i64 = reader
+        .query_row("SELECT count(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(before, 1);
+    cache
+        .flush(&sample_run(), &[sample_word("second")])
+        .unwrap();
+    let release = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(1500));
+        reader.execute_batch("COMMIT").unwrap();
+    });
+    cache.checkpoint_and_close().unwrap();
+    release.join().unwrap();
+    let check = Connection::open(&path).unwrap();
+    let words: i64 = check
+        .query_row("SELECT count(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(words, 2);
+}
+
+#[test]
+fn abandoned_or_failed_staging_leaves_a_fresh_cache_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cache.sqlite");
+    let open = || StatsCache::open(&path, "hash-a").unwrap().cache;
+    for fail in [false, true] {
+        let mut stage =
+            staged::BatchWriter::new(open(), sample_run(), NonZeroUsize::new(1), |_| Ok(()))
+                .unwrap();
+        for i in 0..4 {
+            stage.write_word(sample_word(&format!("w{i}"))).unwrap();
+        }
+        if fail {
+            let mut bad = sample_word("invalid");
+            bad.facts[0].attempts = u64::MAX;
+            stage.write_word(bad).unwrap();
+            assert!(matches!(
+                stage.finish(),
+                Err(StatsError::CounterOverflow { .. })
+            ));
+        } else {
+            drop(stage);
+        }
+        let count: usize = open()
+            .conn
+            .query_row(
+                "SELECT (SELECT count(*) FROM run) + (SELECT count(*) FROM word)",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+}
+
+#[test]
+fn failed_bulk_copy_rolls_back_every_table_and_engine_claim() {
+    for table in ["word", "gate_fact"] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.sqlite");
+        let open = || StatsCache::open(&path, "hash-a").unwrap().cache;
+        let cache = open();
+        cache
+            .conn
+            .execute_batch(&format!("CREATE UNIQUE INDEX reject_copy ON {table} ((1))"))
+            .unwrap();
+        let mut batch =
+            staged::BatchWriter::new(cache, sample_run(), NonZeroUsize::new(1), |_| Ok(()))
+                .unwrap();
+        for form in ["a", "b"] {
+            let mut word = sample_word(form);
+            word.gates = Some(vec![GateRecord {
+                object_key: "entry-a".into(),
+                object_kind: ObjectKind::LexEntry,
+                object_label: "Entry A".into(),
+                identity_quality: IdentityQuality::Authored,
+                morpheme: Some(StructuralLocator::new("morph-a", "Morpheme A")),
+                feature_key: "f".into(),
+                feature_kind: "k".into(),
+                feature_label: "F".into(),
+                mode: "required".into(),
+                passed: 1,
+                blocked: 2,
+            }]);
+            batch.write_word(word).unwrap();
+        }
+        let Err(StatsError::Sqlite(error)) = batch.finish() else {
+            panic!("expected a constraint failure copying {table}");
+        };
+        assert!(error.to_string().contains("reject_copy"), "{error}");
+        let reopened = open();
+        assert_same_rows(
+            &StatsCache::open_in_memory("hash-a").unwrap().cache,
+            &reopened,
+        );
+        let integrity: String = reopened
+            .conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+    }
+}
+
+#[test]
+fn multi_row_inserts_preserve_duplicate_fact_replacement_and_gate_sums() {
+    let mut cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut word = sample_word("w");
+    let fact = word.facts[0].clone();
+    let gate = GateRecord {
+        object_key: fact.object_key.clone(),
+        object_label: fact.object_label.clone(),
+        object_kind: fact.object_kind,
+        identity_quality: fact.identity_quality,
+        morpheme: None,
+        feature_key: "f".into(),
+        feature_kind: "k".into(),
+        feature_label: "F".into(),
+        mode: "required".into(),
+        passed: 2,
+        blocked: 1,
+    };
+    word.facts = (0..INSERT_ROWS + 1)
+        .map(|i| FactRecord {
+            attempts: i as u64,
+            ..fact.clone()
+        })
+        .collect();
+    word.gates = Some(vec![gate; word.facts.len()]);
+    cache.flush(&sample_run(), &[word]).unwrap();
+    let values: (usize, usize, usize) = cache
+        .connection()
+        .query_row(
+            "SELECT attempts, passed, blocked FROM fact JOIN gate_fact USING(word_id, object_id)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        values,
+        (INSERT_ROWS, 2 * (INSERT_ROWS + 1), INSERT_ROWS + 1)
+    );
 }
 
 #[test]
@@ -187,10 +498,12 @@ fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
         for failure in [
             "abandon",
             "poison",
+            "seal",
             "record",
             "elapsed",
             "decode",
-            "oversized decode",
+            "truncated string",
+            "missing word",
         ] {
             let mut buffer = StatsRunBuffer::with_capacity(capacity);
             buffer.write_word(&replacement).unwrap();
@@ -198,22 +511,40 @@ fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
                 "abandon" => {
                     drop(buffer);
                 }
-                "poison" => {
-                    buffer.records = BufWriter::new(tempfile::spooled_tempfile_in(
-                        1,
-                        dir.path().join("missing"),
-                    ));
+                "poison" | "seal" => {
+                    buffer.records = Some(
+                        StatsRunBuffer::encode_spool(tempfile::spooled_tempfile_in(
+                            1,
+                            dir.path().join("missing"),
+                        ))
+                        .unwrap(),
+                    );
                     let mut big = replacement.clone();
-                    big.form = "a".repeat(16 * 1024);
-                    assert!(buffer.write_word(&big).is_err());
-                    assert!(matches!(
-                        buffer.write_word(&replacement),
-                        Err(StatsError::RunWriteFailed)
-                    ));
-                    assert!(matches!(
-                        buffer.flush(cache, &sample_run()),
-                        Err(StatsError::RunWriteFailed)
-                    ));
+                    if failure == "seal" {
+                        buffer.write_word(&big).unwrap();
+                        assert!(matches!(
+                            buffer.flush(cache, &sample_run()),
+                            Err(StatsError::Io(_))
+                        ));
+                    } else {
+                        // Incompressible input forces a write to the missing directory before sealing.
+                        let mut state = 1_u32;
+                        big.form = (0..2 * 1024 * 1024)
+                            .map(|_| {
+                                state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+                                char::from(32 + (state >> 26) as u8)
+                            })
+                            .collect();
+                        assert!(buffer.write_word(&big).is_err());
+                        assert!(matches!(
+                            buffer.write_word(&replacement),
+                            Err(StatsError::RunWriteFailed)
+                        ));
+                        assert!(matches!(
+                            buffer.flush(cache, &sample_run()),
+                            Err(StatsError::RunWriteFailed)
+                        ));
+                    }
                 }
                 "record" => {
                     let mut bad = sample_word("apa");
@@ -236,15 +567,26 @@ fn buffered_runs_discard_abandoned_poisoned_and_rejected_observations() {
                         })
                     ));
                 }
-                "decode" | "oversized decode" => {
-                    if failure == "oversized decode" {
-                        buffer.records.write_all(b"{").unwrap();
-                        buffer.records.write_all(&vec![b' '; 1 << 20]).unwrap();
-                    }
-                    buffer.records.write_all(b"{invalid").unwrap();
+                "missing word" => {
+                    let mut shortened = StatsRunBuffer::with_capacity(capacity);
+                    shortened.write_word(&replacement).unwrap();
+                    buffer.write_word(&replacement).unwrap();
+                    buffer.records = shortened.records;
                     assert!(matches!(
                         buffer.flush(cache, &sample_run()),
-                        Err(StatsError::BufferedRecord(_))
+                        Err(StatsError::Io(_))
+                    ));
+                }
+                "decode" | "truncated string" => {
+                    if failure == "decode" {
+                        buffer.encoder().unwrap().write_all(&[1, 0xff]).unwrap();
+                    } else {
+                        (2_u64 << 20).encode(buffer.encoder().unwrap()).unwrap();
+                        buffer.encoder().unwrap().write_all(&[0; 64]).unwrap();
+                    }
+                    assert!(matches!(
+                        buffer.flush(cache, &sample_run()),
+                        Err(StatsError::Io(_))
                     ));
                 }
                 _ => unreachable!(),

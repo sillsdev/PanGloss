@@ -199,9 +199,26 @@ fn expand(conn: &Connection) -> Result<NamedTempFile, StatsError> {
 /// continue seeing the prior committed state. A failure before commit rolls back all changes.
 /// Facts are recovered from a vacuumed snapshot in bounded, independently compressed chunks.
 pub fn pack(path: &Path) -> Result<(), StatsError> {
+    let on_busy = |error: StatsError, operation| {
+        if error.is_busy() {
+            StatsError::CacheBusy {
+                path: path.to_owned(),
+                operation,
+            }
+        } else {
+            error
+        }
+    };
     let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     conn.busy_timeout(Duration::from_secs(5))?;
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| {
+            on_busy(
+                error.into(),
+                "cannot pack while another writer holds the cache",
+            )
+        })?;
     if is_packed(&tx)? {
         return Err(invalid("cache is already packed"));
     }
@@ -259,7 +276,12 @@ pub fn pack(path: &Path) -> Result<(), StatsError> {
         tx.execute_batch(&format!("DROP TABLE {table};"))?;
     }
     tx.commit()?;
-    compact_file(&conn)
+    compact_file(&conn).map_err(|error| {
+        on_busy(
+            error,
+            "cache packed, compaction could not acquire the write lock",
+        )
+    })
 }
 
 fn compact_file(conn: &Connection) -> Result<(), StatsError> {
