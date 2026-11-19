@@ -2,7 +2,8 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    producibility_census, replay_fixture_runs, require_fixture, OracleProvenance,
+    parse_upstream_baseline, producibility_census, replay_fixture_runs, require_fixture,
+    staging_root, staging_upstream_violations, OracleProvenance,
 };
 use pg_parse::Morpher;
 
@@ -347,6 +348,23 @@ fn graduation_guard_no_duplicate_fixture_names() {
         violations.is_empty(),
         "fixture(s) accepted upstream but still present in conformance-staging/ — delete the \
          staged copy in the same change: {violations:?}"
+    );
+}
+
+/// Every staged fixture's STAGING.md needs an `upstream:` line unless it is on the shrinking baseline.
+#[test]
+fn staged_fixtures_have_upstream_pr_or_not_producible_reason() {
+    let fixtures = discover();
+    let path = staging_root().join("upstream-baseline.txt");
+    let baseline = parse_upstream_baseline(&std::fs::read_to_string(&path).expect("baseline file"));
+    let violations = staging_upstream_violations(&fixtures, &baseline);
+    assert!(
+        violations.is_empty(),
+        "staged fixtures need an `upstream:` line in STAGING.md. For a behaviour fix, open the \
+         sillsdev/fieldworks-parser-conformance PR and write `upstream: <PR URL>`; for a shape \
+         FieldWorks cannot produce, write `upstream: not-producible: row <N> <reason>` (N from conformance/docs/fieldworks-cannot-say.md). Baseline \
+         entries that gained the line must be deleted from {}: {violations:?}",
+        path.display()
     );
 }
 

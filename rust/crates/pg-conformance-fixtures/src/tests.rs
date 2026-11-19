@@ -876,3 +876,80 @@ fn only_a_leading_comment_makes_a_words_file_a_calibration_file() {
         "# kind: stress\nlanguage: x\n"
     ));
 }
+
+#[test]
+fn upstream_line_forms() {
+    let pr = "upstream: https://github.com/sillsdev/fieldworks-parser-conformance/pull/";
+    assert!(staging_md_has_upstream_line(&format!("{pr}12")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}0")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}012")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}1x")));
+    assert!(staging_md_has_upstream_line(
+        "x\nupstream: not-producible: row 22 no such shape\n"
+    ));
+    for bad in [
+        "upstream: not-producible:",
+        "upstream: not-producible: TBD",
+        "upstream: not-producible: row 22",
+        "upstream: not-producible: row 0 reason",
+        "upstream: not-producible: row 07 reason",
+        "Upstream PR: not opened",
+        "upstream: https://github.com/x/y/pull/1",
+    ] {
+        assert!(!staging_md_has_upstream_line(bad), "{bad}");
+    }
+}
+
+fn staged(dir: &Path, name: &str, staging_md: Option<&str>) -> FixtureRef {
+    let d = dir.join("edge-cases").join(name);
+    std::fs::create_dir_all(&d).unwrap();
+    if let Some(s) = staging_md {
+        std::fs::write(d.join("STAGING.md"), s).unwrap();
+    }
+    FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".into(),
+        name: name.into(),
+        dir: d,
+    }
+}
+
+#[test]
+fn staging_upstream_gate_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ok_md = "upstream: https://github.com/sillsdev/fieldworks-parser-conformance/pull/7\n";
+    let clean = vec![
+        staged(tmp.path(), "has-line", Some(ok_md)),
+        staged(tmp.path(), "old", None),
+    ];
+    let baseline = parse_upstream_baseline("# c\nedge-cases/old\n");
+    assert!(staging_upstream_violations(&clean, &baseline).is_empty());
+
+    let unbaselined = vec![staged(tmp.path(), "new", Some("Upstream PR: pending\n"))];
+    let v = staging_upstream_violations(&unbaselined, &Default::default());
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].0, "edge-cases/new");
+    assert!(v[0].1.contains("missing"));
+
+    let gained = vec![staged(tmp.path(), "gained", Some(ok_md))];
+    let b = parse_upstream_baseline("edge-cases/gained");
+    let v = staging_upstream_violations(&gained, &b);
+    assert_eq!(v.len(), 1);
+    assert!(v[0].1.contains("remove it from the baseline"));
+
+    let stale = parse_upstream_baseline("edge-cases/gone");
+    let v = staging_upstream_violations(&[], &stale);
+    assert_eq!(
+        v,
+        vec![(
+            "edge-cases/gone".to_string(),
+            "baseline entry has no staged fixture; remove it".to_string()
+        )]
+    );
+
+    // STAGING.md that is a directory is an I/O error, not a missing line.
+    let bad = staged(tmp.path(), "unreadable", None);
+    std::fs::create_dir(bad.staging_md_path()).unwrap();
+    let v = staging_upstream_violations(&[bad], &Default::default());
+    assert!(v[0].1.starts_with("cannot read STAGING.md"), "{v:?}");
+}

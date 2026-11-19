@@ -55,12 +55,15 @@ This always happens, for every parse bug or suspected bug, whoever finds it:
    semantics, or of the test), the HC algorithm itself (C# is wrong or limited — also file a
    `sillsdev/machine` issue), the Rust port (PanGloss differs from C#), or the fixture or data.
 3. **Add a conformance case** to `sillsdev/fieldworks-parser-conformance`, the suite checked out at
-   `conformance/`: a new grammar, or a word plus the smallest part of a grammar
-   that shows the behaviour. Do this whenever the C# behaviour is confirmed or the case is worth
-   pinning. Stage it in `conformance-staging/` first if it cannot go to the suite yet, and say where it
-   went.
-4. **Write the C# verdict, the source and the fixture's location** in the issue and in the PR that
-   fixes it.
+   `conformance/`: a new grammar, or a word plus the smallest part of a grammar that shows the
+   behaviour. A behaviour fix is not READY or landable until an upstream PR for that fixture exists
+   and is linked in the fix PR. Its expected rows come from a fresh pinned-C# replay, and it has been
+   replayed on PanGloss. `conformance-staging/` is the waiting room for the upstream review, never
+   the destination. The one exception is a shape FieldWorks cannot produce: it stays staged, with the
+   reason in its STAGING.md `upstream:` line.
+4. **Write the C# verdict, the source, the upstream fixture PR link and the two-engine result** in
+   the issue and in the PR that fixes it. See `.claude/skills/conformance-grammars/SKILL.md`,
+   "Test a fix on both engines, and arbitrate".
 
 ## Rules with teeth
 

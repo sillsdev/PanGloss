@@ -441,6 +441,80 @@ pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, Stri
     violations
 }
 
+/// True when `staging_md` has an `upstream:` line that is a suite PR URL (number with no leading
+/// zero) or `not-producible: row <N> <reason>`, `<N>` naming a row of the suite's cannot-say table
+/// (checked as a positive number, not looked up).
+pub fn staging_md_has_upstream_line(staging_md: &str) -> bool {
+    const PR: &str = "https://github.com/sillsdev/fieldworks-parser-conformance/pull/";
+    let positive =
+        |n: &str| !n.is_empty() && !n.starts_with('0') && n.chars().all(|c| c.is_ascii_digit());
+    staging_md.lines().any(|line| {
+        let Some(value) = line.trim().strip_prefix("upstream:") else {
+            return false;
+        };
+        let value = value.trim();
+        if let Some(n) = value.strip_prefix(PR) {
+            return positive(n);
+        }
+        let Some(rest) = value.strip_prefix("not-producible:") else {
+            return false;
+        };
+        let mut words = rest.split_whitespace();
+        words.next() == Some("row") && words.next().is_some_and(positive) && words.next().is_some()
+    })
+}
+
+/// Staged fixtures whose STAGING.md lacks a valid `upstream:` line and are not in `baseline`
+/// (`category/name` entries), plus baseline entries that now have the line or no longer exist,
+/// so the baseline only shrinks. An unreadable STAGING.md (other than absent) is an I/O error.
+/// Each result is `(category/name, reason)`.
+pub fn staging_upstream_violations(
+    fixtures: &[FixtureRef],
+    baseline: &std::collections::BTreeSet<String>,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for f in fixtures.iter().filter(|f| f.root == Root::Staging) {
+        let id = format!("{}/{}", f.category, f.name);
+        let ok = match std::fs::read_to_string(f.staging_md_path()) {
+            Ok(s) => staging_md_has_upstream_line(&s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => {
+                out.push((id.clone(), format!("cannot read STAGING.md: {e}")));
+                seen.insert(id);
+                continue;
+            }
+        };
+        let listed = baseline.contains(&id);
+        if !ok && !listed {
+            out.push((id.clone(), "missing or invalid upstream: line".to_string()));
+        } else if ok && listed {
+            out.push((
+                id.clone(),
+                "now has the line; remove it from the baseline".to_string(),
+            ));
+        }
+        seen.insert(id);
+    }
+    for id in baseline.difference(&seen) {
+        out.push((
+            id.clone(),
+            "baseline entry has no staged fixture; remove it".to_string(),
+        ));
+    }
+    out.sort();
+    out
+}
+
+/// Parses the baseline file: one `category/name` per line, `#` comments and blanks ignored.
+pub fn parse_upstream_baseline(text: &str) -> std::collections::BTreeSet<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
 /// The three populations a claimed `FieldworksProducibility` partitions fixtures into, each sorted
 /// by label — a caller reporting "fixtures covered" must show these separately rather than folding
 /// `EngineOnly`/`Unmarked` fixtures into a FieldWorks-facing coverage count.
