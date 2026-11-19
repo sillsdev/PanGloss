@@ -254,15 +254,36 @@ or a second `words.yaml` parser — extend that crate instead.
    pin for a vacuous mandatory slot). If you can't articulate what observably breaks when the
    pathology-causing construct is removed from the grammar, the fixture isn't pinning anything yet.
 
+## Test a fix on both engines, and arbitrate
+
+A behaviour fix needs the same fixture green on C# HermitCrab and on PanGloss, with its upstream PR open.
+
+```powershell
+& .\rust\tools\oracle-conformance.ps1                 # C# at the machine pin; exit 25 = oracle not run, 26 = new divergence
+& .\rust\tools\pg.ps1 -Mode conformance-test -Scope local   # PanGloss replay of conformance-staging/ (-Scope all adds conformance/)
+```
+
+Take `words.yaml` rows from the C# run, never from PanGloss output, then open the upstream PR.
+
+**When they disagree, C# at the machine pin wins** and the fix goes in PanGloss. The one exception is
+a confirmed HC-algorithm bug (forward synthesis proves C# wrong, per Oracle discipline above). Then:
+file a `sillsdev/machine` issue, add a `docs/divergences/` ledger entry (see its README), and add the
+exact entry to `rust/tools/oracle-conformance-known-divergences.json`. Never edit expected rows to
+match PanGloss.
+
+The fix PR states: the C# verdict, the source of the bug, the upstream fixture PR link, and the
+result on each engine. A fixture FieldWorks cannot produce is the only one allowed to stay staged.
+
 ## Stage: adding it to `conformance-staging/`
 
 1. Create `conformance-staging/<edge-cases|languages>/<name>/` with `grammar.xml` + `words.yaml`,
    laid out EXACTLY like a `conformance` fixture (same two files, same front-matter schema)
    — staging must be a zero-reshaping copy away from graduation.
 2. Add `STAGING.md` in the same directory: why it exists, exactly what bug/pathology it pins, which
-   oracle generated `words.yaml`'s signatures (§ "Oracle discipline" above), and an (initially empty)
-   upstream-PR-link line to fill in once one is opened. Use an existing staged fixture's
-   `STAGING.md` as the template for structure.
+   oracle generated `words.yaml`'s signatures (§ "Oracle discipline" above), and a required
+   `upstream:` line: a suite PR URL (open it before the fix is READY) or
+   `not-producible: row <N> <reason>`, N a row of `conformance/docs/fieldworks-cannot-say.md`.
+   Use an existing staged fixture's `STAGING.md` as the template for structure.
 3. Verify it runs in the default suite: `& .\rust\tools\pg.ps1 -Mode test -Package pg-parse -TestTarget conformance_fixtures_gate`
    should discover it, replay every word, and report it in the `total_checked` count (run with
    `-- --nocapture` to see the per-fixture skip/count lines). No `#[ignore]`, no self-skip guard

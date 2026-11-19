@@ -14,6 +14,9 @@ addition" (see the `worktree-foma-diacritics-fix` commit message) from the upstr
 
 ## Design
 
+Staging is the waiting room for upstream review, never the destination: a behaviour fix is not
+landable until its fixture has an upstream PR, unless FieldWorks cannot produce the shape.
+
 ### The space
 
 `conformance-staging/` at the PanGloss repo root, COMMITTED (never gitignored — these are
