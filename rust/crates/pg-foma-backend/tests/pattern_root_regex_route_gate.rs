@@ -42,7 +42,26 @@ fn pattern_root_route_survives_when_wide_rewrite_targets_are_isolated() {
         let target = r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHighVowel" /><SimpleContext naturalClass="ncHighVowel" /></PhoneticSequence></PhoneticInput>"#;
         assert_eq!(xml.matches(target).count(), 2);
         let xml = xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#);
-        let grammar = pg_grammar::load(&xml).expect("scalar vowel control must load");
+        assert!(
+            xml.contains("<CompoundingRule id=\""),
+            "{label}: the control must keep a compounding rule"
+        );
+        let unstripped = pg_grammar::load(&xml).expect("scalar vowel control must load");
+        let Err(pg_foma::analyzer::FomaError::CapabilityRefused(refusals)) =
+            pg_foma::analyzer::compile_proposer(&unstripped)
+        else {
+            panic!("{label}: the unstripped compound control must refuse");
+        };
+        assert!(
+            refusals.iter().any(|d| d.refusal
+                == pg_foma::capability::CapabilityRefusal::ProposalRecall(
+                    pg_foma::capability::ProposalRecallGap::CompoundJunctionPhonology
+                )),
+            "{label}: expected the junction phonology refusal, got {refusals:?}"
+        );
+        let grammar =
+            pg_grammar::load(&pg_conformance_fixtures::grammar_xml_without_compounding_rules(&xml))
+                .expect("scalar vowel control must load");
         assert!(
             pg_foma::analyzer::compile_proposer(&grammar).is_ok(),
             "{label}: TunedSurfaceProbed still refuses to compile"

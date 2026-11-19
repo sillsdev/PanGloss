@@ -61,6 +61,14 @@ pub(crate) fn refusals_with_spelling(
                 "compound spelling with unproved junction tokenization",
                 "literal pieces must retain their foma symbols after the query is joined and normalized",
             ),
+            ProposalRecallGap::SingletonRootBoundary => (
+                "singleton-route grammar whose lexical entry spells a boundary inside its root",
+                "the singleton route drops boundaries from root spellings, so a typed boundary inside a root is not proposed",
+            ),
+            ProposalRecallGap::CompoundJunctionPhonology => (
+                "compound grammar with a phonological rule that can span a stem junction",
+                "a deletion, epenthesis, metathesis or context-sensitive change can rewrite material on either side of the compound junction, and the singleton route does not certify that",
+            ),
             ProposalRecallGap::RecursiveCompoundAsymmetricLicense => (
                 "recursive compound with asymmetric stem licenses",
                 "left growth can move a root from the first physical slot to a later slot; every subrule must license the same entries in both slots",

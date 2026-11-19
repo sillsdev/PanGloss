@@ -184,6 +184,23 @@ pub fn suite_root() -> PathBuf {
     }
 }
 
+/// Removes every `<CompoundingRule>` and its stratum references from a grammar document, for controls whose subject is not compounding.
+pub fn grammar_xml_without_compounding_rules(xml: &str) -> String {
+    let mut xml = xml.to_string();
+    while let Some(start) = xml.find("<CompoundingRule id=\"") {
+        let id_start = start + "<CompoundingRule id=\"".len();
+        let id = xml[id_start..id_start + xml[id_start..].find('"').unwrap()].to_string();
+        let end =
+            start + xml[start..].find("</CompoundingRule>").unwrap() + "</CompoundingRule>".len();
+        xml.replace_range(start..end, "");
+        xml = xml
+            .replace(&format!(" {id} "), " ")
+            .replace(&format!(" {id}\""), "\"")
+            .replace(&format!("\"{id} "), "\"");
+    }
+    xml
+}
+
 /// Panics with the exact command that fetches the suite when `suite_root()` is not a directory: a test run that needs the suite never passes without it.
 fn require_suite_present() {
     let root = suite_root();
