@@ -87,6 +87,10 @@ pub enum FactsError {
     StatsContextMismatch(String),
     #[error("frozen stats run is unavailable: {0}")]
     StatsRunUnavailable(String),
+    #[error(
+        "the word-only stats profile did not collect the per-object facts required for export"
+    )]
+    MissingObjectFacts,
     #[error("SQLite integrity verification failed: {0}")]
     Integrity(String),
     #[error("serialization failed: {0}")]
@@ -111,9 +115,19 @@ impl FactsError {
             Self::InputOutputCollision => "input_output_collision",
             Self::StatsContextMismatch(_) => "stats_context_mismatch",
             Self::StatsRunUnavailable(_) => "stats_run_unavailable",
+            Self::MissingObjectFacts => "missing_object_facts",
             Self::Integrity(_) | Self::Serialization(_) | Self::Io(_) | Self::Sqlite(_) => {
                 "facts_write_failed"
             }
+        }
+    }
+}
+
+impl From<pg_stats::StatsError> for FactsError {
+    fn from(error: pg_stats::StatsError) -> Self {
+        match error {
+            pg_stats::StatsError::WordOnlyFactsUnavailable => Self::MissingObjectFacts,
+            other => Self::StatsRunUnavailable(other.to_string()),
         }
     }
 }

@@ -79,6 +79,8 @@ pub(crate) struct StatsProjection {
 struct Manifest {
     format: String,
     version: u32,
+    #[serde(default)]
+    profile: pg_stats::StatsProfile,
     source: ManifestSource,
     compiler: ManifestCompiler,
     cache: ManifestCache,
@@ -532,8 +534,7 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
 }
 
 fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError> {
-    let mut connection = pg_stats::pack::open_read(path)
-        .map_err(|e| FactsError::StatsRunUnavailable(e.to_string()))?;
+    let mut connection = pg_stats::pack::open_read(path)?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Deferred)
         .map_err(stats_db_error)?;
@@ -578,9 +579,8 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         .optional()
         .map_err(stats_db_error)?
         .ok_or_else(|| FactsError::StatsRunUnavailable("stats run row is absent".into()))?;
-    if !pg_stats::supported_schema_version(identity_schema)
-        || !pg_stats::supported_schema_version(schema_version)
-        || identity_schema != schema_version
+    let profile = pg_stats::StatsProfile::from_schema_version(identity_schema)?;
+    if identity_schema != schema_version
         || identity_grammar != grammar_hash
         || identity_grammar != manifest.source.grammar_hash
         || identity_engine.as_deref() != Some(engine.as_str())
@@ -597,6 +597,13 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
             "stats cache identity and run row do not match the frozen manifest".into(),
         ));
     }
+    if profile != manifest.profile {
+        return Err(FactsError::StatsRunUnavailable(format!(
+            "frozen stats manifest profile {} disagrees with cache schema {identity_schema}",
+            manifest.profile
+        )));
+    }
+    profile.require_object_facts()?;
     let expected_cache_words = manifest.completion.requested - manifest.completion.missing;
     if word_count < 0 || word_count as usize != expected_cache_words {
         return Err(FactsError::StatsRunUnavailable(format!(
@@ -1966,6 +1973,19 @@ mod tests {
         serde_json::from_value(manifest_value()).unwrap()
     }
 
+    fn fixture_run_metadata(manifest: &Manifest) -> pg_stats::RunMetadata {
+        pg_stats::RunMetadata {
+            build_info: manifest.compiler.build_identity.clone(),
+            fwdata_path: "fixture.fwdata".into(),
+            grammar_hash: GRAMMAR_HASH.into(),
+            engine: "hc".into(),
+            options_hash: manifest.run.options_hash.clone(),
+            options_json: manifest.run.options_json.clone(),
+            created_utc: "unix:1".into(),
+            work_cap: Some("20000000".parse().unwrap()),
+        }
+    }
+
     fn expectation() -> StatsExpectation<'static> {
         StatsExpectation {
             source_sha256: SOURCE_SHA256,
@@ -1990,16 +2010,7 @@ mod tests {
         let mut manifest = fixture_manifest();
         let run_id = cache
             .flush(
-                &pg_stats::RunMetadata {
-                    build_info: manifest.compiler.build_identity.clone(),
-                    fwdata_path: "fixture.fwdata".into(),
-                    grammar_hash: GRAMMAR_HASH.into(),
-                    engine: "hc".into(),
-                    options_hash: manifest.run.options_hash.clone(),
-                    options_json: manifest.run.options_json.clone(),
-                    created_utc: "unix:1".into(),
-                    work_cap: Some("20000000".parse().unwrap()),
-                },
+                &fixture_run_metadata(&manifest),
                 &[pg_stats::WordRecord {
                     gates: None,
                     form: "kuma".into(),
@@ -2062,6 +2073,72 @@ mod tests {
             support, "not_wired",
             "a legacy stored zero has no measurement provenance"
         );
+    }
+
+    #[test]
+    fn frozen_profile_must_match_cache_even_when_no_object_facts_were_written() {
+        let temp = tempfile::tempdir().unwrap();
+        for schema_version in [
+            pg_stats::SCHEMA_VERSION,
+            pg_stats::COMPACT_SCHEMA_VERSION,
+            pg_stats::WORD_ONLY_SCHEMA_VERSION,
+        ] {
+            let path = temp.path().join(format!("{schema_version}.sqlite"));
+            let word_only = schema_version == pg_stats::WORD_ONLY_SCHEMA_VERSION;
+            let open = match schema_version {
+                pg_stats::SCHEMA_VERSION => pg_stats::StatsCache::open,
+                pg_stats::COMPACT_SCHEMA_VERSION => pg_stats::StatsCache::open_compact,
+                _ => pg_stats::StatsCache::open_word_only,
+            };
+            let mut cache = open(&path, GRAMMAR_HASH).unwrap().cache;
+            let mut value = manifest_value();
+            let manifest = fixture_manifest();
+            let run_id = cache
+                .flush(
+                    &fixture_run_metadata(&manifest),
+                    &[pg_stats::WordRecord {
+                        form: manifest.input.words[0].clone(),
+                        elapsed_ns: 1,
+                        work: 2,
+                        passes: 1,
+                        capped: false,
+                        timed_out: false,
+                        invalid_shape: false,
+                        gates: None,
+                        facts: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            cache.checkpoint_and_close().unwrap();
+            value["run"]["id"] = run_id.into();
+            value["cache"]["schema_version"] = schema_version.into();
+            for declared in [None, Some("full"), Some("word-only")] {
+                let mut declaration = value.clone();
+                if let Some(profile) = declared {
+                    declaration["profile"] = profile.into();
+                }
+                let manifest: Manifest = serde_json::from_value(declaration).unwrap();
+                let result = read_cache(&path, &manifest).map(|cache| cache.words.len());
+                match (word_only, declared) {
+                    (false, None | Some("full")) => assert_eq!(result.unwrap(), 1),
+                    (true, Some("word-only")) => {
+                        let error = result.unwrap_err();
+                        assert!(matches!(error, FactsError::MissingObjectFacts));
+                        assert_eq!(error.code(), "missing_object_facts");
+                    }
+                    _ => assert!(matches!(result, Err(FactsError::StatsRunUnavailable(_)))),
+                }
+            }
+
+            if word_only {
+                value["cache"]["schema_version"] = pg_stats::SCHEMA_VERSION.into();
+                let forged = serde_json::from_value(value).unwrap();
+                assert!(matches!(
+                    read_cache(&path, &forged),
+                    Err(FactsError::StatsRunUnavailable(_))
+                ));
+            }
+        }
     }
 
     #[test]

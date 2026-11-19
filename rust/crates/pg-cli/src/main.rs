@@ -107,7 +107,7 @@ use pg_parse::{
     parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
     GenMorpheme, Morpher, WordAnalysis,
 };
-use pg_stats::WorkCap;
+use pg_stats::{StatsProfile, WorkCap};
 
 #[derive(Clone, Default)]
 struct BatchParseCounter {
@@ -468,7 +468,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -1368,6 +1368,16 @@ fn write_batch_row<W: Write>(
     writeln!(w)
 }
 
+fn parse_stats_profile(value: &str) -> Result<StatsProfile, String> {
+    match value {
+        "full" => Ok(StatsProfile::Full),
+        "word-only" => Ok(StatsProfile::WordOnly),
+        _ => Err(format!(
+            "invalid --stats-profile {value:?} (expected full or word-only)"
+        )),
+    }
+}
+
 fn parse_partials(value: &str) -> Result<u8, String> {
     match value.parse::<u8>() {
         Ok(limit @ 1..=3) => Ok(limit),
@@ -1421,8 +1431,7 @@ fn parse_batch_in_order<T: Send>(
 #[allow(clippy::too_many_arguments)]
 fn parse_batch_with_stats(
     morpher: &Morpher,
-    grammar: &Grammar,
-    identities: &pg_grammar::stats_identity::StatsIdentityCatalog,
+    collector: &stats_cmd::BatchStatsCollector<'_>,
     words: &[String],
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
@@ -1441,39 +1450,23 @@ fn parse_batch_with_stats(
     let pool = pool_builder
         .build()
         .expect("build rayon pool for --stats batch dispatch");
-    // Leave room for the spool decoder to stage one word while SQLite writes the previous one.
-    const STATS_PARSE_CHUNK: usize = 15;
+    let chunk_size = collector.parse_chunk_size();
     let mut results = Vec::with_capacity(words.len());
-    for (chunk_index, chunk) in words.chunks(STATS_PARSE_CHUNK).enumerate() {
+    for (chunk_index, chunk) in words.chunks(chunk_size).enumerate() {
         let existing_words = stats_cache.existing_words();
         let chunk_results: Result<Vec<_>, String> = pool.install(|| {
             chunk
                 .par_iter()
                 .enumerate()
                 .map(|(index, word)| {
-                    if chunk_index * STATS_PARSE_CHUNK + index < start_idx
+                    if chunk_index * chunk_size + index < start_idx
                         && existing_words.contains(word.as_str())
                     {
                         return Ok(None);
                     }
-                    let start = Instant::now();
-                    parse_counter.record();
-                    let (outcome, rows, prune_rows, gate_rows) =
-                        morpher.parse_word_with_gate_stats(word, opts);
-                    let result = pg_parse::BatchWordOutcome {
-                        outcome,
-                        elapsed: start.elapsed(),
-                    };
-                    let stats = stats_cmd::batch_stats_word_with_gates(
-                        grammar,
-                        identities,
-                        word,
-                        &result,
-                        &rows,
-                        &prune_rows,
-                        &gate_rows,
-                    )?;
-                    Ok(Some((result, stats)))
+                    collector
+                        .parse(morpher, word, opts, parse_counter)
+                        .map(Some)
                 })
                 .collect()
         });
@@ -1590,6 +1583,7 @@ fn run_batch_impl(
     let mut word_phase_marks = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
+    let mut stats_profile = None;
     let mut stats_compact = false;
     let mut cache_pack = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
@@ -1682,6 +1676,14 @@ fn run_batch_impl(
             #[cfg(feature = "cost-calibration")]
             "--word-phase-marks" => word_phase_marks = true,
             "--stats" => stats_requested = true,
+            "--stats-profile" => {
+                stats_profile = Some(parse_stats_profile(
+                    it.next().ok_or("--stats-profile requires a value")?,
+                )?);
+            }
+            s if s.starts_with("--stats-profile=") => {
+                stats_profile = Some(parse_stats_profile(&s["--stats-profile=".len()..])?);
+            }
             "--stats-compact" => stats_compact = true,
             "--cache-pack" => cache_pack = true,
             "--prefilter" => {
@@ -1729,13 +1731,14 @@ fn run_batch_impl(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
     if let Some(options) = &diagnostic {
         if prefilter_mode != batch_prefilter::PrefilterMode::Off
             || stats_requested
+            || stats_profile.is_some()
             || cache_path_arg.is_some()
             || stats_manifest_path_arg.is_some()
         {
@@ -1782,6 +1785,13 @@ fn run_batch_impl(
             per_word_diagnostics,
         },
     )?;
+    if stats_profile.is_some() && !stats_requested {
+        return Err("--stats-profile requires --stats".into());
+    }
+    let stats_profile = stats_profile.unwrap_or(StatsProfile::Full);
+    if stats_profile == StatsProfile::WordOnly && (stats_compact || cache_pack) {
+        return Err("--stats-compact and --cache-pack require full stats".into());
+    }
     if cache_pack && !stats_requested {
         return Err("--cache-pack requires --stats".into());
     }
@@ -1848,8 +1858,8 @@ fn run_batch_impl(
         ..
     } = loaded;
     let diagnostic_metadata = metadata;
-    let stats_identities =
-        stats_requested.then(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar));
+    let stats_collector =
+        stats_requested.then(|| stats_cmd::BatchStatsCollector::new(stats_profile, &grammar));
     print_grammar_warnings(&warnings);
     let always_enforce_final_templates =
         always_enforce_final_templates_arg.unwrap_or(grammar.always_enforce_final_templates);
@@ -1857,7 +1867,7 @@ fn run_batch_impl(
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     let stats_cache_path = if stats_requested {
         Some(
-            stats_cmd::resolve_cache_path(grammar_path, cache_path_arg.as_deref())?
+            stats_cmd::resolve_cache_path(grammar_path, cache_path_arg.as_deref(), stats_profile)?
                 .to_string_lossy()
                 .into_owned(),
         )
@@ -1934,6 +1944,10 @@ fn run_batch_impl(
     };
     drop(source);
 
+    let stats_word_search = stats_cmd::WordOnlySearchOptions {
+        capture_cap_bytes: capture_cap,
+        partials,
+    };
     // A cache refusal must fire before the TSV below is truncated.
     let mut stats_cache = match &stats_identity {
         LoadedStatsIdentity::Frozen(source) => Some((
@@ -1950,6 +1964,8 @@ fn run_batch_impl(
                     .expect("--stats-manifest requires --stats and --cache"),
                 &source.grammar_hash,
                 stats_compact,
+                stats_profile,
+                stats_word_search,
             )?,
             stats_manifest_path,
         )),
@@ -1965,6 +1981,8 @@ fn run_batch_impl(
                 always_enforce_final_templates,
                 cache_path_arg.as_deref(),
                 stats_compact,
+                stats_profile,
+                stats_word_search,
             )?,
             None,
         )),
@@ -2062,33 +2080,17 @@ fn run_batch_impl(
         }
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
-                if stats_cache
-                    .as_ref()
-                    .is_some_and(|(cache, _)| !cache.contains(word))
-                {
-                    if per_word_diagnostics {
-                        reset_per_word_diagnostics();
-                    }
-                    let start = Instant::now();
-                    parse_counter.record();
-                    let (outcome, rows, prune_rows, gate_rows) =
-                        morpher.parse_word_with_gate_stats(word, &opts);
-                    let result = pg_parse::BatchWordOutcome {
-                        outcome,
-                        elapsed: start.elapsed(),
-                    };
-                    let stats = stats_cmd::batch_stats_word_with_gates(
-                        &grammar,
-                        stats_identities
+                if let Some((cache, _)) = &mut stats_cache {
+                    if !cache.contains(word) {
+                        if per_word_diagnostics {
+                            reset_per_word_diagnostics();
+                        }
+                        let (_, stats) = stats_collector
                             .as_ref()
-                            .expect("--stats creates a typed identity catalog"),
-                        word,
-                        &result,
-                        &rows,
-                        &prune_rows,
-                        &gate_rows,
-                    )?;
-                    stats_cache.as_mut().expect("stats cache").0.record(stats)?;
+                            .expect("--stats creates a collector")
+                            .parse(&morpher, word, &opts, parse_counter)?;
+                        cache.record(stats)?;
+                    }
                 }
                 continue;
             }
@@ -2100,28 +2102,11 @@ fn run_batch_impl(
             if per_word_diagnostics {
                 reset_per_word_diagnostics();
             }
-            let start = Instant::now();
-            let (result, stats) = if stats_requested {
-                parse_counter.record();
-                let (outcome, rows, prune_rows, gate_rows) =
-                    morpher.parse_word_with_gate_stats(word, &opts);
-                let result = pg_parse::BatchWordOutcome {
-                    outcome,
-                    elapsed: start.elapsed(),
-                };
-                let stats = stats_cmd::batch_stats_word_with_gates(
-                    &grammar,
-                    stats_identities
-                        .as_ref()
-                        .expect("--stats creates a typed identity catalog"),
-                    word,
-                    &result,
-                    &rows,
-                    &prune_rows,
-                    &gate_rows,
-                )?;
+            let (result, stats) = if let Some(collector) = &stats_collector {
+                let (result, stats) = collector.parse(&morpher, word, &opts, parse_counter)?;
                 (result, Some(stats))
             } else {
+                let start = Instant::now();
                 parse_counter.record();
                 if word_phase_marks {
                     phase_mark();
@@ -2361,17 +2346,14 @@ fn run_batch_impl(
         };
         let remaining = &words[start..];
         let mut diagnostic_rows = None;
-        let (results, result_start) = if stats_requested {
+        let (results, result_start) = if let Some(collector) = &stats_collector {
             let cache = stats_cache
                 .as_mut()
                 .expect("--stats initializes the batch stats cache before parsing");
             (
                 parse_batch_with_stats(
                     &morpher,
-                    &grammar,
-                    stats_identities
-                        .as_ref()
-                        .expect("--stats creates a typed identity catalog"),
+                    collector,
                     &words,
                     threads,
                     &opts,

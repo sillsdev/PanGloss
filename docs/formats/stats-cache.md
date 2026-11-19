@@ -2,7 +2,8 @@
 
 HC `pangloss batch --stats` records feature predicates during the existing search. No extra parse
 or corpus pass is made. The regular batch TSV and existing counters keep their meanings.
-Gate collection is automatic with HC `--stats`; without stats there is no collector or cache.
+Gate collection is automatic with the default `full` profile. The `word-only` profile runs
+the ordinary parser and records word timing, work, analysis count and completion flags.
 Foma caches record gate measurement as unmeasured.
 
 ## Versions and measurement
@@ -12,6 +13,20 @@ when opened for writing. Counter semantics remain 8 for the existing counters. I
 `cache_identity.schema_version` before querying, and use `word.gates_measured`, rather than table
 presence, as the measurement flag. A measured word can have no gate rows because its search never
 reached a declared gate. That does not establish that an unvisited feature blocked nothing.
+
+`--stats-profile word-only` creates schema **15** with `cache_identity`, `run`, and `word`
+tables. Every word has `gates_measured = 0`. Use `stats --group word` to read these caches.
+Object and gate reports refuse a scoped cache or a cache with words owned by a scoped run.
+The CLI exits with status 3 and reports `missing_object_facts` on stderr. JSONL word report
+metadata lists unavailable views. An initialized cache with no runs emits one JSONL metadata
+record with `empty_reason: "no_runs"`.
+
+The default cache name is `word-only.sqlite3` for word-only and `cache.sqlite3` for full.
+Select the default with `stats --stats-profile word-only`, or read an explicit path with
+`stats --cache PATH`. Current writers refuse a cache of the other profile before changing
+its journal mode or data. Older full writers may replace a scoped file if given its path
+explicitly. Full writers recreate unknown schemas as before. Scoped writers refuse an unknown
+schema and report schema 15 as the requested version.
 
 `word.capped`, `word.timed_out`, and `word.invalid_shape` remain independent completeness indicators.
 Counts from an incomplete search describe only the observed prefix. A zero blocked count is not

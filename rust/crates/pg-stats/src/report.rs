@@ -60,6 +60,7 @@ pub fn word_elapsed_ns_total(conn: &Connection, word: Option<&str>) -> Result<i6
 /// report's own narrowing -- lets an empty result say whether that is because this kind never
 /// occurs at all, or because it exists but nothing matched the requested filter.
 pub fn kind_has_any_recorded_object(conn: &Connection, kind: &str) -> Result<bool, StatsError> {
+    crate::require_object_facts(conn)?;
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM object WHERE kind = ?1",
         params![kind],
@@ -185,6 +186,7 @@ pub fn per_object_report(
         transaction.commit()?;
         return report;
     }
+    crate::require_object_facts(conn)?;
     if filter.stratum_key.is_some() && crate::is_compact(conn)? {
         return Err(StatsError::CompactViewUnavailable);
     }
@@ -352,6 +354,7 @@ fn per_allomorph_report_in_snapshot(
     conn: &Connection,
     filter: &PerAllomorphFilter,
 ) -> Result<Vec<PerAllomorphRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     if crate::is_compact(conn)? {
         return Err(StatsError::CompactViewUnavailable);
     }
@@ -461,6 +464,7 @@ pub fn per_kind_report(
     conn: &Connection,
     filter: &PerKindFilter,
 ) -> Result<Vec<PerKindRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(&per_kind_sql())?;
     let rows = stmt.query_map(
         named_params! {
@@ -537,6 +541,7 @@ pub fn per_morpheme_report(
     conn: &Connection,
     filter: &PerMorphemeFilter,
 ) -> Result<Vec<PerMorphemeRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(&per_morpheme_sql())?;
     let rows = stmt.query_map(
         named_params! {
@@ -626,6 +631,7 @@ pub fn never_fires_report(
     conn: &Connection,
     filter: &NeverFiresFilter,
 ) -> Result<Vec<NeverFiresRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(NEVER_FIRES_SQL)?;
     let rows = stmt.query_map(
         named_params! {

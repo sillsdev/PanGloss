@@ -85,6 +85,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(spec.flag("--word-timeout-ms").is_some());
     assert!(spec.flag("--analyses").is_some());
     assert!(spec.flag("--stats-manifest").is_some());
+    assert!(spec.flag("--stats-profile").is_some_and(|f| f.takes_value));
     assert!(spec.flag("--work-columns").is_some_and(|f| !f.takes_value));
 
     let value: serde_json::Value =
@@ -105,6 +106,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(flag_names.contains(&"--word-timeout-ms"));
     assert!(flag_names.contains(&"--analyses"));
     assert!(flag_names.contains(&"--stats-manifest"));
+    assert!(flag_names.contains(&"--stats-profile"));
     assert!(flag_names.contains(&"--engine"));
 }
 

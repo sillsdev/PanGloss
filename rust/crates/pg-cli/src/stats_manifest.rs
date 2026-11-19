@@ -158,6 +158,8 @@ pub(crate) struct CompletionCensus {
 pub(crate) struct StatsRunManifest {
     pub(crate) format: &'static str,
     pub(crate) version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) profile: Option<pg_stats::StatsProfile>,
     pub(crate) source: SourceIdentity,
     pub(crate) compiler: CompilerIdentity,
     pub(crate) cache: CacheIdentity,

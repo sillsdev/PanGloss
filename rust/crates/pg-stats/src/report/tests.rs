@@ -1260,3 +1260,38 @@ fn object_work_steps_sum_across_words_and_directions_and_reconcile_with_word_wor
         50
     );
 }
+
+#[test]
+fn word_only_reports_measured_word_fields_and_refuses_each_object_view() {
+    let dir = crate::test_support::TempDir::new("word-only-reports");
+    let path = dir.path().join("cache.sqlite3");
+    let mut cache = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    let mut word = word_record("synthetic-01", 101, Vec::new());
+    word.work = 23;
+    word.capped = true;
+    cache.flush(&run(), &[word]).unwrap();
+    let conn = cache.connection();
+    assert_eq!(
+        per_word_report(conn).unwrap(),
+        [PerWordRow {
+            form: "synthetic-01".into(),
+            elapsed_ns: 101,
+            work: 23,
+            passes: 1,
+            capped: true,
+            timed_out: false,
+            invalid_shape: false,
+        }]
+    );
+    assert_eq!(word_elapsed_ns_total(conn, None).unwrap(), 101);
+    for error in [
+        kind_has_any_recorded_object(conn, "morph_rule").unwrap_err(),
+        per_object_report(conn, &Default::default()).unwrap_err(),
+        per_allomorph_report(conn, &Default::default()).unwrap_err(),
+        per_morpheme_report(conn, &Default::default()).unwrap_err(),
+        per_kind_report(conn, &Default::default()).unwrap_err(),
+        never_fires_report(conn, &Default::default()).unwrap_err(),
+    ] {
+        assert!(matches!(error, StatsError::WordOnlyFactsUnavailable));
+    }
+}

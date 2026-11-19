@@ -26,7 +26,7 @@ pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-
 off unless `--stats` is present. The normal batch TSV remains unchanged; measurements go into the
 SQLite cache.
 
-Statistics are collected one word at a time with `--threads 1`, or in ordered groups of at
+Full statistics are collected one word at a time with `--threads 1`, or in ordered groups of at
 most 15 words with more threads. Pending observations use a 4 MiB encoded buffer and spill to an
 unnamed temporary file above that bound, rather than retaining the corpus's word × object rows.
 Reusable caches flush each 500 newly measured words in one atomic transaction. A writer thread
@@ -36,6 +36,23 @@ one. Each transaction can finish independently of parsing. A frozen manifest kee
 and flushes after completion validation. Temporary disk space scales with the pending observations.
 A failed transaction discards that run.
 Word lists, parse results and frozen completion summaries still scale with the number of words.
+
+For callers that retain word timing and correctness measurements in SQLite, use the word-only profile.
+Motif's `ParseTime, Correctness` Trial scope already uses the TSV and analyses sidecar directly.
+
+```text
+pangloss batch <grammar> <words.txt> out.tsv --stats --stats-profile word-only --cache <words.sqlite3> --analyses analyses.jsonl
+pangloss stats <grammar> --cache <words.sqlite3> --group word
+```
+
+The TSV and analyses sidecar carry the parse results. Schema 15 stores elapsed time,
+work, analysis count and completion flags for each word. Choose a separate cache path
+for object timing or feature gates. Those measurements require the default full profile.
+The compact and packed storage options apply to caches with object facts.
+Word-only reuse includes the effective `--capture-cap-mib` and `--partials` settings.
+Full reuse keeps its legacy options hash. Use a fresh full cache if either setting changes.
+When no path is specified, the writer uses `word-only.sqlite3` for the scoped profile.
+Read that default path with `stats --stats-profile word-only --group word`.
 
 For a smaller cache when only object costs are needed, opt in with `--stats-compact`:
 
