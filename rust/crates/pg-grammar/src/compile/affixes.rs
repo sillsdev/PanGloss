@@ -414,6 +414,7 @@ pub(crate) fn build_affix_rule(
                 InventoryKey::object(InventoryKind::Allomorph, guid.clone()),
             );
         }
+        let source_guids_key = source_guids.join("+");
         acc.allomorph_sources.push(crate::model::AllomorphSource {
             form_guids: source_guids.into_iter().map(Some).collect(),
             omitted: false,
@@ -435,7 +436,12 @@ pub(crate) fn build_affix_rule(
                 .or_default()
                 .push(allo_id);
         }
-        allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
+        let xml_key = acc.snapshot_allomorph_key(&source_guids_key);
+        allomorphs.push(AffixAllomorphDef {
+            id: allo_id,
+            xml_key,
+            ..def
+        });
     }
     if allomorphs.is_empty() {
         ctx.abandon_rule_refusals_since(
@@ -688,6 +694,7 @@ fn build_circumfix_allomorphs(
                         SourceMorphPlacement::Append,
                         AffixAllomorphDef {
                             id: AllomorphId(0),
+                            xml_key: String::new(),
                             environments,
                             co_occurrence: Vec::new(),
                             required_syn_fs: acc
@@ -1240,6 +1247,7 @@ fn build_affix_allomorphs_for(
                 };
                 out.push(AffixAllomorphDef {
                     id: AllomorphId(0),
+                    xml_key: String::new(),
                     environments,
                     co_occurrence: Vec::new(),
                     required_syn_fs,
@@ -1628,6 +1636,7 @@ fn build_process_allomorph(
 
     Ok(AffixAllomorphDef {
         id: AllomorphId(0),
+        xml_key: String::new(),
         environments: Vec::new(),
         co_occurrence: Vec::new(),
         required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),

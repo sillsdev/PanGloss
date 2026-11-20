@@ -112,6 +112,7 @@ fn push_suffix_rule_with_syn_fs(
         is_template_rule: false,
         is_clitic_rule: None,
         allomorphs: vec![AffixAllomorphDef {
+            xml_key: String::new(),
             id: allo_id,
             environments: vec![],
             co_occurrence: vec![],

@@ -447,8 +447,10 @@ fn build_null_affix_rule(
         placement: crate::model::SourceMorphPlacement::Append,
     });
 
+    let xml_key = acc.snapshot_allomorph_key(&format!("null-affix#{}", it.guid));
     let allo = crate::model::AffixAllomorphDef {
         id: allo_id,
+        xml_key,
         environments: Vec::new(),
         co_occurrence: Vec::new(),
         required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
