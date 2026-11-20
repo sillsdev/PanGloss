@@ -56,6 +56,8 @@ pub struct OfficialOutcome {
     pub analyses: Vec<(String, String)>,
     pub structured: Vec<WordAnalysis>,
     pub candidates_generated: usize,
+    /// Which limits stopped the confirming parser; `analyses` is empty by omission when any is set, and each reason surfaces as the `UnifiedAnalysis` flag of the same name.
+    pub confirmation_stop: pg_parse::StopReasons,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +151,11 @@ impl SuppliedLexiconRuntime {
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
         let mut candidates_generated = normal.candidates_generated;
+        let confirmation_stop = official
+            .as_ref()
+            .map_or_else(pg_parse::StopReasons::default, |official| {
+                official.confirmation_stop
+            });
         if let Some(official) = official {
             candidates_generated += official.candidates_generated;
             for (pair, analysis) in official.analyses.into_iter().zip(official.structured) {
@@ -168,11 +175,12 @@ impl SuppliedLexiconRuntime {
         }
 
         let mut guessed = false;
-        let mut capped = normal.capped;
-        let mut capture_capped = normal.capture_capped;
-        let mut word_mem_capped = normal.word_mem_capped;
-        let mut invalid_shape = normal.invalid_shape;
-        let mut timed_out = normal.timed_out;
+        let mut capped =
+            normal.capped || confirmation_stop.capped || confirmation_stop.capture_capped;
+        let mut capture_capped = normal.capture_capped || confirmation_stop.capture_capped;
+        let mut word_mem_capped = normal.word_mem_capped || confirmation_stop.word_mem_capped;
+        let mut invalid_shape = normal.invalid_shape || confirmation_stop.invalid_shape;
+        let mut timed_out = normal.timed_out || confirmation_stop.timed_out;
         if structured.is_empty() && !invalid_shape && guess_fallback {
             let guess_options = ParseOptions::default().with_guess_only(true);
             let fallback = morpher.parse_word_opts(word, &guess_options);

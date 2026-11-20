@@ -234,7 +234,9 @@ fn apply_budget_trip_finding(trip: &ApplyBudgetTrip) -> HealthFinding {
         ApplyDimension::Candidates | ApplyDimension::NormalizedCandidates => {
             Metric::ProposalCandidateCount
         }
-        ApplyDimension::StemBound => Metric::BackendCoverageGapCount,
+        ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
+            Metric::BackendCoverageGapCount
+        }
     };
     HealthFinding::new(
         FindingCode::ResourceBudgetReached,

@@ -92,6 +92,9 @@ pub(crate) struct GrammarHandle {
     official_backend: Mutex<OfficialBackend>,
     #[cfg(all(test, feature = "foma-tools"))]
     force_next_foma_panic: std::sync::atomic::AtomicBool,
+    /// Nonzero arms the confirming parser's per-word memory cap in tests, so a stopped confirmation is reachable on a tiny grammar.
+    #[cfg(all(test, feature = "foma-tools"))]
+    test_confirm_word_mem_cap: std::sync::atomic::AtomicUsize,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     force_next_pool_build_failure: std::sync::atomic::AtomicBool,
     #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -127,6 +130,8 @@ impl GrammarHandle {
             official_backend: Mutex::new(official_backend),
             #[cfg(all(test, feature = "foma-tools"))]
             force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(all(test, feature = "foma-tools"))]
+            test_confirm_word_mem_cap: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -171,6 +176,8 @@ impl GrammarHandle {
             official_backend: Mutex::new(official_backend),
             #[cfg(all(test, feature = "foma-tools"))]
             force_next_foma_panic: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(all(test, feature = "foma-tools"))]
+            test_confirm_word_mem_cap: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             force_next_pool_build_failure: std::sync::atomic::AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -221,21 +228,48 @@ impl GrammarHandle {
         };
         let attempted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             self.test_panic_if_requested();
-            let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached(
+            let mut analyzer = pg_foma_runtime::composite::FomaAnalyzer::from_cached_with_morpher(
                 &self.grammar,
                 state.proposer,
                 state.peeler,
                 state.owners,
+                self.confirming_morpher(),
                 state.filter,
             );
-            let outcome = analyzer.analyze_word(word);
+            let outcome = analyzer.analyze_word_budgeted(
+                word,
+                &pg_foma_runtime::compose_budget::ApplyBudget::unbounded(),
+            );
             let (proposer, peeler, owners, filter) = analyzer.into_parts();
+            let official = match outcome {
+                pg_foma_runtime::composite::FomaApplyOutcome::Complete(outcome) => {
+                    pg_lexicon::OfficialOutcome {
+                        analyses: outcome.analyses,
+                        structured: outcome.structured,
+                        candidates_generated: outcome.candidates_generated,
+                        confirmation_stop: outcome.confirmation_stop,
+                    }
+                }
+                pg_foma_runtime::composite::FomaApplyOutcome::Incomplete { dimension, .. } => {
+                    pg_lexicon::OfficialOutcome {
+                        analyses: Vec::new(),
+                        structured: Vec::new(),
+                        candidates_generated: 0,
+                        confirmation_stop: match dimension {
+                            pg_foma_runtime::compose_budget::ApplyDimension::Confirmation(stop) => {
+                                stop
+                            }
+                            // An unbounded budget trips only the stem bound; the host sees it as the generic cap.
+                            _ => pg_parse::StopReasons {
+                                capped: true,
+                                ..Default::default()
+                            },
+                        },
+                    }
+                }
+            };
             (
-                pg_lexicon::OfficialOutcome {
-                    analyses: outcome.analyses,
-                    structured: outcome.structured,
-                    candidates_generated: outcome.candidates_generated,
-                },
+                official,
                 FomaState {
                     proposer,
                     peeler,
@@ -375,12 +409,13 @@ impl GrammarHandle {
             }
         };
         #[cfg(not(target_arch = "wasm32"))]
-        let official = pg_foma_runtime::composite::confirm_proposed_words_in_pool(
+        let official = pg_foma_runtime::composite::confirm_proposed_words_in_pool_with_morpher(
             &self.grammar,
             &owners,
             words,
             proposed,
             &pool,
+            &self.confirming_morpher(),
         );
         #[cfg(target_arch = "wasm32")]
         let official = pg_foma_runtime::composite::confirm_proposed_words(
@@ -482,6 +517,7 @@ impl GrammarHandle {
                         analyses: outcome.analyses,
                         structured: outcome.structured,
                         candidates_generated: outcome.candidates_generated,
+                        confirmation_stop: outcome.confirmation_stop,
                     }),
                     guess_fallback,
                 );
@@ -625,6 +661,7 @@ impl GrammarHandle {
                     analyses: outcome.analyses.clone(),
                     structured: outcome.structured.clone(),
                     candidates_generated: outcome.candidates_generated,
+                    confirmation_stop: outcome.confirmation_stop,
                 }),
                 guess_fallback,
             );
@@ -674,6 +711,28 @@ impl GrammarHandle {
     fn pool_build_count_for_test(&self) -> usize {
         self.pool_build_count
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// The grammar-wide confirming parser every official analysis uses; tests may arm its memory cap.
+    #[cfg(feature = "foma-tools")]
+    fn confirming_morpher(&self) -> Morpher<'_> {
+        let morpher = Morpher::new(&self.grammar, usize::MAX);
+        #[cfg(test)]
+        {
+            let cap = self
+                .test_confirm_word_mem_cap
+                .load(std::sync::atomic::Ordering::SeqCst);
+            if cap != 0 {
+                return morpher.with_word_mem_cap(Some(cap));
+            }
+        }
+        morpher
+    }
+
+    #[cfg(all(test, feature = "foma-tools"))]
+    fn arm_confirm_word_mem_cap(&self, cap: usize) {
+        self.test_confirm_word_mem_cap
+            .store(cap, std::sync::atomic::Ordering::SeqCst);
     }
 
     #[cfg(feature = "foma-tools")]

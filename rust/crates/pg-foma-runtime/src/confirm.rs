@@ -52,6 +52,8 @@ pub(crate) struct ConfirmBatchDiagnostics {
     /// objective and the cap speak the same language. Deterministic, like the counts beside it.
     pub confirmation_work: usize,
     pub incomplete: bool,
+    /// Which limits stopped a confirming parse; `incomplete` is true iff any is set.
+    pub stop: pg_parse::StopReasons,
 }
 
 /// What one fused confirmation chunk cost, and which candidates shared that cost.
@@ -223,6 +225,8 @@ pub fn confirm_one_traced(
 /// Candidates share a reparse when their rule sets match, with lexical pins unioned across roots.
 /// Compounding remains available even for a single-root identity: repeated use of one allomorph
 /// collapses to one identity in the full parser. Exact identity routing rejects unrelated results.
+///
+/// Discards whether a confirming parse stopped on a limit; use `confirm_batch_checked` wherever a limit can be armed.
 pub fn confirm_batch(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -230,7 +234,43 @@ pub fn confirm_batch(
     candidates: &[Candidate],
     word: &str,
 ) -> ConfirmedBuckets {
+    confirm_batch_impl(g, owners, morpher, candidates, word, None, None).0
+}
+
+/// `confirm_batch` that also reports which limits stopped a confirming parse; when any did, the buckets are a prefix of the true analyses and the caller must treat the word as incomplete.
+pub fn confirm_batch_checked(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (ConfirmedBuckets, pg_parse::StopReasons) {
     confirm_batch_impl(g, owners, morpher, candidates, word, None, None)
+}
+
+/// `confirm_batch_attributed` that also reports which limits stopped a confirming parse; see `confirm_batch_checked`.
+pub fn confirm_batch_attributed_checked(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (
+    ConfirmedBuckets,
+    pg_parse::StopReasons,
+    Vec<ConfirmChunkCost>,
+) {
+    let mut chunks = Vec::new();
+    let (buckets, stop) = confirm_batch_impl(
+        g,
+        owners,
+        morpher,
+        candidates,
+        word,
+        None,
+        Some(&mut chunks),
+    );
+    (buckets, stop, chunks)
 }
 
 /// `confirm_batch`, plus a record of what each fused chunk cost and who was in it.
@@ -244,17 +284,26 @@ pub fn confirm_batch_attributed(
     candidates: &[Candidate],
     word: &str,
 ) -> (ConfirmedBuckets, Vec<ConfirmChunkCost>) {
-    let mut chunks = Vec::new();
-    let buckets = confirm_batch_impl(
-        g,
-        owners,
-        morpher,
-        candidates,
-        word,
-        None,
-        Some(&mut chunks),
-    );
+    let (buckets, _, chunks) =
+        confirm_batch_attributed_checked(g, owners, morpher, candidates, word);
     (buckets, chunks)
+}
+
+/// The plain-path confirmation: no topology accounting, only the stop flags every consumer needs.
+pub(crate) fn confirm_batch_stopping(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    morpher: &Morpher,
+    candidates: &[Candidate],
+    word: &str,
+) -> (ConfirmedBuckets, ConfirmBatchDiagnostics) {
+    let (buckets, stop) = confirm_batch_checked(g, owners, morpher, candidates, word);
+    let diagnostics = ConfirmBatchDiagnostics {
+        stop,
+        incomplete: stop.any(),
+        ..ConfirmBatchDiagnostics::default()
+    };
+    (buckets, diagnostics)
 }
 
 pub(crate) fn confirm_batch_with_diagnostics(
@@ -265,7 +314,7 @@ pub(crate) fn confirm_batch_with_diagnostics(
     word: &str,
 ) -> (ConfirmedBuckets, ConfirmBatchDiagnostics) {
     let mut diagnostics = ConfirmBatchDiagnostics::default();
-    let buckets = confirm_batch_impl(
+    let (buckets, stop) = confirm_batch_impl(
         g,
         owners,
         morpher,
@@ -274,6 +323,8 @@ pub(crate) fn confirm_batch_with_diagnostics(
         Some(&mut diagnostics),
         None,
     );
+    diagnostics.stop = stop;
+    diagnostics.incomplete = stop.any();
     (buckets, diagnostics)
 }
 
@@ -290,7 +341,7 @@ pub(crate) fn confirm_batch_attributed_with_diagnostics(
 ) {
     let mut diagnostics = ConfirmBatchDiagnostics::default();
     let mut chunks = Vec::new();
-    let buckets = confirm_batch_impl(
+    let (buckets, stop) = confirm_batch_impl(
         g,
         owners,
         morpher,
@@ -299,6 +350,8 @@ pub(crate) fn confirm_batch_attributed_with_diagnostics(
         Some(&mut diagnostics),
         Some(&mut chunks),
     );
+    diagnostics.stop = stop;
+    diagnostics.incomplete = stop.any();
     (buckets, diagnostics, chunks)
 }
 
@@ -319,7 +372,8 @@ fn confirm_batch_impl(
     word: &str,
     mut diagnostics: Option<&mut ConfirmBatchDiagnostics>,
     mut costs: Option<&mut Vec<ConfirmChunkCost>>,
-) -> ConfirmedBuckets {
+) -> (ConfirmedBuckets, pg_parse::StopReasons) {
+    let mut stop = pg_parse::StopReasons::default();
     let mut buckets: ConfirmedBuckets = (0..candidates.len()).map(|_| Vec::new()).collect();
 
     let pins: Vec<Option<CandidatePins>> =
@@ -441,15 +495,12 @@ fn confirm_batch_impl(
             &budget,
         );
         let elapsed = timer.elapsed();
+        let stopped = outcome.stop_reasons();
         // Read BEFORE the loop below consumes `outcome`.
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
             diagnostics.confirmation_work = outcome.work_steps;
-            diagnostics.incomplete |= outcome.capped
-                || outcome.timed_out
-                || outcome.capture_capped
-                || outcome.word_mem_capped
-                || outcome.invalid_shape;
         }
+        stop = stop.union(stopped);
         if let Some(costs) = costs.as_deref_mut() {
             let mut members = members.clone();
             members.sort_unstable();
@@ -474,7 +525,7 @@ fn confirm_batch_impl(
     if let Some(costs) = costs {
         costs.sort_by(|left, right| left.members.cmp(&right.members));
     }
-    buckets
+    (buckets, stop)
 }
 
 #[cfg(test)]
