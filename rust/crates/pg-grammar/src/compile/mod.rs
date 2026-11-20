@@ -505,6 +505,7 @@ pub(crate) fn compile_project_recording_with(
         templates: Vec::new(),
         entries: Vec::new(),
         allomorph_guid_index: HashMap::new(),
+        allomorph_key_counts: HashMap::new(),
         circumfix_half_guids: HashSet::new(),
         msa_guid_index: HashMap::new(),
         slot_rules: HashMap::new(),
@@ -1409,6 +1410,8 @@ pub(crate) struct Acc {
     pub entries: Vec<LexEntryDef>,
     /// Allomorph guid -> every registry id compiled for it (one per stem MSA copy of its entry, as HCLoader's `m_allomorphs` lists), for ad-hoc allomorph-prohibition resolution.
     pub allomorph_guid_index: HashMap<String, Vec<AllomorphId>>,
+    /// Allomorphs already keyed per form-guid base, so `snapshot_allomorph_key` can number repeats.
+    pub allomorph_key_counts: HashMap<String, u32>,
     /// Prefix and suffix half guids of circumfix entries: HCLoader registers only the lexeme form, so a prohibition naming a half finds nothing and emits no rule.
     pub circumfix_half_guids: HashSet<String>,
     /// MSA guid -> every morpheme registry id built from it (the main entry's, and one per variant entry, clitic stem/rule copy or infl-type copy), for ad-hoc morpheme-prohibition resolution.
@@ -1476,4 +1479,17 @@ pub(crate) fn ws_forms<'a>(
 /// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
 pub(crate) fn format_form(s: &str) -> String {
     s.trim().replace(' ', ".")
+}
+
+impl Acc {
+    /// The `xml_key` of a snapshot-built allomorph: its source form guid(s) plus how many allomorphs this build already keyed under those guids. A form builds one allomorph per environment pass and a variant entry repeats its main entry's forms, so the guid alone is not unique; the count follows compile order, so the key does not depend on registry ids that reachability compaction later renumbers. Opaque outside one compiled grammar.
+    pub(super) fn snapshot_allomorph_key(&mut self, form_guids: &str) -> String {
+        let n = self
+            .allomorph_key_counts
+            .entry(form_guids.to_string())
+            .or_insert(0);
+        let key = format!("{form_guids}#{n}");
+        *n += 1;
+        key
+    }
 }
