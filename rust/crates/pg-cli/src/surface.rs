@@ -94,6 +94,9 @@ fn dispatch_cost_calibrate(args: &[String]) -> ExitCode {
 fn dispatch_generate(args: &[String]) -> ExitCode {
     dispatch("generate", args, crate::run_generate)
 }
+fn dispatch_why_not(args: &[String]) -> ExitCode {
+    dispatch("why-not", args, crate::why_not_cmd::run_why_not)
+}
 fn dispatch_parse(args: &[String]) -> ExitCode {
     dispatch("parse", args, crate::run_parse)
 }
@@ -409,6 +412,44 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         name: "--prefilter",
         takes_value: true,
         summary: "auto|on|off (default off); on is a verification and measurement mode: no warm-up, calibration, budget or minimum batch length, every stage that is valid for the grammar runs on every word (a stage that is not valid is off with its reason) and the whole construction is paid whatever the batch length; auto lets a load-time calibration decide whether a rule-admission filter and a tiled whole-word test, built from the grammar, narrow each word's parse; needs the foma-tools build feature (auto and on); refused with --stats and --word-timeout-ms; --work-columns and --cost-column give the work the selected pipeline spent; prints PREFILTER and PREFILTER-TOTAL lines on stderr; the gate prices parses in full parser work (auto and on turn the cost meter on, with or without --cost-column, so the decision line is the same either way; auto turns it off again after the calibration unless --cost-column is given); analyses equal off on every word whose parse completes in both modes, and a word that is incomplete in either mode (work cap, capture cap) can have a different partial list; batches under 512 words stay plain",
+    },
+];
+
+const WHY_NOT_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--expect",
+        takes_value: true,
+        summary: "one candidate, repeatable: grammar.xml morpheme ids (NCNames, so no `,`, `|` or `@`) in surface order, `,` between positions, `|` between choices at a position; an id several morphemes share is refused, use --expect-guid",
+    },
+    FlagSpec {
+        name: "--allomorphs",
+        takes_value: true,
+        summary: "refused in this release: allomorph selection by id arrives with allomorph XML ids",
+    },
+    FlagSpec {
+        name: "--expect-guid",
+        takes_value: true,
+        summary: "one candidate by FieldWorks identity, repeatable: entryGuid:msaGuid per choice, same `,` and `|` shape",
+    },
+    FlagSpec {
+        name: "--expect-json",
+        takes_value: true,
+        summary: "file or - : a JSON array of candidates, each an array of positions, each an array of {morpheme, guid?} choices",
+    },
+    FlagSpec {
+        name: "--json",
+        takes_value: false,
+        summary: "write the pangloss.whynot.v1 report (docs/formats/why-not.md); slice 0 answers unknown for every candidate",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N|unbounded; validated, not yet applied (slice 0 stub)",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "validated, not yet applied (slice 0 stub)",
     },
 ];
 
@@ -970,6 +1011,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "word"],
         flags: PARSE_FLAGS,
         handler: dispatch_parse,
+    },
+    CommandSpec {
+        name: "why-not",
+        summary: "Explain why a word is not parsed along given morph candidates: the first failing constraint, typed (slice 0 stub: every candidate is unknown).",
+        hidden: false,
+        positionals: &["grammar", "word"],
+        flags: WHY_NOT_FLAGS,
+        handler: dispatch_why_not,
     },
     CommandSpec {
         name: "serve",
