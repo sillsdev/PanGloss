@@ -33,6 +33,7 @@ fn official(grammar: &pg_grammar::model::Grammar, word: &str) -> OfficialOutcome
         analyses: outcome.analyses,
         structured: outcome.structured,
         candidates_generated: outcome.candidates_generated,
+        confirmation_stop: Default::default(),
     }
 }
 
@@ -115,6 +116,7 @@ fn proposer_rejection_of_a_real_grammar_root_cannot_be_reintroduced_by_guess_ret
         analyses: vec![],
         structured: vec![],
         candidates_generated: 0,
+        confirmation_stop: Default::default(),
     };
     let outcome = runtime.analyze_word("milu", Some(rejected));
     assert!(!outcome
@@ -667,4 +669,47 @@ fn without_limits_does_not_cap_where_a_small_work_cap_does() {
     let outcome = unlimited.analyze_word("milusi", None);
     assert!(!outcome.capped);
     assert!(!outcome.analyses.is_empty());
+}
+
+#[test]
+fn a_stopped_official_confirmation_surfaces_its_own_reason_flag() {
+    use pg_parse::StopReasons;
+    let (_grammar, runtime) = setup();
+    let run = |confirmation_stop| {
+        runtime.analyze_word(
+            "milu",
+            Some(OfficialOutcome {
+                analyses: vec![],
+                structured: vec![],
+                candidates_generated: 0,
+                confirmation_stop,
+            }),
+        )
+    };
+    assert!(!run(StopReasons::default()).capped);
+    let work = run(StopReasons {
+        capped: true,
+        ..Default::default()
+    });
+    assert!(work.capped && !work.word_mem_capped && !work.timed_out);
+    let memory = run(StopReasons {
+        word_mem_capped: true,
+        ..Default::default()
+    });
+    assert!(memory.word_mem_capped && !memory.capped);
+    let time = run(StopReasons {
+        timed_out: true,
+        ..Default::default()
+    });
+    assert!(time.timed_out && !time.capped);
+    let capture = run(StopReasons {
+        capture_capped: true,
+        ..Default::default()
+    });
+    assert!(capture.capture_capped && capture.capped);
+    let shape = run(StopReasons {
+        invalid_shape: true,
+        ..Default::default()
+    });
+    assert!(shape.invalid_shape);
 }

@@ -342,3 +342,113 @@ fn sena_diagnostics_preserve_results_and_report_real_confirmation_topology() {
         profiled.diagnostics.proposal.decoded_paths + profiled.diagnostics.proposal.malformed_paths
     );
 }
+
+fn stopping_morpher<'g>(g: &'g pg_grammar::model::Grammar, stop: &str) -> Morpher<'g> {
+    Morpher::new(g, if stop == "work" { 1 } else { usize::MAX })
+        .with_word_timeout((stop == "time").then_some(std::time::Duration::ZERO))
+        .with_word_mem_cap((stop == "memory").then_some(1))
+}
+
+fn reasons_for(stop: &str) -> pg_parse::StopReasons {
+    pg_parse::StopReasons {
+        capped: stop == "work" || stop == "memory",
+        timed_out: stop == "time",
+        word_mem_capped: stop == "memory",
+        capture_capped: false,
+        invalid_shape: false,
+    }
+}
+
+#[test]
+fn a_stopped_confirmation_is_incomplete_never_a_complete_empty_word() {
+    let g = pg_grammar::load(DIAGNOSTICS_FIXTURE).unwrap();
+    let confirming_analyzer = |stop: &str| {
+        let analyzer = compile_analyzer(&g).unwrap();
+        let (proposer, peeler, owners, _, filter) = analyzer.into_parts_with_morpher();
+        FomaAnalyzer::from_cached_with_morpher(
+            &g,
+            proposer,
+            peeler,
+            owners,
+            stopping_morpher(&g, stop),
+            filter,
+        )
+    };
+
+    let mut unbounded = confirming_analyzer("none");
+    match unbounded.analyze_word_budgeted("ka", &ApplyBudget::unbounded()) {
+        FomaApplyOutcome::Complete(outcome) => assert_eq!(outcome.analyses.len(), 1),
+        FomaApplyOutcome::Incomplete { .. } => panic!("an uncapped confirmation must complete"),
+    }
+
+    for stop in ["work", "time", "memory"] {
+        let mut analyzer = confirming_analyzer(stop);
+        match analyzer.analyze_word_budgeted("ka", &ApplyBudget::unbounded()) {
+            FomaApplyOutcome::Incomplete { dimension, .. } => {
+                let ApplyDimension::Confirmation(reasons) = dimension else {
+                    panic!("stop={stop}: wrong dimension {dimension:?}");
+                };
+                assert!(reasons.any(), "stop={stop}");
+                assert_eq!(reasons, reasons_for(stop), "stop={stop}");
+            }
+            FomaApplyOutcome::Complete(outcome) => panic!(
+                "stop={stop}: a stopped confirmation was reported Complete with {} analyses",
+                outcome.analyses.len()
+            ),
+        }
+        let plain = analyzer.analyze_word("ka");
+        assert!(plain.confirmation_stop.any(), "stop={stop}");
+        assert!(plain.analyses.is_empty() && plain.structured.is_empty(), "stop={stop}");
+
+        let words = ["ka".to_string()];
+        let proposed = analyzer.propose_words(&words);
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        let morpher = stopping_morpher(&g, stop);
+        let (_, _, owners, _, _) = analyzer.into_parts_with_morpher();
+        let batch = crate::composite::confirm_proposed_words_in_pool_with_morpher(
+            &g, &owners, &words, proposed, &pool, &morpher,
+        );
+        assert!(batch[0].0.confirmation_stop.any(), "stop={stop}: batch");
+        assert!(batch[0].0.analyses.is_empty(), "stop={stop}: batch");
+    }
+
+    let plain = unbounded.analyze_word("ka");
+    assert!(!plain.confirmation_stop.any());
+    assert_eq!(plain.analyses.len(), 1);
+}
+
+#[test]
+fn confirm_batch_checked_reports_every_stop_including_an_unsegmentable_word() {
+    let g = pg_grammar::load(DIAGNOSTICS_FIXTURE).unwrap();
+    let analyzer = compile_analyzer(&g).unwrap();
+    let (mut proposer, _, owners, _, _) = analyzer.into_parts_with_morpher();
+    let candidates = &proposer.propose("ka");
+    assert!(!candidates.is_empty());
+
+    let (buckets, stopped) = crate::confirm::confirm_batch_checked(
+        &g,
+        &owners,
+        &stopping_morpher(&g, "none"),
+        candidates,
+        "ka",
+    );
+    assert!(!stopped.any() && buckets.iter().any(|bucket| !bucket.is_empty()));
+    for stop in ["work", "time", "memory"] {
+        let (_, stopped) = crate::confirm::confirm_batch_checked(
+            &g,
+            &owners,
+            &stopping_morpher(&g, stop),
+            candidates,
+            "ka",
+        );
+        assert!(stopped.any(), "stop={stop}");
+    }
+    let (_, stopped) = crate::confirm::confirm_batch_checked(
+        &g,
+        &owners,
+        &stopping_morpher(&g, "none"),
+        candidates,
+        "k\u{1F600}a",
+    );
+    assert!(stopped.invalid_shape, "an unsegmentable word is an invalid-shape stop");
+}

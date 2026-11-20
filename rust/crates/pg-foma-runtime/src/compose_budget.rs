@@ -117,6 +117,8 @@ pub enum ApplyDimension {
     NormalizedCandidates,
     /// Not a magnitude cap: the confirming parser accepts more stems per word than the compound construction was built to propose (`value` is its effective cap, `limit` the stem bound), so no word can be called complete.
     StemBound,
+    /// Not a magnitude cap: the confirming parser stopped on a work, time, memory, capture or shape limit, so its analyses are a prefix and none are returned (`value` is the confirmation work steps consumed, `limit` is 0); the payload names which limits fired.
+    Confirmation(pg_parse::StopReasons),
 }
 
 impl ApplyDimension {
@@ -126,6 +128,7 @@ impl ApplyDimension {
             ApplyDimension::Candidates => "distinct candidates",
             ApplyDimension::NormalizedCandidates => "repeat-normalization alternatives",
             ApplyDimension::StemBound => "stem cap above the proposer's stem bound",
+            ApplyDimension::Confirmation(_) => "confirmation",
         }
     }
 }
