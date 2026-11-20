@@ -23,6 +23,7 @@ mod root_search_cache;
 pub mod root_trie;
 pub mod source_identity;
 pub mod surface;
+pub mod why_not;
 
 pub use batch::{hc_parse_batch, BatchWordOutcome};
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};

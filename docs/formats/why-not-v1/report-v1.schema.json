@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pangloss.whynot.v1 report",
+  "type": "object",
+  "required": [
+    "schema",
+    "word",
+    "results",
+    "best"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pangloss.whynot.v1"
+    },
+    "word": {
+      "type": "string",
+      "minLength": 1
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "expect",
+          "result",
+          "analysis",
+          "failure",
+          "stop"
+        ],
+        "properties": {
+          "expect": {
+            "$ref": "#/$defs/candidate"
+          },
+          "result": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "unknown"
+            ]
+          },
+          "analysis": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "analysis",
+                  "used"
+                ],
+                "properties": {
+                  "analysis": {
+                    "type": "object"
+                  },
+                  "used": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/morphRef"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/failure"
+              }
+            ]
+          },
+          "stop": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "enum": [
+                  "not_implemented",
+                  "work_cap",
+                  "deadline",
+                  "failure_not_expressible"
+                ]
+              }
+            ]
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "result": {
+                "const": "accepted"
+              },
+              "analysis": {
+                "type": "object"
+              },
+              "failure": {
+                "type": "null"
+              },
+              "stop": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "result": {
+                "const": "rejected"
+              },
+              "analysis": {
+                "type": "null"
+              },
+              "failure": {
+                "type": "object"
+              },
+              "stop": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "result": {
+                "const": "unknown"
+              },
+              "analysis": {
+                "type": "null"
+              },
+              "failure": {
+                "type": "null"
+              },
+              "stop": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "best": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "morpheme"
+      ],
+      "properties": {
+        "morpheme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allomorph": {
+          "type": "string",
+          "minLength": 1
+        },
+        "guid": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "entry_guid": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    }
+                  ]
+                },
+                "msa_guid": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "candidate": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/choice"
+        }
+      }
+    },
+    "morphRef": {
+      "type": "object",
+      "required": [
+        "morpheme"
+      ],
+      "properties": {
+        "morpheme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "allomorph": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "required": [
+        "kind",
+        "plain",
+        "position",
+        "hc_reason",
+        "provenance",
+        "object",
+        "morphs",
+        "context",
+        "environment",
+        "stem_name",
+        "features",
+        "alternatives"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "no_morph_match",
+            "environment_unmet",
+            "slot_order",
+            "required_slot_empty",
+            "feature_clash",
+            "adhoc_prohibition",
+            "stem_name",
+            "inflection_class",
+            "surface_mismatch",
+            "other_gate"
+          ]
+        },
+        "plain": {
+          "type": "string"
+        },
+        "position": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "hc_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provenance": {
+          "enum": [
+            "hc_reported",
+            "derived"
+          ]
+        },
+        "object": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "id",
+                "guid"
+              ],
+              "properties": {
+                "type": {
+                  "enum": [
+                    "environment",
+                    "allomorph",
+                    "affix",
+                    "slot",
+                    "template",
+                    "rule",
+                    "class",
+                    "stem_name",
+                    "feature"
+                  ]
+                },
+                "id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "minLength": 1
+                },
+                "guid": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "morphs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/morphRef"
+          }
+        },
+        "context": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "left",
+                "right",
+                "provenance"
+              ],
+              "properties": {
+                "left": {
+                  "type": "string"
+                },
+                "right": {
+                  "type": "string"
+                },
+                "provenance": {
+                  "const": "derived"
+                }
+              }
+            }
+          ]
+        },
+        "environment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "allomorph_id"
+              ],
+              "properties": {
+                "allomorph_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          ]
+        },
+        "stem_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "required",
+              "actual"
+            ],
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "required": {
+                "type": "string"
+              },
+              "actual": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "alternatives": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

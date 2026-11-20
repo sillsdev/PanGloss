@@ -13,6 +13,7 @@ assuming you have this repository open or know its internal vocabulary.
 - [`trace-format.md`](trace-format.md) — the JSON `pangloss parse --trace` writes: the full,
   unmerged derivation tree behind one word's parse or failure.
 - [`rejection-trace-v1.md`](rejection-trace-v1.md) covers bounded rejection observations from ordinary HC parse and batch.
+- [`why-not.md`](why-not.md) — `pangloss why-not` (`pangloss.whynot.v1`): parse one word along given morph candidates and name the first failing constraint. Slice 0: the contract, answering `unknown`.
 - [`batch-tsv.md`](batch-tsv.md) — the per-word result rows `pangloss batch` writes and, with
   `--work-columns`, each word's deterministic parser work (`work_steps`).
 - [`fst-verify.md`](fst-verify.md) — per-word FST versus HC-Rust analysis-set comparison, incomplete outcomes and provenance.
