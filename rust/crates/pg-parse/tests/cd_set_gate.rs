@@ -40,6 +40,7 @@ fn any_pattern(g: &Grammar) -> Pattern {
 
 fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomorphDef {
     AffixAllomorphDef {
+        xml_key: String::new(),
         id: AllomorphId(id),
         environments: vec![],
         co_occurrence: vec![],

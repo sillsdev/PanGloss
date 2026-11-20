@@ -87,6 +87,7 @@ fn allomorph(
     redup_hint: ReduplicationHint,
 ) -> AffixAllomorphDef {
     AffixAllomorphDef {
+        xml_key: String::new(),
         id: AllomorphId(id),
         environments: vec![],
         co_occurrence: vec![],
