@@ -2100,7 +2100,7 @@ impl<'g> Morpher<'g> {
     }
 
     /// `Word.AllomorphsInMorphOrder`: distinct allomorphs in first-occurrence order; both the display string and the FFI ids project from this one traversal so they cannot disagree.
-    fn allomorphs_in_morph_order(&self, w: &Word) -> Vec<MorphRecord> {
+    pub(crate) fn allomorphs_in_morph_order(&self, w: &Word) -> Vec<MorphRecord> {
         let mut ms = w.morphs.clone();
         ms.sort_by_key(|m| m.order);
         let mut seen: Vec<(AllomorphId, Option<String>)> = Vec::new();

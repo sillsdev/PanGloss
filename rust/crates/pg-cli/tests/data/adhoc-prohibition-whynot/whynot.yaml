@@ -1,0 +1,18 @@
+# Why-not sidecar (PROTOCOL.md section 11). status: pending means no engine can produce this row yet; it is
+# authored from the grammar and HCLoader.cs:2163-2189, not taken from an engine run, and no runner compares it.
+rows:
+  - word: tada
+    note: >-
+      Asked for TA+DA, the one derivation of tada is excluded by the ad hoc prohibition ta- ~ da, so the first
+      failure is the allomorph co-occurrence rule, naming the prefix subrule first and the stem allomorph second.
+    status: pending
+    expect:
+      - { morpheme: TA, allomorph: subTa }
+      - { morpheme: DA, allomorph: aDa }
+    result: rejected
+    failure:
+      kind: adhoc_prohibition
+      hc_reason: AllomorphCoOccurrenceRules
+      morphs:
+        - { morpheme: TA, allomorph: subTa }
+        - { morpheme: DA, allomorph: aDa }

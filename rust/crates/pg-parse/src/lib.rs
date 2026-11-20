@@ -18,6 +18,7 @@ pub mod parse_morph;
 pub mod partials;
 pub use partials::PartialAnalysis;
 pub mod phonology;
+pub mod pins;
 mod root_answers;
 mod root_search_cache;
 pub mod root_trie;

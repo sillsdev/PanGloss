@@ -1,4 +1,4 @@
-//! `pangloss why-not` input validation and the `unknown` stub (docs/formats/why-not.md).
+//! `pangloss why-not` input validation, one answer per kind, and the suite runner (docs/formats/why-not.md).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -36,18 +36,15 @@ fn json(args: &[&str]) -> Value {
 }
 
 #[test]
-fn a_single_candidate_still_returns_results_and_a_null_best() {
+fn a_single_candidate_still_returns_one_result() {
     let v = json(&["--expect", "le1,le2"]);
     assert_eq!(v["schema"], "pangloss.whynot.v1");
     assert_eq!(v["word"], "ata");
     assert_eq!(v["results"].as_array().unwrap().len(), 1);
     let r = &v["results"][0];
-    assert_eq!(r["result"], "unknown");
-    assert_eq!(r["stop"], "not_implemented");
-    assert!(r["analysis"].is_null() && r["failure"].is_null());
+    assert!(["accepted", "rejected", "unknown"].contains(&r["result"].as_str().unwrap()));
     assert_eq!(r["expect"][0][0]["morpheme"], "le1");
     assert_eq!(r["expect"][1][0]["morpheme"], "le2");
-    assert!(v["best"].is_null());
 }
 
 #[test]
@@ -66,8 +63,6 @@ fn repeated_expect_gives_one_result_per_candidate_in_input_order() {
         .map(|r| r["expect"].as_array().unwrap().len())
         .collect();
     assert_eq!(lens, [1, 2, 3]);
-    assert!(results.iter().all(|r| r["result"] == "unknown"));
-    assert!(v["best"].is_null());
 }
 
 #[test]
@@ -78,44 +73,6 @@ fn choices_at_a_position_are_echoed() {
     assert_eq!(e[0][0]["morpheme"], "le1");
     assert_eq!(e[0][1]["morpheme"], "le2");
     assert!(e[0][0].get("allomorph").is_none());
-}
-
-#[test]
-fn allomorph_selection_is_refused_until_allomorph_xml_ids_exist() {
-    for args in [
-        &["--expect", "le1@a1"][..],
-        &["--expect", "le1", "--allomorphs", "a1"][..],
-        &["--expect-json", "-"][..],
-    ] {
-        let o = if args[0] == "--expect-json" {
-            let mut child = Command::new(BIN)
-                .arg("why-not")
-                .arg(grammar())
-                .arg("ata")
-                .args(args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(br#"[[[{"morpheme":"le1","allomorph":"a1"}]]]"#)
-                .unwrap();
-            child.wait_with_output().unwrap()
-        } else {
-            run(args)
-        };
-        assert!(!o.status.success(), "{args:?} should fail");
-        assert!(
-            stderr(&o).contains("allomorph selection by id arrives with allomorph XML ids"),
-            "{args:?}: {}",
-            stderr(&o)
-        );
-        assert!(o.stdout.is_empty());
-    }
 }
 
 #[test]
@@ -158,8 +115,8 @@ fn input_errors_exit_nonzero_with_a_reason() {
         (&["--expect", "nope"], "unknown morpheme id nope"),
         (&["--expect", "le1,,le2"], "morpheme id is empty"),
         (&["--expect", "le1|"], "morpheme id is empty"),
-        (&["--expect-guid", "aaa:bbb"], "no morpheme for entryGuid"),
-        (&["--expect-guid", "aaa"], "entryGuid:msaGuid"),
+        (&["--expect-guid", "aaa:bbb"], "no morpheme for entry_guid"),
+        (&["--expect-guid", "aaa"], "entry_guid:msa_guid"),
         (
             &["--expect", "le1", "--expect-json", "-"],
             "cannot be combined",
@@ -206,7 +163,7 @@ fn an_empty_word_and_malformed_json_are_input_errors() {
 }
 
 #[test]
-fn caps_are_accepted_and_the_stub_says_it_ignores_them() {
+fn caps_are_applied_and_no_longer_reported_as_ignored() {
     let o = run(&[
         "--expect",
         "le1",
@@ -217,7 +174,7 @@ fn caps_are_accepted_and_the_stub_says_it_ignores_them() {
         "--json",
     ]);
     assert!(o.status.success(), "{}", stderr(&o));
-    assert!(stderr(&o).contains("not yet applied"), "{}", stderr(&o));
+    assert!(!stderr(&o).contains("not yet applied"), "{}", stderr(&o));
 }
 
 #[test]
@@ -225,11 +182,8 @@ fn text_output_names_every_candidate() {
     let o = run(&["--expect", "le1", "--expect", "le2"]);
     assert!(o.status.success());
     let text = String::from_utf8_lossy(&o.stdout);
-    assert!(
-        text.contains("[0] le1: unknown (not_implemented)"),
-        "{text}"
-    );
-    assert!(text.contains("[1] le2: unknown"), "{text}");
+    assert!(text.contains("[0] le1:"), "{text}");
+    assert!(text.contains("[1] le2:"), "{text}");
 }
 
 #[test]
@@ -260,7 +214,10 @@ fn describe_lists_why_not_with_its_flags() {
     ] {
         assert!(flags.contains(&want), "missing {want}: {flags:?}");
     }
-    assert_eq!(cmd["positionals"], serde_json::json!(["grammar", "word"]));
+    assert_eq!(
+        cmd["positionals"],
+        serde_json::json!(["grammar", "word|queries.jsonl", "output.jsonl?"])
+    );
 }
 
 #[test]
@@ -300,4 +257,404 @@ fn the_docs_json_examples_deserialize_into_the_engine_types() {
     for kind in FailureKind::ALL {
         assert!(kinds.contains(&kind), "no example for {kind:?}");
     }
+}
+
+fn data(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data")
+        .join(name)
+}
+
+fn answer_on(grammar: &str, word: &str, args: &[&str]) -> Value {
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(data(grammar))
+        .arg(word)
+        .args(args)
+        .arg("--json")
+        .output()
+        .expect("run pangloss why-not");
+    assert!(o.status.success(), "{}", stderr(&o));
+    serde_json::from_slice::<Value>(&o.stdout).unwrap()["results"][0].clone()
+}
+
+fn failure_kind(r: &Value) -> &str {
+    assert_eq!(r["result"], "rejected", "{r}");
+    r["failure"]["kind"].as_str().unwrap()
+}
+
+#[test]
+fn an_expected_sequence_that_parses_is_accepted_with_its_analysis() {
+    let r = answer_on("trace-family.xml", "kibes", &["--expect", "eKib,mrTense"]);
+    assert_eq!(r["result"], "accepted", "{r}");
+    assert!(r["failure"].is_null() && r["stop"].is_null());
+    assert_eq!(r["analysis"]["used"][0]["morpheme"], "eKib");
+    assert_eq!(r["analysis"]["used"][1]["morpheme"], "mrTense");
+}
+
+#[test]
+fn a_surface_no_expected_sequence_produces_is_no_morph_match() {
+    let r = answer_on("trace-family.xml", "kibes", &["--expect", "eKib,mrPl"]);
+    assert_eq!(failure_kind(&r), "no_morph_match", "{r}");
+    assert_eq!(r["failure"]["provenance"], "derived");
+}
+
+#[test]
+fn a_morpheme_co_occurrence_exclusion_is_an_adhoc_prohibition() {
+    let r = answer_on(
+        "trace-family.xml",
+        "kibuton",
+        &["--expect", "eKib,mrPast2,mrPl"],
+    );
+    assert_eq!(failure_kind(&r), "adhoc_prohibition", "{r}");
+    assert_eq!(r["failure"]["hc_reason"], "MorphemeCoOccurrenceRules");
+    let morphs: Vec<&str> = r["failure"]["morphs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["morpheme"].as_str().unwrap())
+        .collect();
+    assert_eq!(morphs, ["mrPl", "mrPast2"], "{r}");
+}
+
+#[test]
+fn a_failure_outside_the_named_kinds_is_unknown_with_a_stop_reason() {
+    let r = answer_on(
+        "trace-family.xml",
+        "toy",
+        &["--expect", "eTay@aTayRestricted"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+    assert!(r["stop_note"].as_str().is_some_and(|n| !n.is_empty()));
+}
+
+#[test]
+fn a_candidate_with_no_lexical_entry_is_unknown_no_root() {
+    let r = answer_on("trace-family.xml", "es", &["--expect", "mrTense"]);
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "no_root");
+}
+
+#[test]
+fn an_excluded_environment_names_the_actual_context() {
+    let r = answer_on(
+        "why-not-environments.xml",
+        "salk",
+        &["--expect", "eSal,mrSufK"],
+    );
+    assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
+    assert_eq!(r["failure"]["provenance"], "hc_reported");
+    assert_eq!(r["failure"]["environment"]["allomorph_id"], "aSal");
+    assert_eq!(r["failure"]["context"]["right"], "k", "{r}");
+    assert_eq!(r["failure"]["context"]["left"], "", "{r}");
+    assert_eq!(r["failure"]["context"]["provenance"], "derived", "{r}");
+    let ok = answer_on(
+        "why-not-environments.xml",
+        "salt",
+        &["--expect", "eSal,mrSufT"],
+    );
+    assert_eq!(ok["result"], "accepted", "{ok}");
+}
+
+#[test]
+fn a_required_environment_the_context_does_not_meet_is_environment_unmet() {
+    let r = answer_on(
+        "why-not-environments.xml",
+        "monk",
+        &["--expect", "eMon,mrSufK"],
+    );
+    assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
+    assert_eq!(r["failure"]["environment"]["allomorph_id"], "aMon");
+    let ok = answer_on(
+        "why-not-environments.xml",
+        "mont",
+        &["--expect", "eMon,mrSufT"],
+    );
+    assert_eq!(ok["result"], "accepted", "{ok}");
+}
+
+#[test]
+fn a_suffix_the_word_does_not_end_in_is_no_morph_match() {
+    let r = answer_on(
+        "why-not-environments.xml",
+        "losk",
+        &["--expect", "eLos,mrSufT"],
+    );
+    assert_eq!(failure_kind(&r), "no_morph_match", "{r}");
+}
+
+#[test]
+fn a_pinned_allomorph_must_be_the_one_that_surfaces() {
+    let g = "why-not-allomorphs.xml";
+    let short = answer_on(g, "tan", &["--expect", "eTa@aTaShort"]);
+    assert_eq!(short["result"], "accepted", "{short}");
+    assert_eq!(short["analysis"]["used"][0]["allomorph"], "aTaShort");
+    let wrong = answer_on(g, "tan", &["--expect", "eTa@aTaLong"]);
+    assert_eq!(failure_kind(&wrong), "no_morph_match", "{wrong}");
+    let long = answer_on(g, "tano", &["--expect", "eTa", "--allomorphs", "aTaLong"]);
+    assert_eq!(long["result"], "accepted", "{long}");
+    let free = answer_on(g, "tano", &["--expect", "eTa"]);
+    assert_eq!(free["result"], "accepted", "{free}");
+}
+
+#[test]
+fn allomorph_selection_errors_name_the_problem() {
+    let g = data("why-not-allomorphs.xml");
+    for (spec, needle) in [
+        ("eTa@nope", "allomorph"),
+        ("eTa@aLo", "does not belong to morpheme"),
+    ] {
+        let o = Command::new(BIN)
+            .arg("why-not")
+            .arg(&g)
+            .arg("tan")
+            .args(["--expect", spec])
+            .output()
+            .unwrap();
+        assert!(!o.status.success(), "{spec} should fail");
+        assert!(stderr(&o).contains(needle), "{spec}: {}", stderr(&o));
+        assert!(o.stdout.is_empty());
+    }
+}
+
+#[test]
+fn the_suite_runner_writes_one_row_per_query_in_the_suite_shape() {
+    let dir = std::env::temp_dir().join(format!("why-not-suite-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let queries = dir.join("q.jsonl");
+    let out = dir.join("o.jsonl");
+    std::fs::write(
+        &queries,
+        concat!(
+            r#"{"word":"kibes","expect":[{"morpheme":"KIB"},{"morpheme":"TENSE"}]}"#,
+            "\n",
+            r#"{"word":"kibuton","expect":[{"morpheme":"KIB"},{"morpheme":"PAST2"},{"morpheme":"PL"}]}"#,
+            "\n",
+            r#"{"word":"kibes","expect":[{"morpheme":"NOPE"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(data("trace-family.xml"))
+        .arg(&queries)
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", stderr(&o));
+    let rows: Vec<Value> = std::fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0]["result"], "accepted");
+    assert_eq!(rows[1]["result"], "rejected");
+    assert_eq!(rows[1]["failure"]["kind"], "adhoc_prohibition");
+    assert_eq!(rows[2]["result"], "unknown");
+    assert_eq!(rows[2]["stop"]["reason"], "unknown_id");
+    assert_eq!(rows[0]["word"], "kibes");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn is_subset(asserted: &Value, got: &Value) -> bool {
+    match (asserted, got) {
+        (Value::Object(a), Value::Object(g)) => a
+            .iter()
+            .all(|(k, v)| g.get(k).is_some_and(|gv| is_subset(v, gv))),
+        (Value::Array(a), Value::Array(g)) => {
+            a.len() == g.len() && a.iter().zip(g).all(|(x, y)| is_subset(x, y))
+        }
+        _ => asserted == got,
+    }
+}
+
+#[test]
+fn the_suite_fixture_adhoc_prohibition_row_matches_by_result_and_asserted_failure_fields() {
+    let dir = data("adhoc-prohibition-whynot");
+    let out = std::env::temp_dir().join(format!("why-not-fixture-{}.jsonl", std::process::id()));
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(dir.join("grammar.xml"))
+        .arg(dir.join("queries.jsonl"))
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", stderr(&o));
+    let rows: Vec<Value> = std::fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    if let Ok(keep) = std::env::var("WHY_NOT_FIXTURE_RUN_OUT") {
+        std::fs::copy(&out, keep).unwrap();
+    }
+    std::fs::remove_file(&out).ok();
+    let asserted: Value = serde_json::json!({
+        "word": "tada",
+        "result": "rejected",
+        "failure": {
+            "kind": "adhoc_prohibition",
+            "hc_reason": "AllomorphCoOccurrenceRules",
+            "morphs": [
+                {"morpheme": "TA", "allomorph": "subTa"},
+                {"morpheme": "DA", "allomorph": "aDa"}
+            ]
+        }
+    });
+    assert!(is_subset(&asserted, &rows[0]), "{}", rows[0]);
+    assert_eq!(rows[1]["result"], "accepted", "{}", rows[1]);
+}
+
+#[test]
+fn json_allomorph_pins_and_a_wrong_guid_on_a_unique_id_is_refused() {
+    let dir = std::env::temp_dir().join(format!("why-not-json-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let pinned = dir.join("pinned.json");
+    std::fs::write(&pinned, r#"[[[{"morpheme":"eTa","allomorph":"aTaLong"}]]]"#).unwrap();
+    let r = answer_on(
+        "why-not-allomorphs.xml",
+        "tan",
+        &["--expect-json", pinned.to_str().unwrap()],
+    );
+    assert_eq!(failure_kind(&r), "no_morph_match", "{r}");
+    assert_eq!(r["expect"][0][0]["allomorph"], "aTaLong");
+
+    let wrong = dir.join("wrong.json");
+    std::fs::write(
+        &wrong,
+        r#"[[[{"morpheme":"eTa","guid":{"entry_guid":"e-1","msa_guid":"m-1"}}]]]"#,
+    )
+    .unwrap();
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(data("why-not-allomorphs.xml"))
+        .arg("tan")
+        .args(["--expect-json", wrong.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("guid"), "{}", stderr(&o));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_category_clash_is_not_reported_as_no_morph_match() {
+    let r = answer_on(
+        "why-not-pos-clash.xml",
+        "lost",
+        &["--expect", "eLos,mrSufT"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+}
+
+#[test]
+fn an_unfilled_required_slot_is_not_reported_as_no_morph_match() {
+    let r = answer_on("why-not-required-slot.xml", "ga", &["--expect", "eGa"]);
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+}
+
+#[test]
+fn a_family_block_is_not_reported_as_no_morph_match() {
+    let r = answer_on("trace-family.xml", "zodut", &["--expect", "eZod,mrPast2"]);
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+}
+
+#[test]
+fn a_require_rule_is_unknown_not_an_adhoc_prohibition() {
+    let r = answer_on(
+        "why-not-require-rule.xml",
+        "lostk",
+        &["--expect", "eLos,mrSufT,mrSufK"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+}
+
+#[test]
+fn an_environment_checked_on_a_synthesized_form_says_so() {
+    let r = answer_on(
+        "why-not-synth-env.xml",
+        "salk",
+        &["--expect", "eSal,mrSufK"],
+    );
+    assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
+    let plain = r["failure"]["plain"].as_str().unwrap();
+    assert!(plain.contains("synthesized form"), "{plain}");
+    assert!(plain.contains("\"salk\""), "{plain}");
+    assert_eq!(r["failure"]["context"]["left"], "sas", "{r}");
+}
+
+#[test]
+fn a_surface_mismatch_after_phonology_is_unknown() {
+    let r = answer_on(
+        "why-not-phon-delete.xml",
+        "salk",
+        &["--expect", "eSal,mrSufK"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure");
+}
+
+#[test]
+fn a_wrong_allomorph_pin_does_not_claim_a_wrong_order() {
+    let r = answer_on(
+        "why-not-allomorphs.xml",
+        "tank",
+        &["--expect", "eTa@aTaLong,mrSufK"],
+    );
+    assert_eq!(failure_kind(&r), "no_morph_match", "{r}");
+    let plain = r["failure"]["plain"].as_str().unwrap();
+    assert!(
+        plain.contains("other allomorphs") && !plain.contains("not in this order"),
+        "{plain}"
+    );
+}
+
+#[test]
+fn the_derivation_that_got_furthest_is_reported() {
+    let g = "why-not-ranking.xml";
+    let r = answer_on(g, "monk", &["--expect", "eMon,mrSufK"]);
+    assert_eq!(failure_kind(&r), "adhoc_prohibition", "{r}");
+    assert_eq!(r["failure"]["position"], 1, "{r}");
+    assert_eq!(r["failure"]["alternatives"], 1, "{r}");
+    let pinned = answer_on(g, "monk", &["--expect", "eMon@aMon1,mrSufK"]);
+    assert_eq!(failure_kind(&pinned), "environment_unmet", "{pinned}");
+}
+
+#[test]
+fn across_sequences_the_furthest_rejection_wins_in_either_order() {
+    let g = "why-not-ranking.xml";
+    for spec in ["eMon|eLos,mrSufK", "eLos|eMon,mrSufK"] {
+        let r = answer_on(g, "monk", &["--expect", spec]);
+        assert_eq!(failure_kind(&r), "adhoc_prohibition", "{spec}: {r}");
+    }
+}
+
+#[test]
+fn an_unknown_sequence_beats_a_rejected_one() {
+    let r = answer_on(
+        "why-not-ranking.xml",
+        "monk",
+        &["--expect", "eMon|mrSufT,mrSufK"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "no_root");
+}
+
+#[test]
+fn suite_mode_refuses_json_and_expect_flags() {
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(data("trace-family.xml"))
+        .args(["q.jsonl", "o.jsonl", "--json"])
+        .output()
+        .unwrap();
+    assert!(!o.status.success());
+    assert!(stderr(&o).contains("suite form"), "{}", stderr(&o));
 }

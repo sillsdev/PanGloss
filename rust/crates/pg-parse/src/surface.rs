@@ -239,8 +239,19 @@ fn render_regex_display(
 /// (Morpher.cs:222); the parameter exists for fidelity to the (unused-elsewhere-in-this-port)
 /// two-arity C# signature, not because a second caller needs `true`.
 pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: bool) -> String {
+    to_plain_string_range(table, shape, include_boundaries, 0..shape.len())
+}
+
+/// [`to_plain_string`] over the shape nodes whose indices lie in `nodes` (anchors included in the
+/// index space, never rendered).
+pub fn to_plain_string_range(
+    table: &CharDefTable,
+    shape: &Shape,
+    include_boundaries: bool,
+    nodes: std::ops::Range<usize>,
+) -> String {
     let mut sb = String::new();
-    for i in 0..shape.len() {
+    for i in nodes.start.min(shape.len())..nodes.end.min(shape.len()) {
         let kind = shape.kind(i);
         if kind != NodeKind::Segment && kind != NodeKind::Boundary {
             continue; // C# iterates ShapeNodes only; frozen shapes have no deletes.

@@ -171,6 +171,7 @@ mod stored_analysis_health;
 mod surface;
 mod trace_render;
 mod why_not_cmd;
+mod why_not_suite;
 
 /// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
 #[cfg(feature = "foma-tools")]
@@ -499,6 +500,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
          usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
          usage: pangloss why-not <grammar> <word> (--expect <ids> | --expect-guid <e:m> | --expect-json <file|->)... [--allomorphs <ids>] [--json] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss why-not <grammar> <queries.jsonl> <output.jsonl> [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss --describe | pangloss describe (machine-readable JSON of every subcommand and flag, from the same table run() dispatches on)\n\
          \n\
          <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
