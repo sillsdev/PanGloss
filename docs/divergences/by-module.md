@@ -25,6 +25,8 @@ See `README.md` for the full status table and the kind definitions.
 | `AnalysisMorphologicalTransform.cs` (`AddCapturedPartNodes`); `HermitCrabExtensions.cs` (`AntiFeatureStruct`) | 128 |
 | `SynthesisRewriteRule` (`MatchingMethod.Subsumption`); `FeatureStruct.cs` (`SubsumesImpl`) | 129 |
 | `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
+| `TraversalMethodBase.Advance`; `AnalysisMetathesisRuleSpec.ApplyRhs` (zip of the switch captures) | 132 |
+| `SynthesisMetathesisRuleSpec.ApplyRhs` (`newMorphAnn`); `AnnotationList.FindDepthFirst` | 133 |
 
 ## By Rust module
 
@@ -47,6 +49,8 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/morph.rs` (`generate_shape`, `ModifyFromInput` undo) | 128 |
 | `pg-rules/src/morph.rs` (`copy_agreement_refuses_match`, `copies_can_align`) | 049 |
 | `pg-rules/src/morph/optional_runs.rs`; `pg-fst/src/traverse.rs` (`interchangeable_runs`) | 130 |
+| `pg-rules/src/metathesis.rs` (`analyze_with_pattern`) | 132 |
+| `pg-rules/src/metathesis.rs` (`synthesize_with_permutation`); `pg-rules/src/word.rs` (`reorder_morphs`) | 133 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 
@@ -64,6 +68,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/tests/unapplied_rule_counts_reader_gate.rs` | 024 |
 | `pg-parse/tests/featureless_modify_from_input.rs`; staged `featureless-modify-from-input` | 128 |
 | `pg-parse/tests/csharp_port_rewrite.rs` (`unspecified_feature_satisfies_a_minus_*`); `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` | 129 |
+| `pg-parse/tests/metathesis_match_order.rs`; staged `metathesis-deletion-restores-segment-between-switches`, `pos-scoped-deletion-blocks-metathesis` | 132 |
 | `pg-parse/tests/optional_run_tilings.rs`; `pg-fst/tests/canonical_tilings.rs`; `pg-fst/tests/feasibility_prune.rs`; `pg-rules/src/morph/optional_runs.rs` (unit tests) | 130 |
 
 ## Provisional-definition seams

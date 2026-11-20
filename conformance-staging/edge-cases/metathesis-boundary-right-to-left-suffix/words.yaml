@@ -1,0 +1,54 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-19
+language: MetathesisBoundaryRightToLeftSuffix
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "p"
+    note: >-
+      Root p alone: no suffix, so no switch pair exists.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "s"
+    note: >-
+      Root s alone: no suffix, so no switch pair exists.
+    parses:
+      - signature: "Z|s"
+        rules: []
+  - word: "at"
+    note: >-
+      Root a then suffix t: t is not preceded by a switch target, so nothing swaps (X+PRE).
+    parses:
+      - signature: "X+PRE|a+?t"
+        rules: [PRE]
+  - word: "a+t"
+    note: >-
+      Root a, boundary, suffix t: no swap.
+    parses:
+      - signature: "X+PRE|a+?t"
+        rules: [PRE]
+  - word: "ts"
+    note: >-
+      Right-to-left rule on root s, boundary, suffix t: the boundary joins the group of the later switch; only segments move, so s moves after t and the boundary stays in front of the pair (+?ts), and the suffix is listed before the root (PRE+Z).
+    parses:
+      - signature: "PRE+Z|+?ts"
+        rules: [PRE, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "+ts"
+    note: >-
+      The same surface with the moved boundary written first: C# accepts it.
+    parses:
+      - signature: "PRE+Z|+?ts"
+        rules: [PRE, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pt"
+    note: >-
+      Root p then suffix t: no swap (Y+PRE).
+    parses:
+      - signature: "Y+PRE|p+?t"
+        rules: [PRE]
+  - word: "ta"
+    note: >-
+      Never a surface in this grammar: no root or affix makes it, and C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]

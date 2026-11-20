@@ -3,7 +3,8 @@ language: SpellingCompoundSingletonRootBoundaryFree
 requires: [morpher-settings]
 morpher:
   MaxRoots: 2
-fieldworks_producible: true
+fieldworks_producible: false
+fieldworks_producible_notes: "row 29 of fieldworks-cannot-say.md: a root spells + between two of its own segments, which HCLoader does not write"
 words:
   - word: "a"
     note: Pinned C# occurrence and rule-trace multiset.

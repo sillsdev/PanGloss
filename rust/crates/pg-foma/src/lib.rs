@@ -51,6 +51,8 @@ pub mod plan;
 workbench_module! {
     pub mod precision;
 }
+mod emptied_morph;
+mod metathesis_span;
 pub(crate) mod preexpand;
 pub mod profile;
 mod proposal_recall;

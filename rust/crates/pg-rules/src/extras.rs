@@ -2,7 +2,7 @@
 //!
 //! An absent box and a box of empty parts mean the same thing: every read goes through the accessors, so no comparison, key, print or byte estimate can tell them apart.
 
-use pg_grammar_model::model::{MorphemeId, PRuleId, StratumId};
+use pg_grammar_model::model::{AllomorphId, MorphemeId, PRuleId, StratumId};
 
 use crate::word::Word;
 
@@ -15,6 +15,7 @@ struct Parts {
     applied_realizational_rules: Vec<MorphemeId>,
     applied_phonological_rules: Vec<(StratumId, PRuleId)>,
     root_runtime_id: Option<String>,
+    pinned_starts: Vec<(AllomorphId, u16, u16)>,
 }
 
 impl Extras {
@@ -54,6 +55,17 @@ impl Extras {
         self.0.as_ref()?.root_runtime_id.as_deref()
     }
 
+    /// Morph runs, by allomorph, application and run, whose first node a synthesis rewrite deleted; C# keeps that node in the shape, so a later swap moves the morph's start only when it moves one of the morph's segments in front of that node.
+    pub(crate) fn pinned_starts(&self) -> &[(AllomorphId, u16, u16)] {
+        self.0.as_ref().map_or(&[][..], |p| &p.pinned_starts)
+    }
+
+    pub(crate) fn pin_start(&mut self, morph: (AllomorphId, u16, u16)) {
+        if !self.pinned_starts().contains(&morph) {
+            self.parts_mut().pinned_starts.push(morph);
+        }
+    }
+
     pub fn set_root_runtime_id(&mut self, id: Option<String>) {
         if id.is_none() && self.0.is_none() {
             return;
@@ -75,6 +87,7 @@ impl std::fmt::Debug for Extras {
                 &self.applied_phonological_rules(),
             )
             .field("root_runtime_id", &self.root_runtime_id())
+            .field("pinned_starts", &self.pinned_starts())
             .finish()
     }
 }

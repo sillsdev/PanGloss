@@ -519,6 +519,113 @@ impl WordKey {
 }
 
 impl Word {
+    /// Re-anchor morph records after a phonological rule moved nodes, as C# `SynthesisMetathesisRuleSpec.ApplyRhs` re-adds each morph annotation from its children's new positions; `origin[i]` is the old index (anchors included) of the node now at `i`.
+    pub(crate) fn reorder_morphs(&mut self, origin: &[usize]) {
+        let shape_len = self.shape.len();
+        if origin.len() != shape_len {
+            return;
+        }
+        let layout = MorphLayout::decode(&self.morphs, shape_len);
+        let interior = shape_len.saturating_sub(2);
+        let mut new_of_old = vec![0u32; interior];
+        for new in 0..interior {
+            new_of_old[origin[new + 1] - 1] = new as u32;
+        }
+        let mut starts: Vec<u32> = layout.groups.iter().map(|g| g.range.0).collect();
+        let mut pinned: Vec<bool> = layout
+            .groups
+            .iter()
+            .map(|g| {
+                self.morphs[g.host].status == MorphStatus::Real
+                    && self.extras.pinned_starts().contains(&self.run_key(g.host))
+            })
+            .collect();
+        for (group_index, group) in layout.groups.iter().enumerate() {
+            let host = &self.morphs[group.host];
+            starts[group_index] = match host.status {
+                MorphStatus::Real => {
+                    let first_node = layout
+                        .node_owners
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, owner)| *owner == Some(group_index))
+                        .map(|(old, _)| new_of_old[old])
+                        .min()
+                        .unwrap_or(group.range.0);
+                    // A deleted first node stays where it was, just before the node now at its old start.
+                    pinned[group_index] &= group.range.0 <= first_node;
+                    if pinned[group_index] {
+                        group.range.0
+                    } else {
+                        first_node
+                    }
+                }
+                MorphStatus::SubsumedFirst => new_of_old
+                    .get(host.order as usize)
+                    .copied()
+                    .unwrap_or(host.order),
+                MorphStatus::Floating | MorphStatus::SubsumedChild => group.range.0,
+            };
+        }
+        if layout
+            .groups
+            .iter()
+            .zip(&starts)
+            .all(|(group, &start)| group.range.0 == start)
+        {
+            return;
+        }
+        let mut sequence: Vec<usize> = (0..layout.groups.len()).collect();
+        sequence.sort_by_key(|&g| (starts[g], !pinned[g]));
+        let mut morphs = Vec::with_capacity(self.morphs.len());
+        for g in sequence {
+            let group = &layout.groups[g];
+            for record in &self.morphs[group.children.start..=group.host] {
+                let mut record = record.clone();
+                record.order = starts[g];
+                morphs.push(record);
+            }
+        }
+        self.morphs = morphs;
+    }
+
+    /// A record's allomorph, application and how many earlier records share both, so each run of a circumfix has its own key.
+    fn run_key(&self, index: usize) -> (AllomorphId, u16, u16) {
+        let record = &self.morphs[index];
+        let run = self.morphs[..index]
+            .iter()
+            .filter(|r| {
+                r.allomorph == record.allomorph
+                    && r.observation_occurrence == record.observation_occurrence
+            })
+            .count();
+        (record.allomorph, record.observation_occurrence, run as u16)
+    }
+
+    /// Re-anchor morph records after a synthesis rewrite deleted or inserted nodes. `old_len` is the shape's length before the rewrite, and `keys` holds each kept node's `MutShape::anchor_keys` entry: twice its old shape index, or an odd key for an inserted node. C# keeps a deleted node in the shape, so its morph annotations keep their places; here each record starts at the first kept node at or after its old start, a positioned morph that kept no node becomes an empty singleton there, so it neither owns its neighbour's segments nor leaves the morph order, and a morph that lost its first node keeps that start through a later swap.
+    pub(crate) fn remap_morph_orders(&mut self, old_len: usize, keys: &[u32]) {
+        let layout = MorphLayout::decode(&self.morphs, old_len);
+        let new_start = |old: u32| keys.partition_point(|&key| key < 2 * (old + 1)) as u32;
+        for group in &layout.groups {
+            let host = &self.morphs[group.host];
+            let emptied = host.status == MorphStatus::Real && {
+                let (start, end) = group.range;
+                let (low, high) = (2 * (start + 1), 2 * (end + 1) + 1);
+                !keys.iter().any(|&key| (low..=high).contains(&key))
+            };
+            if emptied {
+                self.morphs[group.host].status = MorphStatus::Floating;
+            } else if host.status == MorphStatus::Real && !keys.contains(&(2 * (group.range.0 + 1)))
+            {
+                let pinned = self.run_key(group.host);
+                self.extras.pin_start(pinned);
+            }
+        }
+        for record in &mut self.morphs {
+            record.order = new_start(record.order);
+        }
+    }
+
     /// Compounding non-head children (C# `Word._nonHeadApps`; `CurrentNonHead` = the element at `Word::non_head_app_index`).
     pub fn non_heads(&self) -> &[Word] {
         self.extras.non_heads()
