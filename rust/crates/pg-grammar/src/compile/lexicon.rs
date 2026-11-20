@@ -559,7 +559,12 @@ fn build_stem_entry(
                     .entry(allo.guid.clone())
                     .or_default()
                     .push(allo_id);
-                allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
+                let xml_key = acc.snapshot_allomorph_key(&allo.guid);
+                allomorphs.push(RootAllomorphDef {
+                    id: allo_id,
+                    xml_key,
+                    ..def
+                });
                 ctx.represented(allo_key);
             }
             Err(e) => ctx.reject(
@@ -673,6 +678,7 @@ fn build_root_allomorph_shape(allo: &Allomorph, ctx: &Ctx) -> Result<RootAllomor
 
     Ok(RootAllomorphDef {
         id: crate::model::AllomorphId(0),
+        xml_key: String::new(),
         shape: crate::model::SegmentedText { text: form, shape },
         is_bound,
         environments,
@@ -983,7 +989,12 @@ fn build_variant_stem_entry(
                     .entry(allo.guid.clone())
                     .or_default()
                     .push(allo_id);
-                allomorphs.push(RootAllomorphDef { id: allo_id, ..def });
+                let xml_key = acc.snapshot_allomorph_key(&allo.guid);
+                allomorphs.push(RootAllomorphDef {
+                    id: allo_id,
+                    xml_key,
+                    ..def
+                });
                 ctx.represented(allo_key);
             }
             Err(e) => ctx.reject(

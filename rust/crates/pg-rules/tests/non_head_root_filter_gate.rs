@@ -151,6 +151,7 @@ fn push_allomorph(g: &mut Grammar, entry: LexEntryId, text: &str) {
     g.entries[entry.0 as usize]
         .allomorphs
         .push(RootAllomorphDef {
+            xml_key: String::new(),
             id: AllomorphId(300),
             shape: SegmentedText {
                 text: text.to_string(),

@@ -722,6 +722,8 @@ impl AffixProcessRuleDef {
 pub struct AffixAllomorphDef {
     /// Registry id (co-occurrence rules and morph records reference allomorphs).
     pub id: AllomorphId,
+    /// The `<MorphologicalSubrule id="...">` attribute; empty when the XML carries none. From an XML grammar this is the grammar.xml id. A grammar compiled from a snapshot has no XML, so its keys are opaque (form guid(s) plus an occurrence count) and valid only within that one compiled grammar; never store them. Read it through `Grammar::allomorph_xml_key`.
+    pub xml_key: String,
     pub environments: Vec<EnvironmentDef>,
     /// `<AllomorphCoOccurrenceRule>`s whose `primaryAllomorph` is this subrule's allomorph
     /// (plan W6; the XML id C#'s `_allomorphs` dict keys AffixProcessAllomorphs by is the
@@ -882,6 +884,8 @@ impl LexEntryDef {
 #[derive(Debug)]
 pub struct RootAllomorphDef {
     pub id: AllomorphId,
+    /// The `<Allomorph id="...">` attribute; empty when the XML carries none. From an XML grammar this is the grammar.xml id. A grammar compiled from a snapshot has no XML, so its keys are opaque (form guid plus an occurrence count) and valid only within that one compiled grammar; never store them. Read it through `Grammar::allomorph_xml_key`.
+    pub xml_key: String,
     /// The `<PhoneticShape>` segmented against the owning stratum's table at load
     /// (`Segments(table, str, true)`; an all-boundary shape throws `InvalidShape` in C# and
     /// drops the allomorph via the error handler).
@@ -1194,7 +1198,52 @@ pub struct Grammar {
     pub guess_roots: bool,
 }
 
+/// Why [`Grammar::allomorph_by_xml_key`] found no single allomorph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllomorphKeyError {
+    /// No allomorph carries the key (an empty key is never carried).
+    Missing,
+    /// Several allomorphs carry the key, in registry order; the loader's own index keeps only the last.
+    Duplicate(Vec<AllomorphId>),
+}
+
 impl Grammar {
+    /// The XML id of allomorph `id`: the author's grammar.xml id for an XML grammar, an opaque per-grammar key for a snapshot-compiled one (never store it). `None` when `id` is not in the registry or its XML carried no `id`.
+    pub fn allomorph_xml_key(&self, id: AllomorphId) -> Option<&str> {
+        let key = match *self.allomorph_owners.get(id.0 as usize)? {
+            AllomorphOwner::Root(entry, i) => {
+                &self
+                    .entries
+                    .get(entry.0 as usize)?
+                    .allomorphs
+                    .get(i as usize)?
+                    .xml_key
+            }
+            AllomorphOwner::Affix(rule, i) => {
+                &self
+                    .mrules
+                    .get(rule.0 as usize)?
+                    .affix_allomorphs()?
+                    .get(i as usize)?
+                    .xml_key
+            }
+        };
+        (!key.is_empty()).then_some(key.as_str())
+    }
+
+    /// The allomorph whose XML id is `key` (opaque and per-grammar for a snapshot-compiled grammar); a key shared by several allomorphs is an error, not a pick.
+    pub fn allomorph_by_xml_key(&self, key: &str) -> Result<AllomorphId, AllomorphKeyError> {
+        let hits: Vec<AllomorphId> = (0..self.allomorph_owners.len() as u32)
+            .map(AllomorphId)
+            .filter(|&id| self.allomorph_xml_key(id) == Some(key))
+            .collect();
+        match hits.as_slice() {
+            [] => Err(AllomorphKeyError::Missing),
+            [one] => Ok(*one),
+            _ => Err(AllomorphKeyError::Duplicate(hits)),
+        }
+    }
+
     /// The MSA guid FieldWorks loads in place of `msa_guid` (`ParseAnalysis.RepresentativeMSA`), itself when none.
     pub fn representative_msa<'a>(&'a self, msa_guid: &'a str) -> &'a str {
         self.representative_msas

@@ -1210,3 +1210,78 @@ fn mpr_wide_oracle_fixture_loads_every_distinct_feature() {
     assert_eq!(grammar.mpr_features.len(), 303);
     assert_eq!(grammar.mpr_groups[0].members.iter().count(), 300);
 }
+
+/// One affix rule, one realizational rule and three root allomorphs: `dup` appears twice and one root allomorph has no `id`.
+fn allomorph_key_grammar() -> Grammar {
+    let xml = r#"<HermitCrabInput><Language>
+      <Name>Allomorph keys</Name>
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+        <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="r1 r2">
+        <Name>S</Name><MorphologicalRuleDefinitions>
+          <MorphologicalRule id="r1" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>one</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="affix-sub"><MorphologicalInput><PhoneticSequence id="p1">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p1" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules></MorphologicalRule>
+          <RealizationalRule id="r2"><Name>two</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="realizational-sub"><MorphologicalInput><PhoneticSequence id="p2">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p2" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>two</MorphemeId></RealizationalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="p"><Allomorphs>
+            <Allomorph id="root-a"><PhoneticShape>a</PhoneticShape></Allomorph>
+            <Allomorph id="dup"><PhoneticShape>a</PhoneticShape></Allomorph>
+          </Allomorphs><Gloss>one</Gloss></LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="p"><Allomorphs>
+            <Allomorph id="dup"><PhoneticShape>a</PhoneticShape></Allomorph>
+            <Allomorph><PhoneticShape>a</PhoneticShape></Allomorph>
+          </Allomorphs><Gloss>two</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+    load(xml).expect("allomorph key grammar loads")
+}
+
+#[test]
+fn allomorph_xml_keys_round_trip_for_root_affix_and_realizational_allomorphs() {
+    let g = allomorph_key_grammar();
+    for key in ["root-a", "affix-sub", "realizational-sub"] {
+        let id = g.allomorph_by_xml_key(key).unwrap();
+        assert_eq!(g.allomorph_xml_key(id), Some(key));
+    }
+    assert!(matches!(
+        g.allomorph_owners[g.allomorph_by_xml_key("affix-sub").unwrap().0 as usize],
+        AllomorphOwner::Affix(..)
+    ));
+}
+
+#[test]
+fn a_duplicated_allomorph_xml_key_names_every_holder() {
+    let g = allomorph_key_grammar();
+    match g.allomorph_by_xml_key("dup") {
+        Err(AllomorphKeyError::Duplicate(ids)) => {
+            assert_eq!(ids.len(), 2);
+            assert!(ids.iter().all(|&id| g.allomorph_xml_key(id) == Some("dup")));
+        }
+        other => panic!("expected Duplicate, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_missing_allomorph_xml_key_or_id_is_reported_not_guessed() {
+    let g = allomorph_key_grammar();
+    assert_eq!(
+        g.allomorph_by_xml_key("nope"),
+        Err(AllomorphKeyError::Missing)
+    );
+    assert_eq!(g.allomorph_by_xml_key(""), Err(AllomorphKeyError::Missing));
+    let keyless = AllomorphId(g.allomorph_owners.len() as u32 - 1);
+    assert_eq!(g.allomorph_xml_key(keyless), None);
+    assert_eq!(g.allomorph_xml_key(AllomorphId(u32::MAX)), None);
+}
