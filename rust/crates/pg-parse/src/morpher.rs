@@ -173,6 +173,48 @@ impl std::fmt::Display for GenerateWordsStopReason {
     }
 }
 
+/// Why a parse stopped before exhausting its search; each flag mirrors the `ParseOutcome` field of the same name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StopReasons {
+    pub capped: bool,
+    pub capture_capped: bool,
+    pub word_mem_capped: bool,
+    pub invalid_shape: bool,
+    pub timed_out: bool,
+}
+
+impl StopReasons {
+    pub const fn any(self) -> bool {
+        self.capped
+            || self.capture_capped
+            || self.word_mem_capped
+            || self.invalid_shape
+            || self.timed_out
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self {
+            capped: self.capped || other.capped,
+            capture_capped: self.capture_capped || other.capture_capped,
+            word_mem_capped: self.word_mem_capped || other.word_mem_capped,
+            invalid_shape: self.invalid_shape || other.invalid_shape,
+            timed_out: self.timed_out || other.timed_out,
+        }
+    }
+}
+
+impl ParseOutcome {
+    pub const fn stop_reasons(&self) -> StopReasons {
+        StopReasons {
+            capped: self.capped,
+            capture_capped: self.capture_capped,
+            word_mem_capped: self.word_mem_capped,
+            invalid_shape: self.invalid_shape,
+            timed_out: self.timed_out,
+        }
+    }
+}
+
 /// The outcome of parsing one word.
 pub struct ParseOutcome {
     /// Best observed rejection summaries, only for words without any analysis.

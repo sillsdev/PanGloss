@@ -312,3 +312,28 @@ fn host_generation_rejects_out_of_inventory_mpr_in_every_payload_before_expansio
     }
     unsafe { crate::hc_grammar_free(raw) };
 }
+
+#[cfg(all(feature = "foma-tools", not(target_arch = "wasm32")))]
+#[test]
+fn a_stopped_official_confirmation_sets_its_flag_on_the_single_word_and_batch_paths() {
+    let grammar = pg_grammar::load(XML).unwrap();
+    let handle = GrammarHandle::new(grammar, XML);
+    assert_eq!(handle.backend_kind(), "foma");
+
+    let calm = handle.analyze_word("a", false);
+    assert!(!calm.word_mem_capped && !calm.structured.is_empty());
+
+    handle.arm_confirm_word_mem_cap(1);
+    let single = handle.analyze_word("a", false);
+    assert!(
+        single.word_mem_capped,
+        "single word: memory stop must keep its own flag"
+    );
+
+    let words = vec!["a".to_string()];
+    let batch = handle.analyze_words(&words, 1, false).expect("batch");
+    assert!(
+        batch[0].0.word_mem_capped,
+        "batch: memory stop must keep its own flag"
+    );
+}
