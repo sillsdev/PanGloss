@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic grammar for the why-not CLI tests; every form is invented. -->
+<HermitCrabInput>
+  <Language>
+    <Name>WhyNotAllomorphs</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cy"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrSufK mrSufS">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrSufK" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>mrSufK</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSufK">
+                <MorphologicalInput><PhoneticSequence id="insubSufK"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="insubSufK" /><InsertSegments><PhoneticShape>k</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SUFK</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrSufS" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>mrSufS</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSufS">
+                <MorphologicalInput><PhoneticSequence id="insubSufS"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="insubSufS" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SUFS</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eTa" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aTaLong"><PhoneticShape>tano</PhoneticShape></Allomorph>
+              <Allomorph id="aTaShort"><PhoneticShape>tan</PhoneticShape></Allomorph>
+            </Allomorphs>
+            <MorphemeId>TA</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eLo" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aLo">
+                <PhoneticShape>lo</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>LO</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

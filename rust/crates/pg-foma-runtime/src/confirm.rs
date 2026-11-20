@@ -19,7 +19,9 @@ use std::time::Duration;
 
 use rustc_hash::FxHashSet as HashSet;
 
-use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId};
+use pg_grammar::model::{Grammar, LexEntryId, MRuleId};
+pub use pg_parse::pins::{build_morpheme_owners, MorphemeOwner};
+use pg_parse::pins::{parse_word_pinned_traced, rule_is_allowed};
 use pg_parse::{Morpher, ParseOptions, ParseOutcome, WordAnalysis as EngineAnalysis};
 use pg_rules::stratum::RuleRef;
 use pg_rules::trace::TraceSink;
@@ -77,41 +79,6 @@ pub struct ConfirmChunkCost {
     pub timed_out: bool,
 }
 
-/// Which grammar object owns a given `MorphemeId` — ported from `hc-hybrid/src/replay.rs`'s
-/// `MorphemeOwner` (`replay.rs:70-74`) verbatim. See that module's doc for the full quirk-8
-/// rationale (why a `CompoundingRule` never owns a morpheme and so is never this enum's `MRule`
-/// variant).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum MorphemeOwner {
-    LexEntry(LexEntryId),
-    MRule(MRuleId),
-}
-
-/// `replay.rs::build_morpheme_owners` (`replay.rs:82-98`), ported verbatim onto this crate's own
-/// `Grammar`/`MorphemeId` types (same crate, `pg-grammar`, as the original — no adaptation needed
-/// beyond the module it lives in).
-pub fn build_morpheme_owners(g: &Grammar) -> Vec<Option<MorphemeOwner>> {
-    let mut owners = vec![None; g.morphemes.len()];
-    for (i, e) in g.entries.iter().enumerate() {
-        owners[e.morpheme.0 as usize] = Some(MorphemeOwner::LexEntry(LexEntryId(i as u32)));
-    }
-    for (i, r) in g.mrules.iter().enumerate() {
-        let morpheme = match r {
-            MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
-            MorphRuleDef::Realizational(def) => Some(def.morpheme),
-            MorphRuleDef::Compounding(_) => None,
-        };
-        if let Some(m) = morpheme {
-            owners[m.0 as usize] = Some(MorphemeOwner::MRule(MRuleId(i as u32)));
-        }
-    }
-    owners
-}
-
-fn owner_of(owners: &[Option<MorphemeOwner>], m: MorphemeId) -> Option<MorphemeOwner> {
-    owners.get(m.0 as usize).copied().flatten()
-}
-
 /// Positional identity comparison, element-wise not set-wise: morphemes in the wrong order or wrong `root_index` is a silent loss, never a false negative match.
 fn analyses_match(wa: &EngineAnalysis, candidate: &Candidate) -> bool {
     wa.root_morpheme_index == candidate.root_index
@@ -137,12 +104,7 @@ pub fn confirm_all(
         .unwrap_or_default()
 }
 
-/// One candidate's resolved pins: root entry, non-root rule set, extra compound roots; `None` when the root isn't a `LexEntry` or a non-root morpheme is unowned.
-pub(crate) struct CandidatePins {
-    pub(crate) root_entry: LexEntryId,
-    pub(crate) rules: HashSet<MRuleId>,
-    pub(crate) extra_roots: HashSet<LexEntryId>,
-}
+pub(crate) use pg_parse::pins::CandidatePins;
 
 /// The pure fact both confirmation and the candidate filter's structural passes read: a candidate
 /// whose pins do not resolve is one this module's own restricted reparse never runs, so its
@@ -151,35 +113,7 @@ pub(crate) fn resolve_pins(
     owners: &[Option<MorphemeOwner>],
     candidate: &Candidate,
 ) -> Option<CandidatePins> {
-    if candidate.root_index < 0 || candidate.root_index as usize >= candidate.morphemes.len() {
-        return None;
-    }
-    let root_index = candidate.root_index as usize;
-    let root_entry = match owner_of(owners, candidate.morphemes[root_index]) {
-        Some(MorphemeOwner::LexEntry(le)) => le,
-        _ => return None, // replay.rs:38-41 — the designated root must be a LexEntry.
-    };
-    let mut rules: HashSet<MRuleId> = HashSet::default();
-    let mut extra_roots: HashSet<LexEntryId> = HashSet::default();
-    for (i, &m) in candidate.morphemes.iter().enumerate() {
-        if i == root_index {
-            continue;
-        }
-        match owner_of(owners, m) {
-            Some(MorphemeOwner::LexEntry(le)) => {
-                extra_roots.insert(le);
-            }
-            Some(MorphemeOwner::MRule(mid)) => {
-                rules.insert(mid);
-            }
-            None => return None, // replay.rs:56-59 — neither a LexEntry nor a rule -> None.
-        }
-    }
-    Some(CandidatePins {
-        root_entry,
-        rules,
-        extra_roots,
-    })
+    pg_parse::pins::resolve_pins(owners, &candidate.morphemes, candidate.root_index)
 }
 
 /// Census helper for candidate-failure attribution: run exactly the same
@@ -204,16 +138,7 @@ pub fn confirm_one_traced(
     trace: &dyn TraceSink,
 ) -> Option<ParseOutcome> {
     let pins = resolve_pins(owners, candidate)?;
-    let lex_entry_filter =
-        move |le: LexEntryId| le == pins.root_entry || pins.extra_roots.contains(&le);
-    let rule_filter = move |r: RuleRef| rule_is_allowed(g, &pins.rules, r);
-    Some(morpher.parse_word_selected_traced(
-        word,
-        &ParseOptions::default(),
-        trace,
-        Some(&lex_entry_filter),
-        Some(&rule_filter),
-    ))
+    Some(parse_word_pinned_traced(g, morpher, &pins, word, trace))
 }
 
 /// Batched confirm ("one reparse for the union of candidates" — predicted to go from 122
@@ -353,15 +278,6 @@ pub(crate) fn confirm_batch_attributed_with_diagnostics(
     diagnostics.stop = stop;
     diagnostics.incomplete = stop.any();
     (buckets, diagnostics, chunks)
-}
-
-fn rule_is_allowed(g: &Grammar, rules: &HashSet<MRuleId>, rule: RuleRef) -> bool {
-    match rule {
-        RuleRef::Stratum(_) | RuleRef::Template(_) => true,
-        RuleRef::MRule(id) => {
-            rules.contains(&id) || matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_))
-        }
-    }
 }
 
 fn confirm_batch_impl(

@@ -6,12 +6,12 @@ surface order). It does not search every path. For each candidate it reports whe
 parses along it, and if not, the **first failing constraint**, typed, in plain words, with the
 grammar object the failure is about, so a tool can draft a fix.
 
-> **Status: slice 0, a contract and a stub (Motif #386).** The command validates its input and
-> then answers `unknown` with `stop: "not_implemented"` for every candidate. `best` is therefore
-> always `null` today. Every `accepted` and `rejected` example below is **illustrative**: it shows
-> the shape the later slices will return, not output any current build produces. Code against the
-> shape; do not treat an example's wording or ids as real. The `--work-cap` and `--word-timeout-ms`
-> flags are validated but not applied yet, and the command says so on stderr when you pass them.
+> **Status: slice 1 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
+> reparsing the word with the expected morphs pinned. A rejection names the first failing
+> constraint for these kinds: `no_morph_match`, `environment_unmet` and `adhoc_prohibition`. `no_morph_match` is answered only when the trace shows no other cause. Any
+> other failure, or a search that cannot finish, answers `unknown` with a `stop` reason, never a
+> guess. The examples below show the shape of each answer; ids, GUIDs and wording in them are
+> invented. Kinds beyond the three above are later slices.
 
 Schemas: [`why-not-v1/report-v1.schema.json`](why-not-v1/report-v1.schema.json) (the report) and
 [`why-not-v1/expect-v1.schema.json`](why-not-v1/expect-v1.schema.json) (the `--expect-json` input).
@@ -34,10 +34,12 @@ pangloss why-not <grammar> <word> (--expect <spec> | --expect-guid <spec> | --ex
 * `--expect-json <file|->` reads a JSON array of candidates (the shape below), from a file or from
   standard input (`-`). It cannot be combined with `--expect` or `--expect-guid`. Motif is expected
   to use this form.
-* `--allomorphs <spec>` is reserved and refused for now (see Input errors).
+* `--allomorphs <spec>` pins allomorphs by `grammar.xml` allomorph id (see Candidate syntax).
 * `--json` writes the report below to standard output; without it a short text summary is written.
-* `--work-cap`, `--word-timeout-ms` bound the search once it exists (they produce `unknown` with
-  `stop: "work_cap"` or `"deadline"`).
+* `--work-cap`, `--word-timeout-ms` bound the search for each concrete morph sequence (a hit
+  produces `unknown` with `stop: "work_cap"` or `"deadline"`).
+* `pangloss why-not <grammar> <queries.jsonl> <output.jsonl>` runs the shared conformance suite's
+  why-not queries (see Suite runner).
 
 ### Candidate syntax
 
@@ -49,6 +51,7 @@ choice is tried, and the report says which was used.
 | `,` | next position | `kib,ak,ek` is three positions |
 | `\|` | another choice at the same position | `kib,ak\|ik,ek` offers `ak` or `ik` at position 1 |
 | `:` | (`--expect-guid` only) joins `entryGuid` and `msaGuid` | `E:M,E2:M2` |
+| `@` | pins the allomorph of a choice, by its `grammar.xml` allomorph id | `kib,ak@ak1,ek` |
 
 A morpheme id is the `id` attribute of its lexical entry or morphological rule in `grammar.xml`
 (`MorphemeInfo.xml_key` in the engine). Ids are XML NCNames, so `,` `|` `@` `:` cannot occur in one,
@@ -58,8 +61,8 @@ and GUIDs (hex digits and `-`) cannot clash with the separators either. Some mor
 choices at that position. Dense numeric ids (`morphemeId` in an analysis) are not accepted.
 
 `--expect-json` input is a JSON array of candidates; each candidate an array of positions; each
-position a non-empty array of choices `{"morpheme": "id", "guid": {"entry_guid", "msa_guid"}?}`. Unknown
-fields are refused on input. `allomorph` is reserved like `--allomorphs` and refused for now:
+position a non-empty array of choices `{"morpheme": "id", "guid": {"entry_guid", "msa_guid"}?}`. `allomorph` is optional and pins
+the allomorph by its `grammar.xml` id. Unknown fields are refused on input:
 
 ```json
 [
@@ -103,9 +106,9 @@ fields are refused on input. `allomorph` is reserved like `--allomorphs` and ref
 These are errors, not failure kinds: nothing is written to standard output and the exit status is
 1, with the reason on stderr. They are an empty word, no candidate, a candidate or position with
 nothing in it, an unknown morpheme id, a morpheme id shared by several morphemes, an `--expect-guid` that
-matches no morpheme, an empty id, malformed JSON, a bad flag value, and any allomorph selection
-(`id@allomorph`, `--allomorphs`, or `allomorph` in JSON): allomorph selection by id arrives with
-allomorph XML ids, which the loader does not keep yet. A grammar that fails to load is also exit 1. Everything else, including a word that is
+matches no morpheme, an empty id, malformed JSON, a bad flag value, an allomorph id the grammar
+does not have, one shared by several allomorphs, or one that belongs to another morpheme, and a
+supplied guid that is not the morpheme's. A grammar that fails to load is also exit 1. Everything else, including a word that is
 rejected or `unknown`, exits 0.
 
 ## Report
@@ -118,11 +121,12 @@ The report **always** has `results`, even for a single candidate, so one shape s
 | `schema` | `pangloss.whynot.v1` |
 | `word` | the word as given |
 | `results[]` | one entry per candidate, in input order |
-| `results[].expect` | the candidate as parsed: positions, each a list of `{morpheme, guid?}` choices (the same shape as `--expect-json`; `allomorph` is omitted) |
+| `results[].expect` | the candidate as parsed: positions, each a list of `{morpheme, guid?}` choices (the same shape as `--expect-json`; `allomorph` is present when the caller pinned one) |
 | `results[].result` | `accepted`, `rejected` or `unknown` |
 | `results[].analysis` | when accepted: `{analysis, used}`. `analysis` is the ordinary word analysis (`morphemeIds`, `morphOccurrences`, ...); `used` has one `{morpheme, allomorph?}` per position, the choice that produced it. Otherwise null |
 | `results[].failure` | when rejected: the first failure (below). Otherwise null |
-| `results[].stop` | when unknown: `not_implemented` (slice 0), `work_cap`, `deadline`, or `failure_not_expressible` (a failure was found but cannot fill a required `failure` field; the C# tool emits this, so both engines share this schema). Otherwise null |
+| `results[].stop` | when unknown: `not_implemented`, `work_cap`, `deadline`, `failure_not_expressible` (a failure was found but cannot fill a required `failure` field; the C# tool emits this, so both engines share this schema), `no_root` (no position is a lexical entry), `unsupported_morpheme` (a position is neither a lexical entry nor an affix rule), `compounding_unsupported` (several are), `word_not_segmentable` (the word has no segmentation the parser can start from), `unclassified_failure` (HC stopped the derivation for a reason this release does not name: a category or feature clash, an empty required slot, a family block, a stem name, a `require` co-occurrence rule, a surface mismatch) or `choices_capped` (the candidate expands to more concrete sequences than the search tries). Otherwise null |
+| `results[].stop_note` | when unknown: one sentence saying what was reached. Optional |
 | `best` | index into `results` of the best candidate, or null |
 
 **`best`** is the first accepted candidate. If none is accepted, it is the rejected candidate that
@@ -141,13 +145,13 @@ rejected.
 | `position` | 0-based position in the candidate the failure is about, or null when it is about the whole word |
 | `hc_reason` | the engine's reason, the C# `FailureReason` name when HC reports it, or null when PanGloss inferred the failure |
 | `provenance` | `hc_reported` (C# raises this failure) or `derived` (PanGloss inferred it; C# has no event) |
-| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the caller has the FieldWorks model. Null for `environment_unmet` and `stem_name`, which carry `environment` and `stem_name` instead, and when no single object applies |
+| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the caller has the FieldWorks model. `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`); `stem_name` carries `stem_name` instead; null when no single object applies |
 | `morphs` | the morph(s) involved, as `{morpheme, allomorph?}` (the shape of an expected-parse element; `allomorph` is omitted when unknown); for a position with several choices, the choice used. For `adhoc_prohibition` it is the pair, the rule's primary morph first and the offending partner second; for `stem_name` the root allomorph |
-| `context` | `environment_unmet` only: `{left, right, provenance}`, the actual text around the allomorph; otherwise null. HC does not report it, so an engine or adapter computes it and `provenance` is always `derived`, even when the failure itself is `hc_reported` |
+| `context` | `environment_unmet` only: `{left, right, provenance}`, the actual text around the allomorph in the form HC checked, which is the synthesized form and can differ from the word when phonological rules apply (`plain` then says so); otherwise null. HC does not report it, so an engine or adapter computes it and `provenance` is always `derived`, even when the failure itself is `hc_reported` |
 | `environment` | `environment_unmet` only: `{allomorph_id, index?}`, the allomorph and the 0-based index in its environment list (an environment has no id of its own); `index` is omitted when the engine does not know it, never a fake 0. Otherwise null |
 | `stem_name` | `stem_name` only: the stem name's `grammar.xml` id. Otherwise null |
 | `features` | `feature_clash` only: an array with one `{path, required, actual}` per mismatching feature path (the word's feature state against one requirement); an empty array otherwise |
-| `alternatives` | how many other derivations of this candidate also fail, or null when not counted |
+| `alternatives` | how many other derivations of the same concrete morph sequence also fail (any reason), or null when none; derivations of other sequences of a multi-choice candidate are not counted |
 
 Kinds, in the order C# reaches them (`check` order, earliest first): `no_morph_match`, `slot_order`,
 `required_slot_empty`, `feature_clash`, `other_gate`, `stem_name` and `inflection_class`,
@@ -168,7 +172,7 @@ MPR feature that carries it.
 * The `failure` field names `kind`, `hc_reason`, `morphs`, `environment`, `stem_name` and `features`,
   and the `{morpheme, allomorph?}` element shape, follow the shared conformance suite's why-not rows
   (fieldworks-parser-conformance PR 51, PROTOCOL.md section 11). Ids are the text of `grammar.xml` ids,
-  as in the suite. `allomorph` ids are optional until the loader keeps allomorph XML ids.
+  as in the suite. `allomorph` ids are `grammar.xml` allomorph ids. On a project or snapshot grammar they are opaque per-grammar keys: do not store them or map them to FieldWorks.
 * Conformance fixtures assert only the kinds C# itself reports: `environment_unmet`,
   `feature_clash`, `adhoc_prohibition` and `stem_name`. The other kinds are **engine-specific**:
   `no_morph_match`, `slot_order`, `required_slot_empty`, `surface_mismatch`, `inflection_class` and
@@ -179,23 +183,24 @@ MPR feature that carries it.
 ### Compatibility
 
 Consumers ignore fields they do not know: the report, `failure` and its parts may gain fields in
-a later slice without a new schema version. Only the `--expect-json` input is strict.
+a later slice without a new schema version. A choice and its `guid` object may carry extra fields. Only the `--expect-json` input is strict.
 
 ### Ordering and what is promised
 
 HC short-circuits, so the contract promises **only the first failure per derivation**: later
 failures of the same derivation are not reported. A candidate with several choices has several
 derivations; its `failure` is the first failure of the furthest-progress derivation, and
-`alternatives` counts the others that also fail. Derivations and candidates are ranked by first-failure rank
-(the kind order above, then position); `results` itself stays in input order, and `best` points at
-the furthest-progress candidate.
+`alternatives` counts the others that also fail. Derivations, sequences and candidates are ranked by one
+key: the index in morph order of the allomorph whose check failed (a failure about the whole word
+ranks before any allomorph, the surface match after all), then the check's place in HC's order. `results` itself stays in input order, and `best` points at
+the furthest-progress candidate. When any sequence of a candidate is `unknown`, the candidate is `unknown`: it could hide an acceptance.
 
 ## Examples (illustrative)
 
-Each example below is **illustrative**: slice 0 returns only `unknown`. Ids, GUIDs and wording are
-invented (synthetic) and use a made-up language. They validate against the report schema.
+Ids, GUIDs and wording are invented (synthetic) and use a made-up language. They validate against
+the report schema.
 
-### `unknown` (what slice 0 returns today)
+### `unknown`
 
 ```json
 {
@@ -1010,9 +1015,20 @@ Three candidates; the second offers two choices at position 1. Candidate 0 fails
 }
 ```
 
+## Suite runner
+
+`pangloss why-not <grammar> <queries.jsonl> <output.jsonl>` reads one query per line,
+`{"word", "expect": [{"morpheme", "allomorph"}...]}`, and writes one output object per query, in
+order, in the shape of the shared suite's `schema/whynot-output.schema.json`: `word`, `expect`,
+`result` and, when rejected, `failure`, or, when unknown, `stop {reason, note}`. It runs the same
+engine and maps this report onto that line; the suite names a morpheme by its `<MorphemeId>` text,
+so the runner translates to and from the engine's `id` ids. The suite compares `result` and the
+asserted subset of `failure`, and never `index`. A malformed or unresolvable query answers `unknown`
+with a stop reason of its own (`malformed_query`, `unknown_id`, `ambiguous_id`, `inconsistent_expect`
+or `invalid_query`) and does not stop the run. The pinned conformance driver cannot run this runner yet, so no `why-not` capability is declared; that waits for the machine driver.
+
 ## Not yet decided (later slices)
 
 * The accepted `analysis` is the engine's word analysis today; a later slice may add the `parse`
   projection (glosses, authored identities).
-* `alternatives` and the multi-allomorph tie rules arrive with the search.
 * Compounding and guessed roots are out of the first search slice.
