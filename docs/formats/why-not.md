@@ -6,12 +6,12 @@ surface order). It does not search every path. For each candidate it reports whe
 parses along it, and if not, the **first failing constraint**, typed, in plain words, with the
 grammar object the failure is about, so a tool can draft a fix.
 
-> **Status: slice 1 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
+> **Status: slice 2 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
 > reparsing the word with the expected morphs pinned. A rejection names the first failing
 > constraint for these kinds: `no_morph_match`, `environment_unmet` and `adhoc_prohibition`. `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
 > other failure, or a search that cannot finish, answers `unknown` with a `stop` reason, never a
 > guess. The examples below show the shape of each answer; ids, GUIDs and wording in them are
-> invented. Kinds beyond the three above are later slices.
+> invented. Kinds beyond the three above are later slices. Slice 2 declares the capability (see Detecting why-not) and makes every id in a report a `grammar.xml` id or a typed absence (see Ids).
 
 Schemas: [`why-not-v1/report-v1.schema.json`](why-not-v1/report-v1.schema.json) (the report) and
 [`why-not-v1/expect-v1.schema.json`](why-not-v1/expect-v1.schema.json) (the `--expect-json` input).
@@ -123,7 +123,7 @@ The report **always** has `results`, even for a single candidate, so one shape s
 | `results[]` | one entry per candidate, in input order |
 | `results[].expect` | the candidate as parsed: positions, each a list of `{morpheme, guid?}` choices (the same shape as `--expect-json`; `allomorph` is present when the caller pinned one) |
 | `results[].result` | `accepted`, `rejected` or `unknown` |
-| `results[].analysis` | when accepted: `{analysis, used}`. `analysis` is the ordinary word analysis (`morphemeIds`, `morphOccurrences`, ...); `used` has one `{morpheme, allomorph?}` per position, the choice that produced it. Otherwise null |
+| `results[].analysis` | when accepted: `{analysis, used}`. `analysis` is `{morphs, root_index, category, guessed}`: the derivation by authored ids (every morph in surface order as `{morpheme, allomorph, guid?}`, the root's index in `morphs`, the part of speech's `grammar.xml` id or null); it carries no engine ordinal. `used` has one `{morpheme, allomorph?}` per position, the choice that produced it. Otherwise null |
 | `results[].failure` | when rejected: the first failure (below). Otherwise null |
 | `results[].stop` | when unknown: `not_implemented`, `work_cap`, `deadline`, `failure_not_expressible` (a failure was found but cannot fill a required `failure` field; the C# tool emits this, so both engines share this schema), `no_root` (no position is a lexical entry), `unsupported_morpheme` (a position is neither a lexical entry nor an affix rule), `compounding_unsupported` (several are), `word_not_segmentable` (the word has no segmentation the parser can start from), `unclassified_failure` (HC stopped the derivation for a reason this release does not name: a category or feature clash, an empty required slot, a family block, a stem name, a `require` co-occurrence rule, a surface mismatch) or `choices_capped` (the candidate expands to more concrete sequences than the search tries). Otherwise null |
 | `results[].stop_note` | when unknown: one sentence saying what was reached. Optional |
@@ -179,6 +179,40 @@ MPR feature that carries it.
   `other_gate` (and the `unknown` result) are kept, documented as such, and are not compared with C#.
 * The `grammar.xml` id is the required identity everywhere. `entry_guid` and `msa_guid` (in a choice's `guid`) and
   `object.guid` are optional and are filled in when the caller has the FieldWorks model, as Motif does.
+
+### Ids
+
+Every identifier in a report is a `grammar.xml` id (the `id` attribute) or a typed absence. No
+engine ordinal (a morpheme, allomorph, rule or part-of-speech index) appears in a field or in
+`plain`.
+
+| Object | Where it appears | Id |
+|---|---|---|
+| morpheme (entry or affix rule) | `morphs[].morpheme`, `used[].morpheme`, `analysis.morphs[].morpheme` | `grammar.xml` id of the entry or rule; `plain` adds its `MorphemeId` text or gloss in parentheses |
+| allomorph | `morphs[].allomorph`, `object.id`, `environment.allomorph_id` | `grammar.xml` allomorph (or subrule) id |
+| entry and MSA | `morphs[].guid.{entry_guid, msa_guid}` | FieldWorks GUIDs when the grammar came from a FieldWorks model; the whole `guid` is omitted for a hand-written grammar.xml, which has neither |
+| part of speech | `analysis.category` | `grammar.xml` part-of-speech id |
+| co-occurrence rule | `object` `{type: "rule", id: null, guid: null}` | none: grammar.xml gives these rules no id, so the id is null. `morphs[0]` is the rule's owner |
+| environment | `environment.index` | none: an environment has no id, only its 0-based index in its allomorph's list |
+| rule (phonological or morphological), template, slot | not reported | no failure kind that names them is answered yet (they are `unknown / unclassified_failure`) |
+
+`plain` names an allomorph by its id (`aSal`) and a morpheme by its id with its text
+(`eSal ("SAL")`). The suite runner's morph lines name the morpheme by `MorphemeId` text as the suite
+does, and carry `entry_guid` and `msa_guid` as flat fields when known; its `plain` shows both
+spellings.
+
+### Detecting why-not
+
+A host reads `pangloss --describe` and requires, before launching why-not:
+
+* a `why-not` row in `commands`, and
+* `interfaces.whyNot` with `schema` equal to `pangloss.whynot.v1`, `ids` equal to `grammar-xml` (the
+  promise above) and, to use the queries form, `suiteRows` true.
+
+An older PanGloss has no `interfaces.whyNot` (before this capability), or no `why-not` row at all, and
+the host must refuse and say the installed PanGloss cannot answer why-not. There is no `capabilities`
+subcommand and `--version` prints only the version, so `--describe` is the one place to look.
+PanGloss ships no MCP server; Motif's own tool list is where a host exposes the answer.
 
 ### Compatibility
 
@@ -268,43 +302,23 @@ The word parses along the candidate. Position 1 offered two choices; `used` says
       "result": "accepted",
       "analysis": {
         "analysis": {
-          "morphemeIds": [
-            7,
-            21,
-            30
-          ],
-          "morphOccurrences": [
+          "morphs": [
             {
-              "allomorphId": 11,
-              "morphemeId": 7,
-              "order": 0
+              "morpheme": "kib",
+              "allomorph": "kib-1"
             },
             {
-              "allomorphId": 20,
-              "morphemeId": 21,
-              "order": 1
+              "morpheme": "ak",
+              "allomorph": "ak-1"
             },
             {
-              "allomorphId": 41,
-              "morphemeId": 30,
-              "order": 2
+              "morpheme": "ek",
+              "allomorph": "ek-1"
             }
           ],
-          "rootMorphemeIndex": 0,
-          "posId": null,
-          "synFs": "<FeatureStruct as pangloss serializes it>",
-          "mpr": "<MprSet as pangloss serializes it>",
-          "guessed": false,
-          "guessedString": null,
-          "provenance": {
-            "kind": "grammar"
-          },
-          "suppliedRoot": null,
-          "morphemeRoots": [
-            null,
-            null,
-            null
-          ]
+          "root_index": 0,
+          "category": "posN",
+          "guessed": false
         },
         "used": [
           {
@@ -653,8 +667,8 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
         "provenance": "hc_reported",
         "object": {
           "type": "rule",
-          "id": "adhoc12",
-          "guid": "00000000-0000-0000-0000-00000000000c"
+          "id": null,
+          "guid": null
         },
         "morphs": [
           {
@@ -1025,7 +1039,7 @@ engine and maps this report onto that line; the suite names a morpheme by its `<
 so the runner translates to and from the engine's `id` ids. The suite compares `result` and the
 asserted subset of `failure`, and never `index`. A malformed or unresolvable query answers `unknown`
 with a stop reason of its own (`malformed_query`, `unknown_id`, `ambiguous_id`, `inconsistent_expect`
-or `invalid_query`) and does not stop the run. The pinned conformance driver cannot run this runner yet, so no `why-not` capability is declared; that waits for the machine driver.
+or `invalid_query`) and does not stop the run. The pinned conformance suite predates PROTOCOL section 11 and the driver does not know a `why-not` capability, so the conformance scripts do not declare one; `--describe` declares it for hosts. The scripts declare it when the pin moves to a suite that has section 11.
 
 ## Not yet decided (later slices)
 

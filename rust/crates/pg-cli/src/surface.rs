@@ -226,6 +226,16 @@ struct InterfacesDescribe {
     serve_protocol: u32,
     batch_tsv: u32,
     diagnostic: serde_json::Value,
+    why_not: WhyNotDescribe,
+}
+
+/// The why-not capability. A binary without the `whyNot` key (or without the `why-not` command row) cannot answer why-not and a host must refuse; `ids` says every id in a report is a `grammar.xml` id or a typed absence, which is a promise earlier why-not builds did not make.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WhyNotDescribe {
+    schema: &'static str,
+    ids: &'static str,
+    suite_rows: bool,
 }
 
 fn interfaces() -> InterfacesDescribe {
@@ -233,6 +243,11 @@ fn interfaces() -> InterfacesDescribe {
         serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
         batch_tsv: crate::BATCH_TSV_VERSION,
         diagnostic: crate::diagnostic::describe(),
+        why_not: WhyNotDescribe {
+            schema: pg_parse::why_not::SCHEMA,
+            ids: "grammar-xml",
+            suite_rows: true,
+        },
     }
 }
 

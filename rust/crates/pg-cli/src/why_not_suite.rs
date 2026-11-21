@@ -59,6 +59,15 @@ fn suite_ref(g: &Grammar, m: &MorphRef) -> Value {
     if let Some(a) = &m.allomorph {
         o.insert("allomorph".into(), json!(a));
     }
+    // The suite spells the identities as flat fields, not the report's nested `guid`.
+    if let Some(guid) = &m.guid {
+        if let Some(e) = &guid.entry_guid {
+            o.insert("entry_guid".into(), json!(e));
+        }
+        if let Some(g) = &guid.msa_guid {
+            o.insert("msa_guid".into(), json!(g));
+        }
+    }
     Value::Object(o)
 }
 
@@ -210,4 +219,61 @@ pub(crate) fn run_suite(
         out.push('\n');
     }
     std::fs::write(output, out).map_err(|e| format!("write {}: {e}", output.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_parse::why_not::{FailureKind, Provenance};
+
+    fn grammar() -> Grammar {
+        let path = format!(
+            "{}/tests/data/why-not-environments.xml",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        crate::load_grammar(&path).unwrap().0
+    }
+
+    fn failure(kind: FailureKind) -> FirstFailure {
+        FirstFailure {
+            kind,
+            plain: "p".into(),
+            position: None,
+            hc_reason: None,
+            provenance: Provenance::Derived,
+            object: None,
+            morphs: vec![],
+            context: None,
+            environment: None,
+            stem_name: None,
+            features: vec![],
+            alternatives: None,
+        }
+    }
+
+    #[test]
+    fn an_empty_features_array_stays_on_a_feature_clash_only() {
+        let g = grammar();
+        let clash = suite_failure(&g, &failure(FailureKind::FeatureClash));
+        assert_eq!(clash["features"], json!([]), "{clash}");
+        let other = suite_failure(&g, &failure(FailureKind::NoMorphMatch));
+        assert!(other.get("features").is_none(), "{other}");
+    }
+
+    #[test]
+    fn suite_morphs_spell_the_guids_as_flat_fields() {
+        let g = grammar();
+        let m = MorphRef {
+            morpheme: "eSal".into(),
+            allomorph: Some("aSal".into()),
+            guid: Some(GuidRef {
+                entry_guid: Some("e".into()),
+                msa_guid: None,
+            }),
+        };
+        let v = suite_ref(&g, &m);
+        assert_eq!(v["morpheme"], "SAL");
+        assert_eq!(v["entry_guid"], "e");
+        assert!(v.get("msa_guid").is_none() && v.get("guid").is_none());
+    }
 }
