@@ -59,6 +59,15 @@ fn suite_ref(g: &Grammar, m: &MorphRef) -> Value {
     if let Some(a) = &m.allomorph {
         o.insert("allomorph".into(), json!(a));
     }
+    // The suite spells the identities as flat fields, not the report's nested `guid`.
+    if let Some(guid) = &m.guid {
+        if let Some(e) = &guid.entry_guid {
+            o.insert("entry_guid".into(), json!(e));
+        }
+        if let Some(g) = &guid.msa_guid {
+            o.insert("msa_guid".into(), json!(g));
+        }
+    }
     Value::Object(o)
 }
 
@@ -210,4 +219,87 @@ pub(crate) fn run_suite(
         out.push('\n');
     }
     std::fs::write(output, out).map_err(|e| format!("write {}: {e}", output.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_parse::why_not::{FailureKind, Provenance};
+
+    fn grammar() -> Grammar {
+        let path = format!(
+            "{}/tests/data/why-not-environments.xml",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        crate::load_grammar(&path).unwrap().0
+    }
+
+    fn failure(kind: FailureKind) -> FirstFailure {
+        FirstFailure {
+            kind,
+            plain: "p".into(),
+            position: None,
+            hc_reason: None,
+            provenance: Provenance::Derived,
+            object: None,
+            morphs: vec![],
+            context: None,
+            environment: None,
+            stem_name: None,
+            features: vec![],
+            alternatives: None,
+        }
+    }
+
+    #[test]
+    fn an_empty_features_array_stays_on_a_feature_clash_only() {
+        let g = grammar();
+        let clash = suite_failure(&g, &failure(FailureKind::FeatureClash));
+        assert_eq!(clash["features"], json!([]), "{clash}");
+        let other = suite_failure(&g, &failure(FailureKind::NoMorphMatch));
+        assert!(other.get("features").is_none(), "{other}");
+    }
+
+    #[test]
+    fn suite_morphs_spell_the_guids_as_flat_fields() {
+        let g = grammar();
+        let m = MorphRef {
+            morpheme: "eSal".into(),
+            allomorph: Some("aSal".into()),
+            guid: Some(GuidRef {
+                entry_guid: Some("e".into()),
+                msa_guid: None,
+            }),
+        };
+        let v = suite_ref(&g, &m);
+        assert_eq!(v["morpheme"], "SAL");
+        assert_eq!(v["entry_guid"], "e");
+        assert!(v.get("msa_guid").is_none() && v.get("guid").is_none());
+    }
+
+    #[test]
+    fn a_rejected_row_carries_flat_guid_fields() {
+        let mut g = grammar();
+        let sal = g
+            .morphemes
+            .iter()
+            .position(|m| m.xml_key == "eSal")
+            .unwrap();
+        g.morphemes[sal].owner = Some(pg_grammar::model::MorphemeOwner {
+            entry_guid: "11111111-1111-1111-1111-111111111111".into(),
+            keys_by_infl_type: false,
+        });
+        g.morphemes[sal].source_msa_guid = Some("22222222-2222-2222-2222-222222222222".into());
+        let morpher = Morpher::new(&g, 5_000_000);
+        let row = answer_line(
+            &g,
+            &morpher,
+            r#"{"word":"salk","expect":[{"morpheme":"SAL"},{"morpheme":"SUFK"}]}"#,
+        );
+        assert_eq!(row["result"], "rejected", "{row}");
+        let m = &row["failure"]["morphs"][0];
+        assert_eq!(m["morpheme"], "SAL");
+        assert_eq!(m["entry_guid"], "11111111-1111-1111-1111-111111111111");
+        assert_eq!(m["msa_guid"], "22222222-2222-2222-2222-222222222222");
+    }
 }

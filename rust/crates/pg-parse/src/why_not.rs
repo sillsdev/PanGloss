@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use pg_rules::trace::FailureReason;
 
-use crate::{Morpher, WordAnalysis};
+use crate::Morpher;
 
 /// The wire schema identifier written as `schema` in every report.
 pub const SCHEMA: &str = "pangloss.whynot.v1";
@@ -136,6 +136,36 @@ pub enum FailureKind {
 }
 
 impl FailureKind {
+    /// Whether the engine can answer this kind today; every other kind comes back `unknown`. The match is exhaustive so a new kind must be classified here.
+    pub const fn is_answered(self) -> bool {
+        match self {
+            FailureKind::NoMorphMatch
+            | FailureKind::EnvironmentUnmet
+            | FailureKind::AdhocProhibition => true,
+            FailureKind::SlotOrder
+            | FailureKind::RequiredSlotEmpty
+            | FailureKind::FeatureClash
+            | FailureKind::StemName
+            | FailureKind::InflectionClass
+            | FailureKind::SurfaceMismatch
+            | FailureKind::OtherGate => false,
+        }
+    }
+
+    /// The kinds that are answered today, in `ALL` order, as their wire names.
+    pub fn answered() -> Vec<String> {
+        Self::ALL
+            .into_iter()
+            .filter(|k| k.is_answered())
+            .map(|k| {
+                serde_json::to_value(k)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .expect("a kind serializes as a string")
+            })
+            .collect()
+    }
+
     pub const ALL: [FailureKind; 10] = [
         FailureKind::NoMorphMatch,
         FailureKind::EnvironmentUnmet,
@@ -257,6 +287,9 @@ pub struct MorphRef {
     pub morpheme: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allomorph: Option<String>,
+    /// The FieldWorks entry and MSA identities of the morpheme, when the grammar was built from a FieldWorks model; omitted for a hand-written grammar.xml, which has neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guid: Option<GuidRef>,
 }
 
 /// Actual left and right context of an unmet environment. HC does not report it; the engine or
@@ -310,11 +343,25 @@ pub struct FirstFailure {
     pub alternatives: Option<u32>,
 }
 
-/// An accepted candidate: the ordinary analysis and the choice used at each position.
+/// The accepted derivation named by authored ids only: the engine's dense morpheme, allomorph and
+/// part-of-speech ordinals shift whenever the grammar changes, so none of them is reported.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AuthoredAnalysis {
+    /// Every morph of the derivation in surface order, each allomorph once.
+    pub morphs: Vec<MorphRef>,
+    /// The root's index within `morphs`.
+    pub root_index: i32,
+    /// The part of speech's `grammar.xml` id; null when the analysis carries none.
+    pub category: Option<String>,
+    pub guessed: bool,
+}
+
+/// An accepted candidate: the derivation by authored ids and the choice used at each position.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedAnalysis {
-    pub analysis: WordAnalysis,
+    pub analysis: AuthoredAnalysis,
     /// One entry per position: the choice that produced the analysis.
     pub used: Vec<MorphRef>,
 }
@@ -570,6 +617,16 @@ pub fn resolve_morpheme(g: &Grammar, choice: &ExpectedMorph) -> Result<MorphemeI
     }
 }
 
+/// The FieldWorks identities a morpheme was built from; `None` when the grammar carries neither (a hand-written grammar.xml).
+pub(crate) fn morpheme_guid(g: &Grammar, m: MorphemeId) -> Option<GuidRef> {
+    let info = g.morphemes.get(m.0 as usize)?;
+    let guid = GuidRef {
+        entry_guid: info.owner.as_ref().map(|o| o.entry_guid.clone()),
+        msa_guid: info.source_msa_guid.clone(),
+    };
+    (guid.entry_guid.is_some() || guid.msa_guid.is_some()).then_some(guid)
+}
+
 /// The morpheme an allomorph realizes; `None` when the id is out of range or its owner is a compounding rule.
 pub(crate) fn allomorph_morpheme(g: &Grammar, a: AllomorphId) -> Option<MorphemeId> {
     match *g.allomorph_owners.get(a.0 as usize)? {
@@ -780,7 +837,6 @@ pub fn why_not(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AnalysisProvenance, MorphOccurrence};
 
     fn cand() -> Candidate {
         Candidate {
@@ -791,24 +847,16 @@ mod tests {
         }
     }
 
-    fn analysis() -> WordAnalysis {
-        WordAnalysis {
-            morpheme_ids: vec![1, 4],
-            morph_occurrences: vec![MorphOccurrence {
-                allomorph_id: 2,
-                morpheme_id: 1,
-                order: 0,
+    fn analysis() -> AuthoredAnalysis {
+        AuthoredAnalysis {
+            morphs: vec![MorphRef {
+                morpheme: "m1".into(),
+                allomorph: Some("a2".into()),
+                guid: None,
             }],
-            root_morpheme_index: 0,
-            pos_id: None,
-            syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-            mpr: Default::default(),
+            root_index: 0,
+            category: None,
             guessed: false,
-            guessed_string: None,
-            guessed_pattern: None,
-            provenance: AnalysisProvenance::Grammar,
-            supplied_root: None,
-            morpheme_roots: vec![None, None],
         }
     }
 
@@ -823,6 +871,7 @@ mod tests {
             morphs: vec![MorphRef {
                 morpheme: "m1".into(),
                 allomorph: Some("a2".into()),
+                guid: None,
             }],
             context: Some(EnvContext::derived("ab", "c")),
             environment: Some(FailureEnvironment {
@@ -938,10 +987,12 @@ mod tests {
                 MorphRef {
                     morpheme: "m3".into(),
                     allomorph: None,
+                    guid: None,
                 },
                 MorphRef {
                     morpheme: "m4".into(),
                     allomorph: None,
+                    guid: None,
                 },
             ],
         })));

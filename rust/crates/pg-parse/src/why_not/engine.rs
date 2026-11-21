@@ -8,9 +8,11 @@ use pg_rules::trace::{
 use pg_rules::word::Word;
 
 use super::{
-    AcceptedAnalysis, EnvContext, ExpectedMorph, FailureEnvironment, FailureKind, FailureObject,
-    FirstFailure, MorphRef, ObjectType, Progress, Provenance, Stop, StopReason, WhyNotOutcome,
+    AcceptedAnalysis, AuthoredAnalysis, EnvContext, ExpectedMorph, FailureEnvironment, FailureKind,
+    FailureObject, FirstFailure, MorphRef, ObjectType, Progress, Provenance, Stop, StopReason,
+    WhyNotOutcome,
 };
+use crate::identity::AnalysisIdentity;
 use crate::pins::{build_morpheme_owners, parse_word_pinned_traced, resolve_pins, MorphemeOwner};
 use crate::{Morpher, WordAnalysis};
 
@@ -54,7 +56,34 @@ impl<'a> Searcher<'a> {
         Some(MorphRef {
             morpheme: self.morpheme_name(morpheme)?,
             allomorph: allomorph.and_then(|a| self.g.allomorph_xml_key(a).map(str::to_string)),
+            guid: super::morpheme_guid(self.g, morpheme),
         })
+    }
+
+    /// A morpheme for `plain`: its grammar.xml id, then its gloss (else its `MorphemeId` text) when that adds something.
+    fn label(&self, m: MorphemeId) -> String {
+        let Some(info) = self.g.morphemes.get(m.0 as usize) else {
+            return String::new();
+        };
+        let name = [info.gloss.as_deref(), info.morph_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .find(|n| !n.is_empty() && *n != info.xml_key);
+        match name {
+            Some(n) => format!(
+                "{} (\"{}\")",
+                info.xml_key,
+                n.replace('\\', "\\\\").replace('"', "\\\"")
+            ),
+            None => info.xml_key.clone(),
+        }
+    }
+
+    fn label_with(&self, m: MorphemeId, allomorph: Option<AllomorphId>) -> String {
+        match allomorph.and_then(|a| self.g.allomorph_xml_key(a)) {
+            Some(a) => format!("{} [{a}]", self.label(m)),
+            None => self.label(m),
+        }
     }
 
     /// The outcome for one concrete sequence.
@@ -111,8 +140,19 @@ impl<'a> Searcher<'a> {
                     .filter_map(|&(m, a)| self.morph_ref(MorphemeId(m), Some(AllomorphId(a))))
                     .collect::<Vec<_>>();
                 if used.len() == found.len() {
+                    let Ok(identity) = AnalysisIdentity::project(analysis, self.g) else {
+                        return stop(
+                            StopReason::FailureNotExpressible,
+                            "the accepted derivation uses a part of speech without a grammar id",
+                        );
+                    };
                     return WhyNotOutcome::Accepted(Box::new(AcceptedAnalysis {
-                        analysis: analysis.clone(),
+                        analysis: AuthoredAnalysis {
+                            morphs: used.clone(),
+                            root_index: identity.root_index,
+                            category: identity.category,
+                            guessed: analysis.guessed,
+                        },
                         used,
                     }));
                 }
@@ -157,17 +197,8 @@ impl<'a> Searcher<'a> {
             })
             .collect();
 
-        if pinned.iter().any(|n| {
-            n.failed_allomorph.is_some()
-                && self.failure_position(n, root_index, &seq.pins).is_none()
-        }) {
-            return stop(
-                StopReason::UnclassifiedFailure,
-                "a pinned derivation fails an allomorph check this engine cannot place in the word, so it cannot say which failure is furthest",
-            );
-        }
-        if let Some(best) = self.best_failure(&pinned, &seq.pins, root_index) {
-            return self.classify(word, best, &seq.pins, pinned.len() - 1);
+        if let Some(outcome) = self.classify_pinned(word, &pinned, &seq.pins, root_index) {
+            return outcome;
         }
         let parses_otherwise = same_order_other_allomorphs || same_morphemes_other_order;
         if let Some(what) = other_stop(&sink).filter(|_| !parses_otherwise) {
@@ -201,6 +232,26 @@ impl<'a> Searcher<'a> {
             features: Vec::new(),
             alternatives: None,
         }))
+    }
+
+    /// The answer drawn from the failing derivations that honour the pins; `None` when there is none.
+    fn classify_pinned(
+        &self,
+        word: &str,
+        pinned: &[&TraceNode],
+        pins: &[Pin],
+        root_index: usize,
+    ) -> Option<WhyNotOutcome> {
+        if pinned.iter().any(|n| {
+            n.failed_allomorph.is_some() && self.failure_position(n, root_index, pins).is_none()
+        }) {
+            return Some(stop(
+                StopReason::UnclassifiedFailure,
+                "a pinned derivation fails an allomorph check this engine cannot place in the word, so it cannot say which failure is furthest",
+            ));
+        }
+        let best = self.best_failure(pinned, pins, root_index)?;
+        Some(self.classify(word, best, pins, pinned.len() - 1))
     }
 
     fn classify(
@@ -353,7 +404,8 @@ impl<'a> Searcher<'a> {
             [only] => u32::try_from(only.index).ok(),
             _ => None,
         };
-        let name = self.morpheme_name(morpheme)?;
+        self.morpheme_name(morpheme)?;
+        let name = self.label(morpheme);
         let synthesized =
             crate::surface::to_plain_string_range(table, &word.shape, false, 0..word.shape.len());
         let plain = if synthesized == input {
@@ -406,15 +458,20 @@ impl<'a> Searcher<'a> {
         };
         let word_seq = self.morpher.allomorphs_in_morph_order(word);
         let partner = || others.iter().find(|o| actual.contains(o));
-        let (primary, other, position) = match *object {
+        let (primary, other, position, labels) = match *object {
             TraceObject::Allomorph(a) => {
                 let TraceObject::Allomorph(b) = *partner()? else {
                     return None;
                 };
+                let (ma, mb) = (
+                    self.morpheme_of_allomorph(a)?,
+                    self.morpheme_of_allomorph(b)?,
+                );
                 (
-                    self.morph_ref(self.morpheme_of_allomorph(a)?, Some(a))?,
-                    self.morph_ref(self.morpheme_of_allomorph(b)?, Some(b))?,
+                    self.morph_ref(ma, Some(a))?,
+                    self.morph_ref(mb, Some(b))?,
                     self.position_of_allomorph(a, pins, word),
+                    (self.label_with(ma, Some(a)), self.label_with(mb, Some(b))),
                 )
             }
             TraceObject::Morpheme(m) => {
@@ -431,18 +488,27 @@ impl<'a> Searcher<'a> {
                     self.morph_ref(m, in_word(m))?,
                     self.morph_ref(n, in_word(n))?,
                     word_seq.iter().position(|r| r.morpheme == m),
+                    (
+                        self.label_with(m, in_word(m)),
+                        self.label_with(n, in_word(n)),
+                    ),
                 )
             }
             TraceObject::MorphRule(_) => return None,
         };
-        let plain = format!("{} forbids {}", describe(&primary), describe(&other));
+        let plain = format!("{} forbids {}", labels.0, labels.1);
         Some(FirstFailure {
             kind: FailureKind::AdhocProhibition,
             plain,
             position: position.filter(|&p| p < pins.len()),
             hc_reason: Some(format!("{reason:?}")),
             provenance: Provenance::HcReported,
-            object: None,
+            // A co-occurrence rule has no id in grammar.xml, so the object is typed and its id absent; `morphs[0]` is the rule's owner.
+            object: Some(FailureObject {
+                kind: ObjectType::Rule,
+                id: None,
+                guid: None,
+            }),
             morphs: vec![primary, other],
             context: None,
             environment: None,
@@ -454,13 +520,6 @@ impl<'a> Searcher<'a> {
 
     fn morpheme_of_allomorph(&self, a: AllomorphId) -> Option<MorphemeId> {
         super::allomorph_morpheme(self.g, a)
-    }
-}
-
-fn describe(m: &MorphRef) -> String {
-    match &m.allomorph {
-        Some(a) => format!("{} ({a})", m.morpheme),
-        None => m.morpheme.clone(),
     }
 }
 
@@ -533,12 +592,225 @@ fn other_stop(sink: &TreeTraceSink) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pg_grammar_model::model::{LexEntryId, MRuleId, StratumId};
+    use crate::why_not::{why_not, Candidate, WhyNotRequest};
+    use pg_grammar_model::model::{
+        AllomorphOwner, LexEntryId, MRuleId, MorphemeOwner as Owner, StratumId,
+    };
     use pg_rules::trace::TraceSink;
+    use pg_rules::word::MorphRecord;
     use pg_shape::ShapeBuilder;
 
     fn word() -> Word {
         Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    fn load(name: &str) -> Grammar {
+        let path = format!("{}/../pg-cli/tests/data/{name}", env!("CARGO_MANIFEST_DIR"));
+        pg_grammar::load(&std::fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    fn entry(g: &Grammar, key: &str) -> usize {
+        g.entries
+            .iter()
+            .position(|e| g.morphemes[e.morpheme.0 as usize].xml_key == key)
+            .unwrap()
+    }
+
+    fn rule_morpheme(g: &Grammar, key: &str) -> MorphemeId {
+        MorphemeId(g.morphemes.iter().position(|m| m.xml_key == key).unwrap() as u32)
+    }
+
+    fn rule_allomorph(g: &Grammar, key: &str) -> AllomorphId {
+        let want = rule_morpheme(g, key);
+        (0..g.allomorph_owners.len() as u32)
+            .map(AllomorphId)
+            .find(|&a| {
+                matches!(g.allomorph_owners[a.0 as usize], AllomorphOwner::Affix(..))
+                    && super::super::allomorph_morpheme(g, a) == Some(want)
+            })
+            .unwrap()
+    }
+
+    fn failed_node(
+        sink: &TreeTraceSink,
+        w: &Word,
+        reason: FailureReason,
+        allomorph: Option<AllomorphId>,
+    ) -> TraceNode {
+        let root = sink.analyze_word(w);
+        let h = sink.failed(root, w, reason);
+        if let Some(a) = allomorph {
+            sink.set_failed_allomorph(h, a);
+        }
+        sink.node(h)
+    }
+
+    /// A word whose morph order is the root entry `eSal` then the suffix rule `mrSufK`.
+    struct Rig {
+        g: Grammar,
+        word: Word,
+        pins: Vec<Pin>,
+        suffix: AllomorphId,
+        other_root: AllomorphId,
+    }
+
+    fn rig() -> Rig {
+        let g = load("why-not-environments.xml");
+        let sal = &g.entries[entry(&g, "eSal")];
+        let (root_a, root_m) = (sal.allomorphs[0].id, sal.morpheme);
+        let suffix = rule_allomorph(&g, "mrSufK");
+        let suffix_m = rule_morpheme(&g, "mrSufK");
+        let other_root = g.entries[entry(&g, "eLos")].allomorphs[0].id;
+        let mut word = word();
+        word.morphs.push(MorphRecord::new(root_a, root_m, 0));
+        word.morphs.push(MorphRecord::new(suffix, suffix_m, 1));
+        let pins = vec![
+            Pin {
+                morpheme: root_m,
+                allomorph: None,
+            },
+            Pin {
+                morpheme: suffix_m,
+                allomorph: None,
+            },
+        ];
+        Rig {
+            g,
+            word,
+            pins,
+            suffix,
+            other_root,
+        }
+    }
+
+    #[test]
+    fn a_failed_allomorph_without_evidence_is_placed_by_its_slot() {
+        let r = rig();
+        let morpher = Morpher::new(&r.g, 1_000_000);
+        let searcher = Searcher::new(&r.g, &morpher);
+        let sink = TreeTraceSink::with_failure_context();
+        let node = failed_node(
+            &sink,
+            &r.word,
+            FailureReason::DisjunctiveAllomorph,
+            Some(r.suffix),
+        );
+        assert!(node.failure_context.is_none());
+        assert_eq!(searcher.failure_position(&node, 0, &r.pins), Some(1));
+        let outcome = searcher
+            .classify_pinned("salk", &[&node], &r.pins, 0)
+            .unwrap();
+        let WhyNotOutcome::Unknown(stop) = outcome else {
+            panic!("a disjunctive failure is not named: {outcome:?}")
+        };
+        let note = stop.note.unwrap();
+        assert!(note.contains("DisjunctiveAllomorph"), "{note}");
+    }
+
+    #[test]
+    fn a_failure_that_cannot_be_placed_hides_a_failure_that_can() {
+        let r = rig();
+        let morpher = Morpher::new(&r.g, 1_000_000);
+        let searcher = Searcher::new(&r.g, &morpher);
+        let sink = TreeTraceSink::with_failure_context();
+        let unplaced = failed_node(
+            &sink,
+            &r.word,
+            FailureReason::DisjunctiveAllomorph,
+            Some(r.other_root),
+        );
+        assert_eq!(searcher.failure_position(&unplaced, 0, &r.pins), None);
+        let placed = failed_node(&sink, &r.word, FailureReason::BoundRoot, None);
+        let outcome = searcher
+            .classify_pinned("salk", &[&placed, &unplaced], &r.pins, 0)
+            .unwrap();
+        let WhyNotOutcome::Unknown(stop) = outcome else {
+            panic!("an unplaced failure makes the answer unknown: {outcome:?}")
+        };
+        assert_eq!(stop.reason, StopReason::UnclassifiedFailure);
+        assert!(stop.note.unwrap().contains("cannot place"));
+    }
+
+    fn request(word: &str, positions: &[&str]) -> WhyNotRequest<'static> {
+        let word: &'static str = Box::leak(word.to_string().into_boxed_str());
+        WhyNotRequest {
+            word,
+            candidates: vec![Candidate {
+                positions: positions
+                    .iter()
+                    .map(|p| vec![ExpectedMorph::new(*p)])
+                    .collect(),
+            }],
+            root_index: None,
+        }
+    }
+
+    #[test]
+    fn morphs_carry_the_fieldworks_guids_the_grammar_has() {
+        let mut g = load("why-not-environments.xml");
+        let sal = g.entries[entry(&g, "eSal")].morpheme.0 as usize;
+        g.morphemes[sal].owner = Some(Owner {
+            entry_guid: "11111111-1111-1111-1111-111111111111".into(),
+            keys_by_infl_type: false,
+        });
+        g.morphemes[sal].source_msa_guid = Some("22222222-2222-2222-2222-222222222222".into());
+        let morpher = Morpher::new(&g, 5_000_000);
+        let report = why_not(&g, &morpher, &request("salk", &["eSal", "mrSufK"])).unwrap();
+        let WhyNotOutcome::Rejected(f) = &report.results[0].outcome else {
+            panic!("{:?}", report.results[0].outcome)
+        };
+        let guid = f.morphs[0].guid.as_ref().expect("the entry has guids");
+        assert_eq!(
+            guid.entry_guid.as_deref(),
+            Some("11111111-1111-1111-1111-111111111111")
+        );
+        assert_eq!(
+            guid.msa_guid.as_deref(),
+            Some("22222222-2222-2222-2222-222222222222")
+        );
+        let ok = why_not(&g, &morpher, &request("salt", &["eSal", "mrSufT"])).unwrap();
+        let WhyNotOutcome::Accepted(a) = &ok.results[0].outcome else {
+            panic!("{:?}", ok.results[0].outcome)
+        };
+        assert_eq!(a.used[0].guid, a.analysis.morphs[0].guid);
+        assert!(a.used[0].guid.is_some());
+        assert!(a.used[1].guid.is_none(), "the suffix has no guids");
+    }
+
+    #[test]
+    fn a_hand_written_grammar_has_no_guids_and_says_nothing_instead() {
+        let g = load("why-not-environments.xml");
+        let morpher = Morpher::new(&g, 5_000_000);
+        let report = why_not(&g, &morpher, &request("salk", &["eSal", "mrSufK"])).unwrap();
+        let WhyNotOutcome::Rejected(f) = &report.results[0].outcome else {
+            panic!()
+        };
+        let morphs = serde_json::to_string(&f.morphs).unwrap();
+        assert!(!morphs.contains("guid"), "{morphs}");
+    }
+
+    #[test]
+    fn plain_names_a_morpheme_by_its_id_and_morpheme_id_text() {
+        let g = load("why-not-environments.xml");
+        let morpher = Morpher::new(&g, 5_000_000);
+        let report = why_not(&g, &morpher, &request("salk", &["eSal", "mrSufK"])).unwrap();
+        let WhyNotOutcome::Rejected(f) = &report.results[0].outcome else {
+            panic!()
+        };
+        assert!(f.plain.contains("aSal of eSal (\"SAL\")"), "{}", f.plain);
+    }
+
+    #[test]
+    fn quotes_in_a_gloss_are_escaped_in_plain() {
+        let mut g = load("why-not-environments.xml");
+        let sal = g.entries[entry(&g, "eSal")].morpheme.0 as usize;
+        g.morphemes[sal].gloss = Some("say \"hi\" \\".into());
+        let morpher = Morpher::new(&g, 5_000_000);
+        let report = why_not(&g, &morpher, &request("salk", &["eSal", "mrSufK"])).unwrap();
+        let WhyNotOutcome::Rejected(f) = &report.results[0].outcome else {
+            panic!()
+        };
+        assert!(f.plain.contains(r#"eSal ("say \"hi\" \\")"#), "{}", f.plain);
     }
 
     #[test]
