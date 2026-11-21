@@ -198,12 +198,39 @@ fn an_insertion_at_the_edge_is_bare_and_follows_the_node_through_later_rewrites(
 }
 
 #[test]
-fn rebuilding_the_shape_forgets_gaps_bare_nodes_and_pinned_starts() {
+fn rebuilding_the_shape_forgets_gaps_and_pinned_starts_but_keeps_bare_nodes_it_copies() {
     let (g, mut word) = deleted_root_initial("tps", 1);
     word.extras.pin_start((AllomorphId(ROOT), 0, 0));
-    word.extras.set_shape_marks(vec![1], vec![0]);
+    word.extras.set_shape_marks(vec![1], vec![2]);
     let out = synthesize(&g, &word, rules(&g).1).remove(0);
     assert!(out.extras.pinned_starts().is_empty());
     assert!(out.extras.deleted_gaps().is_empty());
-    assert!(out.extras.bare_nodes().is_empty());
+    // The root's last node is copied, and the suffix's one segment follows it.
+    assert_eq!(out.extras.bare_nodes(), &[out.shape.len() as u32 - 4]);
+}
+
+fn decoded_ranges(bare: &[u32]) -> Vec<(u32, u32)> {
+    let morphs = vec![
+        MorphRecord::new(AllomorphId(0), MorphemeId(0), 0),
+        MorphRecord::new(AllomorphId(1), MorphemeId(1), 3),
+    ];
+    MorphLayout::decode(&morphs, 7, bare).record_ranges
+}
+
+#[test]
+fn a_morph_span_ends_before_a_bare_node_at_its_right_edge() {
+    assert_eq!(decoded_ranges(&[]), vec![(0, 2), (3, 4)]);
+    assert_eq!(decoded_ranges(&[2]), vec![(0, 1), (3, 4)]);
+    assert_eq!(decoded_ranges(&[1, 2]), vec![(0, 0), (3, 4)]);
+    assert_eq!(decoded_ranges(&[4]), vec![(0, 2), (3, 3)]);
+}
+
+#[test]
+fn a_swap_moves_bare_nodes_and_gaps_with_the_nodes_they_follow() {
+    let g = epenthesis_grammar();
+    let mut word = root_word(&g, "sapt");
+    word.extras.set_shape_marks(vec![1, 4], vec![0, 3]);
+    word.reorder_morphs(&[0, 2, 1, 3, 4, 5]);
+    assert_eq!(word.extras.bare_nodes(), &[1, 3]);
+    assert_eq!(word.extras.deleted_gaps(), &[0, 4]);
 }

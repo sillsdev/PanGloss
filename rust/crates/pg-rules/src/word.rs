@@ -172,6 +172,11 @@ impl MorphLayout {
                     .map(|group| &morphs[group.host])
                     .find(|next| next.status == MorphStatus::Real && next.order > morph.order)
                     .map_or(last, |next| next.order.saturating_sub(1).max(morph.order));
+                // C# AllomorphEnvironment.cs:88-97 reads `morph.Range.End.Next`, and an annotation's range never holds a node inserted at its edge (AnnotationList.cs:131-138).
+                let mut end = end;
+                while end > morph.order && bare_nodes.contains(&end) {
+                    end -= 1;
+                }
                 groups[group_index].range = (morph.order, end);
             }
         }
@@ -542,7 +547,15 @@ impl Word {
             .iter()
             .filter_map(|&b| new_of_old.get(b as usize).copied())
             .collect();
-        let gaps = self.extras.deleted_gaps().to_vec();
+        // A gap stays attached to the node that follows it, so it moves with that node; one past the last node stays put.
+        let mut gaps: Vec<u32> = self
+            .extras
+            .deleted_gaps()
+            .iter()
+            .map(|&gap| new_of_old.get(gap as usize).copied().unwrap_or(gap))
+            .collect();
+        gaps.sort_unstable();
+        gaps.dedup();
         self.extras.set_shape_marks(gaps, bare);
         let mut starts: Vec<u32> = layout.groups.iter().map(|g| g.range.0).collect();
         let mut pinned: Vec<bool> = layout
@@ -661,6 +674,7 @@ impl Word {
             .map(|index| index as u32)
             .collect();
         for (index, &key) in keys.iter().enumerate() {
+            // C# MorphologicalOutputAction.cs:45-58 (CollectSkippedOptionalNodes) folds only nodes inside a morph's span, so an inserted node on its edge stays bare.
             let inside = key % 2 == 1
                 && layout.groups.iter().any(|group| {
                     let (start, end) = group.range;

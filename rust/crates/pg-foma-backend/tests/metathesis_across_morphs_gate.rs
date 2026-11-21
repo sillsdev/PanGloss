@@ -441,7 +441,7 @@ fn every_admitted_random_metathesis_grammar_matches_rust_hc() {
     );
 }
 
-/// The same seeded grammars with their metathesis rules unlisted, so deletions, epenthesis, two strata and every affix shape remain: every one the FST admits must give Rust HC's analyses, except the 159 words in 79 grammars `older-gaps-without-metathesis.txt` lists, whose FST rows are identical on v0.27.0 (older circumfix and boundary gaps). This is the sweep for a morph a deletion empties before a later stratum's affix, which needs no metathesis.
+/// The same seeded grammars with their metathesis rules unlisted, so deletions, epenthesis, two strata and every affix shape remain: every one the FST admits must give Rust HC's analyses, except the 160 words in 80 grammars `older-gaps-without-metathesis.txt` lists, whose FST rows are identical on v0.27.0 (older circumfix and boundary gaps). This is the sweep for a morph a deletion empties before a later stratum's affix, which needs no metathesis.
 #[test]
 fn every_admitted_random_grammar_without_metathesis_matches_rust_hc() {
     sweep(

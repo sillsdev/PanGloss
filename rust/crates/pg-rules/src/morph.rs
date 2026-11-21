@@ -2792,7 +2792,17 @@ fn synth_process_allomorph(
     if apply_out_mpr {
         w.mpr = g.mpr_add_output(&word.mpr, &allo.out_mpr);
     }
+    // A copied node that was bare stays outside every morph, as C# keeps its annotation off every morph's range.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            matches!(node.origin, Origin::Head(old) if word.extras.bare_nodes().contains(&(old as u32)))
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
     w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);
     if let Some(is_partial_rule) = partial {

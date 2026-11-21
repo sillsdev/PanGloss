@@ -2603,7 +2603,7 @@ pub fn synthesize_phonological_stratum_traced(
                     rule_parent,
                 ) {
                     Some(applied) => {
-                        reordered_morphs = Some(applied.morphs);
+                        reordered_morphs = Some((applied.morphs, applied.extras));
                         vec![applied.shape]
                     }
                     None => Vec::new(),
@@ -2619,8 +2619,11 @@ pub fn synthesize_phonological_stratum_traced(
                 input.remap_morph_orders(input.shape.len(), &keys);
             }
             input.shape = shape;
-            if let Some(morphs) = reordered_morphs {
+            if let Some((morphs, extras)) = reordered_morphs {
                 input.morphs = morphs;
+                input
+                    .extras
+                    .set_shape_marks(extras.deleted_gaps().to_vec(), extras.bare_nodes().to_vec());
             }
             if let Some(recorder) = trace.mode().recorder() {
                 input.trace = recorder.advance(input.trace);

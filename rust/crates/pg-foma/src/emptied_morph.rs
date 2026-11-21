@@ -112,7 +112,7 @@ pub(crate) fn shape_edit_can_reorder_morphs_before_later_affix(g: &Grammar) -> b
                 _ => false,
             })
     });
-    let foldable = can_hold_skippable_node(g);
+    let foldable = can_hold_skippable_node(g, last);
     let segmentless_morph = (0..g.strata.len()).any(|k| {
         listed_rules(g, k).any(|id| {
             rule_outputs(g, id).into_iter().any(|rhs| {
@@ -129,20 +129,23 @@ pub(crate) fn shape_edit_can_reorder_morphs_before_later_affix(g: &Grammar) -> b
     (deletes && foldable) || (inserts && segmentless_morph)
 }
 
-/// Whether some root, a literal an affix writes before it copies anything, or a rewrite output can put a boundary or an optional node at the start of a word, the only place the affix copy's left fold can reach; a boundary after a copy is led by a node some literal keeps unless a literal can lose every segment, which the emptied-morph test already refuses.
-fn can_hold_skippable_node(g: &Grammar) -> bool {
+/// Whether some root or affix literal in a stratum before the last affixing one, the literal being one an affix writes before it copies anything, or a rewrite output can put a boundary or an optional node at the start of a word, the only place the affix copy's left fold can reach; a boundary after a copy is led by a node some literal keeps unless a literal can lose every segment, which the emptied-morph test already refuses.
+fn can_hold_skippable_node(g: &Grammar, last: usize) -> bool {
     let plain = |shape: &Shape| {
         shape
             .interior()
             .all(|(_, kind, _, flags)| kind == NodeKind::Segment && !flags.is_optional())
     };
     // A pattern allomorph is matched, never synthesised; a guessed root is plain segments.
-    let roots = g.entries.iter().any(|e| {
-        e.allomorphs
-            .iter()
-            .any(|a| !a.is_pattern && !plain(&a.shape.shape))
+    let roots = g.strata.iter().take(last).any(|stratum| {
+        stratum.entries.iter().any(|id| {
+            g.entries[id.0 as usize]
+                .allomorphs
+                .iter()
+                .any(|a| !a.is_pattern && !plain(&a.shape.shape))
+        })
     });
-    let literals = (0..g.strata.len()).any(|k| {
+    let literals = (0..last).any(|k| {
         listed_rules(g, k).any(|id| {
             rule_outputs(g, id).into_iter().any(|rhs| {
                 rhs.iter()
@@ -455,5 +458,19 @@ mod tests {
             + &stratum("S1", "SU", "", &affix("SU", "", "a"), &[]);
         let g = grammar(&deletion("d", "p"), &strata);
         assert!(!shape_edit_can_reorder_morphs_before_later_affix(&g));
+    }
+
+    #[test]
+    fn a_boundary_literal_in_the_last_affixing_stratum_is_not_ahead_of_an_affix_copy() {
+        let strata = stratum("S0", "PR", "d", &affix("PR", "t", ""), &["ps"])
+            + &stratum("S1", "SU", "", &affix("SU", "+", ""), &[]);
+        let g = grammar(&deletion("d", "p"), &strata);
+        assert!(!shape_edit_can_reorder_morphs_before_later_affix(&g));
+        let earlier = stratum("S0", "PR", "d", &affix("PR", "+", ""), &["ps"])
+            + &stratum("S1", "SU", "", &affix("SU", "", "a"), &[]);
+        assert!(shape_edit_can_reorder_morphs_before_later_affix(&grammar(
+            &deletion("d", "p"),
+            &earlier
+        )));
     }
 }

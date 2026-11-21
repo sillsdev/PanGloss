@@ -222,6 +222,8 @@ staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/do-not-use-for-parsing-flag-ignored	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/epenthesis-beside-prefix-then-prefix-deletion	TunedSurfaceProbed	refused
+staging:edge-cases/epenthesis-then-swap-keeps-its-edge-before-suffix	TunedSurfaceProbed	refused
+staging:edge-cases/epenthesis-then-swap-with-root-keeps-its-edge	TunedSurfaceProbed	refused
 staging:edge-cases/feature-system-breadth	TunedSurfaceProbed	refused
 staging:edge-cases/featureless-modify-from-input	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/featureless-segment-class-rewrite	TunedSurfaceProbed	refused
@@ -269,6 +271,9 @@ staging:edge-cases/per-site-alpha-rewrite-rtl	TunedSurfaceProbed	refused
 staging:edge-cases/permissive-intermediate-class	TunedSurfaceProbed	refused
 staging:edge-cases/permissive-multisegment-output	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/pos-scoped-deletion-blocks-metathesis	TunedSurfaceProbed	refused
+staging:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/realizational-reduplication-no-proposal-route	TunedSurfaceProbed	refused
 staging:edge-cases/rewrite-analysis-feature-neutralization	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rewrite-default-environment	TunedSurfaceProbed	oracle_exact
@@ -278,6 +283,7 @@ staging:edge-cases/rewrite-default-narrow	TunedSurfaceProbed	refused
 staging:edge-cases/right-to-left-cross-table-segments-environment	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/right-to-left-multi-child-quantifier-rewrite	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/right-to-left-segments-environment-segments-node	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/root-required-environment-after-epenthesis-before-suffix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rtl-epenthesis-cursor-after-apply	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rtl-expansion-context	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rtl-expansion-final-anchor	TunedSurfaceProbed	oracle_exact
