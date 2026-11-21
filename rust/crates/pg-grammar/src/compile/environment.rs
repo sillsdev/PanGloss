@@ -102,6 +102,7 @@ pub(crate) fn snapshot_environment_source(
 ) -> EnvironmentSource {
     EnvironmentSource {
         id: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
+        guid: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
         text: (!env.representation.trim().is_empty()).then(|| env.representation.clone()),
     }
 }

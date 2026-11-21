@@ -584,6 +584,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
                 require,
                 others,
                 adjacency,
+                source_guid: None,
             });
     }
 
@@ -612,6 +613,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             require,
             others,
             adjacency,
+            source_guid: None,
         };
         match acc.allomorph_owners[primary.0 as usize] {
             AllomorphOwner::Root(le, idx) => {
@@ -1168,6 +1170,7 @@ fn load_allomorph_environments(
                         .attr("id")
                         .filter(|id| !id.trim().is_empty())
                         .map(str::to_owned),
+                    guid: None,
                     text: (!env.text.trim().is_empty()).then(|| env.text.clone()),
                 }),
             });

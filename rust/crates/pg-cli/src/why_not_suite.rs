@@ -60,6 +60,9 @@ fn suite_ref(g: &Grammar, m: &MorphRef) -> Value {
         o.insert("allomorph".into(), json!(a));
     }
     // The suite spells the identities as flat fields, not the report's nested `guid`.
+    if let Some(form) = &m.form_guid {
+        o.insert("form_guid".into(), json!(form));
+    }
     if let Some(guid) = &m.guid {
         if let Some(e) = &guid.entry_guid {
             o.insert("entry_guid".into(), json!(e));
@@ -89,6 +92,12 @@ fn suite_failure(g: &Grammar, f: &FirstFailure) -> Value {
         "morphs".into(),
         Value::Array(f.morphs.iter().map(|m| suite_ref(g, m)).collect()),
     );
+    if !f.members.is_empty() {
+        o.insert(
+            "members".into(),
+            Value::Array(f.members.iter().map(|m| suite_ref(g, m)).collect()),
+        );
+    }
     v
 }
 
@@ -243,6 +252,8 @@ mod tests {
             provenance: Provenance::Derived,
             object: None,
             morphs: vec![],
+            members: vec![],
+            environments: vec![],
             context: None,
             environment: None,
             stem_name: None,
@@ -270,10 +281,12 @@ mod tests {
                 entry_guid: Some("e".into()),
                 msa_guid: None,
             }),
+            form_guid: Some("f".into()),
         };
         let v = suite_ref(&g, &m);
         assert_eq!(v["morpheme"], "SAL");
         assert_eq!(v["entry_guid"], "e");
+        assert_eq!(v["form_guid"], "f");
         assert!(v.get("msa_guid").is_none() && v.get("guid").is_none());
     }
 

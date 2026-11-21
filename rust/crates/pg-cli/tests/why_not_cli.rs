@@ -315,6 +315,20 @@ fn a_morpheme_co_occurrence_exclusion_is_an_adhoc_prohibition() {
         .map(|m| m["morpheme"].as_str().unwrap())
         .collect();
     assert_eq!(morphs, ["mrPl", "mrPast2"], "{r}");
+    let members: Vec<&str> = r["failure"]["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["morpheme"].as_str().unwrap())
+        .collect();
+    assert_eq!(members, ["mrPl", "mrPast2"], "{r}");
+    assert!(r["failure"]["object"]["guid"].is_null(), "{r}");
+    for m in r["failure"]["members"].as_array().unwrap() {
+        assert!(
+            m.get("guid").is_none() && m.get("form_guid").is_none(),
+            "{m}"
+        );
+    }
 }
 
 #[test]
@@ -349,6 +363,13 @@ fn an_excluded_environment_names_the_actual_context() {
     assert_eq!(r["failure"]["context"]["right"], "k", "{r}");
     assert_eq!(r["failure"]["context"]["left"], "", "{r}");
     assert_eq!(r["failure"]["context"]["provenance"], "derived", "{r}");
+    let environment = &r["failure"]["environment"];
+    assert!(
+        environment.get("guid").is_none() && environment.get("text").is_none(),
+        "{r}"
+    );
+    assert!(r["failure"]["object"]["guid"].is_null(), "{r}");
+    assert!(r["failure"]["morphs"][0]["form_guid"].is_null(), "{r}");
     let ok = answer_on(
         "why-not-environments.xml",
         "salt",
@@ -843,4 +864,33 @@ fn a_no_morph_match_names_its_morphs_by_id() {
     assert_eq!(r["failure"]["morphs"][0]["morpheme"], "eKib", "{r}");
     assert_eq!(r["failure"]["morphs"][1]["morpheme"], "mrPl");
     assert_no_engine_ordinals(&r);
+}
+
+#[test]
+fn a_guid_shaped_environment_id_authored_in_grammar_xml_is_not_reported_as_a_guid() {
+    let xml = std::fs::read_to_string(data("why-not-environments.xml"))
+        .unwrap()
+        .replace(
+            "<Environment>",
+            "<Environment id=\"3f2a1b4c-0000-4000-8000-000000000001\">",
+        );
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("g.xml");
+    std::fs::write(&path, xml).unwrap();
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(&path)
+        .arg("salk")
+        .args(["--expect", "eSal,mrSufK", "--json"])
+        .output()
+        .expect("run pangloss why-not");
+    assert!(o.status.success(), "{}", stderr(&o));
+    let r = serde_json::from_slice::<Value>(&o.stdout).unwrap()["results"][0].clone();
+    assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
+    let environment = &r["failure"]["environment"];
+    assert!(
+        environment["guid"].is_null() && environment["text"].is_null(),
+        "{r}"
+    );
+    assert!(!r.to_string().contains("3f2a1b4c"), "{r}");
 }
