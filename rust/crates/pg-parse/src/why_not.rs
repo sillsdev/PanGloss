@@ -71,7 +71,7 @@ pub struct Candidate {
 pub struct WhyNotRequest<'a> {
     pub word: &'a str,
     pub candidates: Vec<Candidate>,
-    /// Position (within every candidate) of the root, when the caller knows it.
+    /// Position (within every candidate) of the root, when the caller knows it. Validated but not used by the search yet; the search finds the root itself.
     pub root_index: Option<usize>,
 }
 
@@ -177,7 +177,7 @@ impl Progress {
         };
         let slot = match reason {
             FailureReason::PartialParse | FailureReason::ObligatorySyntacticFeatures => 0,
-            FailureReason::DisjunctiveAllomorph | FailureReason::SurfaceFormMismatch => u32::MAX,
+            FailureReason::SurfaceFormMismatch => u32::MAX,
             _ => position.map_or(0, |p| p as u32 + 1),
         };
         Progress { slot, check }
@@ -1025,6 +1025,8 @@ mod tests {
     #[test]
     fn progress_orders_slot_before_check_and_ranks_no_match_lowest() {
         let at = |slot: usize, reason| Progress::of_reason(Some(slot), reason);
+        assert!(at(1, FailureReason::DisjunctiveAllomorph) > at(1, FailureReason::Environments));
+        assert!(at(2, FailureReason::BoundRoot) > at(1, FailureReason::DisjunctiveAllomorph));
         assert!(
             at(1, FailureReason::AllomorphCoOccurrenceRules) > at(0, FailureReason::Environments)
         );
