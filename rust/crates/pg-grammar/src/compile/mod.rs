@@ -1479,6 +1479,23 @@ pub(crate) fn ws_forms<'a>(
 }
 
 /// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
+/// An allomorph's authored form for a human reader: the text of the best writing system, marked as an affix when its morph type is one (`ta-`, `-ak`, `-x-`); `None` when blank.
+pub(crate) fn source_form_text(
+    allo: &pg_snapshot::lexicon::Allomorph,
+    preferred_ws: Option<&str>,
+) -> Option<String> {
+    let text = best_ws(&allo.forms, preferred_ws)?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(match affixes::shape_of(allo.morph_type) {
+        Some(affixes::Shape::Prefix) => format!("{text}-"),
+        Some(affixes::Shape::Suffix) => format!("-{text}"),
+        Some(affixes::Shape::Infix) => format!("-{text}-"),
+        None => text.to_string(),
+    })
+}
+
 pub(crate) fn format_form(s: &str) -> String {
     s.trim().replace(' ', ".")
 }

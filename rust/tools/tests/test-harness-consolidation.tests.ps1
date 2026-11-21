@@ -117,7 +117,7 @@ $crateSpecs = @(
             'trace_phon_gate.rs', 'trace_rule_sequence_gate.rs', 'truncate_morphotactic_identity.rs',
             'word_timeout_gate.rs', 'guess_only_orchestration_gate.rs',
             'word_timeout_pathological_gate.rs', 'xample_migration_differential_gate.rs',
-            'zero_width_morph_identity.rs'
+            'why_not_fieldworks_guids.rs', 'zero_width_morph_identity.rs'
         )
     }
     @{

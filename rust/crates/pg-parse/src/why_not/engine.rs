@@ -100,8 +100,64 @@ impl<'a> Searcher<'a> {
         envs.get(index? as usize)?.source.as_ref()
     }
 
-    /// A morpheme for `plain`: its grammar.xml id, then its gloss (else its `MorphemeId` text) when that adds something.
+    /// Whether a morpheme was built from a FieldWorks model, whose ids are opaque guids that must not reach a sentence.
+    fn is_snapshot_morpheme(&self, m: MorphemeId) -> bool {
+        self.g
+            .morphemes
+            .get(m.0 as usize)
+            .is_some_and(|i| i.source_msa_guid.is_some() || i.source_infl_type_guid.is_some())
+    }
+
+    /// The authored form text of an allomorph (halves of a circumfix joined), else of the morpheme's first allomorph.
+    fn form_text(&self, m: MorphemeId, allomorph: Option<AllomorphId>) -> Option<String> {
+        let first = || match self.owners.get(m.0 as usize)?.as_ref()? {
+            MorphemeOwner::LexEntry(le) => {
+                Some(self.g.entries.get(le.0 as usize)?.allomorphs.first()?.id)
+            }
+            MorphemeOwner::MRule(r) => Some(
+                self.g
+                    .mrules
+                    .get(r.0 as usize)?
+                    .affix_allomorphs()?
+                    .first()?
+                    .id,
+            ),
+        };
+        let a = allomorph.or_else(first)?;
+        let texts: Vec<&str> = self
+            .g
+            .allomorph_sources
+            .get(a.0 as usize)?
+            .form_texts
+            .iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        (!texts.is_empty()).then(|| texts.join(" ... "))
+    }
+
+    /// A snapshot-route morph for `plain`: its form text and gloss (`-ak 'PL'`), the form alone without a gloss.
+    fn snapshot_label(&self, m: MorphemeId, allomorph: Option<AllomorphId>) -> String {
+        let gloss = self
+            .g
+            .morphemes
+            .get(m.0 as usize)
+            .and_then(|i| i.gloss.as_deref())
+            .filter(|g| !g.is_empty())
+            .map(|g| format!("'{}'", g.replace('\\', "\\\\").replace('\'', "\\'")));
+        match (self.form_text(m, allomorph), gloss) {
+            (Some(form), Some(gloss)) => format!("{form} {gloss}"),
+            (Some(form), None) => form,
+            (None, Some(gloss)) => gloss,
+            (None, None) => "a morph with no form text or gloss".to_string(),
+        }
+    }
+
+    /// A morpheme for `plain`: on a snapshot its form text and gloss; else its grammar.xml id, then its gloss (else its `MorphemeId` text) when that adds something.
     fn label(&self, m: MorphemeId) -> String {
+        if self.is_snapshot_morpheme(m) {
+            return self.snapshot_label(m, None);
+        }
         let Some(info) = self.g.morphemes.get(m.0 as usize) else {
             return String::new();
         };
@@ -120,6 +176,9 @@ impl<'a> Searcher<'a> {
     }
 
     fn label_with(&self, m: MorphemeId, allomorph: Option<AllomorphId>) -> String {
+        if self.is_snapshot_morpheme(m) {
+            return self.snapshot_label(m, allomorph);
+        }
         match allomorph.and_then(|a| self.g.allomorph_xml_key(a)) {
             Some(a) => format!("{} [{a}]", self.label(m)),
             None => self.label(m),
@@ -458,7 +517,11 @@ impl<'a> Searcher<'a> {
             })
             .collect();
         self.morpheme_name(morpheme)?;
-        let name = self.label(morpheme);
+        let subject = if self.is_snapshot_morpheme(morpheme) {
+            self.snapshot_label(morpheme, Some(object))
+        } else {
+            format!("allomorph {allomorph_id} of {}", self.label(morpheme))
+        };
         let synthesized =
             crate::surface::to_plain_string_range(table, &word.shape, false, 0..word.shape.len());
         let texts: Vec<&str> = failed.iter().filter_map(|e| e.text.as_deref()).collect();
@@ -469,11 +532,11 @@ impl<'a> Searcher<'a> {
         };
         let plain = if synthesized == input {
             format!(
-                "allomorph {allomorph_id} of {name} is not allowed where it surfaces, between \"{left}\" and \"{right}\"{env_note}"
+                "{subject} is not allowed where it surfaces, between \"{left}\" and \"{right}\"{env_note}"
             )
         } else {
             format!(
-                "allomorph {allomorph_id} of {name} is not allowed in the synthesized form \"{synthesized}\" (phonological rules later make it \"{input}\"), between \"{left}\" and \"{right}\"{env_note}"
+                "{subject} is not allowed in the synthesized form \"{synthesized}\" (phonological rules later make it \"{input}\"), between \"{left}\" and \"{right}\"{env_note}"
             )
         };
         Some(FirstFailure {

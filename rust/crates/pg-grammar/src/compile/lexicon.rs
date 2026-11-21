@@ -552,6 +552,10 @@ fn build_stem_entry(
                     ));
                 acc.allomorph_sources.push(crate::model::AllomorphSource {
                     form_guids: vec![Some(allo.guid.clone())],
+                    form_texts: vec![super::source_form_text(
+                        allo,
+                        ctx.default_vernacular_ws.as_deref(),
+                    )],
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });
@@ -982,6 +986,10 @@ fn build_variant_stem_entry(
                     ));
                 acc.allomorph_sources.push(crate::model::AllomorphSource {
                     form_guids: vec![Some(allo.guid.clone())],
+                    form_texts: vec![super::source_form_text(
+                        allo,
+                        ctx.default_vernacular_ws.as_deref(),
+                    )],
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });

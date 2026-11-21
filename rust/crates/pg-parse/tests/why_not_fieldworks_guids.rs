@@ -167,3 +167,72 @@ fn a_guid_names_every_morpheme_sharing_its_entry_and_msa() {
         Err(WhyNotError::AmbiguousGuidAllomorph { morphemes: 2, .. })
     ));
 }
+
+/// A sentence for an author must name morphs by form text and gloss, never by a guid or a `<formguid>#n` key.
+fn assert_no_raw_ids(plain: &str) {
+    assert!(
+        !plain.contains("00000000-0000") && !plain.contains('#'),
+        "{plain}"
+    );
+}
+
+#[test]
+fn an_environment_sentence_names_the_allomorph_by_form_and_gloss() {
+    let g = grammar();
+    for (word, form) in [("da", "da"), ("dat", "dat")] {
+        let f = failure(&g, word, &["000000000102"]);
+        assert_eq!(f.kind, FailureKind::EnvironmentUnmet);
+        assert_no_raw_ids(&f.plain);
+        assert!(
+            f.plain.starts_with(&format!("{form} 'run' is not allowed")),
+            "{}",
+            f.plain
+        );
+        assert!(f.object.as_ref().unwrap().guid.is_some());
+    }
+}
+
+#[test]
+fn a_morph_without_a_gloss_is_named_by_its_form_alone() {
+    let g = grammar();
+    let f = failure(&g, "da", &["000000000103"]);
+    assert_eq!(f.kind, FailureKind::EnvironmentUnmet);
+    assert_no_raw_ids(&f.plain);
+    assert!(f.plain.starts_with("da is not allowed"), "{}", f.plain);
+}
+
+#[test]
+fn a_prohibition_sentence_names_both_morphs_by_form_and_gloss() {
+    let g = grammar();
+    for (word, msas, sentence) in [
+        (
+            "tada",
+            ["000000000202", "000000000102"],
+            "ta- 'PA' forbids da 'run'",
+        ),
+        (
+            "tadat",
+            ["000000000202", "000000000102"],
+            "ta- 'PA' forbids dat 'run'",
+        ),
+        (
+            "tda",
+            ["000000000202", "000000000102"],
+            "t- 'PA' forbids da 'run'",
+        ),
+    ] {
+        let f = failure(&g, word, &msas);
+        assert_eq!(f.kind, FailureKind::AdhocProhibition, "{word}");
+        assert_eq!(f.plain, sentence, "{word}");
+        assert_eq!(f.position, Some(0), "{word}");
+        assert!(f.object.as_ref().unwrap().guid.is_some());
+    }
+}
+
+#[test]
+fn a_no_morph_match_sentence_quotes_no_raw_id() {
+    let g = grammar();
+    let f = failure(&g, "ad", &["000000000102"]);
+    assert_eq!(f.kind, FailureKind::NoMorphMatch);
+    assert_no_raw_ids(&f.plain);
+}
