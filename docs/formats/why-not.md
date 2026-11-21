@@ -145,8 +145,8 @@ rejected.
 | Field | Meaning |
 |---|---|
 | `kind` | one of the kinds below |
-| `plain` | one English sentence |
-| `position` | 0-based position in the candidate the failure is about, or null when it is about the whole word |
+| `plain` | one English sentence. On a grammar built from a FieldWorks model it names a morph by its form text and gloss (`-ak 'PL'`, the form alone when there is no gloss) and never quotes a guid or a compiled `<formguid>#n` key; on a `grammar.xml` it names ids, as the table below says. Ids stay in the structured fields |
+| `position` | 0-based position in the candidate of the morph whose check failed, or null when the failure is about the whole word. For `environment_unmet` and `adhoc_prohibition` it is the position of `morphs[0]`, the allomorph or morpheme that owns the environment or the rule; for a prohibition the partner is only in `morphs[1]` and `members`, so `position` does not say where it sits. Never a guess: null when the morph cannot be placed in the candidate |
 | `hc_reason` | the engine's reason, the C# `FailureReason` name when HC reports it, or null when PanGloss inferred the failure |
 | `provenance` | `hc_reported` (C# raises this failure) or `derived` (PanGloss inferred it; C# has no event) |
 | `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the grammar came from a FieldWorks model (a `.fwdata` snapshot). `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`; `guid` is that allomorph's `MoForm` guid); `adhoc_prohibition` fills it with the `rule` (`guid` is the `MoAdhocProhib` guid, `id` stays null); `stem_name` carries `stem_name` instead; null when no single object applies |
@@ -203,8 +203,8 @@ engine ordinal (a morpheme, allomorph, rule or part-of-speech index) appears in 
 | environment | `environment.index`, `environment.guid`, `environment.text` | `index` is the 0-based position in its allomorph's list; `guid` and `text` come from the FieldWorks model only, never from grammar.xml: its `<Environment>` has no id, and an `id` authored there is never reported as a guid |
 | rule (phonological or morphological), template, slot | not reported | no failure kind that names them is answered yet (they are `unknown / unclassified_failure`) |
 
-`plain` names an allomorph by its id (`aSal`) and a morpheme by its id with its text
-(`eSal ("SAL")`). The suite runner's morph lines name the morpheme by `MorphemeId` text as the suite
+On a `grammar.xml`, `plain` names an allomorph by its id (`aSal`) and a morpheme by its id with its text
+(`eSal ("SAL")`); on a FieldWorks snapshot it names a morph by form text and gloss instead (`ta- 'PA' forbids da 'run'`). The suite runner's morph lines name the morpheme by `MorphemeId` text as the suite
 does, and carry `entry_guid` and `msa_guid` as flat fields when known; its `plain` shows both
 spellings.
 
@@ -216,7 +216,8 @@ A host reads `pangloss --describe` and requires, before launching why-not:
 * `interfaces.whyNot` with `schema` equal to `pangloss.whynot.v1`, `ids` equal to `grammar-xml` (the
   promise above), `kinds` (the failure kinds answered today, taken from the engine; every other
   kind comes back `unknown`, so a host can say so up front) and, to use the queries form,
-  `suiteRows` true.
+  `suiteRows` true, and `expectGuidChoices` true when `--expect-json` must accept a choice that carries only a `guid` (a
+  build without the key needs a `morpheme` id on every choice, so refuse it).
 
 An older PanGloss has no `interfaces.whyNot` (before this capability), or no `why-not` row at all, and
 the host must refuse and say the installed PanGloss cannot answer why-not. There is no `capabilities`

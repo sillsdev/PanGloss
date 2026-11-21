@@ -236,6 +236,8 @@ struct WhyNotDescribe {
     schema: &'static str,
     ids: &'static str,
     suite_rows: bool,
+    /// `--expect-json` accepts a choice that carries only a `guid`, so a host can refuse on a build that needs a morpheme id.
+    expect_guid_choices: bool,
     /// The failure kinds answered today; any other kind is `unknown`.
     kinds: Vec<String>,
 }
@@ -249,6 +251,7 @@ fn interfaces() -> InterfacesDescribe {
             schema: pg_parse::why_not::SCHEMA,
             ids: "grammar-xml",
             suite_rows: true,
+            expect_guid_choices: true,
             kinds: pg_parse::why_not::FailureKind::answered(),
         },
     }

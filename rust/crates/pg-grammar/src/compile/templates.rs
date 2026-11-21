@@ -443,6 +443,7 @@ fn build_null_affix_rule(
         .push(AllomorphOwner::Affix(mrule_id, 0));
     acc.allomorph_sources.push(crate::model::AllomorphSource {
         form_guids: Vec::new(),
+        form_texts: Vec::new(),
         omitted: true,
         placement: crate::model::SourceMorphPlacement::Append,
     });
