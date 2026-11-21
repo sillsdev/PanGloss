@@ -168,12 +168,16 @@ fn a_guid_names_every_morpheme_sharing_its_entry_and_msa() {
     ));
 }
 
-/// A sentence for an author must name morphs by form text and gloss, never by a guid or a `<formguid>#n` key.
+/// A sentence for an author must name morphs by form text and gloss, never by a guid or a `<formguid>#n` key; any guid-shaped token (8-4-4-4-12 hex) fails.
 fn assert_no_raw_ids(plain: &str) {
-    assert!(
-        !plain.contains("00000000-0000") && !plain.contains('#'),
-        "{plain}"
-    );
+    let hex = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit());
+    let guid_shaped = plain
+        .split(|c: char| !(c.is_ascii_hexdigit() || c == '-'))
+        .any(|t| {
+            let p: Vec<&str> = t.split('-').collect();
+            p.len() == 5 && [8, 4, 4, 4, 12].iter().zip(&p).all(|(n, s)| hex(s, *n))
+        });
+    assert!(!guid_shaped && !plain.contains('#'), "{plain}");
 }
 
 #[test]

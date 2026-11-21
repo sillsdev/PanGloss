@@ -1036,6 +1036,34 @@ mod tests {
         assert!(f.plain.contains(r#"eSal ("say \"hi\" \\")"#), "{}", f.plain);
     }
 
+    fn snapshot_morpheme(forms: &[Option<&str>], gloss: Option<&str>) -> String {
+        let mut g = load("why-not-environments.xml");
+        let e = entry(&g, "eSal");
+        let (m, a) = (g.entries[e].morpheme, g.entries[e].allomorphs[0].id);
+        g.morphemes[m.0 as usize].source_msa_guid = Some("msa".into());
+        g.morphemes[m.0 as usize].gloss = gloss.map(str::to_string);
+        g.allomorph_sources[a.0 as usize].form_texts =
+            forms.iter().map(|f| f.map(str::to_string)).collect();
+        let morpher = Morpher::new(&g, 5_000_000);
+        Searcher::new(&g, &morpher).label_with(m, Some(a))
+    }
+
+    #[test]
+    fn a_circumfix_names_both_halves_in_order() {
+        let both = snapshot_morpheme(&[Some("ka-"), Some("-ta")], Some("CIRC"));
+        assert_eq!(both, "ka- ... -ta 'CIRC'");
+    }
+
+    #[test]
+    fn a_snapshot_morph_falls_back_to_gloss_then_to_a_fixed_phrase() {
+        assert_eq!(snapshot_morpheme(&[], Some("PL")), "'PL'");
+        assert_eq!(snapshot_morpheme(&[Some("-ak")], None), "-ak");
+        assert_eq!(
+            snapshot_morpheme(&[], None),
+            "a morph with no form text or gloss"
+        );
+    }
+
     #[test]
     fn a_blocked_node_alone_is_another_cause() {
         let sink = TreeTraceSink::new();
