@@ -539,6 +539,8 @@ pub enum SourceMorphPlacement {
 pub struct AllomorphSource {
     /// Authoritative FieldWorks `MoForm.Guid` values; other XML identities are not substitutes.
     pub form_guids: Vec<Option<String>>,
+    /// The authored form text of each slot of `form_guids`, with the affix marker its morph type implies (`-ak`, `ta-`); `None` when the source has no text. Words a report for an author; never an id.
+    pub form_texts: Vec<Option<String>>,
     /// A null-affix rule is intentionally omitted by FieldWorks' `GetMorphs` projection.
     pub omitted: bool,
     pub placement: SourceMorphPlacement,

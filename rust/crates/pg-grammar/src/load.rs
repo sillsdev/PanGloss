@@ -1611,6 +1611,7 @@ fn try_load_affix_process_rule(
                 acc.allomorph_sources.push(AllomorphSource {
                     // XML id is only a structural handle; source provenance is unavailable here.
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement,
                 });
@@ -1727,6 +1728,7 @@ fn try_load_realizational_rule(
                 let placement = source_morph_placement(&def.rhs);
                 acc.allomorph_sources.push(AllomorphSource {
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement,
                 });
@@ -2159,6 +2161,7 @@ fn try_load_lex_entry(
                 acc.allomorph_sources.push(AllomorphSource {
                     // XML id is only a structural handle; source provenance is unavailable here.
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });

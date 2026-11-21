@@ -217,6 +217,7 @@ fn describe_json_publishes_the_why_not_capability_and_its_answered_kinds() {
     assert_eq!(w["schema"], "pangloss.whynot.v1");
     assert_eq!(w["ids"], "grammar-xml");
     assert_eq!(w["suiteRows"], true);
+    assert_eq!(w["expectGuidChoices"], true);
     assert_eq!(
         w["kinds"],
         serde_json::json!(["no_morph_match", "environment_unmet", "adhoc_prohibition"])

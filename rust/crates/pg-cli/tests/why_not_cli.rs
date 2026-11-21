@@ -308,6 +308,10 @@ fn a_morpheme_co_occurrence_exclusion_is_an_adhoc_prohibition() {
     );
     assert_eq!(failure_kind(&r), "adhoc_prohibition", "{r}");
     assert_eq!(r["failure"]["hc_reason"], "MorphemeCoOccurrenceRules");
+    assert_eq!(
+        r["failure"]["position"], 2,
+        "the rule's owner, mrPl, is the third morph: {r}"
+    );
     let morphs: Vec<&str> = r["failure"]["morphs"]
         .as_array()
         .unwrap()
@@ -733,6 +737,7 @@ fn describe_declares_the_why_not_capability() {
     assert_eq!(c["schema"], "pangloss.whynot.v1", "{v}");
     assert_eq!(c["ids"], "grammar-xml");
     assert_eq!(c["suiteRows"], true);
+    assert_eq!(c["expectGuidChoices"], true, "{v}");
     let kinds: Vec<&str> = c["kinds"]
         .as_array()
         .unwrap()

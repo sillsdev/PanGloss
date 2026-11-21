@@ -273,6 +273,7 @@
           "type": "string"
         },
         "position": {
+          "description": "0-based position in the candidate of the morph whose check failed: for environment_unmet and adhoc_prohibition, the owner of the environment or rule (morphs[0]). Null for a whole-word failure or when the morph cannot be placed.",
           "type": [
             "integer",
             "null"

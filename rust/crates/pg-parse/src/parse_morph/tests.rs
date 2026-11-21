@@ -31,6 +31,7 @@ fn grammar(msa: Option<&str>, infl_type: Option<&str>, forms: Vec<Vec<Option<&st
                 .into_iter()
                 .map(|guid| guid.map(str::to_string))
                 .collect(),
+            form_texts: Vec::new(),
             omitted: false,
             placement: SourceMorphPlacement::Append,
         })
