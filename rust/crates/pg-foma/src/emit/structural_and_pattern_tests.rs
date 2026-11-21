@@ -244,14 +244,25 @@ fn structural_boundary_graph_grows_linearly() {
 
 #[test]
 fn structural_boundary_graph_is_used_by_the_production_emitter() {
-    let g = metathesis_without_reduplication_or_truncation();
+    // Without its metathesis rules: a swap across `mi+u` is refused by the FST (#374), and the boundary continuations do not depend on it.
+    let mut g = metathesis_without_reduplication_or_truncation();
+    let metathesis: Vec<_> = g
+        .prules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| matches!(rule, pg_grammar::model::PhonRuleDef::Metathesis(_)))
+        .map(|(index, _)| pg_grammar::model::PRuleId(index as u32))
+        .collect();
+    for stratum in &mut g.strata {
+        stratum.prules.retain(|pid| !metathesis.contains(pid));
+    }
     let emitted = emit(&g);
     assert!(emitted.report.counts.composite_structural_entries > 0);
     assert!(
         emitted.lexc_source.contains("LEXICON SC"),
         "shared boundary continuations must be reachable"
     );
-    assert_grammar_confirms(&g, &["mu+i"]);
+    assert_grammar_confirms(&g, &["mi+u"]);
 }
 
 #[test]
@@ -557,6 +568,7 @@ fn suffixing_vowel_harmony_uses_the_full_parser() {
     assert!(emitted.lexc_source.is_empty());
 }
 
+/// Also without any reduplication, the one-segment `i` suffix or the vowel-raising rewrite; its metathesis rules can still swap across `mi+u`.
 fn metathesis_without_reduplication_or_truncation() -> Grammar {
     let mut g = load("languages/metathesis-phase-isolation/grammar.xml");
     let allowed: Vec<_> = g
@@ -565,11 +577,35 @@ fn metathesis_without_reduplication_or_truncation() -> Grammar {
         .flat_map(|s| s.mrules.iter().copied())
         .filter(|&mid| {
             !pg_foma_runtime::emission_support::reduplication_rule_is_peelable(&g, mid)
-                && g.morphemes[owning_morpheme(&g, mid).0 as usize].xml_key != "mrTrunc"
+                && ![
+                    "mrTrunc",
+                    "mrInfixUm",
+                    "mrCircum",
+                    "mrLnk",
+                    "mrPerf",
+                    "mrISuffix",
+                    "mrRedupCV",
+                    "mrRedupFull",
+                    "mrRedupHi",
+                ]
+                .contains(
+                    &g.morphemes[owning_morpheme(&g, mid).0 as usize]
+                        .xml_key
+                        .as_str(),
+                )
         })
         .collect();
+    let raising: Vec<_> = g
+        .prules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| matches!(rule, pg_grammar::model::PhonRuleDef::Rewrite(r) if r.xml_id == "prNonContig"))
+        .map(|(index, _)| pg_grammar::model::PRuleId(index as u32))
+        .collect();
+    assert_eq!(raising.len(), 1, "the raising rule is present");
     for stratum in &mut g.strata {
         stratum.mrules.retain(|mid| allowed.contains(mid));
+        stratum.prules.retain(|pid| !raising.contains(pid));
     }
     g
 }
@@ -679,10 +715,21 @@ fn prefix_reduplication_confirms() {
     assert_grammar_confirms(&g, &["tutula", "tulatula"]);
 }
 
-/// Metathesis that leaves a boundary char inside the surface: generate_words strips it, with_boundary_insertions must re-introduce it so the boundary-bearing query is reachable.
+/// The swap of `mi+u` to `mu+i` moves a root segment into the suffix's span, which the surface skeleton cannot tag, so the FST refuses the grammar by cause (#374).
 #[test]
-fn metathesis_boundary_in_surface_confirms() {
-    assert_grammar_confirms(&metathesis_without_reduplication_or_truncation(), &["mu+i"]);
+fn metathesis_across_a_surface_boundary_is_refused() {
+    let g = metathesis_without_reduplication_or_truncation();
+    let (proposer, _) = crate::analyzer::compile_proposer_with_profile(&g);
+    let Err(crate::analyzer::FomaError::CapabilityRefused(refusals)) = proposer else {
+        panic!("the FST refuses this grammar by capability");
+    };
+    assert!(
+        refusals.iter().any(|d| d.refusal
+            == pg_health::capability::CapabilityRefusal::ProposalRecall(
+                pg_health::capability::ProposalRecallGap::MetathesisAcrossMorphs
+            )),
+        "{refusals:?}"
+    );
 }
 
 /// A no-op without boundary reps; enumerates every interior gap with them.

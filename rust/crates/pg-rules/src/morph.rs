@@ -49,6 +49,8 @@ mod edge_prefilter;
 mod gate_tests;
 mod merge_captures;
 mod optional_runs;
+#[cfg(test)]
+mod shape_mark_tests;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
@@ -1521,8 +1523,9 @@ fn attribute_morphs(
         &[u16],
     )>,
 ) -> Vec<MorphRecord> {
-    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len());
-    let non_head_layout = non_head.map(|word| MorphLayout::decode(&word.morphs, word.shape.len()));
+    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len(), head.extras.bare_nodes());
+    let non_head_layout = non_head
+        .map(|word| MorphLayout::decode(&word.morphs, word.shape.len(), word.extras.bare_nodes()));
     let mut pending = Vec::new();
     let mut output_owners = vec![None; out.len()];
 
@@ -1665,6 +1668,8 @@ struct PartSource<'a> {
     shape: &'a Shape,
     range: Option<(usize, usize)>,
     head: bool, // true = Origin::Head, false = Origin::NonHead
+    /// The source word's `Extras::deleted_gaps`.
+    deleted_gaps: &'a [u32],
 }
 
 /// Copies `src`'s captured nodes into `out`, tagging origin; `force_origin` overrides the default Copy/Modify-based choice, which is how `classify_redup` marks a repeated copy as new rather than existing.
@@ -1684,12 +1689,17 @@ fn copy_part(
         let first_node = src.node_of[s];
         let skippable =
             |i: usize| src.shape.kind(i) == NodeKind::Boundary || src.shape.flags(i).is_optional();
+        // C# CopyFromInput.cs:28-48 and MorphologicalOutputAction.cs:45-58 walk over a deleted node only if it was Optional, so a deleted node left of the capture stops the fold.
+        let blocked = src
+            .deleted_gaps
+            .iter()
+            .any(|&gap| (gap as usize) < first_node);
         let mut i = first_node;
         while i > 0 && skippable(i - 1) {
             i -= 1;
         }
         // The walk must stop AT the left anchor for the fold to apply; stopping at any non-optional interior node folds nothing.
-        if i == 1 {
+        if i == 1 && !blocked {
             positions.extend(1..first_node);
         }
     }
@@ -2734,6 +2744,7 @@ fn synth_process_allomorph(
                     shape: &word.shape,
                     range: ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, redup.get(&rhs_idx).copied());
             }
@@ -2743,6 +2754,7 @@ fn synth_process_allomorph(
                     shape: &word.shape,
                     range: ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(
                     g,
@@ -2780,6 +2792,17 @@ fn synth_process_allomorph(
     if apply_out_mpr {
         w.mpr = g.mpr_add_output(&word.mpr, &allo.out_mpr);
     }
+    // A copied node that was bare stays outside every morph, as C# keeps its annotation off every morph's range.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            matches!(node.origin, Origin::Head(old) if word.extras.bare_nodes().contains(&(old as u32)))
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
+    w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);
     if let Some(is_partial_rule) = partial {
@@ -4268,6 +4291,7 @@ fn synth_compound_subrule(
                     shape: &word.shape,
                     range: head_ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, None);
             }
@@ -4277,6 +4301,7 @@ fn synth_compound_subrule(
                     shape: &nh.shape,
                     range: nh_ranges[*i as usize],
                     head: false,
+                    deleted_gaps: nh.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, None);
             }
@@ -4306,6 +4331,18 @@ fn synth_compound_subrule(
         &g.mpr_add_output(&word.mpr, &sr.out_mpr),
         &rule.output_prod_restrictions_mpr,
     );
+    // A copied head node that was bare stays outside every morph; C# folds non-head nodes into one root morph, so a non-head carries no bare node.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| match node.origin {
+            Origin::Head(old) => word.extras.bare_nodes().contains(&(old as u32)),
+            _ => false,
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
+    w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
     // The consumed non-head stays in `w.non_heads()` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.

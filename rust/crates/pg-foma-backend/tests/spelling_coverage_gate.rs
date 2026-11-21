@@ -3,9 +3,9 @@
 use pg_conformance_fixtures::discover;
 use pg_foma::emit::{emit_tuned_surface, FomaTier};
 
-const PREFIX: &str = "staging:edge-cases/spelling-coverage-copy-slots";
+const PREFIX: &str = "edge-cases/spelling-coverage-copy-slots";
 
-const COMPOUND: &str = "staging:edge-cases/spelling-coverage-compound";
+const COMPOUND: &str = "edge-cases/spelling-coverage-compound";
 
 /// A proved compound fixture and the token inventory its exhaustive neighbors are drawn from.
 struct Proved {
@@ -110,7 +110,11 @@ const PROVED: &[Proved] = &[
 fn fixture_named(label: &str) -> pg_conformance_fixtures::FixtureRef {
     discover()
         .into_iter()
-        .find(|f| f.label() == label)
+        .find(|f| {
+            f.label()
+                .split_once(':')
+                .is_some_and(|(_, path)| path == label)
+        })
         .unwrap_or_else(|| panic!("fixture {label} is missing"))
 }
 
@@ -227,7 +231,11 @@ fn compound_shapes_outside_the_proof_keep_the_typed_spelling_refusal() {
 fn witnessed_spelling_paths_are_created_consumed_and_recover_every_identity() {
     let fixtures: Vec<_> = discover()
         .into_iter()
-        .filter(|f| f.label().starts_with(PREFIX))
+        .filter(|f| {
+            f.label()
+                .split_once(':')
+                .is_some_and(|(_, path)| path.starts_with(PREFIX))
+        })
         .collect();
     assert_eq!(fixtures.len(), 6);
     for fixture in fixtures {
@@ -455,7 +463,7 @@ fn compound_construction_refuses_without_an_artifact_at_the_compound_depth_bound
 fn copied_spelling_construction_refuses_without_an_artifact_at_a_work_boundary() {
     let fixture = discover()
         .into_iter()
-        .find(|f| f.label() == PREFIX)
+        .find(|f| f.label() == format!("machine:{PREFIX}"))
         .unwrap();
     let g = fixture.load_grammar();
     let emitted = pg_foma::emit::emit_with_structural_limits(
@@ -474,16 +482,19 @@ fn copied_spelling_construction_refuses_without_an_artifact_at_a_work_boundary()
 #[test]
 fn aliases_feature_completion_and_duplicate_definition_controls_are_observable() {
     let fixtures = discover();
-    let base = fixtures.iter().find(|f| f.label() == PREFIX).unwrap();
+    let base = fixtures
+        .iter()
+        .find(|f| f.label() == format!("machine:{PREFIX}"))
+        .unwrap();
     let base_words = base.load_words_yaml();
     let alias_deleted = fixtures
         .iter()
-        .find(|f| f.label() == format!("{PREFIX}-alias-deleted"))
+        .find(|f| f.label() == format!("machine:{PREFIX}-alias-deleted"))
         .unwrap()
         .load_words_yaml();
     let completed = fixtures
         .iter()
-        .find(|f| f.label() == format!("{PREFIX}-completed"))
+        .find(|f| f.label() == format!("machine:{PREFIX}-completed"))
         .unwrap()
         .load_words_yaml();
     assert!(!base_words
@@ -520,7 +531,7 @@ fn aliases_feature_completion_and_duplicate_definition_controls_are_observable()
         base_words
             .words
             .iter()
-            .find(|w| w.word == "pass")
+            .find(|w| w.word == "pas")
             .unwrap()
             .parses
             .len()

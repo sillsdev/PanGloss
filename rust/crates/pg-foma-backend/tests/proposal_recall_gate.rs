@@ -5,55 +5,55 @@ use pg_health::capability::{CapabilityRefusal, ProposalRecallGap};
 
 const RECALL_REGRESSIONS: &[(&str, ProposalRecallGap)] = &[
     (
-        "staging:edge-cases/alias-output-0-literal",
+        "machine:edge-cases/alias-output-0-literal",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/alias-output-0-singleton",
+        "machine:edge-cases/alias-output-0-singleton",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/alias-output-1-literal",
+        "machine:edge-cases/alias-output-1-literal",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/alias-output-1-singleton",
+        "machine:edge-cases/alias-output-1-singleton",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-inherited-output-literal",
+        "machine:edge-cases/partial-inherited-output-literal",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-inherited-output-singleton",
+        "machine:edge-cases/partial-inherited-output-singleton",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-inherited-output-feature",
+        "machine:edge-cases/partial-inherited-output-feature",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-feature-literal-rewrite",
+        "machine:edge-cases/partial-feature-literal-rewrite",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/featureless-literal-target",
+        "machine:edge-cases/featureless-literal-target",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/featureless-singleton-target",
+        "machine:edge-cases/featureless-singleton-target",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/featureless-unused-feature",
+        "machine:edge-cases/featureless-unused-feature",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-feature-literal-output",
+        "machine:edge-cases/partial-feature-literal-output",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/partial-feature-singleton-rewrite",
+        "machine:edge-cases/partial-feature-singleton-rewrite",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
@@ -118,7 +118,7 @@ const RECALL_REGRESSIONS: &[(&str, ProposalRecallGap)] = &[
 fn no_phonology_partial_feature_spellings_recover_complete_identities() {
     let fixture = discover()
         .into_iter()
-        .find(|f| f.label() == "staging:edge-cases/partial-feature-no-rewrite")
+        .find(|f| f.label() == "machine:edge-cases/partial-feature-no-rewrite")
         .expect("partial feature fixture");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
     let mut words = Vec::new();
@@ -463,7 +463,7 @@ fn literal_rewrite_and_unreferenced_classes_retain_complete_recall() {
             "staging:edge-cases/featureless-single-member-class-rewrite",
             false,
         ),
-        ("staging:edge-cases/featureless-literal-target", true),
+        ("machine:edge-cases/featureless-literal-target", true),
     ] {
         let fixture = fixtures.iter().find(|f| f.label() == label).expect(label);
         let mut xml = fixture.load_grammar_xml();

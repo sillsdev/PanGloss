@@ -47,9 +47,9 @@ impl Bucket {
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 164,
+        oracle_exact: 167,
         compiles_but_misses: 0,
-        refused: 124,
+        refused: 150,
         unmeasurable: 0,
     },
 )];
@@ -96,7 +96,7 @@ const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
     "staging:edge-cases/rewrite-default-narrow",
 ];
 
-const MPR_WIDE_FIXTURE: &str = "staging:edge-cases/mpr-wide-inflection-classes";
+const MPR_WIDE_FIXTURE: &str = "machine:edge-cases/mpr-wide-inflection-classes";
 
 const PER_SITE_ALPHA_FIXTURE: &str = "staging:edge-cases/per-site-alpha-rewrite";
 const PROPOSING_REVIEW_FIXTURES: &[&str] = &[

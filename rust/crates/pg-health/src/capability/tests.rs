@@ -47,6 +47,14 @@ fn proposal_recall_cause_wire_names_are_stable() {
             "compound_junction_phonology",
         ),
         (
+            ProposalRecallGap::MetathesisAcrossMorphs,
+            "metathesis_across_morphs",
+        ),
+        (
+            ProposalRecallGap::EmptiedMorphReorder,
+            "emptied_morph_reorder",
+        ),
+        (
             ProposalRecallGap::RecursiveCompoundAsymmetricLicense,
             "recursive_compound_asymmetric_license",
         ),

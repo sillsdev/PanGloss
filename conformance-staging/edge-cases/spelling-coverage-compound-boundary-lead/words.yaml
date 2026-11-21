@@ -2,8 +2,8 @@
 # Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
 language: SpellingCompoundBoundaryLead
 requires: []
-fieldworks_producible: true
-fieldworks_producible_notes: Fully specified literal segments with partial-feature aliases and ordinary non-recursive compounding or affix rules; no fwdata round-trip witness is claimed.
+fieldworks_producible: false
+fieldworks_producible_notes: "row 30 of fieldworks-cannot-say.md: the compound output writes + outside the single junction between its parts, which HCLoader does not write"
 words:
   - word: "a"
     note: Every observed C# signature occurrence is retained.

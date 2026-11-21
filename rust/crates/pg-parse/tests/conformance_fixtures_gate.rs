@@ -2,8 +2,10 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    parse_upstream_baseline, producibility_census, replay_fixture_runs, require_fixture,
-    staging_root, staging_upstream_violations, OracleProvenance,
+    known_divergences_path, pangloss_expectation_for, pangloss_expectation_violations,
+    parse_pangloss_expectations, parse_upstream_baseline, producibility_census,
+    replay_against_oracle, replay_fixture_runs, require_fixture, staging_root,
+    staging_upstream_violations, OracleProvenance, Root, WordsYaml,
 };
 use pg_parse::Morpher;
 
@@ -378,11 +380,14 @@ fn all_discovered_fixtures_match_oracle() {
          (`pwsh rust/tools/conformance.ps1`) and conformance-staging/ exists"
     );
 
+    let expectations = recorded_pangloss_expectations();
+    let mut used = vec![false; expectations.len()];
     let mut total_checked = 0usize;
     let mut total_skipped_fixtures = 0usize;
     let mut total_variant_runs = 0usize;
     let mut mismatches = Vec::new();
     for f in &fixtures {
+        let fixture_id = format!("{}/{}", f.category, f.name);
         let words_yaml = f.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
             eprintln!("skipping {}: {reason}", f.label());
@@ -394,6 +399,12 @@ fn all_discovered_fixtures_match_oracle() {
                 total_variant_runs += 1;
             }
             for mismatch in &run.replay.mismatches {
+                if let Some(i) =
+                    pangloss_expectation_for(&expectations, f.root, &fixture_id, mismatch)
+                {
+                    used[i] = true;
+                    continue;
+                }
                 let detail = format!(
                     "{}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
                     run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
@@ -426,6 +437,76 @@ fn all_discovered_fixtures_match_oracle() {
         "{} conformance mismatches across the complete replay:\n{}",
         mismatches.len(),
         mismatches.join("\n")
+    );
+    let stale = pangloss_expectation_violations(&expectations, &used, &fixtures);
+    assert!(
+        stale.is_empty(),
+        "pangloss_expectations entries in {} that no longer apply: {stale:?}",
+        known_divergences_path().display()
+    );
+}
+
+fn recorded_pangloss_expectations() -> Vec<pg_conformance_fixtures::PanglossExpectation> {
+    let path = known_divergences_path();
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: read: {e}", path.display()));
+    parse_pangloss_expectations(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// The suite records hc.dll's `expect_fail` for the four words divergence 132 is about (sillsdev/fieldworks-parser-conformance#50); once that fixture is pinned, the recorded expectations must excuse exactly those four PanGloss parses, and only on the pinned copy.
+#[test]
+fn upstream_expect_fail_rows_for_divergence_132_are_recorded_pangloss_expectations() {
+    let staged = require_fixture(
+        "edge-cases",
+        "metathesis-deletion-restores-segment-between-switches",
+    );
+    let upstream = WordsYaml::from_yaml_str(include_str!(
+        "data/metathesis-match-order/upstream-pr50-words.yaml"
+    ))
+    .unwrap();
+    let grammar = staged.load_grammar();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let replay = replay_against_oracle(&upstream, &morpher);
+    let words: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
+    assert_eq!(words, ["ats", "at+s", "atsa", "at+sa"]);
+    let expectations = recorded_pangloss_expectations();
+    let id = "edge-cases/metathesis-deletion-restores-segment-between-switches";
+    for m in &replay.mismatches {
+        let i = pangloss_expectation_for(&expectations, Root::Machine, id, m);
+        assert!(i.is_some(), "no recorded expectation for {m:?}");
+        assert_eq!(expectations[i.unwrap()].divergence, "132");
+        assert_eq!(
+            pangloss_expectation_for(&expectations, Root::Staging, id, m),
+            None
+        );
+    }
+    let ours: Vec<_> = expectations
+        .iter()
+        .filter(|e| e.fixture == id)
+        .cloned()
+        .collect();
+    let pinned = pg_conformance_fixtures::FixtureRef {
+        root: Root::Machine,
+        ..staged.clone()
+    };
+    let all_used = vec![true; ours.len()];
+    let none_used = vec![false; ours.len()];
+    assert!(
+        pangloss_expectation_violations(&ours, &all_used, std::slice::from_ref(&pinned)).is_empty()
+    );
+    assert!(
+        pangloss_expectation_violations(&ours, &none_used, std::slice::from_ref(&staged))
+            .is_empty()
+    );
+    assert_eq!(
+        pangloss_expectation_violations(&ours, &none_used, &[pinned]).len(),
+        4,
+        "a pinned fixture that no longer shows the mismatch makes every entry stale"
+    );
+    assert_eq!(
+        pangloss_expectation_violations(&ours, &all_used, &[]).len(),
+        4,
+        "an entry naming no discovered fixture is stale"
     );
 }
 

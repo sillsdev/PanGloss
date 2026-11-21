@@ -1,0 +1,83 @@
+# oracle-provenance: founding-oracle machine-source=1ddef2bd (hc-conformance self-check, verified 2026-11-20); the ats, at+s, atsa and at+sa rows are expect_fail
+# because that build gives them no parse.
+# The intended parses (PRE+R0|at+?s and PRE+R2|at+?sa) are recorded in each row's note. They are the forward
+# synthesis of the grammar, which machine 1ddef2bd's own GenerateWords reproduces ("ats" from R0+PRE, "atsa" from R2+PRE).
+# Forward synthesis (S0 applies pr1, then pd):
+#   PRE+R0: PRE writes "aps+" before root "t": aps+t. pr1 swaps s and t across the boundary: apt+s.
+#           pd deletes p: at+s.
+#   PRE+R2: aps+tap -> pr1 -> apt+sap -> pd -> at+sa.
+#   PRE+R1: aps+pt: p sits between s and t, so pr1 does not match; pd -> as+t.
+# Why 1ddef2bd fails: analysis un-applies pd first and restores an optional p at every gap, so pr1's analysis sees
+# t p? s. The matcher steps over the optional p, and TraversalMethodBase.Advance adds the skipped node to the
+# capture of the switch matched before it; AnalysisMetathesisRuleSpec.ApplyRhs then zips the two captures node by
+# node and unions t with the optional p instead of with s. The swap is never undone, so no lexical entry matches.
+# Tracked in sillsdev/machine#649 (same mechanism as sillsdev/machine#520). When #649 is fixed and a pin includes
+# it, flip the four rows to the parses in their notes.
+language: MetathesisDeletionRestoresSegmentBetweenSwitches
+inspired_by: ["synthetic probe (not modeling any real language)"]
+sources:
+  - "sillsdev/machine issue 649: metathesis analysis pairs a switch with an optional node a deletion restored"
+  - "sillsdev/machine issue 520: POS-scoped deletion blocks metathesis analysis of other words"
+  - "FieldWorks HCLoader.LoadMetathesisRule (the switches), HCLoader.LoadRewriteRule (p -> 0), HCLoader.LoadAffixProcessRule (prefix aps+)"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "t"
+    note: >-
+      Roots t and pt alone: pd deletes the p of pt, and with no prefix there is no s to swap with.
+    parses:
+      - signature: "R0|t"
+        rules: [pd]
+        exercises: ["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+      - signature: "R1|t"
+        rules: [pd]
+        exercises: ["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+  - word: "ta"
+    note: >-
+      Root tap alone: pd deletes its p; control for the root PRE+R2 builds on.
+    parses:
+      - signature: "R2|ta"
+        rules: [pd]
+        exercises: ["RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+  - word: "ats"
+    note: >-
+      Known oracle limitation (sillsdev/machine#649, open): machine 1ddef2bd gives no parse. Prefix aps+ then root t: pr1 swaps s and t across the boundary and pd deletes p (apt+s, then at+s); analysis restores an optional p between t and s, and that p must not take s's place in the swap. Intended parse once #649 is fixed: PRE+R0|at+?s, rules [PRE, pd, pr1].
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "at+s"
+    note: >-
+      Known oracle limitation (sillsdev/machine#649, open): machine 1ddef2bd gives no parse. The same surface with the boundary written. Intended parse once #649 is fixed: PRE+R0|at+?s, rules [PRE, pd, pr1].
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "atsa"
+    note: >-
+      Known oracle limitation (sillsdev/machine#649, open): machine 1ddef2bd gives no parse. Prefix aps+ then root tap: pr1 swaps s and t, pd deletes both p's (at+sa); the restored p again sits between the switches. Intended parse once #649 is fixed: PRE+R2|at+?sa, rules [PRE, pd, pr1].
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "at+sa"
+    note: >-
+      Known oracle limitation (sillsdev/machine#649, open): machine 1ddef2bd gives no parse. The same surface with the boundary written. Intended parse once #649 is fixed: PRE+R2|at+?sa, rules [PRE, pd, pr1].
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "ast"
+    note: >-
+      Prefix aps+ then root pt: p separates s and t, so pr1 changes nothing in synthesis; pd deletes both p's (as+t). Control that both engines agree on.
+    parses:
+      - signature: "PRE+R1|as+?t"
+        rules: [PRE, pd, pr1]
+        exercises: ["MetathesisRule", "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+  - word: "as+t"
+    note: >-
+      The same surface with the boundary written.
+    parses:
+      - signature: "PRE+R1|as+?t"
+        rules: [PRE, pd, pr1]
+        exercises: ["MetathesisRule", "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"]
+  - word: "p"
+    note: >-
+      pd deletes every p, so no word surfaces with one.
+    expect_fail: true
+  - word: "atap"
+    note: >-
+      The unswapped, undeleted shape of PRE+R2 cannot surface: pr1 and pd are obligatory.
+    expect_fail: true

@@ -2571,9 +2571,11 @@ pub fn synthesize_phonological_stratum_traced(
         if let Some(ctx) = prule_stats {
             ctx.record_attempt(input.shape.len() as u64);
         }
+        let mut reordered_morphs = None;
+        let mut anchor_keys = None;
         let result = match &g.prules[pid.0 as usize] {
             pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
-                rewrite::synthesize_with_mpr_cached_traced_stats(
+                match rewrite::synthesize_with_mpr_cached_traced_stats(
                     g,
                     pid,
                     r,
@@ -2582,10 +2584,16 @@ pub fn synthesize_phonological_stratum_traced(
                     trace,
                     rule_parent,
                     prule_stats,
-                )
+                ) {
+                    Some(rewritten) => {
+                        anchor_keys = rewritten.anchor_keys;
+                        vec![rewritten.shape]
+                    }
+                    None => Vec::new(),
+                }
             }
             pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
-                metathesis::synthesize_cached_traced(
+                match metathesis::synthesize_cached_traced(
                     g,
                     pid,
                     r,
@@ -2593,7 +2601,13 @@ pub fn synthesize_phonological_stratum_traced(
                     cache.prule_metathesis(pid),
                     trace,
                     rule_parent,
-                )
+                ) {
+                    Some(applied) => {
+                        reordered_morphs = Some((applied.morphs, applied.extras));
+                        vec![applied.shape]
+                    }
+                    None => Vec::new(),
+                }
             }
         };
         if let Some(ctx) = prule_stats {
@@ -2601,7 +2615,17 @@ pub fn synthesize_phonological_stratum_traced(
         }
         if let Some(shape) = result.into_iter().next() {
             applied_prule_ids.push(pid);
+            if let Some(keys) = anchor_keys {
+                input.remap_morph_orders(input.shape.len(), &keys);
+            }
             input.shape = shape;
+            if let Some((morphs, extras)) = reordered_morphs {
+                input.morphs = morphs;
+                // Only the shape marks are carried, since the swap leaves pinned starts and the rest of the extras as they were.
+                input
+                    .extras
+                    .set_shape_marks(extras.deleted_gaps().to_vec(), extras.bare_nodes().to_vec());
+            }
             if let Some(recorder) = trace.mode().recorder() {
                 input.trace = recorder.advance(input.trace);
             }

@@ -117,6 +117,7 @@ fn focus_node(table: &CharDefTable, width: usize, node: &BlockNode) -> MutNode {
         optional: false,
         deleted: false,
         dirty: false,
+        input_key: None,
     }
 }
 

@@ -1,0 +1,58 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-19
+language: MetathesisBoundaryBetweenSwitchesRoot
+requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: "row 29 of fieldworks-cannot-say.md: a root spells + between two of its own segments, which HCLoader does not write"
+words:
+  - word: "p"
+    note: >-
+      Root p alone: no t precedes it, so nothing swaps.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "pt"
+    note: >-
+      Root t+p with its inner boundary: t and p swap over the boundary, which stays between them (p+?t).
+    parses:
+      - signature: "Z|p+?t"
+        rules: [pr1]
+        exercises: ["MetathesisRule"]
+  - word: "sp"
+    note: >-
+      Prefix s then root p: no t, so nothing swaps.
+    parses:
+      - signature: "PRE+Y|sp"
+        rules: [PRE]
+  - word: "p+t"
+    note: >-
+      The swapped root t+p written with its boundary.
+    parses:
+      - signature: "Z|p+?t"
+        rules: [pr1]
+        exercises: ["MetathesisRule"]
+  - word: "spt"
+    note: >-
+      Prefix s then root t+p: the root's switches swap over its inner boundary.
+    parses:
+      - signature: "PRE+Z|sp+?t"
+        rules: [PRE, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "sp+t"
+    note: >-
+      The prefixed swapped root written with the root's boundary.
+    parses:
+      - signature: "PRE+Z|sp+?t"
+        rules: [PRE, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "tp"
+    note: Pinned C# rejects this word; the pre-fix Rust HC accepted it.
+    expect_fail: true
+  - word: "t+p"
+    note: Pinned C# rejects this word; the pre-fix Rust HC accepted it.
+    expect_fail: true
+  - word: "stp"
+    note: Pinned C# rejects this word; the pre-fix Rust HC accepted it.
+    expect_fail: true
+  - word: "st+p"
+    note: Pinned C# rejects this word; the pre-fix Rust HC accepted it.
+    expect_fail: true

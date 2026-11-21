@@ -1,0 +1,91 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-19
+language: MetathesisSegmentClassUnion
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: >-
+      R0 is underlying a; nothing swaps: C# gives R0|a.
+    parses:
+      - signature: "R0|a"
+        rules: []
+  - word: "p"
+    note: >-
+      R1 is underlying p; nothing swaps: C# gives R1|p.
+    parses:
+      - signature: "R1|p"
+        rules: []
+  - word: "ap"
+    note: >-
+      R2 is underlying pa; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives R2|ap.
+    parses:
+      - signature: "R2|ap"
+        rules: [pr0]
+        exercises: ["MetathesisRule"]
+  - word: "aap"
+    note: >-
+      R0+SUF is underlying a+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives SUF+R0|a+?ap.
+    parses:
+      - signature: "SUF+R0|a+?ap"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "app"
+    note: >-
+      R1+SUF is underlying p+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives SUF+R1|a+?pp.
+    parses:
+      - signature: "SUF+R1|a+?pp"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "apap"
+    note: >-
+      R2+SUF is underlying pa+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives R2+SUF|ap+?ap.
+    parses:
+      - signature: "R2+SUF|ap+?ap"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "a+ap"
+    note: >-
+      R0+SUF is underlying a+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives SUF+R0|a+?ap.
+    parses:
+      - signature: "SUF+R0|a+?ap"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "a+pp"
+    note: >-
+      R1+SUF is underlying p+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives SUF+R1|a+?pp.
+    parses:
+      - signature: "SUF+R1|a+?pp"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "ap+ap"
+    note: >-
+      R2+SUF is underlying pa+ap; the class {s,t} matches the union of its members' features, f and g with either value, so every segment matches it and the rule swaps it with a following a: C# gives R2+SUF|ap+?ap.
+    parses:
+      - signature: "R2+SUF|ap+?ap"
+        rules: [SUF, pr0]
+        exercises: ["MetathesisRule"]
+  - word: "aa+p"
+    note: >-
+      C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "apa"
+    note: >-
+      C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "aa"
+    note: >-
+      C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "pa"
+    note: >-
+      C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "paap"
+    note: >-
+      C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
