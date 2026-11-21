@@ -84,3 +84,7 @@ edge-cases/root-required-environment-after-epenthesis-before-suffix
 edge-cases/epenthesis-then-swap-keeps-its-edge-before-suffix
 edge-cases/epenthesis-then-swap-with-root-keeps-its-edge
 edge-cases/prefix-required-environment-after-epenthesis-later-suffix
+edge-cases/swap-leaves-a-deleted-node-in-place-before-suffix
+edge-cases/prefix-required-environment-after-epenthesis-later-compound
+edge-cases/swap-across-a-deleted-node-keeps-the-gap-before-suffix
+edge-cases/compound-after-an-insertion-keeps-the-bare-node

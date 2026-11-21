@@ -226,11 +226,11 @@ fn a_morph_span_ends_before_a_bare_node_at_its_right_edge() {
 }
 
 #[test]
-fn a_swap_moves_bare_nodes_and_gaps_with_the_nodes_they_follow() {
+fn a_swap_moves_bare_nodes_but_leaves_deleted_gaps_in_place() {
     let g = epenthesis_grammar();
     let mut word = root_word(&g, "sapt");
     word.extras.set_shape_marks(vec![1, 4], vec![0, 3]);
     word.reorder_morphs(&[0, 2, 1, 3, 4, 5]);
     assert_eq!(word.extras.bare_nodes(), &[1, 3]);
-    assert_eq!(word.extras.deleted_gaps(), &[0, 4]);
+    assert_eq!(word.extras.deleted_gaps(), &[1, 4]);
 }

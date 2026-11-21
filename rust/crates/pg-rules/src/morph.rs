@@ -1689,7 +1689,7 @@ fn copy_part(
         let first_node = src.node_of[s];
         let skippable =
             |i: usize| src.shape.kind(i) == NodeKind::Boundary || src.shape.flags(i).is_optional();
-        // C# CopyFromInput.cs:28-48 walks over a node a rewrite deleted only if it was Optional, so a deleted node left of the capture stops the fold.
+        // C# CopyFromInput.cs:28-48 and MorphologicalOutputAction.cs:45-58 walk over a deleted node only if it was Optional, so a deleted node left of the capture stops the fold.
         let blocked = src
             .deleted_gaps
             .iter()
@@ -4331,7 +4331,19 @@ fn synth_compound_subrule(
         &g.mpr_add_output(&word.mpr, &sr.out_mpr),
         &rule.output_prod_restrictions_mpr,
     );
+    // As for an affix rebuild, a copied node that was bare in its source word stays outside every morph.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| match node.origin {
+            Origin::Head(old) => word.extras.bare_nodes().contains(&(old as u32)),
+            Origin::NonHead(old) => nh.extras.bare_nodes().contains(&(old as u32)),
+            _ => false,
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
     w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
     // The consumed non-head stays in `w.non_heads()` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.

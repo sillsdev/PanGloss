@@ -49,7 +49,7 @@ const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     Bucket {
         oracle_exact: 167,
         compiles_but_misses: 0,
-        refused: 146,
+        refused: 150,
         unmeasurable: 0,
     },
 )];

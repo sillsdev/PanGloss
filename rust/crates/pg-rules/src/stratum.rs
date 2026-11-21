@@ -2621,6 +2621,7 @@ pub fn synthesize_phonological_stratum_traced(
             input.shape = shape;
             if let Some((morphs, extras)) = reordered_morphs {
                 input.morphs = morphs;
+                // Only the shape marks are carried, since the swap leaves pinned starts and the rest of the extras as they were.
                 input
                     .extras
                     .set_shape_marks(extras.deleted_gaps().to_vec(), extras.bare_nodes().to_vec());

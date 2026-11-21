@@ -217,6 +217,7 @@ staging:edge-cases/bracket-pattern-reduplication-affix	TunedSurfaceProbed	oracle
 staging:edge-cases/cascade-symbolic-output	TunedSurfaceProbed	refused
 staging:edge-cases/change-epenthesis-prefix-deletion-chain	TunedSurfaceProbed	refused
 staging:edge-cases/clitic-rule-designation-iscliticrule	TunedSurfaceProbed	refused
+staging:edge-cases/compound-after-an-insertion-keeps-the-bare-node	TunedSurfaceProbed	refused
 staging:edge-cases/compound-allomorph-identity-affix-reuse	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
@@ -273,6 +274,7 @@ staging:edge-cases/permissive-multisegment-output	TunedSurfaceProbed	oracle_exac
 staging:edge-cases/pos-scoped-deletion-blocks-metathesis	TunedSurfaceProbed	refused
 staging:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/prefix-required-environment-after-epenthesis-later-compound	TunedSurfaceProbed	refused
 staging:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/realizational-reduplication-no-proposal-route	TunedSurfaceProbed	refused
 staging:edge-cases/rewrite-analysis-feature-neutralization	TunedSurfaceProbed	oracle_exact
@@ -296,6 +298,8 @@ staging:edge-cases/spelling-coverage-compound-singleton-root-boundary	TunedSurfa
 staging:edge-cases/spelling-coverage-compound-singleton-root-boundary-free	TunedSurfaceProbed	refused
 staging:edge-cases/spelling-coverage-copy-slots-zero	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/subrule-morphosyntactic-gating-linear-order	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/swap-across-a-deleted-node-keeps-the-gap-before-suffix	TunedSurfaceProbed	refused
+staging:edge-cases/swap-leaves-a-deleted-node-in-place-before-suffix	TunedSurfaceProbed	refused
 staging:edge-cases/synthesis-stratum-render-stale-table	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/two-table-shared-representation-recall	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/unattested-intermediate-bundle	TunedSurfaceProbed	refused

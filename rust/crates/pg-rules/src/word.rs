@@ -547,15 +547,8 @@ impl Word {
             .iter()
             .filter_map(|&b| new_of_old.get(b as usize).copied())
             .collect();
-        // A gap stays attached to the node that follows it, so it moves with that node; one past the last node stays put.
-        let mut gaps: Vec<u32> = self
-            .extras
-            .deleted_gaps()
-            .iter()
-            .map(|&gap| new_of_old.get(gap as usize).copied().unwrap_or(gap))
-            .collect();
-        gaps.sort_unstable();
-        gaps.dedup();
+        // C# SynthesisMetathesisRuleSpec.ApplyRhs moves only the two switch groups and a deleted node is in neither, so the gaps keep their positions.
+        let gaps = self.extras.deleted_gaps().to_vec();
         self.extras.set_shape_marks(gaps, bare);
         let mut starts: Vec<u32> = layout.groups.iter().map(|g| g.range.0).collect();
         let mut pinned: Vec<bool> = layout
@@ -674,7 +667,7 @@ impl Word {
             .map(|index| index as u32)
             .collect();
         for (index, &key) in keys.iter().enumerate() {
-            // C# MorphologicalOutputAction.cs:45-58 (CollectSkippedOptionalNodes) folds only nodes inside a morph's span, so an inserted node on its edge stays bare.
+            // C# AnnotationList.cs:131-138 nests an inserted node only inside a range that contains it, so one on a morph's edge stays bare.
             let inside = key % 2 == 1
                 && layout.groups.iter().any(|group| {
                     let (start, end) = group.range;

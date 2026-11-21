@@ -1,0 +1,4119 @@
+# oracle-provenance: founding-oracle machine-source=1ddef2bd (hc-conformance self-check, --propose; every signature is what C# returned on 2026-11-21, none taken from PanGloss)
+# Pins the deleted-node positions after a metathesis rule swaps beside a deleted node (a boundary prefix, roots R0 and R1, a suffix; a deletion rule, then a swap rule whose switches sit beside the deleted node). C# SynthesisMetathesisRuleSpec.ApplyRhs moves only the two switch groups, so a deleted node keeps its position and `spa` keeps four analyses;
+# a Rust port that moves the deleted-node marks with the swap flips both roots. Every word of the 1364-word probe space (length 1 to 5 over a p s t) that is not listed with a parse is pinned as expect_fail.
+language: DeletionThenSwap
+inspired_by: ["synthetic probe (not modeling any real language)"]
+sources:
+  - "C# AnnotationList.cs:131-138 (a node nests only inside a range that contains it), SynthesisMetathesisRuleSpec.ApplyRhs"
+  - "FieldWorks HCLoader.LoadAffixProcessRule, LoadRewriteRule (deletion), LoadMetathesisRule"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "p"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "t"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "s"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "at"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "as"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sp"
+    note: "C# 1ddef2bd returns this analysis."
+    parses:
+      - signature: "NU0+R0|+?sp"
+        rules: []
+      - signature: "NU0+R1|+?sp"
+        rules: []
+      - signature: "R0|sp"
+        rules: []
+      - signature: "R1|sp"
+        rules: []
+  - word: "st"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "app"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "att"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spa"
+    note: "C# 1ddef2bd returns this analysis."
+    parses:
+      - signature: "NU0+R1+SU1|+?spa"
+        rules: []
+      - signature: "R0+NU0+SU1|spa"
+        rules: []
+      - signature: "R0+SU1|spa"
+        rules: []
+      - signature: "R1+SU1|spa"
+        rules: []
+  - word: "spp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "past"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aappa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aappp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aappt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aapss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aataa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aattp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aattt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aatss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aaspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aastp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aastt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aassa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aassp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aasss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "appss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aptss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "apsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ataps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atpss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "attss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "atsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "aspss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "astss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "asssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "assss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pappa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pappp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pappt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "papss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pataa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pattp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pattt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "patss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "paspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pastp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pastt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pasts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "passa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "passp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "passt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "passs"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pppss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pptss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ppsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptpss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pttss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ptsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pspss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pstss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "psssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "pssss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tappa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tappp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tappt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tapss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tataa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tattp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tattt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tatss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "taspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tastp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tastt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tassa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tassp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tasss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tppss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tptss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tpsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttpss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tttss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ttsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tspss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tstss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tsssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "tssss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sappa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sappp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sappt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sapss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sataa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sattp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sattt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "satss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "saspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sastp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sastt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sassa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sassp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sasss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sppss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sptss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "spsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "staps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "statp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "statt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stpss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sttss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ststa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ststp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ststt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ststs"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "stsss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssapa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssapp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssapt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssaps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssata"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssatp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssatt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssats"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssasa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssasp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssast"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssass"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssppa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssppp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssppt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssptp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssptt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sspss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstpa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstpp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstpt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssttp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssttt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstsa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstsp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sstss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssaa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssap"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssat"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssas"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssspa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssspp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssspt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssps"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssta"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssstp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssstt"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssts"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssssa"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "ssssp"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssst"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
+  - word: "sssss"
+    note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
+    expect_fail: true
