@@ -346,6 +346,8 @@ impl std::fmt::Debug for EnvironmentDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvironmentSource {
     pub id: Option<String>,
+    /// The FieldWorks `PhEnvironment` guid; set only by the snapshot compiler, never from HC XML, whose `id` is not a FieldWorks identity.
+    pub guid: Option<String>,
     pub text: Option<String>,
 }
 
@@ -562,6 +564,8 @@ pub struct MorphemeCoOccurrenceRuleDef {
     pub require: bool,
     pub others: Vec<MorphemeId>,
     pub adjacency: CoOccurrenceAdjacency,
+    /// The FieldWorks `MoAdhocProhib` guid, when the rule came from a snapshot; `None` for HC XML, which gives these rules no id.
+    pub source_guid: Option<String>,
 }
 
 /// `<AllomorphCoOccurrenceRule>` → C# `AllomorphCoOccurrenceRule` (`MorphCoOccurrenceRule<Allomorph>`).
@@ -575,6 +579,8 @@ pub struct AllomorphCoOccurrenceRuleDef {
     pub require: bool,
     pub others: Vec<AllomorphId>,
     pub adjacency: CoOccurrenceAdjacency,
+    /// The FieldWorks `MoAdhocProhib` guid, when the rule came from a snapshot; `None` for HC XML, which gives these rules no id.
+    pub source_guid: Option<String>,
 }
 
 #[derive(Debug)]

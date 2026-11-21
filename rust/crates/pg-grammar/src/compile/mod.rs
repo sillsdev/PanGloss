@@ -887,6 +887,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                             require: false,
                             others: others_ids.clone(),
                             adjacency: adjacency(*adj),
+                            source_guid: Some(guid.clone()),
                         };
                         match acc.allomorph_owners[primary_id.0 as usize] {
                             AllomorphOwner::Root(le, idx) => {
@@ -1011,6 +1012,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                                 require: false,
                                 others: others_ids.clone(),
                                 adjacency: adjacency(*adj),
+                                source_guid: Some(guid.clone()),
                             },
                         );
                     }
