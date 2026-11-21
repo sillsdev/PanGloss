@@ -22,6 +22,7 @@ mod trace_off;
 
 const BIN: &str = env!("CARGO_BIN_EXE_pangloss");
 const GRAMMAR: &str = include_str!("data/trace-family.xml");
+const ALLOMORPH_BLOCKED: &str = include_str!("data/trace-allomorph-blocked.xml");
 
 fn run(args: &[&str]) -> Output {
     let binary = std::env::var_os("PANGLOSS_DIAGNOSTIC_TEST_BIN").unwrap_or_else(|| BIN.into());
@@ -313,6 +314,54 @@ fn owner_decisions_are_typed_and_their_controls_survive() {
         "allomorph"
     );
     assert!(accepted.iter().all(|row| row["reason"] != "bound_root"));
+}
+
+/// The blocked and the blocking allomorph of the one `allomorph_blocked` event, as `(blocked key, blocker key)`.
+fn blocked_pair(data: &[Value]) -> (String, String) {
+    let blocked = event(data, "allomorph_blocked", "synthesis");
+    assert_eq!(blocked["kind"], "reject");
+    assert_eq!(blocked["stage"], "validity");
+    let refs = blocked["objectRefs"].as_array().unwrap();
+    let key = |role: &str| {
+        let matching: Vec<_> = refs.iter().filter(|r| r["role"] == role).collect();
+        assert_eq!(matching.len(), 1, "one {role} ref in {refs:?}");
+        assert_eq!(matching[0]["kind"], "allomorph");
+        matching[0]["key"].as_str().unwrap().to_owned()
+    };
+    (key("subject"), key("blocker"))
+}
+
+#[test]
+fn an_earlier_eligible_allomorph_blocking_the_used_one_is_a_typed_stop() {
+    let root = parse(ALLOMORPH_BLOCKED, "wakta", &[]);
+    let (blocked, blocker) = blocked_pair(&root);
+    assert_ne!(blocked, blocker);
+    let affix = parse(ALLOMORPH_BLOCKED, "pitdeta", &[]);
+    let (affix_blocked, affix_blocker) = blocked_pair(&affix);
+    assert_ne!(affix_blocked, affix_blocker);
+    assert_ne!(
+        (blocked, blocker),
+        (affix_blocked, affix_blocker),
+        "the root and the suffix block through different allomorphs"
+    );
+    for data in [&root, &affix] {
+        assert_eq!(
+            data[data.len() - 2]["search"]["outputCount"],
+            0,
+            "the blocked word has no reading"
+        );
+    }
+}
+
+#[test]
+fn an_unblocked_allomorph_records_no_blocked_stop() {
+    for word in ["wak", "wokta", "pitde"] {
+        let data = parse(ALLOMORPH_BLOCKED, word, &[]);
+        assert!(
+            data.iter().all(|row| row["reason"] != "allomorph_blocked"),
+            "{word}"
+        );
+    }
 }
 
 #[test]
@@ -846,6 +895,7 @@ fn describe_advertises_exactly_the_tuples_emitted_by_the_cli() {
         parse(&lexical_pos_clash_grammar(), "kibes", &[]),
         parse(&early_root_grammar(), AMBIGUOUS_ROOTLESS_WORD, &[]),
         parse(&nonblocking_grammar(), "kibes", &[]),
+        parse(ALLOMORPH_BLOCKED, "wakta", &[]),
     ];
     let alternatives = lookup_alternative_grammars().map(|xml| parse(&xml, "kibes", &[]));
     let emitted: BTreeSet<_> = fixtures

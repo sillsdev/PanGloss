@@ -625,6 +625,36 @@ fn fail(
     false
 }
 
+/// Reject a word whose used allomorph lost to an earlier eligible one; `(blocked, blocker)` are the used and the winning allomorph.
+fn fail_allomorph_blocked(
+    g: &Grammar,
+    object: AllomorphId,
+    (blocked, blocker): (AllomorphId, AllomorphId),
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    w: &Word,
+) -> bool {
+    if let Some(recorder) = trace.mode().recorder() {
+        if pg_fst::work::active_budget()
+            .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_terminal(w, Decision::AllomorphBlocked { blocked, blocker });
+            if w.collect_partials() {
+                record_partial_gate(g, object);
+            }
+            return false;
+        }
+    }
+    fail(
+        g,
+        object,
+        trace,
+        parent,
+        w,
+        FailureReason::DisjunctiveAllomorph,
+    )
+}
+
 /// Capture values at the already-fired gate. The closure is never evaluated for ordinary parses.
 fn fail_with_context(
     g: &Grammar,
@@ -1010,13 +1040,13 @@ fn allomorphs_valid_impl(
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(
+                        return fail_allomorph_blocked(
                             g,
                             owner_id.unwrap_or(m.allomorph),
+                            (m.allomorph, cand.id),
                             trace,
                             parent,
                             w,
-                            FailureReason::DisjunctiveAllomorph,
                         );
                     }
                 }
@@ -1154,13 +1184,13 @@ fn allomorphs_valid_impl(
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(
+                        return fail_allomorph_blocked(
                             g,
                             owner_id.unwrap_or(m.allomorph),
+                            (m.allomorph, cand.id),
                             trace,
                             parent,
                             w,
-                            FailureReason::DisjunctiveAllomorph,
                         );
                     }
                 }
