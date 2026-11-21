@@ -207,7 +207,9 @@ A host reads `pangloss --describe` and requires, before launching why-not:
 
 * a `why-not` row in `commands`, and
 * `interfaces.whyNot` with `schema` equal to `pangloss.whynot.v1`, `ids` equal to `grammar-xml` (the
-  promise above) and, to use the queries form, `suiteRows` true.
+  promise above), `kinds` (the failure kinds answered today, taken from the engine; every other
+  kind comes back `unknown`, so a host can say so up front) and, to use the queries form,
+  `suiteRows` true.
 
 An older PanGloss has no `interfaces.whyNot` (before this capability), or no `why-not` row at all, and
 the host must refuse and say the installed PanGloss cannot answer why-not. There is no `capabilities`

@@ -236,6 +236,8 @@ struct WhyNotDescribe {
     schema: &'static str,
     ids: &'static str,
     suite_rows: bool,
+    /// The failure kinds answered today; any other kind is `unknown`.
+    kinds: Vec<String>,
 }
 
 fn interfaces() -> InterfacesDescribe {
@@ -247,6 +249,7 @@ fn interfaces() -> InterfacesDescribe {
             schema: pg_parse::why_not::SCHEMA,
             ids: "grammar-xml",
             suite_rows: true,
+            kinds: pg_parse::why_not::FailureKind::answered(),
         },
     }
 }

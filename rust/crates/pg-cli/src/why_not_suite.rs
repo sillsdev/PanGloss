@@ -276,4 +276,30 @@ mod tests {
         assert_eq!(v["entry_guid"], "e");
         assert!(v.get("msa_guid").is_none() && v.get("guid").is_none());
     }
+
+    #[test]
+    fn a_rejected_row_carries_flat_guid_fields() {
+        let mut g = grammar();
+        let sal = g
+            .morphemes
+            .iter()
+            .position(|m| m.xml_key == "eSal")
+            .unwrap();
+        g.morphemes[sal].owner = Some(pg_grammar::model::MorphemeOwner {
+            entry_guid: "11111111-1111-1111-1111-111111111111".into(),
+            keys_by_infl_type: false,
+        });
+        g.morphemes[sal].source_msa_guid = Some("22222222-2222-2222-2222-222222222222".into());
+        let morpher = Morpher::new(&g, 5_000_000);
+        let row = answer_line(
+            &g,
+            &morpher,
+            r#"{"word":"salk","expect":[{"morpheme":"SAL"},{"morpheme":"SUFK"}]}"#,
+        );
+        assert_eq!(row["result"], "rejected", "{row}");
+        let m = &row["failure"]["morphs"][0];
+        assert_eq!(m["morpheme"], "SAL");
+        assert_eq!(m["entry_guid"], "11111111-1111-1111-1111-111111111111");
+        assert_eq!(m["msa_guid"], "22222222-2222-2222-2222-222222222222");
+    }
 }
