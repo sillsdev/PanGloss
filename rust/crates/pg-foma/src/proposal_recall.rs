@@ -1,7 +1,9 @@
 //! Grammar-only representability limits shared by emission and the capability envelope.
 
 use pg_foma_runtime::emission_support::{reduplication_rule_is_peelable, rhs_drops_lhs_material};
-use pg_grammar::model::{Grammar, NaturalClassKind, OutputAction, PatternNode, PhonRuleDef};
+use pg_grammar::model::{
+    Grammar, MorphRuleDef, NaturalClassKind, OutputAction, PatternNode, PhonRuleDef,
+};
 use pg_health::capability::{
     CapabilityDiagnostic, CapabilityRefusal, ProposalRecallGap, RefusalOccurrenceCount,
 };
@@ -107,6 +109,11 @@ pub(crate) fn refusals_with_spelling(
             "deletion or insertion that can change which morph a later stratum's affix orders first",
             "Rust HC, like C#, orders a morph that lost every node, or sits beside a deleted or inserted node, by the later affix's copy, and the surface skeleton tags morphs in their lexical order"));
     }
+    if partial_rule_material_can_be_reached(g) {
+        gaps.push((ProposalRecallGap::TruncationComposition,
+            "partial morphological rule whose material a later deletion or reduplication reaches",
+            "the proposer does not follow a partial rule's material through a rewrite that deletes it or a reduplication that copies it, so analyses of words built that way are lost"));
+    }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
         if stratum
             .mrules
@@ -208,4 +215,26 @@ pub(crate) fn refusals_with_spelling(
         diagnostics,
         occurrences,
     }
+}
+
+/// Whether a stratum holds a partial affix rule and the same or a later stratum can delete segments or copy them by reduplication.
+fn partial_rule_material_can_be_reached(g: &Grammar) -> bool {
+    let Some(first_partial) = g.strata.iter().position(|stratum| {
+        stratum.mrules.iter().any(|&mid| {
+            matches!(&g.mrules[mid.0 as usize], MorphRuleDef::AffixProcess(rule) if rule.is_partial())
+        })
+    }) else {
+        return false;
+    };
+    g.strata[first_partial..].iter().any(|stratum| {
+        stratum
+            .mrules
+            .iter()
+            .any(|&mid| reduplication_rule_is_peelable(g, mid))
+            || stratum.prules.iter().any(|id| {
+                matches!(&g.prules[id.0 as usize], PhonRuleDef::Rewrite(rule)
+                    if !rule.lhs.nodes.is_empty()
+                        && rule.subrules.iter().any(|subrule| subrule.rhs.nodes.is_empty()))
+            })
+    })
 }

@@ -6,6 +6,7 @@ machine:edge-cases/adhoc-prohibition-stem-msa-copies	TunedSurfaceProbed	oracle_e
 machine:edge-cases/adhoc-prohibition-variant-enclitic-first	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-variant-main-first-enclitic	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-variant-msa-copies	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/adhoc-prohibition-whynot	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/alias-output-0-literal	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-0-singleton	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-1-literal	TunedSurfaceProbed	refused
@@ -15,6 +16,7 @@ machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl	TunedSurfaceProb
 machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr	TunedSurfaceProbed	refused
 machine:edge-cases/ambiguous-disagree-mixed-plus-class	TunedSurfaceProbed	refused
 machine:edge-cases/ambiguous-disagree-repeated-minus-partial-focus	TunedSurfaceProbed	refused
+machine:edge-cases/authored-null-affix-allomorph	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/boundary-first-in-narrowing-lhs	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/boundary-first-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/boundary-leftover-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
@@ -63,8 +65,10 @@ machine:edge-cases/feature-rule-before-merge	TunedSurfaceProbed	refused
 machine:edge-cases/featureless-literal-target	TunedSurfaceProbed	refused
 machine:edge-cases/featureless-singleton-target	TunedSurfaceProbed	refused
 machine:edge-cases/featureless-unused-feature	TunedSurfaceProbed	refused
+machine:edge-cases/fieldworks-compound-rules	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/final-template-merge-key	TunedSurfaceProbed	refused
 machine:edge-cases/final-template-partial-discriminators	TunedSurfaceProbed	refused
+machine:edge-cases/final-template-partial-reachability	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/final-template-partial-root	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/final-template-partial-trace	TunedSurfaceProbed	refused
 machine:edge-cases/flex-null-affix-environments	TunedSurfaceProbed	oracle_exact
@@ -133,6 +137,10 @@ machine:edge-cases/partial-feature-singleton-rewrite	TunedSurfaceProbed	refused
 machine:edge-cases/partial-inherited-output-feature	TunedSurfaceProbed	refused
 machine:edge-cases/partial-inherited-output-literal	TunedSurfaceProbed	refused
 machine:edge-cases/partial-inherited-output-singleton	TunedSurfaceProbed	refused
+machine:edge-cases/partial-rule-deleted-material	TunedSurfaceProbed	refused
+machine:edge-cases/partial-rule-infixed-material	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/partial-rule-truncated-material	TunedSurfaceProbed	refused
+machine:edge-cases/partial-rule-wrapped-material	TunedSurfaceProbed	refused
 machine:edge-cases/pattern-root-required-environment	TunedSurfaceProbed	refused
 machine:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
@@ -219,6 +227,7 @@ machine:edge-cases/strrep-rewrite-unapplication	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/subrule-morphosyntactic-gating	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/swap-across-a-deleted-node-keeps-the-gap-before-suffix	TunedSurfaceProbed	refused
 machine:edge-cases/swap-leaves-a-deleted-node-in-place-before-suffix	TunedSurfaceProbed	refused
+machine:edge-cases/syncope-redup-optional-vowel-lattice	TunedSurfaceProbed	refused
 machine:edge-cases/template-category-sharing	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/truncate-morphotactic	TunedSurfaceProbed	refused
 machine:edge-cases/truncate-morphotactic-copy-u	TunedSurfaceProbed	refused
