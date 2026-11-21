@@ -75,3 +75,6 @@ languages/fusional-realizational-morphology
 languages/prefixal-discontinuous-slot-dependency
 languages/suffixing-evidential-adjacency-chain-require-rules
 languages/suffixing-extension-slot-ordering-single-stem-name
+edge-cases/null-prefix-root-initial-deletion-later-suffix
+edge-cases/epenthesis-beside-prefix-then-prefix-deletion
+edge-cases/change-epenthesis-prefix-deletion-chain

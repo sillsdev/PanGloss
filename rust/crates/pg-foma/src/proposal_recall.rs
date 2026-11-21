@@ -100,10 +100,12 @@ pub(crate) fn refusals_with_spelling(
             "non-final template followed by another template",
             "the surface skeleton represents one template application, so template reentry or cross-stratum template completion can lose analyses"));
     }
-    if crate::emptied_morph::deletion_can_empty_morph_before_later_affix(g) {
+    if crate::emptied_morph::deletion_can_empty_morph_before_later_affix(g)
+        || crate::emptied_morph::shape_edit_can_reorder_morphs_before_later_affix(g)
+    {
         gaps.push((ProposalRecallGap::EmptiedMorphReorder,
-            "deletion that can empty a morph before a later stratum adds an affix",
-            "Rust HC, like C#, orders a morph whose segments were all deleted after the stem a later affix copies, and the surface skeleton tags morphs in their lexical order"));
+            "deletion or insertion that can change which morph a later stratum's affix orders first",
+            "Rust HC, like C#, orders a morph that lost every node, or sits beside a deleted or inserted node, by the later affix's copy, and the surface skeleton tags morphs in their lexical order"));
     }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
         if stratum

@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use pg_grammar::chardef::CharDefTable;
+use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::{
     Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, PatternNode, PhonRuleDef,
 };
@@ -84,6 +84,91 @@ pub(crate) fn deletion_can_empty_morph_before_later_affix(g: &Grammar) -> bool {
                 .iter()
                 .any(|allomorph| from[0].empties(&segments_of(&allomorph.shape.shape)))
     })
+}
+
+/// `true` when a deletion or an insertion before the last affixing stratum can change which morph a later affix copy orders first without emptying any literal: a deleted node left of the capture stops the boundary or optional fold (C# CopyFromInput.cs:28-48), and an inserted node at a morph's edge belongs to no morph, so a segmentless morph beside it is emptied.
+pub(crate) fn shape_edit_can_reorder_morphs_before_later_affix(g: &Grammar) -> bool {
+    let Some(last) = g
+        .strata
+        .iter()
+        .rposition(|s| !s.mrules.is_empty() || !s.templates.is_empty())
+    else {
+        return false;
+    };
+    let mut from = Deletable::Nothing;
+    for k in (0..last).rev() {
+        from = absorb_stratum(g, k, from);
+    }
+    let deletes = !matches!(from, Deletable::Nothing);
+    let inserts = g.strata.iter().take(last).any(|stratum| {
+        stratum
+            .prules
+            .iter()
+            .any(|id| match &g.prules[id.0 as usize] {
+                PhonRuleDef::Rewrite(rule) => rule
+                    .subrules
+                    .iter()
+                    .any(|sub| sub.rhs.nodes.len() > rule.lhs.nodes.len()),
+                _ => false,
+            })
+    });
+    let foldable = can_hold_skippable_node(g);
+    let segmentless_morph = (0..g.strata.len()).any(|k| {
+        listed_rules(g, k).any(|id| {
+            rule_outputs(g, id).into_iter().any(|rhs| {
+                !rhs.iter().any(|action| match action {
+                    OutputAction::InsertSegments { shape, .. } => {
+                        !segments_of(&shape.shape).is_empty()
+                    }
+                    OutputAction::InsertContext(_) => true,
+                    _ => false,
+                })
+            })
+        })
+    });
+    (deletes && foldable) || (inserts && segmentless_morph)
+}
+
+/// Whether some root, a literal an affix writes before it copies anything, or a rewrite output can put a boundary or an optional node at the start of a word, the only place the affix copy's left fold can reach; a boundary after a copy is led by a node some literal keeps unless a literal can lose every segment, which the emptied-morph test already refuses.
+fn can_hold_skippable_node(g: &Grammar) -> bool {
+    let plain = |shape: &Shape| {
+        shape
+            .interior()
+            .all(|(_, kind, _, flags)| kind == NodeKind::Segment && !flags.is_optional())
+    };
+    // A pattern allomorph is matched, never synthesised; a guessed root is plain segments.
+    let roots = g.entries.iter().any(|e| {
+        e.allomorphs
+            .iter()
+            .any(|a| !a.is_pattern && !plain(&a.shape.shape))
+    });
+    let literals = (0..g.strata.len()).any(|k| {
+        listed_rules(g, k).any(|id| {
+            rule_outputs(g, id).into_iter().any(|rhs| {
+                rhs.iter()
+                    .take_while(|action| !matches!(action, OutputAction::Copy(_)))
+                    .any(|action| {
+                        matches!(action, OutputAction::InsertSegments { shape, .. } if !plain(&shape.shape))
+                    })
+            })
+        })
+    });
+    let segment_only = |node: &PatternNode| match node {
+        PatternNode::Context(_) => true,
+        PatternNode::CharDef(id) => g
+            .char_tables
+            .iter()
+            .all(|t| (id.0 as usize) < t.len() && t.get(*id).kind() == CharDefKind::Segment),
+        _ => false,
+    };
+    let rewrites = g.prules.iter().any(|rule| match rule {
+        PhonRuleDef::Rewrite(rule) => rule
+            .subrules
+            .iter()
+            .any(|sub| !sub.rhs.nodes.iter().all(segment_only)),
+        PhonRuleDef::Metathesis(_) => false,
+    });
+    roots || literals || rewrites
 }
 
 /// What stratum `k` and the strata after it can delete, given `later` for the strata after it. Walking stratum `k`'s rewrites last to first, a rewrite that deletes adds what it matches; a rewrite that can change a segment while some later rule deletes adds what it matches too, since the segment it changes may become one a later rule deletes; a morphological rule that modifies copied segments while any deletion follows makes every segment deletable. A node this test cannot read, or a grammar with more than one character table, deletes any segment.
@@ -189,7 +274,7 @@ fn segments_of(shape: &Shape) -> Vec<Option<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metathesis_span::tests::{affix, change, deletion, grammar, stratum};
+    use crate::metathesis_span::tests::{affix, change, deletion, grammar, metathesis, stratum};
 
     /// Stratum `S0` deletes `a` and lists `inner` (with roots `roots`); stratum `S1` lists suffix `SU` when `later_suffix`.
     fn two_strata(inner: &[(&str, &str, &str)], roots: &[&str], later_suffix: bool) -> bool {
@@ -320,5 +405,55 @@ mod tests {
         assert!(set.empties(&[None]));
         assert!(!Deletable::Nothing.empties(&[Some(1)]));
         assert!(Deletable::Any.empties(&[Some(9)]));
+    }
+
+    /// Stratum `S0` applies `prules` and lists `prefix` (a literal, empty for none-inserting) over root `ps`; stratum `S1` lists suffix `SU`.
+    fn edit_before_suffix(defs: &str, prules: &str, prefix: &str, later: bool) -> bool {
+        let mut strata = stratum("S0", "PR", prules, &affix("PR", prefix, ""), &["ps"]);
+        if later {
+            strata += &stratum("S1", "SU", "", &affix("SU", "", "a"), &[]);
+        }
+        shape_edit_can_reorder_morphs_before_later_affix(&grammar(defs, &strata))
+    }
+
+    #[test]
+    fn a_deletion_before_a_later_affix_with_a_boundary_prefix_can_reorder() {
+        assert!(edit_before_suffix(&deletion("d", "p"), "d", "+", true));
+    }
+
+    #[test]
+    fn a_deletion_with_nothing_for_the_fold_to_span_does_not() {
+        assert!(!edit_before_suffix(&deletion("d", "p"), "d", "t", true));
+        assert!(!edit_before_suffix(&deletion("d", "p"), "d", "+", false));
+    }
+
+    #[test]
+    fn a_deletion_after_the_last_affixing_stratum_is_not_ahead_of_an_affix_copy() {
+        let strata = stratum("S0", "PR", "", &affix("PR", "+", ""), &["ps"])
+            + &stratum("S1", "SU", "d", &affix("SU", "", "a"), &[]);
+        assert!(!shape_edit_can_reorder_morphs_before_later_affix(&grammar(
+            &deletion("d", "p"),
+            &strata
+        )));
+    }
+
+    #[test]
+    fn an_insertion_beside_a_segmentless_morph_before_a_later_affix_can_reorder() {
+        assert!(edit_before_suffix(&change("e", "a", "pp"), "e", "", true));
+        assert!(!edit_before_suffix(&change("e", "a", "pp"), "e", "t", true));
+    }
+
+    #[test]
+    fn a_deletion_and_a_metathesis_with_a_boundary_prefix_are_refused() {
+        let defs = [deletion("d", "p"), metathesis("m", "ppst")].concat();
+        assert!(edit_before_suffix(&defs, "d m", "+", true));
+    }
+
+    #[test]
+    fn a_boundary_written_after_the_copy_is_not_at_the_word_start() {
+        let strata = stratum("S0", "SX", "d", &affix("SX", "", "+"), &["ps"])
+            + &stratum("S1", "SU", "", &affix("SU", "", "a"), &[]);
+        let g = grammar(&deletion("d", "p"), &strata);
+        assert!(!shape_edit_can_reorder_morphs_before_later_affix(&g));
     }
 }

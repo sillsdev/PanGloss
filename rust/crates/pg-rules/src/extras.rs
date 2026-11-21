@@ -16,6 +16,8 @@ struct Parts {
     applied_phonological_rules: Vec<(StratumId, PRuleId)>,
     root_runtime_id: Option<String>,
     pinned_starts: Vec<(AllomorphId, u16, u16)>,
+    deleted_gaps: Vec<u32>,
+    bare_nodes: Vec<u32>,
 }
 
 impl Extras {
@@ -66,6 +68,34 @@ impl Extras {
         }
     }
 
+    /// Interior node indices that a synthesis rewrite deleted a non-optional node just before.
+    pub(crate) fn deleted_gaps(&self) -> &[u32] {
+        self.0.as_ref().map_or(&[][..], |p| &p.deleted_gaps)
+    }
+
+    /// Interior node indices a synthesis rewrite inserted at a morph's range edge, which belong to no morph.
+    pub(crate) fn bare_nodes(&self) -> &[u32] {
+        self.0.as_ref().map_or(&[][..], |p| &p.bare_nodes)
+    }
+
+    pub(crate) fn set_shape_marks(&mut self, deleted_gaps: Vec<u32>, bare_nodes: Vec<u32>) {
+        if deleted_gaps.is_empty() && bare_nodes.is_empty() && self.0.is_none() {
+            return;
+        }
+        let parts = self.parts_mut();
+        parts.deleted_gaps = deleted_gaps;
+        parts.bare_nodes = bare_nodes;
+    }
+
+    /// Forgets everything that describes the old shape, for a rule that rebuilds the shape from its copied nodes.
+    pub(crate) fn clear_shape_marks(&mut self) {
+        if let Some(parts) = self.0.as_mut() {
+            parts.pinned_starts.clear();
+            parts.deleted_gaps.clear();
+            parts.bare_nodes.clear();
+        }
+    }
+
     pub fn set_root_runtime_id(&mut self, id: Option<String>) {
         if id.is_none() && self.0.is_none() {
             return;
@@ -88,6 +118,8 @@ impl std::fmt::Debug for Extras {
             )
             .field("root_runtime_id", &self.root_runtime_id())
             .field("pinned_starts", &self.pinned_starts())
+            .field("deleted_gaps", &self.deleted_gaps())
+            .field("bare_nodes", &self.bare_nodes())
             .finish()
     }
 }

@@ -82,7 +82,6 @@ grammar 795, word ssps+sa+: missing {AnalysisIdentity { morphemes: [Some("PR1"),
 grammar 805, word tpaaat+t+: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r1"), Some("r2"), Some("SU0")], root_index: 1, category: Some("v") }, AnalysisIdentity { morphemes: [Some("CI1"), Some("r2"), Some("r1"), Some("SU0")], root_index: 1, category: Some("v") }}, extra {}
 grammar 805, word tpatpptt+: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r1"), Some("r0"), Some("SU0")], root_index: 1, category: Some("v") }}, extra {}
 grammar 806, word tttt+tp+ap+: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r1"), Some("SU2")], root_index: 1, category: Some("v") }}, extra {}
-grammar 807, word ppp+t: missing {AnalysisIdentity { morphemes: [Some("r0"), Some("PR0"), Some("ZE1")], root_index: 0, category: Some("v") }}, extra {}
 grammar 819, word ts+spp+: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r2")], root_index: 1, category: Some("v") }}, extra {}
 grammar 829, word +p+aaaa: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r1")], root_index: 1, category: Some("v") }}, extra {}
 grammar 829, word +paaaa: missing {AnalysisIdentity { morphemes: [Some("CI1"), Some("r1")], root_index: 1, category: Some("v") }}, extra {}

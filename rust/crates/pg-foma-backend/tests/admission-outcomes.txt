@@ -215,11 +215,13 @@ staging:edge-cases/bistratal-overlapping-segment-representation	TunedSurfaceProb
 staging:edge-cases/bounded-iterative-epenthesis	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/bracket-pattern-reduplication-affix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cascade-symbolic-output	TunedSurfaceProbed	refused
+staging:edge-cases/change-epenthesis-prefix-deletion-chain	TunedSurfaceProbed	refused
 staging:edge-cases/clitic-rule-designation-iscliticrule	TunedSurfaceProbed	refused
 staging:edge-cases/compound-allomorph-identity-affix-reuse	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/do-not-use-for-parsing-flag-ignored	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/epenthesis-beside-prefix-then-prefix-deletion	TunedSurfaceProbed	refused
 staging:edge-cases/feature-system-breadth	TunedSurfaceProbed	refused
 staging:edge-cases/featureless-modify-from-input	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/featureless-segment-class-rewrite	TunedSurfaceProbed	refused
@@ -255,6 +257,7 @@ staging:edge-cases/mpr-overwrite-order-dependence	TunedSurfaceProbed	oracle_exac
 staging:edge-cases/multi-table-metathesis-shared-representation	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/narrowing-boundary-first-alpha-lhs	TunedSurfaceProbed	refused
 staging:edge-cases/narrowing-boundary-order-alpha-lhs	TunedSurfaceProbed	refused
+staging:edge-cases/null-prefix-root-initial-deletion-later-suffix	TunedSurfaceProbed	refused
 staging:edge-cases/nullable-copy-partition-alpha-ltr	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/nullable-copy-partition-alpha-rtl	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/nullable-copy-partition-ltr	TunedSurfaceProbed	oracle_exact
