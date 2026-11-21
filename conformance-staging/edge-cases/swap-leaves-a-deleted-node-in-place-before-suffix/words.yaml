@@ -64,13 +64,13 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R0|+?sp"
-        rules: []
+        rules: [NU0, pd0, pm]
       - signature: "NU0+R1|+?sp"
-        rules: []
+        rules: [NU0, pd0, pm]
       - signature: "R0|sp"
-        rules: []
+        rules: [pd0, pm]
       - signature: "R1|sp"
-        rules: []
+        rules: [pd0, pm]
   - word: "st"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -237,13 +237,13 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R1+SU1|+?spa"
-        rules: []
+        rules: [NU0, SU1, pd0, pm]
       - signature: "R0+NU0+SU1|spa"
-        rules: []
+        rules: [NU0, SU1, pd0, pm]
       - signature: "R0+SU1|spa"
-        rules: []
+        rules: [SU1, pd0, pm]
       - signature: "R1+SU1|spa"
-        rules: []
+        rules: [SU1, pd0, pm]
   - word: "spp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

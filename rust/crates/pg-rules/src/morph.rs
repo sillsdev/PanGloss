@@ -4331,13 +4331,12 @@ fn synth_compound_subrule(
         &g.mpr_add_output(&word.mpr, &sr.out_mpr),
         &rule.output_prod_restrictions_mpr,
     );
-    // As for an affix rebuild, a copied node that was bare in its source word stays outside every morph.
+    // A copied head node that was bare stays outside every morph; C# folds non-head nodes into one root morph, so a non-head carries no bare node.
     let bare: Vec<u32> = out
         .iter()
         .enumerate()
         .filter(|(_, node)| match node.origin {
             Origin::Head(old) => word.extras.bare_nodes().contains(&(old as u32)),
-            Origin::NonHead(old) => nh.extras.bare_nodes().contains(&(old as u32)),
             _ => false,
         })
         .map(|(index, _)| index as u32)

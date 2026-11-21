@@ -1,6 +1,6 @@
 # prefix-required-environment-after-epenthesis-later-compound
 
-Pins the shape marks after a metathesis moves an epenthetic node (prefix p requires s on its right; roots sa st ta; one rule inserts a between p and s; a compounding rule adds the root t in a later stratum). HC-Rust cleared the bare marks when a compounding rule rebuilt the shape, so the epenthetic segment counted as part of the prefix.
+Pins the allomorph environment of a morph beside an epenthetic segment after a compounding rule rebuilds the shape (prefix p requires s on its right; roots sa st ta; one rule inserts a between p and s; a compounding rule adds the root t in a later stratum). HC-Rust cleared the bare marks when a compounding rule rebuilt the shape, so the epenthetic segment counted as part of the prefix.
 
 C# verdict: rows are `hc-conformance --propose` output from machine 1ddef2bd (source: compound probe of the #405 review). Source of the bug: the Rust port; no Machine issue is warranted.
 

@@ -326,7 +326,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R1+SU0|apas"
-        rules: []
+        rules: [SU0, pe0]
   - word: "appa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -343,7 +343,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R1+R0|apta"
-        rules: []
+        rules: [KO1]
   - word: "aptp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -681,7 +681,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R0|tata"
-        rules: []
+        rules: [KO1]
   - word: "tatp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

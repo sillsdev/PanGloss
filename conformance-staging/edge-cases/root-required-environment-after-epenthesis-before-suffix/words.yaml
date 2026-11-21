@@ -183,7 +183,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R2+SU0|tas"
-        rules: []
+        rules: [SU0]
   - word: "tpa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -713,7 +713,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R1+SU0|tpas"
-        rules: []
+        rules: [SU0, pe0]
   - word: "tppa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

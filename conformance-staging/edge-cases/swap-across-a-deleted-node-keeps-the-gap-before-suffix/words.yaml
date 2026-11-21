@@ -37,9 +37,9 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R1|+?pa"
-        rules: []
+        rules: [NU0, pd0, pm0]
       - signature: "R1|pa"
-        rules: []
+        rules: [pd0, pm0]
   - word: "pp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -125,9 +125,9 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R1+SU1|+?paa"
-        rules: []
+        rules: [NU0, SU1, pd0, pm0]
       - signature: "R1+SU1|paa"
-        rules: []
+        rules: [SU1, pd0, pm0]
   - word: "pap"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -138,9 +138,9 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R0|+?pas"
-        rules: []
+        rules: [NU0, pd0, pm0]
       - signature: "R0|pas"
-        rules: []
+        rules: [pd0, pm0]
   - word: "ppa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -505,9 +505,9 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R0+SU1|+?pasa"
-        rules: []
+        rules: [NU0, SU1, pd0, pm0]
       - signature: "R0+SU1|pasa"
-        rules: []
+        rules: [SU1, pd0, pm0]
   - word: "pasp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -4271,7 +4271,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R1|+?pa"
-        rules: []
+        rules: [NU0, pd0, pm0]
   - word: "+pp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -5140,7 +5140,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R1+SU1|+?paa"
-        rules: []
+        rules: [NU0, SU1, pd0, pm0]
   - word: "+pap"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -5151,7 +5151,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "NU0+R0|+?pas"
-        rules: []
+        rules: [NU0, pd0, pm0]
   - word: "+pa+"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

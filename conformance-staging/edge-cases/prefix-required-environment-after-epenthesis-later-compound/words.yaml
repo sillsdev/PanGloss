@@ -4,7 +4,7 @@
 language: EpenthesisBesideMorphThenCompound
 inspired_by: ["synthetic probe (not modeling any real language)"]
 sources:
-  - "C# AnnotationList.cs:131-138 (a node nests only inside a range that contains it), SynthesisMetathesisRuleSpec.ApplyRhs"
+  - "C# AnnotationList.cs:131-138 (a node nests only inside a range that contains it), AllomorphEnvironment.cs:88-97"
   - "FieldWorks HCLoader.LoadAffixProcessRule, LoadRewriteRule (epenthesis), LoadCompoundingRule"
 requires: [phonology]
 fieldworks_producible: true
@@ -59,7 +59,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R3|tt"
-        rules: []
+        rules: [CR1]
   - word: "ts"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -185,7 +185,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R2+R3|tat"
-        rules: []
+        rules: [CR1]
   - word: "tas"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -235,7 +235,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R0+R3|sat"
-        rules: []
+        rules: [CR1]
   - word: "sas"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -261,7 +261,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R1+R3|stt"
-        rules: []
+        rules: [CR1]
   - word: "sts"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

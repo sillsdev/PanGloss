@@ -74,7 +74,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R0+SU1|ss"
-        rules: []
+        rules: [SU1]
   - word: "aaa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -112,7 +112,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "PR0+R0|ats"
-        rules: []
+        rules: [PR0, pe0, pm]
   - word: "asa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -246,7 +246,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "R1+SU1|sps"
-        rules: []
+        rules: [SU1]
   - word: "sta"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -410,7 +410,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "PR0+R1|atsp"
-        rules: []
+        rules: [PR0, pe0, pm]
   - word: "atst"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -418,7 +418,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "PR0+R0+SU1|atss"
-        rules: []
+        rules: [PR0, SU1, pe0, pm]
   - word: "asaa"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
@@ -1596,7 +1596,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "PR0+R1+SU1|atsps"
-        rules: []
+        rules: [PR0, SU1, pe0, pm]
   - word: "atsta"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true

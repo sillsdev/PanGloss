@@ -152,7 +152,7 @@ words:
     note: "C# 1ddef2bd returns this analysis."
     parses:
       - signature: "PR0+R2|pta"
-        rules: []
+        rules: [PR0]
   - word: "ptp"
     note: "C# 1ddef2bd returns no analysis: pins that this spelling is not a route."
     expect_fail: true
