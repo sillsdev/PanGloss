@@ -61,8 +61,12 @@ and GUIDs (hex digits and `-`) cannot clash with the separators either. Some mor
 choices at that position. Dense numeric ids (`morphemeId` in an analysis) are not accepted.
 
 `--expect-json` input is a JSON array of candidates; each candidate an array of positions; each
-position a non-empty array of choices `{"morpheme": "id", "guid": {"entry_guid", "msa_guid"}?}`. `allomorph` is optional and pins
-the allomorph by its `grammar.xml` id. Unknown fields are refused on input:
+position a non-empty array of choices `{"morpheme": "id"?, "guid": {"entry_guid", "msa_guid"}?}`. A choice needs a `morpheme` id, a `guid`, or both.
+A choice with only a `guid` (both `entry_guid` and `msa_guid`) is resolved exactly as an `--expect-guid` choice is: it becomes one choice per morpheme
+sharing that entry and MSA, and an id candidate and a guid candidate may share one call. With both, the guid must belong to the
+morpheme the id names, or the call is an error (the id does not win silently). `allomorph` is optional and pins the allomorph by its `grammar.xml` id; with a guid-only
+choice it needs the guid to name a single morpheme. Unknown fields are refused on input. The example below shows an id choice; a guid-only choice is
+`{"guid": {"entry_guid": "...", "msa_guid": "..."}}`:
 
 ```json
 [
@@ -108,7 +112,7 @@ These are errors, not failure kinds: nothing is written to standard output and t
 nothing in it, an unknown morpheme id, a morpheme id shared by several morphemes, an `--expect-guid` that
 matches no morpheme, an empty id, malformed JSON, a bad flag value, an allomorph id the grammar
 does not have, one shared by several allomorphs, or one that belongs to another morpheme, and a
-supplied guid that is not the morpheme's. A grammar that fails to load is also exit 1. Everything else, including a word that is
+supplied guid that is not the morpheme's, a JSON choice with neither a `morpheme` nor a complete `guid`, and a guid-only choice that pins an allomorph while naming several morphemes. A grammar that fails to load is also exit 1. Everything else, including a word that is
 rejected or `unknown`, exits 0.
 
 ## Report
