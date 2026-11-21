@@ -694,3 +694,104 @@ fn suite_mode_refuses_json_and_expect_flags() {
     assert!(!o.status.success());
     assert!(stderr(&o).contains("suite form"), "{}", stderr(&o));
 }
+
+#[test]
+fn describe_declares_the_why_not_capability() {
+    let o = Command::new(BIN).arg("--describe").output().unwrap();
+    let v: Value = serde_json::from_slice(&o.stdout).unwrap();
+    let c = &v["interfaces"]["whyNot"];
+    assert_eq!(c["schema"], "pangloss.whynot.v1", "{v}");
+    assert_eq!(c["ids"], "grammar-xml");
+    assert_eq!(c["suiteRows"], true);
+}
+
+fn assert_no_engine_ordinals(r: &Value) {
+    let text = r.to_string();
+    for key in [
+        "morphemeIds",
+        "morphOccurrences",
+        "morphemeId",
+        "allomorphId",
+        "posId",
+    ] {
+        assert!(!text.contains(key), "{key} is an engine ordinal: {text}");
+    }
+}
+
+#[test]
+fn an_environment_failure_names_its_allomorph_and_morpheme_by_grammar_xml_id() {
+    let r = answer_on(
+        "why-not-environments.xml",
+        "salk",
+        &["--expect", "eSal,mrSufK"],
+    );
+    let f = &r["failure"];
+    assert_eq!(f["object"]["type"], "allomorph", "{r}");
+    assert_eq!(f["object"]["id"], "aSal");
+    assert_eq!(f["environment"]["allomorph_id"], "aSal");
+    assert_eq!(f["morphs"][0]["morpheme"], "eSal");
+    assert_eq!(f["morphs"][0]["allomorph"], "aSal");
+    let plain = f["plain"].as_str().unwrap();
+    assert!(plain.contains("aSal") && plain.contains("eSal"), "{plain}");
+    assert_no_engine_ordinals(&r);
+}
+
+#[test]
+fn an_allomorph_prohibition_names_both_allomorphs_and_a_typed_absent_rule() {
+    let r = answer_on("why-not-ranking.xml", "monk", &["--expect", "eMon,mrSufK"]);
+    assert_eq!(failure_kind(&r), "adhoc_prohibition", "{r}");
+    let f = &r["failure"];
+    assert_eq!(f["hc_reason"], "AllomorphCoOccurrenceRules");
+    assert_eq!(f["morphs"][0]["morpheme"], "mrSufK");
+    assert!(f["morphs"][0]["allomorph"].is_string(), "{r}");
+    assert_eq!(f["morphs"][1]["morpheme"], "eMon");
+    assert!(f["morphs"][1]["allomorph"].is_string(), "{r}");
+    // grammar.xml gives a co-occurrence rule no id: the object is typed, its id absent.
+    assert_eq!(f["object"]["type"], "rule", "{r}");
+    assert!(f["object"]["id"].is_null() && f["object"]["guid"].is_null());
+    let plain = f["plain"].as_str().unwrap();
+    let (a, b) = (
+        f["morphs"][0]["allomorph"].as_str().unwrap(),
+        f["morphs"][1]["allomorph"].as_str().unwrap(),
+    );
+    assert!(plain.contains(a) && plain.contains(b), "{plain}");
+    assert_no_engine_ordinals(&r);
+}
+
+#[test]
+fn a_morpheme_prohibition_names_both_morphemes_by_id_in_plain() {
+    let r = answer_on(
+        "trace-family.xml",
+        "kibuton",
+        &["--expect", "eKib,mrPast2,mrPl"],
+    );
+    let plain = r["failure"]["plain"].as_str().unwrap();
+    assert!(
+        plain.contains("mrPl") && plain.contains("mrPast2"),
+        "{plain}"
+    );
+    assert_eq!(r["failure"]["object"]["type"], "rule", "{r}");
+    assert!(r["failure"]["object"]["id"].is_null());
+    assert_no_engine_ordinals(&r);
+}
+
+#[test]
+fn an_accepted_analysis_is_named_by_authored_ids_only() {
+    let r = answer_on("trace-family.xml", "kibes", &["--expect", "eKib,mrTense"]);
+    let a = &r["analysis"]["analysis"];
+    assert_eq!(a["morphs"][0]["morpheme"], "eKib", "{r}");
+    assert_eq!(a["morphs"][1]["morpheme"], "mrTense");
+    assert!(a["morphs"][0]["allomorph"].is_string());
+    assert_eq!(a["root_index"], 0);
+    assert!(a["category"].is_string(), "{r}");
+    assert_eq!(a["guessed"], false);
+    assert_no_engine_ordinals(&r);
+}
+
+#[test]
+fn a_no_morph_match_names_its_morphs_by_id() {
+    let r = answer_on("trace-family.xml", "kibes", &["--expect", "eKib,mrPl"]);
+    assert_eq!(r["failure"]["morphs"][0]["morpheme"], "eKib", "{r}");
+    assert_eq!(r["failure"]["morphs"][1]["morpheme"], "mrPl");
+    assert_no_engine_ordinals(&r);
+}
