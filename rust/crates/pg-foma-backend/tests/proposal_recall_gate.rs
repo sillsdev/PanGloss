@@ -327,6 +327,14 @@ const COLLATERAL_REFUSALS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::TemplateReentry,
     ),
     (
+        "machine:edge-cases/partial-rule-deleted-material",
+        ProposalRecallGap::TruncationComposition,
+    ),
+    (
+        "machine:edge-cases/partial-rule-wrapped-material",
+        ProposalRecallGap::TruncationComposition,
+    ),
+    (
         "machine:edge-cases/truncate-morphotactic",
         ProposalRecallGap::TruncationComposition,
     ),
@@ -666,4 +674,47 @@ fn generated_inventory_admission_preserves_every_hc_proposal() {
         "admitted inventories lose HC identities: {failures:#?}"
     );
     assert_eq!(admitted + refused, 522);
+}
+
+fn refuses_partial_material_composition(grammar: &pg_grammar::model::Grammar) -> bool {
+    use pg_foma::analyzer::{compile_proposer, FomaError};
+    match compile_proposer(grammar) {
+        Err(FomaError::CapabilityRefused(refusals)) => refusals.iter().any(|d| {
+            d.refusal == CapabilityRefusal::ProposalRecall(ProposalRecallGap::TruncationComposition)
+        }),
+        _ => false,
+    }
+}
+
+#[test]
+fn a_partial_rule_whose_material_a_deletion_or_reduplication_reaches_is_refused() {
+    let fixtures = discover();
+    let load = |name: &str| {
+        let label = format!("machine:edge-cases/{name}");
+        fixtures
+            .iter()
+            .find(|f| f.label() == label)
+            .expect("fixture is pinned")
+            .load_grammar()
+    };
+    for name in [
+        "partial-rule-deleted-material",
+        "partial-rule-wrapped-material",
+    ] {
+        let mut grammar = load(name);
+        assert!(refuses_partial_material_composition(&grammar), "{name}");
+        for rule in &mut grammar.mrules {
+            if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
+                def.partial_reason = None;
+            }
+        }
+        assert!(
+            !refuses_partial_material_composition(&grammar),
+            "{name}: without a partial rule the refusal must not apply"
+        );
+    }
+    assert!(
+        !refuses_partial_material_composition(&load("partial-rule-infixed-material")),
+        "a partial rule with neither a deletion nor a reduplication stays admitted"
+    );
 }
