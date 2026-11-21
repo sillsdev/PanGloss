@@ -58,6 +58,7 @@ fn environment_source_metadata_does_not_change_semantic_equality() {
     let authored = EnvironmentDef {
         source: Some(EnvironmentSource {
             id: Some("authored-guid".into()),
+            guid: None,
             text: Some("/d_".into()),
         }),
         ..env(true, pattern, None)
@@ -484,6 +485,7 @@ fn rich_environment_rejection_records_only_the_failed_alternatives() {
         EnvironmentDef {
             source: Some(EnvironmentSource {
                 id: Some("env-first".into()),
+                guid: None,
                 text: Some("/[All]_".into()),
             }),
             ..env(true, Some(single(&g, "ncAll")), None)
@@ -491,6 +493,7 @@ fn rich_environment_rejection_records_only_the_failed_alternatives() {
         EnvironmentDef {
             source: Some(EnvironmentSource {
                 id: Some("env-second".into()),
+                guid: None,
                 text: Some("/[All]_".into()),
             }),
             ..env(true, Some(single(&g, "ncAll")), None)
@@ -564,6 +567,7 @@ fn rich_co_occurrence_rejection_records_the_first_failed_rule_operands() {
         require: true,
         others: vec![absent_other],
         adjacency: CoOccurrenceAdjacency::Anywhere,
+        source_guid: None,
     }];
     let mut w = Word::new(
         entry_shape(&g, "cat"),

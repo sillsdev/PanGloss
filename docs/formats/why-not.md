@@ -61,8 +61,12 @@ and GUIDs (hex digits and `-`) cannot clash with the separators either. Some mor
 choices at that position. Dense numeric ids (`morphemeId` in an analysis) are not accepted.
 
 `--expect-json` input is a JSON array of candidates; each candidate an array of positions; each
-position a non-empty array of choices `{"morpheme": "id", "guid": {"entry_guid", "msa_guid"}?}`. `allomorph` is optional and pins
-the allomorph by its `grammar.xml` id. Unknown fields are refused on input:
+position a non-empty array of choices `{"morpheme": "id"?, "guid": {"entry_guid", "msa_guid"}?}`. A choice needs a `morpheme` id, a `guid`, or both.
+A choice with only a `guid` (both `entry_guid` and `msa_guid`) is resolved exactly as an `--expect-guid` choice is: it becomes one choice per morpheme
+sharing that entry and MSA, and an id candidate and a guid candidate may share one call. With both, the guid must belong to the
+morpheme the id names, or the call is an error (the id does not win silently). `allomorph` is optional and pins the allomorph by its `grammar.xml` id; with a guid-only
+choice it needs the guid to name a single morpheme. Unknown fields are refused on input. The example below shows an id choice; a guid-only choice is
+`{"guid": {"entry_guid": "...", "msa_guid": "..."}}`:
 
 ```json
 [
@@ -108,7 +112,7 @@ These are errors, not failure kinds: nothing is written to standard output and t
 nothing in it, an unknown morpheme id, a morpheme id shared by several morphemes, an `--expect-guid` that
 matches no morpheme, an empty id, malformed JSON, a bad flag value, an allomorph id the grammar
 does not have, one shared by several allomorphs, or one that belongs to another morpheme, and a
-supplied guid that is not the morpheme's. A grammar that fails to load is also exit 1. Everything else, including a word that is
+supplied guid that is not the morpheme's, a JSON choice with neither a `morpheme` nor a complete `guid`, and a guid-only choice that pins an allomorph while naming several morphemes. A grammar that fails to load is also exit 1. Everything else, including a word that is
 rejected or `unknown`, exits 0.
 
 ## Report
@@ -145,10 +149,12 @@ rejected.
 | `position` | 0-based position in the candidate the failure is about, or null when it is about the whole word |
 | `hc_reason` | the engine's reason, the C# `FailureReason` name when HC reports it, or null when PanGloss inferred the failure |
 | `provenance` | `hc_reported` (C# raises this failure) or `derived` (PanGloss inferred it; C# has no event) |
-| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the caller has the FieldWorks model. `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`); `stem_name` carries `stem_name` instead; null when no single object applies |
+| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the grammar came from a FieldWorks model (a `.fwdata` snapshot). `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`; `guid` is that allomorph's `MoForm` guid); `adhoc_prohibition` fills it with the `rule` (`guid` is the `MoAdhocProhib` guid, `id` stays null); `stem_name` carries `stem_name` instead; null when no single object applies |
 | `morphs` | the morph(s) involved, as `{morpheme, allomorph?}` (the shape of an expected-parse element; `allomorph` is omitted when unknown); for a position with several choices, the choice used. For `adhoc_prohibition` it is the pair, the rule's primary morph first and the offending partner second; for `stem_name` the root allomorph |
 | `context` | `environment_unmet` only: `{left, right, provenance}`, the actual text around the allomorph in the form HC checked, which is the synthesized form and can differ from the word when phonological rules apply (`plain` then says so); otherwise null. HC does not report it, so an engine or adapter computes it and `provenance` is always `derived`, even when the failure itself is `hc_reported` |
-| `environment` | `environment_unmet` only: `{allomorph_id, index?}`, the allomorph and the 0-based index in its environment list (an environment has no id of its own); `index` is omitted when the engine does not know it, never a fake 0. Otherwise null |
+| `environment` | `environment_unmet` only: `{allomorph_id, guid?, text?, index?}`. When one environment failed it is that environment: its 0-based `index` in the allomorph's list, the FieldWorks environment `guid` and the authored `text` (such as `/ _ #`), the last two only on a snapshot-route grammar. When several failed (an allomorph's environments are any-of, so all of them failed) it names only the allomorph and `environments` lists them. `index` is omitted when unknown, never a fake 0. Otherwise null |
+| `environments` | `environment_unmet` only, when more than one environment failed: one `{allomorph_id, guid?, text?, index?}` per failed environment, in list order; omitted when one failed. `plain` lists the texts |
+| `members` | `adhoc_prohibition` only: every morph the prohibition names, primary first, each `{morpheme, allomorph?, guid?, form_guid?}` (`morphs` keeps just the clashing pair); omitted otherwise. An allomorph prohibition lists the allomorphs, a morpheme prohibition the morphemes |
 | `stem_name` | `stem_name` only: the stem name's `grammar.xml` id. Otherwise null |
 | `features` | `feature_clash` only: an array with one `{path, required, actual}` per mismatching feature path (the word's feature state against one requirement); an empty array otherwise |
 | `alternatives` | how many other derivations of the same concrete morph sequence also fail (any reason), or null when none; derivations of other sequences of a multi-choice candidate are not counted |
@@ -191,9 +197,10 @@ engine ordinal (a morpheme, allomorph, rule or part-of-speech index) appears in 
 | morpheme (entry or affix rule) | `morphs[].morpheme`, `used[].morpheme`, `analysis.morphs[].morpheme` | `grammar.xml` id of the entry or rule; `plain` adds its `MorphemeId` text or gloss in parentheses |
 | allomorph | `morphs[].allomorph`, `object.id`, `environment.allomorph_id` | `grammar.xml` allomorph (or subrule) id |
 | entry and MSA | `morphs[].guid.{entry_guid, msa_guid}` | FieldWorks GUIDs when the grammar came from a FieldWorks model; the whole `guid` is omitted for a hand-written grammar.xml, which has neither |
+| form | `morphs[].form_guid`, `members[].form_guid`, `object.guid` on `environment_unmet` | the `MoForm` guid of the allomorph (the first form of a circumfix); omitted for grammar.xml |
 | part of speech | `analysis.category` | `grammar.xml` part-of-speech id |
-| co-occurrence rule | `object` `{type: "rule", id: null, guid: null}` | none: grammar.xml gives these rules no id, so the id is null. `morphs[0]` is the rule's owner |
-| environment | `environment.index` | none: an environment has no id, only its 0-based index in its allomorph's list |
+| co-occurrence rule | `object` `{type: "rule", id: null, guid}` | `guid` is the `MoAdhocProhib` guid on a snapshot-route grammar and null for grammar.xml, which gives these rules no id. It is found by the primary and the full member set; when two prohibitions have the same primary and members the trace cannot say which fired, so `guid` is null. `morphs[0]` is the rule's owner |
+| environment | `environment.index`, `environment.guid`, `environment.text` | `index` is the 0-based position in its allomorph's list; `guid` and `text` come from the FieldWorks model only, never from grammar.xml: its `<Environment>` has no id, and an `id` authored there is never reported as a guid |
 | rule (phonological or morphological), template, slot | not reported | no failure kind that names them is answered yet (they are `unknown / unclassified_failure`) |
 
 `plain` names an allomorph by its id (`aSal`) and a morpheme by its id with its text

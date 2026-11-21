@@ -5,8 +5,8 @@ use std::io::Read;
 use std::time::Duration;
 
 use pg_parse::why_not::{
-    resolve_guid, why_not, Candidate, CandidateResult, ExpectedMorph, GuidRef, WhyNotError,
-    WhyNotOutcome, WhyNotReport, WhyNotRequest,
+    expand_guid, why_not, Candidate, CandidateResult, ExpectedMorph, GuidRef, WhyNotOutcome,
+    WhyNotReport, WhyNotRequest,
 };
 use pg_parse::Morpher;
 use pg_stats::WorkCap;
@@ -17,6 +17,16 @@ pub(crate) const USAGE: &str = "usage: why-not <grammar> <word> (--expect <spec>
 enum Spec {
     Ids(Candidate),
     Guids(Vec<Vec<GuidRef>>),
+    Json(Vec<Vec<JsonChoice>>),
+}
+
+/// A `--expect-json` choice: a morpheme id, a guid, or both (which must agree).
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JsonChoice {
+    morpheme: Option<String>,
+    allomorph: Option<String>,
+    guid: Option<GuidRef>,
 }
 
 struct Parsed<'a> {
@@ -114,7 +124,7 @@ fn parse_expect_guid(spec: &str) -> Result<Vec<Vec<GuidRef>>, String> {
         .collect()
 }
 
-fn read_expect_json(source: &str) -> Result<Vec<Candidate>, String> {
+fn read_expect_json(source: &str) -> Result<Vec<Vec<Vec<JsonChoice>>>, String> {
     let text = if source == "-" {
         let mut text = String::new();
         std::io::stdin()
@@ -124,8 +134,18 @@ fn read_expect_json(source: &str) -> Result<Vec<Candidate>, String> {
     } else {
         std::fs::read_to_string(source).map_err(|e| format!("read {source}: {e}"))?
     };
-    serde_json::from_str::<Vec<Candidate>>(&text)
-        .map_err(|e| format!("--expect-json must be an array of candidates, each an array of positions, each an array of {{\"morpheme\":\"id\"}} choices: {e}"))
+    let candidates = serde_json::from_str::<Vec<Vec<Vec<JsonChoice>>>>(&text)
+        .map_err(|e| format!("--expect-json must be an array of candidates, each an array of positions, each an array of {{\"morpheme\":\"id\"}} or {{\"guid\":{{\"entry_guid\":..,\"msa_guid\":..}}}} choices: {e}"))?;
+    for choice in candidates.iter().flatten().flatten() {
+        match (&choice.morpheme, &choice.guid) {
+            (None, None) => return Err("--expect-json choice needs a `morpheme` id or a `guid`".into()),
+            (None, Some(g)) if g.entry_guid.is_none() || g.msa_guid.is_none() => {
+                return Err("--expect-json choice without a `morpheme` needs both guid.entry_guid and guid.msa_guid".into())
+            }
+            _ => {}
+        }
+    }
+    Ok(candidates)
 }
 
 fn parse_args(args: &[String]) -> Result<Parsed<'_>, String> {
@@ -162,7 +182,7 @@ fn parse_args(args: &[String]) -> Result<Parsed<'_>, String> {
                 let spec = value(name)?;
                 match specs.last_mut() {
                     Some(Spec::Ids(c)) => apply_allomorphs(c, &spec)?,
-                    Some(Spec::Guids(_)) => {
+                    Some(Spec::Guids(_) | Spec::Json(_)) => {
                         return Err(
                             "--allomorphs pairs with --expect, not --expect-guid; name an allomorph in --expect-json instead"
                                 .into(),
@@ -193,7 +213,7 @@ fn parse_args(args: &[String]) -> Result<Parsed<'_>, String> {
         return Err("--expect-json cannot be combined with --expect or --expect-guid".into());
     }
     for source in &json_sources {
-        specs.extend(read_expect_json(source)?.into_iter().map(Spec::Ids));
+        specs.extend(read_expect_json(source)?.into_iter().map(Spec::Json));
     }
     let (grammar, word, suite_output) = match positional[..] {
         [grammar, queries, output] if specs.is_empty() => (grammar, queries, Some(output)),
@@ -294,26 +314,40 @@ pub(crate) fn run_why_not(args: &[String]) -> Result<(), String> {
     for spec in parsed.specs {
         candidates.push(match spec {
             Spec::Ids(c) => c,
+            Spec::Json(positions) => {
+                let mut out = Vec::with_capacity(positions.len());
+                for position in positions {
+                    let mut choices = Vec::new();
+                    for choice in position {
+                        let JsonChoice {
+                            morpheme,
+                            allomorph,
+                            guid,
+                        } = choice;
+                        let Some(morpheme) = morpheme else {
+                            let guid = guid.expect("checked when read");
+                            choices.extend(
+                                expand_guid(&grammar, &guid, allomorph.as_deref())
+                                    .map_err(|e| e.to_string())?,
+                            );
+                            continue;
+                        };
+                        let mut morph = ExpectedMorph::new(morpheme);
+                        morph.allomorph = allomorph;
+                        morph.guid = guid;
+                        choices.push(morph);
+                    }
+                    out.push(choices);
+                }
+                Candidate { positions: out }
+            }
             Spec::Guids(positions) => {
                 let mut out = Vec::with_capacity(positions.len());
                 for position in positions {
                     let mut choices = Vec::new();
                     for guid in position {
-                        let entry = guid.entry_guid.clone().unwrap_or_default();
-                        let msa = guid.msa_guid.clone().unwrap_or_default();
-                        let ids = resolve_guid(&grammar, &entry, &msa);
-                        if ids.is_empty() {
-                            return Err(WhyNotError::UnknownGuid {
-                                entry_guid: entry,
-                                msa_guid: msa,
-                            }
-                            .to_string());
-                        }
-                        choices.extend(ids.into_iter().map(|m| {
-                            let mut morph = ExpectedMorph::new(m);
-                            morph.guid = Some(guid.clone());
-                            morph
-                        }));
+                        choices
+                            .extend(expand_guid(&grammar, &guid, None).map_err(|e| e.to_string())?);
                     }
                     out.push(choices);
                 }

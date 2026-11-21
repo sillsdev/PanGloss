@@ -1,6 +1,8 @@
 //! The why-not search: a restricted traced reparse per morph sequence, then the first failure classified from the trace.
 
-use pg_grammar_model::model::{AllomorphId, Grammar, MorphemeId};
+use pg_grammar_model::model::{
+    AllomorphId, AllomorphOwner, EnvironmentSource, Grammar, MorphemeId,
+};
 use pg_rules::trace::{
     FailureContext, FailureReason, RejectionEvidence, TraceHandle, TraceNode, TraceObject,
     TraceType, TreeTraceSink,
@@ -57,7 +59,45 @@ impl<'a> Searcher<'a> {
             morpheme: self.morpheme_name(morpheme)?,
             allomorph: allomorph.and_then(|a| self.g.allomorph_xml_key(a).map(str::to_string)),
             guid: super::morpheme_guid(self.g, morpheme),
+            form_guid: allomorph.and_then(|a| self.form_guid(a)),
         })
+    }
+
+    /// The FieldWorks `MoForm` guid of an allomorph; `None` for HC XML and for an allomorph without a source form.
+    fn form_guid(&self, a: AllomorphId) -> Option<String> {
+        self.g
+            .allomorph_sources
+            .get(a.0 as usize)?
+            .form_guids
+            .iter()
+            .flatten()
+            .next()
+            .cloned()
+    }
+
+    /// The authored source of the `index`th environment of an allomorph.
+    fn environment_source(&self, a: AllomorphId, index: Option<u32>) -> Option<&EnvironmentSource> {
+        let envs = match *self.g.allomorph_owners.get(a.0 as usize)? {
+            AllomorphOwner::Root(le, i) => {
+                &self
+                    .g
+                    .entries
+                    .get(le.0 as usize)?
+                    .allomorphs
+                    .get(i as usize)?
+                    .environments
+            }
+            AllomorphOwner::Affix(rule, i) => {
+                &self
+                    .g
+                    .mrules
+                    .get(rule.0 as usize)?
+                    .affix_allomorphs()?
+                    .get(i as usize)?
+                    .environments
+            }
+        };
+        envs.get(index? as usize)?.source.as_ref()
     }
 
     /// A morpheme for `plain`: its grammar.xml id, then its gloss (else its `MorphemeId` text) when that adds something.
@@ -226,6 +266,8 @@ impl<'a> Searcher<'a> {
                 .iter()
                 .filter_map(|p| self.morph_ref(p.morpheme, p.allomorph))
                 .collect(),
+            members: Vec::new(),
+            environments: Vec::new(),
             context: None,
             environment: None,
             stem_name: None,
@@ -400,21 +442,38 @@ impl<'a> Searcher<'a> {
             false,
             end + 1..word.shape.len(),
         );
-        let index = match alternatives.as_slice() {
-            [only] => u32::try_from(only.index).ok(),
-            _ => None,
-        };
+        let failed: Vec<FailureEnvironment> = alternatives
+            .iter()
+            .map(|alt| {
+                let index = u32::try_from(alt.index).ok();
+                let source = self
+                    .environment_source(owner, index)
+                    .filter(|s| s.guid.is_some());
+                FailureEnvironment {
+                    allomorph_id: allomorph_id.clone(),
+                    guid: source.and_then(|s| s.guid.clone()),
+                    text: source.and_then(|s| s.text.clone()),
+                    index,
+                }
+            })
+            .collect();
         self.morpheme_name(morpheme)?;
         let name = self.label(morpheme);
         let synthesized =
             crate::surface::to_plain_string_range(table, &word.shape, false, 0..word.shape.len());
+        let texts: Vec<&str> = failed.iter().filter_map(|e| e.text.as_deref()).collect();
+        let env_note = match texts.as_slice() {
+            [] => String::new(),
+            [one] => format!(" (environment {one})"),
+            many => format!(" (none of the environments {} is met)", many.join(", ")),
+        };
         let plain = if synthesized == input {
             format!(
-                "allomorph {allomorph_id} of {name} is not allowed where it surfaces, between \"{left}\" and \"{right}\""
+                "allomorph {allomorph_id} of {name} is not allowed where it surfaces, between \"{left}\" and \"{right}\"{env_note}"
             )
         } else {
             format!(
-                "allomorph {allomorph_id} of {name} is not allowed in the synthesized form \"{synthesized}\" (phonological rules later make it \"{input}\"), between \"{left}\" and \"{right}\""
+                "allomorph {allomorph_id} of {name} is not allowed in the synthesized form \"{synthesized}\" (phonological rules later make it \"{input}\"), between \"{left}\" and \"{right}\"{env_note}"
             )
         };
         Some(FirstFailure {
@@ -426,14 +485,21 @@ impl<'a> Searcher<'a> {
             object: Some(FailureObject {
                 kind: ObjectType::Allomorph,
                 id: Some(allomorph_id.clone()),
-                guid: None,
+                guid: self.form_guid(owner),
             }),
             morphs: vec![self.morph_ref(morpheme, Some(object))?],
+            members: Vec::new(),
             context: Some(EnvContext::derived(left, right)),
-            environment: Some(FailureEnvironment {
-                allomorph_id,
-                index,
+            environment: Some(match failed.as_slice() {
+                [only] => only.clone(),
+                _ => FailureEnvironment {
+                    allomorph_id,
+                    guid: None,
+                    text: None,
+                    index: None,
+                },
             }),
+            environments: if failed.len() > 1 { failed } else { Vec::new() },
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
@@ -497,6 +563,21 @@ impl<'a> Searcher<'a> {
             TraceObject::MorphRule(_) => return None,
         };
         let plain = format!("{} forbids {}", labels.0, labels.1);
+        let in_word = |x: MorphemeId| {
+            word_seq
+                .iter()
+                .find(|r| r.morpheme == x)
+                .map(|r| r.allomorph)
+        };
+        let member = |o: &TraceObject| match *o {
+            TraceObject::Allomorph(a) => self.morph_ref(self.morpheme_of_allomorph(a)?, Some(a)),
+            TraceObject::Morpheme(m) => self.morph_ref(m, in_word(m)),
+            TraceObject::MorphRule(_) => None,
+        };
+        let members: Option<Vec<MorphRef>> = std::iter::once(object)
+            .chain(others.iter())
+            .map(member)
+            .collect();
         Some(FirstFailure {
             kind: FailureKind::AdhocProhibition,
             plain,
@@ -507,9 +588,11 @@ impl<'a> Searcher<'a> {
             object: Some(FailureObject {
                 kind: ObjectType::Rule,
                 id: None,
-                guid: None,
+                guid: self.prohibition_guid(*object, others),
             }),
             morphs: vec![primary, other],
+            members: members?,
+            environments: Vec::new(),
             context: None,
             environment: None,
             stem_name: None,
@@ -518,9 +601,86 @@ impl<'a> Searcher<'a> {
         })
     }
 
+    /// The FieldWorks guid of the prohibition whose primary is `primary` and whose members are `others`; `None` on HC XML.
+    fn prohibition_guid(&self, primary: TraceObject, others: &[TraceObject]) -> Option<String> {
+        match primary {
+            TraceObject::Allomorph(a) => {
+                let want: Vec<AllomorphId> = others
+                    .iter()
+                    .filter_map(|o| match o {
+                        TraceObject::Allomorph(x) => Some(*x),
+                        _ => None,
+                    })
+                    .collect();
+                let rules = match *self.g.allomorph_owners.get(a.0 as usize)? {
+                    AllomorphOwner::Root(le, i) => {
+                        &self
+                            .g
+                            .entries
+                            .get(le.0 as usize)?
+                            .allomorphs
+                            .get(i as usize)?
+                            .co_occurrence
+                    }
+                    AllomorphOwner::Affix(rule, i) => {
+                        &self
+                            .g
+                            .mrules
+                            .get(rule.0 as usize)?
+                            .affix_allomorphs()?
+                            .get(i as usize)?
+                            .co_occurrence
+                    }
+                };
+                unique_guid(
+                    rules
+                        .iter()
+                        .filter(|r| !r.require && same_set(&r.others, &want))
+                        .map(|r| r.source_guid.as_deref()),
+                )
+            }
+            TraceObject::Morpheme(m) => {
+                let want: Vec<MorphemeId> = others
+                    .iter()
+                    .filter_map(|o| match o {
+                        TraceObject::Morpheme(x) => Some(*x),
+                        _ => None,
+                    })
+                    .collect();
+                unique_guid(
+                    self.g
+                        .morphemes
+                        .get(m.0 as usize)?
+                        .co_occurrence
+                        .iter()
+                        .filter(|r| !r.require && same_set(&r.others, &want))
+                        .map(|r| r.source_guid.as_deref()),
+                )
+            }
+            TraceObject::MorphRule(_) => None,
+        }
+    }
+
     fn morpheme_of_allomorph(&self, a: AllomorphId) -> Option<MorphemeId> {
         super::allomorph_morpheme(self.g, a)
     }
+}
+
+/// Whether two member lists hold the same members, in any order.
+fn same_set<T: Ord + Copy>(a: &[T], b: &[T]) -> bool {
+    let sorted = |x: &[T]| {
+        let mut v = x.to_vec();
+        v.sort_unstable();
+        v.dedup();
+        v
+    };
+    sorted(a) == sorted(b)
+}
+
+/// The one guid every candidate rule carries; `None` when there is none or the candidates differ, because the trace cannot say which of several equal rules fired.
+fn unique_guid<'a>(mut guids: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
+    let first = guids.next()??;
+    guids.all(|g| g == Some(first)).then(|| first.to_string())
 }
 
 fn stop(reason: StopReason, note: &str) -> WhyNotOutcome {

@@ -275,6 +275,12 @@ pub struct FailureObject {
 #[serde(rename_all = "snake_case")]
 pub struct FailureEnvironment {
     pub allomorph_id: String,
+    /// The FieldWorks environment guid; only on a snapshot-route grammar (HC XML gives environments none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guid: Option<String>,
+    /// The environment as the author wrote it, such as "/ _ #"; only on a snapshot-route grammar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// Omitted when the engine does not know which alternative failed (HC does not name it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
@@ -290,6 +296,9 @@ pub struct MorphRef {
     /// The FieldWorks entry and MSA identities of the morpheme, when the grammar was built from a FieldWorks model; omitted for a hand-written grammar.xml, which has neither.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guid: Option<GuidRef>,
+    /// The FieldWorks `MoForm` guid of the allomorph (the first form of a circumfix or other two-form allomorph); only on a snapshot-route grammar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_guid: Option<String>,
 }
 
 /// Actual left and right context of an unmet environment. HC does not report it; the engine or
@@ -332,6 +341,12 @@ pub struct FirstFailure {
     pub provenance: Provenance,
     pub object: Option<FailureObject>,
     pub morphs: Vec<MorphRef>,
+    /// `adhoc_prohibition` only: every member of the prohibition, primary first (`morphs` holds just the pair that clashed).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<MorphRef>,
+    /// `environment_unmet` with several failed environments (the allomorph's any-of list): each one; omitted when one environment failed, which `environment` already describes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<FailureEnvironment>,
     pub context: Option<EnvContext>,
     /// `environment_unmet` only: which environment.
     pub environment: Option<FailureEnvironment>,
@@ -498,6 +513,12 @@ pub enum WhyNotError {
         entry_guid: String,
         msa_guid: String,
     },
+    /// A guid-only choice pins an allomorph but the guid names several morphemes.
+    AmbiguousGuidAllomorph {
+        entry_guid: String,
+        msa_guid: String,
+        morphemes: usize,
+    },
     RootIndexOutOfRange {
         candidate: usize,
         root_index: usize,
@@ -542,6 +563,14 @@ impl fmt::Display for WhyNotError {
                 entry_guid,
                 msa_guid,
             } => write!(f, "no morpheme for entry_guid {entry_guid} msa_guid {msa_guid}"),
+            Self::AmbiguousGuidAllomorph {
+                entry_guid,
+                msa_guid,
+                morphemes,
+            } => write!(
+                f,
+                "entry_guid {entry_guid} msa_guid {msa_guid} names {morphemes} morphemes; give the `morpheme` id to pin an allomorph"
+            ),
             Self::RootIndexOutOfRange {
                 candidate,
                 root_index,
@@ -575,6 +604,39 @@ pub fn resolve_guid(g: &Grammar, entry_guid: &str, msa_guid: &str) -> Vec<String
         })
         .map(|m| m.xml_key.clone())
         .collect()
+}
+
+/// The choices a guid names: one per morpheme sharing the entry and MSA (a variant sharing an MSA gives several), each carrying the guid. `allomorph` pins one allomorph and so needs the guid to name a single morpheme.
+pub fn expand_guid(
+    g: &Grammar,
+    guid: &GuidRef,
+    allomorph: Option<&str>,
+) -> Result<Vec<ExpectedMorph>, WhyNotError> {
+    let entry = guid.entry_guid.clone().unwrap_or_default();
+    let msa = guid.msa_guid.clone().unwrap_or_default();
+    let ids = resolve_guid(g, &entry, &msa);
+    if ids.is_empty() {
+        return Err(WhyNotError::UnknownGuid {
+            entry_guid: entry,
+            msa_guid: msa,
+        });
+    }
+    if allomorph.is_some() && ids.len() > 1 {
+        return Err(WhyNotError::AmbiguousGuidAllomorph {
+            entry_guid: entry,
+            msa_guid: msa,
+            morphemes: ids.len(),
+        });
+    }
+    Ok(ids
+        .into_iter()
+        .map(|m| {
+            let mut morph = ExpectedMorph::new(m);
+            morph.allomorph = allomorph.map(str::to_string);
+            morph.guid = Some(guid.clone());
+            morph
+        })
+        .collect())
 }
 
 fn matches_guid(m: &pg_grammar_model::model::MorphemeInfo, guid: &GuidRef) -> bool {
@@ -853,6 +915,7 @@ mod tests {
                 morpheme: "m1".into(),
                 allomorph: Some("a2".into()),
                 guid: None,
+                form_guid: None,
             }],
             root_index: 0,
             category: None,
@@ -872,10 +935,15 @@ mod tests {
                 morpheme: "m1".into(),
                 allomorph: Some("a2".into()),
                 guid: None,
+                form_guid: None,
             }],
+            members: vec![],
+            environments: vec![],
             context: Some(EnvContext::derived("ab", "c")),
             environment: Some(FailureEnvironment {
                 allomorph_id: "a2".into(),
+                guid: None,
+                text: None,
                 index: Some(0),
             }),
             stem_name: Some("sn6".into()),
@@ -953,6 +1021,8 @@ mod tests {
         let mut f = failure(FailureKind::EnvironmentUnmet, 1);
         f.environment = Some(FailureEnvironment {
             allomorph_id: "a2".into(),
+            guid: None,
+            text: None,
             index: None,
         });
         let mut json = serde_json::to_value(&f).unwrap();
@@ -988,11 +1058,13 @@ mod tests {
                     morpheme: "m3".into(),
                     allomorph: None,
                     guid: None,
+                    form_guid: None,
                 },
                 MorphRef {
                     morpheme: "m4".into(),
                     allomorph: None,
                     guid: None,
+                    form_guid: None,
                 },
             ],
         })));
