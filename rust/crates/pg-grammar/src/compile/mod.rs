@@ -1478,8 +1478,7 @@ pub(crate) fn ws_forms<'a>(
     forms.iter().map(|f| f.form.as_str()).collect()
 }
 
-/// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
-/// An allomorph's authored form for a human reader: the text of the best writing system, marked as an affix when its morph type is one (`ta-`, `-ak`, `-x-`); `None` when blank.
+/// An allomorph's authored form for a human reader, marked as an affix by its morph type (`ta-`, `-ak`, `-x-`); `None` when blank.
 pub(crate) fn source_form_text(
     allo: &pg_snapshot::lexicon::Allomorph,
     preferred_ws: Option<&str>,
@@ -1496,6 +1495,7 @@ pub(crate) fn source_form_text(
     })
 }
 
+/// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
 pub(crate) fn format_form(s: &str) -> String {
     s.trim().replace(' ', ".")
 }
