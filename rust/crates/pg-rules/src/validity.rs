@@ -609,7 +609,10 @@ fn fail(
     }
     match trace.mode() {
         crate::trace::TraceMode::Tree => {
-            trace.failed(parent, w, reason);
+            let event = trace.failed(parent, w, reason);
+            if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, object);
+            }
         }
         crate::trace::TraceMode::Observe(recorder)
             if matches!(reason, FailureReason::BoundRoot) =>
@@ -639,6 +642,7 @@ fn fail_with_context(
         crate::trace::TraceMode::Tree => {
             let event = trace.failed(parent, w, reason);
             if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, object);
                 trace.set_failure_context(event, context());
             }
         }

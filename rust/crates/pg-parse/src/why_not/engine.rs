@@ -157,6 +157,15 @@ impl<'a> Searcher<'a> {
             })
             .collect();
 
+        if pinned.iter().any(|n| {
+            n.failed_allomorph.is_some()
+                && self.failure_position(n, root_index, &seq.pins).is_none()
+        }) {
+            return stop(
+                StopReason::UnclassifiedFailure,
+                "a pinned derivation fails an allomorph check this engine cannot place in the word, so it cannot say which failure is furthest",
+            );
+        }
         if let Some(best) = self.best_failure(&pinned, &seq.pins, root_index) {
             return self.classify(word, best, &seq.pins, pinned.len() - 1);
         }
@@ -249,19 +258,29 @@ impl<'a> Searcher<'a> {
             FailureReason::BoundRoot
             | FailureReason::RequiredStemName
             | FailureReason::ExcludedStemName => Some(root_index),
-            _ => match node.failure_context.as_ref()?.evidence.as_ref()? {
-                RejectionEvidence::Environments { object, .. }
-                | RejectionEvidence::CoOccurrence { object, .. } => match *object {
-                    TraceObject::Allomorph(a) => self.position_of_allomorph(a, pins, word),
-                    TraceObject::Morpheme(m) => self
-                        .morpher
-                        .allomorphs_in_morph_order(word)
-                        .iter()
-                        .position(|r| r.morpheme == m),
-                    TraceObject::MorphRule(_) => None,
-                },
-                _ => None,
-            },
+            _ => {
+                let from_evidence = node
+                    .failure_context
+                    .as_ref()
+                    .and_then(|c| c.evidence.as_ref())
+                    .and_then(|evidence| match evidence {
+                        RejectionEvidence::Environments { object, .. }
+                        | RejectionEvidence::CoOccurrence { object, .. } => match *object {
+                            TraceObject::Allomorph(a) => self.position_of_allomorph(a, pins, word),
+                            TraceObject::Morpheme(m) => self
+                                .morpher
+                                .allomorphs_in_morph_order(word)
+                                .iter()
+                                .position(|r| r.morpheme == m),
+                            TraceObject::MorphRule(_) => None,
+                        },
+                        _ => None,
+                    });
+                from_evidence.or_else(|| {
+                    node.failed_allomorph
+                        .and_then(|a| self.position_of_allomorph(a, pins, word))
+                })
+            }
         }
     }
 
@@ -509,4 +528,32 @@ fn other_stop(sink: &TreeTraceSink) -> Option<String> {
         node.children.iter().find_map(|&child| walk(sink, child))
     }
     walk(sink, sink.root()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_grammar_model::model::{LexEntryId, MRuleId, StratumId};
+    use pg_rules::trace::TraceSink;
+    use pg_shape::ShapeBuilder;
+
+    fn word() -> Word {
+        Word::new(ShapeBuilder::new().finish(), StratumId(0))
+    }
+
+    #[test]
+    fn a_blocked_node_alone_is_another_cause() {
+        let sink = TreeTraceSink::new();
+        let root = sink.analyze_word(&word());
+        sink.blocked(root, MRuleId(0), &word(), LexEntryId(0));
+        assert!(other_stop(&sink).is_some_and(|s| s.contains("blocked")));
+    }
+
+    #[test]
+    fn plain_pattern_misses_are_not_another_cause() {
+        let sink = TreeTraceSink::new();
+        let root = sink.analyze_word(&word());
+        sink.failed(root, &word(), FailureReason::Pattern);
+        assert_eq!(other_stop(&sink), None);
+    }
 }

@@ -67,9 +67,12 @@ fn suite_failure(g: &Grammar, f: &FirstFailure) -> Value {
     let mut v = serde_json::to_value(f).expect("a failure serializes");
     let o = v.as_object_mut().expect("a failure is an object");
     o.retain(|_, x| !x.is_null());
-    if o.get("features")
-        .and_then(Value::as_array)
-        .is_some_and(Vec::is_empty)
+    let clash = o.get("kind").and_then(Value::as_str) == Some("feature_clash");
+    // The schema requires `features` on a feature_clash even when empty.
+    if !clash
+        && o.get("features")
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
     {
         o.remove("features");
     }

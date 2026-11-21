@@ -8,7 +8,7 @@ grammar object the failure is about, so a tool can draft a fix.
 
 > **Status: slice 1 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
 > reparsing the word with the expected morphs pinned. A rejection names the first failing
-> constraint for these kinds: `no_morph_match`, `environment_unmet` and `adhoc_prohibition`. `no_morph_match` is answered only when the trace shows no other cause. Any
+> constraint for these kinds: `no_morph_match`, `environment_unmet` and `adhoc_prohibition`. `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
 > other failure, or a search that cannot finish, answers `unknown` with a `stop` reason, never a
 > guess. The examples below show the shape of each answer; ids, GUIDs and wording in them are
 > invented. Kinds beyond the three above are later slices.
@@ -192,7 +192,7 @@ failures of the same derivation are not reported. A candidate with several choic
 derivations; its `failure` is the first failure of the furthest-progress derivation, and
 `alternatives` counts the others that also fail. Derivations, sequences and candidates are ranked by one
 key: the index in morph order of the allomorph whose check failed (a failure about the whole word
-ranks before any allomorph, the surface match after all), then the check's place in HC's order. `results` itself stays in input order, and `best` points at
+ranks before any allomorph, the surface match after all), then the check's place in `Allomorph.IsWordValid`'s order. The order across allomorphs is PanGloss's morph order; C# iterates the root, then affixes in rule-application order. An allomorph failure that cannot be placed in the word makes the candidate `unknown`. A repeated affix (one rule applied twice) is one position per occurrence in the pinned sequence; a sequence that names it once does not match a derivation that applies it twice, so the answer is `no_morph_match` only if nothing else shows, else `unknown`. `results` itself stays in input order, and `best` points at
 the furthest-progress candidate. When any sequence of a candidate is `unknown`, the candidate is `unknown`: it could hide an acceptance.
 
 ## Examples (illustrative)
@@ -335,7 +335,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "No morph matches at position 1: nothing in the word can be the expected suffix `ak`.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -391,7 +391,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "The allomorph `ek-a` of suffix `ek` needs a left context of a back vowel, but the word has `i` on the left and `k` on the right.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -450,7 +450,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "Suffix `ek` is in slot 3 and suffix `ak` is in slot 2, so `ek` cannot come before `ak`.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -509,7 +509,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "The template requires slot 2 to be filled, and no expected morph fills it.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -561,7 +561,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "Suffix `ak` requires tense=past but the word has tense=future.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -623,7 +623,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "An ad hoc rule forbids suffix `ak` together with suffix `ek`.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -682,7 +682,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "The root allomorph `kib-a` requires stem name `sn-past`, which this word does not select.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -734,7 +734,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "The suffix `ak` is excluded for the root's inflection class `ic2`.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
@@ -793,7 +793,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "The expected morphs build `kibak`, not the word `kipak`.",
+  "word": "kipak",
   "results": [
     {
       "expect": [
@@ -848,7 +848,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
 ```json
 {
   "schema": "pangloss.whynot.v1",
-  "word": "A synthesis gate refused suffix `ak` and no more specific kind applies.",
+  "word": "kibakek",
   "results": [
     {
       "expect": [
