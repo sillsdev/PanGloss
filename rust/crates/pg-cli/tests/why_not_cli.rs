@@ -648,6 +648,42 @@ fn an_unknown_sequence_beats_a_rejected_one() {
 }
 
 #[test]
+fn a_furthest_derivation_failing_an_unplaced_kind_is_not_hidden_by_an_earlier_rejection() {
+    let r = answer_on(
+        "why-not-disjunctive-suffix.xml",
+        "monkt",
+        &["--expect", "eMon,mrSufK,mrSufT"],
+    );
+    assert_ne!(
+        r["failure"]["kind"], "environment_unmet",
+        "the root allomorph failing its environment is not the furthest derivation: {r}"
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure", "{r}");
+}
+
+#[test]
+fn two_candidates_are_ranked_and_the_furthest_is_marked_best() {
+    let o = Command::new(BIN)
+        .arg("why-not")
+        .arg(data("why-not-ranking.xml"))
+        .arg("monk")
+        .args(["--expect", "eLos,mrSufK", "--expect", "eMon,mrSufK"])
+        .output()
+        .expect("run pangloss why-not");
+    assert!(o.status.success(), "{}", stderr(&o));
+    let text = String::from_utf8_lossy(&o.stdout).into_owned();
+    let line = |i: usize| {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(&format!("[{i}]")))
+            .unwrap_or_else(|| panic!("no line for candidate {i}: {text}"))
+            .to_string()
+    };
+    assert!(!line(0).ends_with("(best)"), "{text}");
+    assert!(line(1).ends_with("(best)"), "{text}");
+}
+
+#[test]
 fn suite_mode_refuses_json_and_expect_flags() {
     let o = Command::new(BIN)
         .arg("why-not")
