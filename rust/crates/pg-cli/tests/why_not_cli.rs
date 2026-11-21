@@ -703,6 +703,46 @@ fn describe_declares_the_why_not_capability() {
     assert_eq!(c["schema"], "pangloss.whynot.v1", "{v}");
     assert_eq!(c["ids"], "grammar-xml");
     assert_eq!(c["suiteRows"], true);
+    let kinds: Vec<&str> = c["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        kinds,
+        ["no_morph_match", "environment_unmet", "adhoc_prohibition"]
+    );
+}
+
+#[test]
+fn every_declared_kind_is_really_answered_and_the_rest_are_unknown() {
+    let o = Command::new(BIN).arg("--describe").output().unwrap();
+    let v: Value = serde_json::from_slice(&o.stdout).unwrap();
+    let declared: Vec<String> = v["interfaces"]["whyNot"]["kinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k.as_str().unwrap().to_string())
+        .collect();
+    let seen = [
+        answer_on("trace-family.xml", "kibes", &["--expect", "eKib,mrPl"]),
+        answer_on(
+            "why-not-environments.xml",
+            "salk",
+            &["--expect", "eSal,mrSufK"],
+        ),
+        answer_on(
+            "trace-family.xml",
+            "kibuton",
+            &["--expect", "eKib,mrPast2,mrPl"],
+        ),
+    ];
+    for r in &seen {
+        let k = failure_kind(r).to_string();
+        assert!(declared.contains(&k), "{k} answered but not declared");
+    }
+    assert_eq!(seen.len(), declared.len());
 }
 
 fn assert_no_engine_ordinals(r: &Value) {

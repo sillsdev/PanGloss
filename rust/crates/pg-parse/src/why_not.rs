@@ -136,6 +136,36 @@ pub enum FailureKind {
 }
 
 impl FailureKind {
+    /// Whether the engine can answer this kind today; every other kind comes back `unknown`. The match is exhaustive so a new kind must be classified here.
+    pub const fn is_answered(self) -> bool {
+        match self {
+            FailureKind::NoMorphMatch
+            | FailureKind::EnvironmentUnmet
+            | FailureKind::AdhocProhibition => true,
+            FailureKind::SlotOrder
+            | FailureKind::RequiredSlotEmpty
+            | FailureKind::FeatureClash
+            | FailureKind::StemName
+            | FailureKind::InflectionClass
+            | FailureKind::SurfaceMismatch
+            | FailureKind::OtherGate => false,
+        }
+    }
+
+    /// The kinds that are answered today, in `ALL` order, as their wire names.
+    pub fn answered() -> Vec<String> {
+        Self::ALL
+            .into_iter()
+            .filter(|k| k.is_answered())
+            .map(|k| {
+                serde_json::to_value(k)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .expect("a kind serializes as a string")
+            })
+            .collect()
+    }
+
     pub const ALL: [FailureKind; 10] = [
         FailureKind::NoMorphMatch,
         FailureKind::EnvironmentUnmet,

@@ -70,7 +70,11 @@ impl<'a> Searcher<'a> {
             .flatten()
             .find(|n| !n.is_empty() && *n != info.xml_key);
         match name {
-            Some(n) => format!("{} (\"{n}\")", info.xml_key),
+            Some(n) => format!(
+                "{} (\"{}\")",
+                info.xml_key,
+                n.replace('\\', "\\\\").replace('"', "\\\"")
+            ),
             None => info.xml_key.clone(),
         }
     }
@@ -794,6 +798,19 @@ mod tests {
             panic!()
         };
         assert!(f.plain.contains("aSal of eSal (\"SAL\")"), "{}", f.plain);
+    }
+
+    #[test]
+    fn quotes_in_a_gloss_are_escaped_in_plain() {
+        let mut g = load("why-not-environments.xml");
+        let sal = g.entries[entry(&g, "eSal")].morpheme.0 as usize;
+        g.morphemes[sal].gloss = Some("say \"hi\" \\".into());
+        let morpher = Morpher::new(&g, 5_000_000);
+        let report = why_not(&g, &morpher, &request("salk", &["eSal", "mrSufK"])).unwrap();
+        let WhyNotOutcome::Rejected(f) = &report.results[0].outcome else {
+            panic!()
+        };
+        assert!(f.plain.contains(r#"eSal ("say \"hi\" \\")"#), "{}", f.plain);
     }
 
     #[test]
