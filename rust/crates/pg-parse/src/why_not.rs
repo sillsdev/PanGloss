@@ -513,6 +513,12 @@ pub enum WhyNotError {
         entry_guid: String,
         msa_guid: String,
     },
+    /// A guid-only choice pins an allomorph but the guid names several morphemes.
+    AmbiguousGuidAllomorph {
+        entry_guid: String,
+        msa_guid: String,
+        morphemes: usize,
+    },
     RootIndexOutOfRange {
         candidate: usize,
         root_index: usize,
@@ -557,6 +563,14 @@ impl fmt::Display for WhyNotError {
                 entry_guid,
                 msa_guid,
             } => write!(f, "no morpheme for entry_guid {entry_guid} msa_guid {msa_guid}"),
+            Self::AmbiguousGuidAllomorph {
+                entry_guid,
+                msa_guid,
+                morphemes,
+            } => write!(
+                f,
+                "entry_guid {entry_guid} msa_guid {msa_guid} names {morphemes} morphemes; give the `morpheme` id to pin an allomorph"
+            ),
             Self::RootIndexOutOfRange {
                 candidate,
                 root_index,
@@ -590,6 +604,39 @@ pub fn resolve_guid(g: &Grammar, entry_guid: &str, msa_guid: &str) -> Vec<String
         })
         .map(|m| m.xml_key.clone())
         .collect()
+}
+
+/// The choices a guid names: one per morpheme sharing the entry and MSA (a variant sharing an MSA gives several), each carrying the guid. `allomorph` pins one allomorph and so needs the guid to name a single morpheme.
+pub fn expand_guid(
+    g: &Grammar,
+    guid: &GuidRef,
+    allomorph: Option<&str>,
+) -> Result<Vec<ExpectedMorph>, WhyNotError> {
+    let entry = guid.entry_guid.clone().unwrap_or_default();
+    let msa = guid.msa_guid.clone().unwrap_or_default();
+    let ids = resolve_guid(g, &entry, &msa);
+    if ids.is_empty() {
+        return Err(WhyNotError::UnknownGuid {
+            entry_guid: entry,
+            msa_guid: msa,
+        });
+    }
+    if allomorph.is_some() && ids.len() > 1 {
+        return Err(WhyNotError::AmbiguousGuidAllomorph {
+            entry_guid: entry,
+            msa_guid: msa,
+            morphemes: ids.len(),
+        });
+    }
+    Ok(ids
+        .into_iter()
+        .map(|m| {
+            let mut morph = ExpectedMorph::new(m);
+            morph.allomorph = allomorph.map(str::to_string);
+            morph.guid = Some(guid.clone());
+            morph
+        })
+        .collect())
 }
 
 fn matches_guid(m: &pg_grammar_model::model::MorphemeInfo, guid: &GuidRef) -> bool {

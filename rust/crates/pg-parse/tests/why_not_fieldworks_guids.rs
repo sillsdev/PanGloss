@@ -2,7 +2,8 @@
 
 use pg_grammar_model::model::Grammar;
 use pg_parse::why_not::{
-    why_not, Candidate, ExpectedMorph, FailureKind, FirstFailure, WhyNotOutcome, WhyNotRequest,
+    expand_guid, why_not, Candidate, ExpectedMorph, FailureKind, FirstFailure, GuidRef,
+    WhyNotError, WhyNotOutcome, WhyNotRequest,
 };
 use pg_parse::Morpher;
 
@@ -138,4 +139,31 @@ fn a_prohibition_with_the_same_member_and_another_primary_is_told_apart() {
         "0000000009a4",
         ["000000000211", "000000000101"],
     );
+}
+
+#[test]
+fn a_guid_names_every_morpheme_sharing_its_entry_and_msa() {
+    let mut g = grammar();
+    let guid = GuidRef {
+        entry_guid: form("000000000100"),
+        msa_guid: form("000000000102"),
+    };
+    let one = expand_guid(&g, &guid, None).unwrap();
+    assert_eq!(one.len(), 1);
+    let mut twin = g
+        .morphemes
+        .iter()
+        .find(|m| m.xml_key == one[0].morpheme)
+        .unwrap()
+        .clone();
+    twin.xml_key = "twin".into();
+    g.morphemes.push(twin);
+    let both = expand_guid(&g, &guid, None).unwrap();
+    let keys: Vec<_> = both.iter().map(|c| c.morpheme.as_str()).collect();
+    assert_eq!(keys, [one[0].morpheme.as_str(), "twin"]);
+    assert!(both.iter().all(|c| c.guid.as_ref() == Some(&guid)));
+    assert!(matches!(
+        expand_guid(&g, &guid, Some("any")),
+        Err(WhyNotError::AmbiguousGuidAllomorph { morphemes: 2, .. })
+    ));
 }

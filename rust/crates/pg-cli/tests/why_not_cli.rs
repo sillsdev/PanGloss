@@ -894,3 +894,124 @@ fn a_guid_shaped_environment_id_authored_in_grammar_xml_is_not_reported_as_a_gui
     );
     assert!(!r.to_string().contains("3f2a1b4c"), "{r}");
 }
+
+const FW_PROJECT: &str = "../pg-parse/tests/data/why-not-fieldworks-guids/project.fwdata";
+const FW: &str = "00000000-0000-0000-0000-";
+
+fn fw_guid(entry: &str, msa: &str) -> String {
+    format!(r#"{{"entry_guid":"{FW}{entry}","msa_guid":"{FW}{msa}"}}"#)
+}
+
+fn fw_why_not(word: &str, candidates: &str) -> Output {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("c.json");
+    std::fs::write(&file, candidates).unwrap();
+    Command::new(BIN)
+        .arg("why-not")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join(FW_PROJECT))
+        .arg(word)
+        .args(["--expect-json", file.to_str().unwrap(), "--json"])
+        .output()
+        .expect("run pangloss why-not")
+}
+
+fn fw_results(word: &str, candidates: &str) -> Vec<Value> {
+    let o = fw_why_not(word, candidates);
+    assert!(o.status.success(), "{}", stderr(&o));
+    serde_json::from_slice::<Value>(&o.stdout).unwrap()["results"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn a_json_choice_may_name_a_morpheme_by_guid_alone() {
+    let c = format!(
+        r#"[[[{{"guid":{}}}]]]"#,
+        fw_guid("000000000100", "000000000102")
+    );
+    let r = fw_results("da", &c);
+    assert_eq!(r[0]["failure"]["kind"], "environment_unmet", "{r:?}");
+    assert!(r[0]["expect"][0][0]["morpheme"].is_string(), "{r:?}");
+    assert_eq!(
+        r[0]["failure"]["morphs"][0]["guid"]["msa_guid"],
+        format!("{FW}000000000102")
+    );
+}
+
+#[test]
+fn id_and_guid_candidates_mix_in_one_json_call() {
+    let guid = fw_guid("000000000100", "000000000102");
+    let first = fw_results("da", &format!(r#"[[[{{"guid":{guid}}}]]]"#));
+    let key = first[0]["expect"][0][0]["morpheme"].as_str().unwrap();
+    let c = format!(r#"[[[{{"morpheme":"{key}"}}]],[[{{"guid":{guid}}}]]]"#);
+    let r = fw_results("da", &c);
+    assert_eq!(r.len(), 2);
+    for one in &r {
+        assert_eq!(one["failure"]["kind"], "environment_unmet", "{one}");
+        assert_eq!(one["expect"][0][0]["morpheme"], key);
+    }
+}
+
+#[test]
+fn a_guid_only_json_choice_expands_as_expect_guid_does() {
+    let (entry, msa) = ("000000000200", "000000000202");
+    let spec = format!("{FW}{entry}:{FW}{msa}");
+    let by_flag = Command::new(BIN)
+        .arg("why-not")
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join(FW_PROJECT))
+        .arg("tada")
+        .args(["--expect-guid", &spec, "--json"])
+        .output()
+        .unwrap();
+    assert!(by_flag.status.success(), "{}", stderr(&by_flag));
+    let flag: Value = serde_json::from_slice(&by_flag.stdout).unwrap();
+    let c = format!(r#"[[[{{"guid":{}}}]]]"#, fw_guid(entry, msa));
+    let json = fw_results("tada", &c);
+    assert_eq!(json[0]["expect"], flag["results"][0]["expect"]);
+}
+
+#[test]
+fn a_json_choice_whose_id_and_guid_disagree_is_an_error() {
+    let first = fw_results(
+        "da",
+        &format!(
+            r#"[[[{{"guid":{}}}]]]"#,
+            fw_guid("000000000100", "000000000102")
+        ),
+    );
+    let key = first[0]["expect"][0][0]["morpheme"].as_str().unwrap();
+    let c = format!(
+        r#"[[[{{"morpheme":"{key}","guid":{}}}]]]"#,
+        fw_guid("000000000100", "000000000103")
+    );
+    let o = fw_why_not("da", &c);
+    assert!(!o.status.success());
+    assert!(
+        stderr(&o).contains("does not belong to morpheme"),
+        "{}",
+        stderr(&o)
+    );
+}
+
+#[test]
+fn a_json_choice_with_neither_id_nor_guid_or_half_a_guid_is_an_error() {
+    for (bad, want) in [
+        (
+            r#"[[[{"allomorph":"a"}]]]"#.to_string(),
+            "needs a `morpheme` id or a `guid`",
+        ),
+        (
+            format!(r#"[[[{{"guid":{{"entry_guid":"{FW}000000000100"}}}}]]]"#),
+            "needs both guid.entry_guid and guid.msa_guid",
+        ),
+        (
+            r#"[[[{"guid":{"entry_guid":"x","msa_guid":"y"}}]]]"#.to_string(),
+            "no morpheme for entry_guid",
+        ),
+    ] {
+        let o = fw_why_not("da", &bad);
+        assert!(!o.status.success(), "{bad}");
+        assert!(stderr(&o).contains(want), "{bad}: {}", stderr(&o));
+    }
+}
