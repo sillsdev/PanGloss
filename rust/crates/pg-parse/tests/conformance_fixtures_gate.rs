@@ -456,15 +456,19 @@ fn recorded_pangloss_expectations() -> Vec<pg_conformance_fixtures::PanglossExpe
 /// The suite records hc.dll's `expect_fail` for the four words divergence 132 is about (sillsdev/fieldworks-parser-conformance#50); once that fixture is pinned, the recorded expectations must excuse exactly those four PanGloss parses, and only on the pinned copy.
 #[test]
 fn upstream_expect_fail_rows_for_divergence_132_are_recorded_pangloss_expectations() {
-    let staged = require_fixture(
+    let pinned = require_fixture(
         "edge-cases",
         "metathesis-deletion-restores-segment-between-switches",
     );
+    let staged = pg_conformance_fixtures::FixtureRef {
+        root: Root::Staging,
+        ..pinned.clone()
+    };
     let upstream = WordsYaml::from_yaml_str(include_str!(
         "data/metathesis-match-order/upstream-pr50-words.yaml"
     ))
     .unwrap();
-    let grammar = staged.load_grammar();
+    let grammar = pinned.load_grammar();
     let morpher = Morpher::new(&grammar, usize::MAX);
     let replay = replay_against_oracle(&upstream, &morpher);
     let words: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
@@ -485,10 +489,6 @@ fn upstream_expect_fail_rows_for_divergence_132_are_recorded_pangloss_expectatio
         .filter(|e| e.fixture == id)
         .cloned()
         .collect();
-    let pinned = pg_conformance_fixtures::FixtureRef {
-        root: Root::Machine,
-        ..staged.clone()
-    };
     let all_used = vec![true; ours.len()];
     let none_used = vec![false; ours.len()];
     assert!(

@@ -23,4 +23,4 @@ Known gap: in one review grammar (a51-226: prefix `pp+`, `s a` metathesis, then 
 
 ## Verification
 
-`conformance-staging/edge-cases/metathesis-deletion-restores-segment-between-switches` (forward-synthesis rows `ats`, `at+s`, `atsa`, `at+sa`; exact hc.dll mismatch in `rust/tools/oracle-conformance-known-divergences.json`) and `conformance-staging/edge-cases/pos-scoped-deletion-blocks-metathesis` (050). Unit pin `pg-parse/tests/metathesis_match_order.rs::a_skipped_optional_node_is_not_paired_with_a_switch`.
+`conformance/edge-cases/metathesis-deletion-restores-segment-between-switches` (forward-synthesis rows `ats`, `at+s`, `atsa`, `at+sa`; exact hc.dll mismatch in `rust/tools/oracle-conformance-known-divergences.json`) and `conformance-staging/edge-cases/pos-scoped-deletion-blocks-metathesis` (050). Unit pin `pg-parse/tests/metathesis_match_order.rs::a_skipped_optional_node_is_not_paired_with_a_switch`.
