@@ -532,6 +532,7 @@ mod tests {
                 weight,
                 edits: 0,
                 tags: id,
+                label: 0,
             });
         }
         RawGraph {

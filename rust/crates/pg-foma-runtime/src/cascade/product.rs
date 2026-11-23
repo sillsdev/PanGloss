@@ -61,6 +61,39 @@ pub struct Request<'w> {
     pub theta: Option<u32>,
     pub budget: WordBudget,
     pub prepass: PrepassPlan,
+    /// Labels each stored move (S.6): the result is part of the arc key and lands in `GraphArc::label`.
+    pub observe: Option<Observe<'w>>,
+}
+
+/// A move as the observer sees it: the output token of every layer the chain passed through.
+#[derive(Clone, Copy, Debug)]
+pub struct MoveView<'m> {
+    /// `(layer index, token that layer wrote or None)`, top to bottom.
+    pub outs: &'m [(usize, Option<Token>)],
+    pub from_pos: usize,
+    pub to_pos: usize,
+    pub weight: u64,
+    pub edits: u32,
+}
+
+impl MoveView<'_> {
+    /// What layer `layer` wrote in this move; `None` if the chain did not reach it or it wrote nothing.
+    pub fn out_of(&self, layer: usize) -> Option<Token> {
+        self.outs
+            .iter()
+            .find(|(l, _)| *l == layer)
+            .and_then(|(_, t)| *t)
+    }
+}
+
+/// The observer of a request: a pure function of the move.
+#[derive(Clone, Copy)]
+pub struct Observe<'w>(pub &'w dyn Fn(&MoveView) -> u64);
+
+impl std::fmt::Debug for Observe<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Observe(..)")
+    }
 }
 
 impl<'w> Request<'w> {
@@ -71,6 +104,7 @@ impl<'w> Request<'w> {
             theta: None,
             budget: WordBudget::for_edits(max_edits),
             prepass: PrepassPlan::none(),
+            observe: None,
         }
     }
 }
@@ -137,7 +171,7 @@ struct Tables {
     closed: Vec<bool>,
     accepting: Vec<bool>,
     arcs: Vec<GraphArc>,
-    arc_index: HashMap<(u32, u32, u32, u8), u32>,
+    arc_index: HashMap<(u32, u32, u32, u8, u64), u32>,
     tag_sets: Vec<Box<[Tag]>>,
     tag_index: HashMap<Box<[Tag]>, u32>,
 }
@@ -171,6 +205,7 @@ struct Acc {
     edits: u32,
     tags: Vec<Tag>,
     i: usize,
+    outs: Vec<(usize, Option<Token>)>,
 }
 
 /// Charges `(steps, bytes)` for one layer call; the bytes are what a lazy layer interned.
@@ -211,8 +246,10 @@ impl<'a> Walk<'_, 'a> {
             acc.edits,
             acc.tags.len(),
             acc.i,
+            acc.outs.len(),
         );
         acc.changed.push((l, arc.to));
+        acc.outs.push((l, arc.output));
         acc.weight += arc.weight as u64;
         acc.edits += arc.edits as u32;
         acc.tags.extend_from_slice(arc.tags);
@@ -244,6 +281,7 @@ impl<'a> Walk<'_, 'a> {
         acc.edits = saved.2;
         acc.tags.truncate(saved.3);
         acc.i = saved.4;
+        acc.outs.truncate(saved.5);
         r
     }
 
@@ -266,6 +304,7 @@ impl<'a> Walk<'_, 'a> {
                     edits: 0,
                     tags: Vec::new(),
                     i,
+                    outs: Vec::new(),
                 };
                 self.follow(l, a, &mut acc)?;
             }
@@ -481,6 +520,22 @@ impl<'a> Product<'a> {
 
     /// Run one request. `scratch` is reset first, so the same scratch serves any number of words.
     pub fn run(&self, scratch: &mut ProductScratch, req: &Request) -> Outcome {
+        match self.run_hooked(scratch, req, None) {
+            Run::Finished(o) => o,
+            Run::Stopped { .. } => unreachable!("no hook, no stop"),
+        }
+    }
+
+    /// [`Product::run`] with a checkpoint hook for `Best(n)` (S.5). The hook is called when the
+    /// least key `f_min` in the queue has risen above the weight of an accepting state expanded
+    /// since the last call that it had not passed: only then can a group become complete (its
+    /// weight is below `f_min`). It may take a snapshot of the trimmed graph and stop the search.
+    pub fn run_hooked(
+        &self,
+        scratch: &mut ProductScratch,
+        req: &Request,
+        mut hook: Option<&mut Hook<'_>>,
+    ) -> Run {
         scratch.reset();
         let l = self.layers.len();
         assert_eq!(scratch.layer.len(), l);
@@ -561,10 +616,10 @@ impl<'a> Product<'a> {
                 report.arcs = meter.arcs;
                 report.steps = meter.steps;
                 report.bytes = meter.bytes;
-                return Outcome::Incomplete {
+                return Run::Finished(Outcome::Incomplete {
                     stop: $stop,
                     report,
-                };
+                });
             }};
         }
 
@@ -584,7 +639,7 @@ impl<'a> Product<'a> {
         if h0 == INF || !theta_ok(0, h0) {
             // Proven non-word: no accepting path can exist.
             report.states = 0;
-            return Outcome::Complete {
+            return Run::Finished(Outcome::Complete {
                 graph: TrimmedGraph {
                     layers: l,
                     word_len: n,
@@ -592,7 +647,7 @@ impl<'a> Product<'a> {
                     ..TrimmedGraph::default()
                 },
                 report,
-            };
+            });
         }
         if let Err(s) = meter.charge_state(state_bytes(width)) {
             finish_incomplete!(s)
@@ -608,11 +663,39 @@ impl<'a> Product<'a> {
         heap.push(Reverse((h0 as u64, 0, 0)));
 
         let mut last_f = 0u64;
+        let mut pending_acc: Vec<u64> = Vec::new();
         while let Some(Reverse((f, id, g))) = heap.pop() {
             report.peak_queue = report.peak_queue.max(heap.len() + 1);
             let idu = id as usize;
             if tables.closed[idu] || tables.g[idu] != g {
                 continue;
+            }
+            if let Some(h) = hook.as_deref_mut() {
+                if pending_acc.iter().any(|&a| a < f) {
+                    pending_acc.retain(|&a| a >= f);
+                    let verdict = {
+                        let mut cp = Checkpoint {
+                            f_min: f,
+                            tables: &*tables,
+                            meter: &mut meter,
+                            layers: l,
+                            word_len: n,
+                            theta: req.theta,
+                        };
+                        h(&mut cp)
+                    };
+                    match verdict {
+                        Err(stop) => finish_incomplete!(stop),
+                        Ok(Control::Stop) => {
+                            report.states = meter.states;
+                            report.arcs = meter.arcs;
+                            report.steps = meter.steps;
+                            report.bytes = meter.bytes;
+                            return Run::Stopped { f_min: f, report };
+                        }
+                        Ok(Control::Continue) => {}
+                    }
+                }
             }
             tables.closed[idu] = true;
             debug_assert!(f >= last_f, "f decreased: h is not consistent");
@@ -625,6 +708,9 @@ impl<'a> Product<'a> {
                 && (0..l).all(|k| self.layers[k].is_final(&layer[k], cur[KEY_PREFIX + k]));
             if accepting {
                 tables.accepting[idu] = true;
+                if hook.is_some() {
+                    pending_acc.push(g);
+                }
                 report.best_weight = Some(report.best_weight.map_or(g, |b| b.min(g)));
             }
             let q: Vec<u32> = cur[KEY_PREFIX..].to_vec();
@@ -689,7 +775,17 @@ impl<'a> Product<'a> {
                     let w32 = acc.weight.min(INF as u64 - 1) as u32;
                     let edits8 =
                         u8::try_from(acc.edits).expect("edits fit u8: u2 <= e_max was checked");
-                    let akey = (id, dst, w32, edits8);
+                    let label = match req.observe {
+                        None => 0,
+                        Some(o) => (o.0)(&MoveView {
+                            outs: &acc.outs,
+                            from_pos: cur[0] as usize,
+                            to_pos: acc.i,
+                            weight: acc.weight,
+                            edits: acc.edits,
+                        }),
+                    };
+                    let akey = (id, dst, w32, edits8, label);
                     match tables.arc_index.get(&akey).copied() {
                         None => {
                             meter.charge_arc()?;
@@ -701,6 +797,7 @@ impl<'a> Product<'a> {
                                 weight: w32,
                                 edits: edits8,
                                 tags: tid,
+                                label,
                             });
                         }
                         Some(ai) => {
@@ -748,6 +845,77 @@ impl<'a> Product<'a> {
             arcs: t.arcs,
             tag_sets: t.tag_sets,
         });
-        Outcome::Complete { graph, report }
+        Run::Finished(Outcome::Complete { graph, report })
     }
+}
+
+/// What a checkpoint hook decides.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Control {
+    Continue,
+    Stop,
+}
+
+/// The state of a search at a checkpoint: every state with `f < f_min` has been expanded.
+pub struct Checkpoint<'t> {
+    /// The least key in the queue, in fixed-point weight.
+    pub f_min: u64,
+    tables: &'t Tables,
+    meter: &'t mut WordMeter,
+    layers: usize,
+    word_len: usize,
+    theta: Option<u32>,
+}
+
+impl Checkpoint<'_> {
+    /// Copy and trim the graph expanded so far; returns it with the bytes charged for it (give them
+    /// back with [`Checkpoint::release`] when it is dropped). Charged before it is built; a refusal is the
+    /// request's `Incomplete`. Accepting flags are set only on expanded states, so an accepting
+    /// state that is still queued (weight `>= f_min`) is not in the snapshot.
+    pub fn snapshot(&mut self) -> Result<(TrimmedGraph, u64), CascadeStop> {
+        let t = self.tables;
+        let width = KEY_PREFIX + self.layers;
+        let bytes = trim_bytes(t.accepting.len(), t.arcs.len(), width)
+            + t.keys.len() as u64 * 4
+            + t.arcs.len() as u64 * super::budget::ARC_BYTES;
+        self.meter.charge_bytes(bytes)?;
+        let graph = trim(RawGraph {
+            layers: self.layers,
+            word_len: self.word_len,
+            theta: self.theta,
+            keys: t.keys.clone(),
+            accepting: t.accepting.clone(),
+            arcs: t.arcs.clone(),
+            tag_sets: t.tag_sets.clone(),
+        });
+        Ok((graph, bytes))
+    }
+
+    /// Give back the bytes of a snapshot that is dropped.
+    pub fn release(&mut self, bytes: u64) {
+        self.meter.release_bytes(bytes);
+    }
+
+    /// Charge work done on a snapshot (group enumeration is charged to `ProductSteps`).
+    pub fn charge_steps(&mut self, n: u64) -> Result<(), CascadeStop> {
+        self.meter.charge_steps(n)
+    }
+
+    pub fn charge_bytes(&mut self, n: u64) -> Result<(), CascadeStop> {
+        self.meter.charge_bytes(n)
+    }
+}
+
+/// A checkpoint hook.
+pub type Hook<'h> = dyn FnMut(&mut Checkpoint) -> Result<Control, CascadeStop> + 'h;
+
+/// How a hooked run ended.
+#[derive(Debug)]
+pub enum Run {
+    Finished(Outcome),
+    /// The hook stopped the search at `f_min`; the queue is not empty.
+    Stopped {
+        f_min: u64,
+        report: Report,
+    },
 }

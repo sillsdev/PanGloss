@@ -134,6 +134,11 @@ impl WordMeter {
         }
     }
 
+    /// Give back bytes charged for something that has been freed (a snapshot taken at a checkpoint).
+    pub fn release_bytes(&mut self, n: u64) {
+        self.bytes = self.bytes.saturating_sub(n);
+    }
+
     pub fn for_prepass(b: PrepassBudget) -> Self {
         Self::new(WordBudget {
             states: b.states,

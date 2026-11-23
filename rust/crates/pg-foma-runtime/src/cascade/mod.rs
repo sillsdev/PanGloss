@@ -16,8 +16,8 @@ pub use layer::{
     Output, StateId, Tag, TagKind, Token, TokenSet,
 };
 pub use product::{
-    Outcome, PrepassNote, PrepassPlan, PrepassUsed, Product, ProductError, ProductScratch, Report,
-    Request,
+    Checkpoint, Control, Hook, MoveView, Observe, Outcome, PrepassNote, PrepassPlan, PrepassUsed,
+    Product, ProductError, ProductScratch, Report, Request, Run,
 };
 pub use trim::{GraphArc, TrimmedGraph};
 
