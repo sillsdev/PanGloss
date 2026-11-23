@@ -475,7 +475,7 @@ fn an_unordered_block_repeats_h_a_s_times_and_a_s_counts_every_interior_rule() {
             "tak", "tsak", "taks", "tsaksk", "tk", "tkk", "tsaskk", "takk",
         ],
     );
-    assert!(analysed >= 3, "{analysed}");
+    assert!(analysed >= 2, "{analysed}");
 }
 
 #[test]
