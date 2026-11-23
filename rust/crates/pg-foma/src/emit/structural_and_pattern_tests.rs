@@ -555,6 +555,11 @@ fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
             *owner = pg_grammar::model::AllomorphOwner::Root(pg_grammar::model::LexEntryId(0), 0);
         }
     }
+    let bare_cache = RuleCache::build(&bare);
+    assert_eq!(
+        probe_surface(&bare, surface_table(&bare), &feat_shape, &bare_cache),
+        Some("bubu".to_string())
+    );
     let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&bare);
     let mut proposer = proposer.expect("development-only partial proposer compiles");
     assert!(
