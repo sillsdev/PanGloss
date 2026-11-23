@@ -24,6 +24,9 @@ pub struct GraphArc {
     pub edits: u8,
     /// Index into [`TrimmedGraph::tag_sets`]; the union over every move between the two states.
     pub tags: u32,
+    /// What the request's observer made of the move (written character, folded unit, case mark;
+    /// S.6); 0 when there is none. Arcs that differ only in label stay separate.
+    pub label: u64,
 }
 
 /// The product after the backward trim: only states on a path from the start to acceptance.

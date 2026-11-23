@@ -5,9 +5,12 @@
 
 pub mod analyzer;
 pub mod budget;
+pub mod copybuf;
 pub mod layer;
 pub mod product;
 pub mod readout;
+pub mod spell_read;
+pub mod speller;
 pub mod trim;
 
 pub use budget::{BuildMeter, BuildRefused, BuildStop, CascadeStop, PrepassBudget, WordBudget};
@@ -16,10 +19,12 @@ pub use layer::{
     Output, StateId, Tag, TagKind, Token, TokenSet,
 };
 pub use product::{
-    Outcome, PrepassNote, PrepassPlan, PrepassUsed, Product, ProductError, ProductScratch, Report,
-    Request,
+    Checkpoint, Control, Hook, MoveView, Observe, Outcome, PrepassNote, PrepassPlan, PrepassUsed,
+    Product, ProductError, ProductScratch, Report, Request, Run,
 };
 pub use trim::{GraphArc, TrimmedGraph};
 
+#[cfg(test)]
+mod speller_tests;
 #[cfg(test)]
 mod tests;
