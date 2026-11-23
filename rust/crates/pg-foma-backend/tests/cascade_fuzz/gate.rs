@@ -18,6 +18,9 @@ pub enum Admission {
     NotApplicable,
     Admitted,
     Refused(String),
+    /// The grammar is outside the candidate's feature set but is not one of the constructs the
+    /// generator draws as a refusal; the gate skips it and counts it.
+    NotModelled(String),
 }
 
 pub trait Candidate {
@@ -125,6 +128,7 @@ pub struct Report {
     pub grammars: usize,
     pub loaded_refused: BTreeMap<Refusal, usize>,
     pub refusals_not_applicable: usize,
+    pub not_modelled: usize,
     pub inbound: usize,
     pub wide: usize,
     pub words: usize,
@@ -146,7 +150,7 @@ impl Report {
         let _ = writeln!(
             s,
             "grammars {} (in-bound {}, wide {}, refused-construct {}), words {} (with analysis {}, HC incomplete {}, invalid shape {}), \
-             wide incomplete {}, generator gaps {}, T2 checked {} skipped {:?}, refusal assertion n/a for {} grammars",
+             wide incomplete {}, not modelled {}, generator gaps {}, T2 checked {} skipped {:?}, refusal assertion n/a for {} grammars",
             self.grammars,
             self.inbound,
             self.wide,
@@ -156,6 +160,7 @@ impl Report {
             self.words_hc_incomplete,
             self.words_invalid_shape,
             self.wide_incomplete,
+            self.not_modelled,
             self.generator_gaps,
             self.t2_checked,
             self.t2_skipped,
@@ -268,6 +273,13 @@ pub fn run<C: Candidate>(
                     ));
                     continue;
                 }
+                Admission::NotModelled(text) => {
+                    report.failures.push(format!(
+                        "seed {seed}: {} was reported only as '{text}'; it must be refused by name\n  {replay}",
+                        refusal.named_construct()
+                    ));
+                    continue;
+                }
                 Admission::Refused(text) => {
                     if !text.contains(refusal.named_construct()) {
                         report.failures.push(format!(
@@ -278,12 +290,21 @@ pub fn run<C: Candidate>(
                     continue;
                 }
             }
-        } else if let Admission::Refused(text) = candidate.admission() {
-            report.failures.push(format!(
-                "seed {seed}: admitted-by-generator grammar refused: {text}\n  {} \n  {replay}",
-                generated.describe()
-            ));
-            continue;
+        } else {
+            match candidate.admission() {
+                Admission::Refused(text) => {
+                    report.failures.push(format!(
+                        "seed {seed}: admitted-by-generator grammar refused: {text}\n  {} \n  {replay}",
+                        generated.describe()
+                    ));
+                    continue;
+                }
+                Admission::NotModelled(_) => {
+                    report.not_modelled += 1;
+                    continue;
+                }
+                Admission::NotApplicable | Admission::Admitted => {}
+            }
         }
         let inbound = generated.width == WidthClass::InBound;
         if generated.refusal.is_none() {
