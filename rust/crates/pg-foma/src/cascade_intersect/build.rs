@@ -207,3 +207,9 @@ fn verify(
         Err(BuildError::Accounting(missing.join("; ")))
     }
 }
+
+/// Runs the accounting check against `acct` with every placed rule treated as placed, for tests.
+pub fn verify_for_test(g: &Grammar, acct: &Accounting) -> Result<(), BuildError> {
+    let placed: BTreeSet<MRuleId> = acct.placed_allomorphs.iter().map(|(r, _)| *r).collect();
+    verify(g, acct, &placed, &acct.slots)
+}

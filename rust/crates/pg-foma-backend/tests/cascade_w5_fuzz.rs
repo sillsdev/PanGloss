@@ -195,3 +195,243 @@ fn every_admitted_grammar_has_a_complete_accounting() {
     }
     assert!(admitted > 0);
 }
+
+// Named cases: small hand-written grammars compared with plain HC word by word.
+
+/// `(pre, suf)` pairs make one subrule each: an edge-only allomorph; both empty is a null one.
+struct RuleSpec {
+    allomorphs: Vec<(&'static str, &'static str)>,
+    max_apps: u32,
+}
+
+struct StratumSpec {
+    order: &'static str,
+    rules: Vec<RuleSpec>,
+    entries: Vec<&'static str>,
+}
+
+fn rule(allomorphs: &[(&'static str, &'static str)], max_apps: u32) -> RuleSpec {
+    RuleSpec {
+        allomorphs: allomorphs.to_vec(),
+        max_apps,
+    }
+}
+
+fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> String {
+    let mut x = String::from(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><HermitCrabInput><Language><Name>named</Name>\
+<PartsOfSpeech><PartOfSpeech id=\"posV\"><Name>v</Name></PartOfSpeech></PartsOfSpeech>\
+<PhonologicalFeatureSystem><SymbolicFeature id=\"featCons\"><Name>cons</Name><Symbols>\
+<Symbol id=\"featConsP\">+</Symbol><Symbol id=\"featConsM\">-</Symbol></Symbols></SymbolicFeature>\
+</PhonologicalFeatureSystem><CharacterDefinitionTable id=\"t1\"><Name>t1</Name><SegmentDefinitions>",
+    );
+    for (i, reps) in segments.iter().enumerate() {
+        let reps: String = reps
+            .iter()
+            .map(|r| format!("<Representation>{r}</Representation>"))
+            .collect();
+        x += &format!(
+            "<SegmentDefinition id=\"c{i}\"><Representations>{reps}</Representations>\
+<FeatureValue feature=\"featCons\" symbolValues=\"featConsP\" /></SegmentDefinition>"
+        );
+    }
+    x += "</SegmentDefinitions>";
+    if let Some(b) = boundary {
+        x += &format!(
+            "<BoundaryDefinitions><BoundaryDefinition id=\"bnd\"><Representations>\
+<Representation>{b}</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>"
+        );
+    }
+    x += "</CharacterDefinitionTable><NaturalClasses><FeatureNaturalClass id=\"ncAny\"><Name>Any</Name>\
+</FeatureNaturalClass></NaturalClasses><PhonologicalRuleDefinitions></PhonologicalRuleDefinitions><Strata>";
+    let (mut next_rule, mut next_entry) = (0, 0);
+    for s in strata {
+        let ids: Vec<String> = (0..s.rules.len())
+            .map(|k| format!("mr{}", next_rule + k))
+            .collect();
+        x += &format!(
+            "<Stratum characterDefinitionTable=\"t1\" morphologicalRuleOrder=\"{}\" morphologicalRules=\"{}\"><Name>S</Name><MorphologicalRuleDefinitions>",
+            s.order,
+            ids.join(" ")
+        );
+        for (k, r) in s.rules.iter().enumerate() {
+            let id = &ids[k];
+            x += &format!(
+                "<MorphologicalRule id=\"{id}\" requiredPartsOfSpeech=\"posV\" outputPartOfSpeech=\"posV\" multipleApplication=\"{}\"><Name>{id}</Name><MorphologicalSubrules>",
+                r.max_apps
+            );
+            for (j, (pre, suf)) in r.allomorphs.iter().enumerate() {
+                let ins = |t: &str| {
+                    if t.is_empty() {
+                        String::new()
+                    } else {
+                        format!("<InsertSegments><PhoneticShape>{t}</PhoneticShape></InsertSegments>")
+                    }
+                };
+                x += &format!(
+                    "<MorphologicalSubrule id=\"{id}s{j}\"><MorphologicalInput><PhoneticSequence id=\"{id}in{j}\">\
+<OptionalSegmentSequence min=\"1\" max=\"-1\"><SimpleContext naturalClass=\"ncAny\" /></OptionalSegmentSequence>\
+</PhoneticSequence></MorphologicalInput><MorphologicalOutput>{}<CopyFromInput index=\"{id}in{j}\" />{}</MorphologicalOutput></MorphologicalSubrule>",
+                    ins(pre),
+                    ins(suf)
+                );
+            }
+            x += &format!("</MorphologicalSubrules><MorphemeId>M{id}</MorphemeId></MorphologicalRule>");
+        }
+        x += "</MorphologicalRuleDefinitions><LexicalEntries>";
+        for text in &s.entries {
+            let id = format!("e{next_entry}");
+            next_entry += 1;
+            x += &format!(
+                "<LexicalEntry id=\"{id}\" partOfSpeech=\"posV\"><Allomorphs><Allomorph id=\"{id}a\">\
+<PhoneticShape>{text}</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R{id}</MorphemeId></LexicalEntry>"
+            );
+        }
+        x += "</LexicalEntries></Stratum>";
+        next_rule += s.rules.len();
+    }
+    x += "</Strata></Language></HermitCrabInput>";
+    x
+}
+
+/// Cascade and plain HC give the same multiset on every word; returns how many words HC analysed.
+fn agree(xml: &str, words: &[&str]) -> usize {
+    let grammar: &'static Grammar =
+        Box::leak(Box::new(pg_grammar::load(xml).unwrap_or_else(|e| panic!("{e}\n{xml}"))));
+    let morpher = Morpher::new(grammar, 2_000_000);
+    let mut meter = BuildMeter::default_limits();
+    let (layers, _) = build_cascade(grammar, false, &mut meter).unwrap_or_else(|e| panic!("{}", e.text()));
+    let analyzer = CascadeAnalyzer::new(layers);
+    let mut analysed = 0;
+    for w in words {
+        let want = hc::parse(&morpher, grammar, w);
+        let got = analyzer.analyze(grammar, &morpher, w);
+        assert_eq!(got.status, CascadeStatus::Complete, "{w:?}");
+        let got_analyses: Vec<_> = got.analyses.into_iter().map(|(a, _, _)| a).collect();
+        let got = outcome_of(grammar, Status::Complete, &got_analyses);
+        assert_eq!(got.multiset, want.multiset, "word {w:?}");
+        if want.analysis_count() > 0 {
+            analysed += 1;
+        }
+    }
+    analysed
+}
+
+fn linear(rules: Vec<RuleSpec>, entries: &[&'static str]) -> StratumSpec {
+    StratumSpec {
+        order: "linear",
+        rules,
+        entries: entries.to_vec(),
+    }
+}
+
+#[test]
+fn prefixes_suffixes_circumfixes_and_null_allomorphs_agree_with_hc() {
+    let strata = [linear(
+        vec![
+            rule(&[("", "a")], 1),
+            rule(&[("t", "")], 1),
+            rule(&[("s", "k")], 1),
+            rule(&[("", ""), ("k", "")], 1),
+        ],
+        &["ta", "ka"],
+    )];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+    let analysed = agree(
+        &x,
+        &["ta", "taa", "tta", "ttaa", "kta", "ktaa", "skta", "ska", "sktak", "kka", "aka", "tak", "s", ""],
+    );
+    assert!(analysed >= 8, "{analysed}");
+}
+
+#[test]
+fn a_digraph_and_a_second_representation_are_explored_in_every_segmentation() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta", "tsa"])];
+    let x = xml(&[&["a"], &["t"], &["s"], &["ts", "c"], &["k", "q"]], None, &strata);
+    let analysed = agree(&x, &["ta", "tas", "tsa", "tsas", "ca", "cas", "ka", "qa", "tats"]);
+    assert!(analysed >= 4, "{analysed}");
+}
+
+#[test]
+fn an_empty_representation_matches_without_consuming() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta"])];
+    let x = xml(&[&["a"], &["t"], &["s"], &["", "h"]], None, &strata);
+    let analysed = agree(&x, &["ta", "tas", "tha", "tahs", "h", ""]);
+    assert!(analysed >= 2, "{analysed}");
+}
+
+#[test]
+fn a_boundary_in_an_affix_insert_or_at_a_junction_is_written_or_dropped() {
+    let strata = [
+        linear(vec![rule(&[("", "+s")], 1)], &["ta"]),
+        linear(vec![rule(&[("k+", "")], 1)], &[]),
+    ];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"]], Some("+"), &strata);
+    let analysed = agree(&x, &["ta", "tas", "ta+s", "kta", "ktas", "k+tas", "kta+s", "+"]);
+    assert!(analysed >= 2, "{analysed}");
+}
+
+#[test]
+fn a_rule_repeats_exactly_max_apps_times_in_a_chain_and_an_unordered_pool() {
+    for order in ["linear", "unordered"] {
+        let strata = [StratumSpec {
+            order,
+            rules: vec![rule(&[("", "s")], 3), rule(&[("", "k")], 2)],
+            entries: vec!["ta"],
+        }];
+        let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+        let analysed = agree(
+            &x,
+            &["ta", "tas", "tass", "tasss", "tassss", "tak", "takk", "takkk", "taks", "tasks", "taskk"],
+        );
+        assert!(analysed >= 6, "{order}: {analysed}");
+    }
+}
+
+#[test]
+fn roots_of_a_later_stratum_pass_through_the_earlier_zones_unchanged() {
+    let strata = [
+        linear(vec![rule(&[("", "s")], 1)], &["ta"]),
+        linear(vec![rule(&[("k", "")], 1)], &["ka"]),
+    ];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+    let analysed = agree(&x, &["ta", "tas", "ktas", "ka", "kka", "kas", "kkas"]);
+    assert!(analysed >= 4, "{analysed}");
+}
+
+#[test]
+fn each_refused_construct_is_named_when_the_candidate_is_built_from_its_seed() {
+    use cascade_fuzz::features::Refusal;
+    for (i, refusal) in Refusal::ALL.into_iter().enumerate() {
+        let generated = cascade_fuzz::gen::generate(&cascade_fuzz::gen::Plan::for_seed(4 + 5 * i as u64));
+        let c = CascadeCandidate::build(&generated).unwrap();
+        match c.admission() {
+            Admission::Refused(t) => assert!(t.contains(refusal.named_construct()), "{t}"),
+            other => panic!("{refusal:?}: {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn the_accounting_check_names_a_dropped_allomorph_slot_stratum_or_root_allomorph() {
+    let strata = [linear(vec![rule(&[("", "s"), ("k", "")], 1)], &["ta"])];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let mut meter = BuildMeter::default_limits();
+    let (_, full) = build_cascade(&grammar, false, &mut meter).unwrap();
+    assert_eq!(full.placed_allomorphs.len(), 2);
+    for drop in 0..3 {
+        let mut a = full.clone();
+        match drop {
+            0 => {
+                let first = *a.placed_allomorphs.iter().next().unwrap();
+                a.placed_allomorphs.remove(&first);
+            }
+            1 => a.zones.clear(),
+            _ => a.root_allomorphs.clear(),
+        }
+        let err = pg_foma::cascade_intersect::build::verify_for_test(&grammar, &a);
+        assert!(err.is_err(), "dropping part {drop} must fail the check");
+    }
+    assert!(pg_foma::cascade_intersect::build::verify_for_test(&grammar, &full).is_ok());
+}
