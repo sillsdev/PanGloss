@@ -1686,3 +1686,13 @@ fn trim_allocations_are_charged_to_product_bytes() {
     }
     assert!(matches!(run(rep.bytes), Outcome::Complete { .. }));
 }
+
+#[test]
+#[should_panic(expected = "outside the alphabet")]
+fn an_arc_naming_a_token_outside_the_alphabet_is_refused_at_build() {
+    let mut meter = BuildMeter::default_limits();
+    let mut b = NfaBuilder::new("stray", 3, &mut meter);
+    let s = b.add_state(true).unwrap();
+    b.set_start(s);
+    let _ = b.add_arc(s, Input::Eps, Output::Tok(u32::MAX), s, &[], 0, 0);
+}

@@ -230,8 +230,10 @@ pub trait Layer: Sync {
         input: Option<Token>,
         f: &mut dyn FnMut(Arc<'a>),
     ) -> u64;
-    /// Arcs from `s` for a FREE input tape (the pre-pass, 3.3): every epsilon-input arc once and,
-    /// for every token arc or class arc, one arc per input token that can be read.
+    /// Arcs from `s` for a FREE input tape: every epsilon-input arc once and, for every token arc
+    /// or class arc, one arc per input token that can be read. The pre-pass and the main pass's
+    /// top layer both move through it, so it must be complete: a missing arc is a silently lost
+    /// word.
     fn arcs_free<'a>(
         &'a self,
         scratch: &mut LayerScratch,
@@ -581,6 +583,26 @@ impl<'m> NfaBuilder<'m> {
             !matches!(output, Output::Image(_)) || matches!(input, Input::Class(_)),
             "an image function needs a class input"
         );
+        let universe = self.layer.universe;
+        for t in [
+            match input {
+                Input::Tok(t) => Some(t),
+                _ => None,
+            },
+            match output {
+                Output::Tok(t) => Some(t),
+                _ => None,
+            },
+        ]
+        .into_iter()
+        .flatten()
+        {
+            assert!(
+                t < universe,
+                "layer {}: arc {from} -> {to} names token {t} outside the alphabet 0..{universe}",
+                self.name
+            );
+        }
         let mut tags: Vec<Tag> = tags.to_vec();
         tags.sort();
         tags.dedup();
