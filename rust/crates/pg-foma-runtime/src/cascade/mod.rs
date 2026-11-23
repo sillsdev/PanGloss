@@ -7,6 +7,7 @@
 pub mod budget;
 pub mod layer;
 pub mod product;
+pub mod readout;
 pub mod trim;
 
 pub use budget::{BuildMeter, BuildRefused, BuildStop, CascadeStop, PrepassBudget, WordBudget};
