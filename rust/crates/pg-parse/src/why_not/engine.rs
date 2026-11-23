@@ -362,7 +362,7 @@ impl<'a> Searcher<'a> {
             )
         } else {
             format!(
-                "allomorph {allomorph_id} of {name} is not allowed in the synthesized form \"{synthesized}\" (phonological rules later make it \"{input}\"), between \"{left}\" and \"{right}\""
+                "allomorph {allomorph_id} of {name} is not allowed in the synthesized form \"{synthesized}\" (the word asked about is \"{input}\"), between \"{left}\" and \"{right}\""
             )
         };
         Some(FirstFailure {
