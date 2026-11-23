@@ -364,7 +364,7 @@ fn test_02_blocking_replaces_the_derivation_at_the_confirm_seam() {
     // PINS PARITY BUG sillsdev/PanGloss#423 (confirmed vs C#; flip when fixed)
     assert!(generate(&fam, "A", &["T"]).is_empty());
     assert_eq!(generate(&fam, "B", &[]), ["aat"]);
-    // PINS PARITY BUG sillsdev/PanGloss#423 (confirmed vs C#; flip when fixed)
+    // PINS PARITY BUG sillsdev/PanGloss#423 (forward half confirmed vs C#; this pinned-confirm half is inferred from the same -2 path, C# has no pin API; flip when fixed)
     assert!(
         restricted(&fam, "aat", &["A"], &["T"]).is_empty(),
         "the pins {{A, T}} confirm nothing"
