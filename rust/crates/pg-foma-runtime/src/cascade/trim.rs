@@ -69,6 +69,12 @@ pub struct RawGraph {
     pub tag_sets: Vec<Box<[Tag]>>,
 }
 
+/// Nominal bytes the trim allocates beyond the raw graph, for `states` states of `key_words` words
+/// and `arcs` arcs: two adjacency lists, three flags and a map per state, and the trimmed copy.
+pub const fn trim_bytes(states: usize, arcs: usize, key_words: usize) -> u64 {
+    states as u64 * (56 + 4 * key_words as u64) + arcs as u64 * (8 + super::budget::ARC_BYTES)
+}
+
 /// Backward trim: keep the states reachable from state 0 (the start) and co-reachable to acceptance.
 pub fn trim(raw: RawGraph) -> TrimmedGraph {
     let n = raw.accepting.len();
