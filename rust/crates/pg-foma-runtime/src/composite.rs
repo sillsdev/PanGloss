@@ -331,8 +331,14 @@ pub fn propose_union_peel_with_diagnostics(
                         .normalization_cap()
                         .expect("normalization trip requires a normalization cap"),
                 ),
-                ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
-                    unreachable!("a proposer trips neither the stem bound nor confirmation")
+                ApplyDimension::StemBound
+                | ApplyDimension::Confirmation(_)
+                | ApplyDimension::ProductStates
+                | ApplyDimension::ProductArcs
+                | ApplyDimension::ProductSteps
+                | ApplyDimension::ProductBytes
+                | ApplyDimension::PinGroups => {
+                    unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
                 }
             };
             return Err((dimension, value, limit, proposal, proposal_calls));
@@ -378,8 +384,14 @@ pub fn propose_union_peel_with_diagnostics(
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
-            ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
-                unreachable!("a proposer trips neither the stem bound nor confirmation")
+            ApplyDimension::StemBound
+            | ApplyDimension::Confirmation(_)
+            | ApplyDimension::ProductStates
+            | ApplyDimension::ProductArcs
+            | ApplyDimension::ProductSteps
+            | ApplyDimension::ProductBytes
+            | ApplyDimension::PinGroups => {
+                unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
             }
         };
         return Err((dimension, value, limit, proposal, proposal_calls));
@@ -804,8 +816,14 @@ impl<'g> FomaAnalyzer<'g> {
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
-            ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
-                unreachable!("a proposer trips neither the stem bound nor confirmation")
+            ApplyDimension::StemBound
+            | ApplyDimension::Confirmation(_)
+            | ApplyDimension::ProductStates
+            | ApplyDimension::ProductArcs
+            | ApplyDimension::ProductSteps
+            | ApplyDimension::ProductBytes
+            | ApplyDimension::PinGroups => {
+                unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
             }
         };
 

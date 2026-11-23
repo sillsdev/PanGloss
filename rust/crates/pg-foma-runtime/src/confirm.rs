@@ -364,6 +364,136 @@ fn rule_is_allowed(g: &Grammar, rules: &HashSet<MRuleId>, rule: RuleRef) -> bool
     }
 }
 
+/// The one checked restricted reparse, shared by `confirm_batch_impl` and `confirm_pin_groups` so the two entries cannot disagree on whether a word stopped. The stop expression is `ParseOutcome::stop_reasons`, exactly as `confirm_batch_impl` read it before this helper existed; `None` filters mean an unfiltered parse.
+fn checked_reparse(
+    morpher: &Morpher,
+    word: &str,
+    lex_entry_filter: Option<&dyn Fn(LexEntryId) -> bool>,
+    rule_filter: Option<pg_rules::stratum::RuleFilter>,
+    budget: &pg_rules::stratum::WordBudget,
+) -> (ParseOutcome, pg_parse::StopReasons) {
+    let outcome = morpher.parse_word_selected_with_budget(
+        word,
+        &ParseOptions::default(),
+        lex_entry_filter,
+        rule_filter,
+        budget,
+    );
+    let stopped = outcome.stop_reasons();
+    (outcome, stopped)
+}
+
+/// One pin group: the head roots and rule ids a restricted reparse admits. Strata, templates and compounding rules are always allowed (`rule_is_allowed`); non-head roots are not filtered by HC.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PinGroup {
+    /// Head roots only. A head root must be in exactly one group of one `confirm_pin_groups` call.
+    pub roots: HashSet<LexEntryId>,
+    pub rules: HashSet<MRuleId>,
+}
+
+/// Result of `confirm_pin_groups` or `confirm_unfiltered`.
+pub struct PinnedConfirmation {
+    /// Every analysis the reparses returned, concatenated in group order, never de-duplicated: HC's multiset is kept.
+    pub analyses: Vec<(EngineAnalysis, String, String)>,
+    /// The union of the stop flags of every reparse, always computed; `stop.any()` means `analyses` may be a prefix.
+    pub stop: pg_parse::StopReasons,
+    /// The allowance's final cumulative work count (`WordBudget::work_steps`), not a sum over groups.
+    pub work_steps: u64,
+    /// How many reparses ran.
+    pub reparses: usize,
+}
+
+impl PinnedConfirmation {
+    pub const fn incomplete(&self) -> bool {
+        self.stop.any()
+    }
+}
+
+/// Restricted reparses of `word`, one per pin group, sharing the caller's `budget`.
+///
+/// Groups run in ascending order of their smallest root id (a group without roots sorts last, ties by position), so which groups ran before a cap never depends on hashing. Head roots must be disjoint across groups (asserted): the lexical-entry filter acts only at head lookup, so an analysis headed by root `r` comes from exactly the one reparse whose group holds `r`, with its full multiplicity, and the results are concatenated. Every analysis returned is one plain HC returns for `word`; recall rests on the caller's groups covering a derivation's head root and rules.
+///
+/// Additive to `confirm_batch`: nothing there changes behaviour.
+pub fn confirm_pin_groups(
+    g: &Grammar,
+    morpher: &Morpher,
+    word: &str,
+    groups: &[PinGroup],
+    budget: &pg_rules::stratum::WordBudget,
+) -> PinnedConfirmation {
+    let mut seen: HashSet<LexEntryId> = HashSet::default();
+    for group in groups {
+        for root in &group.roots {
+            assert!(
+                seen.insert(*root),
+                "confirm_pin_groups: head root {root:?} is in more than one pin group"
+            );
+        }
+    }
+    let mut order: Vec<usize> = (0..groups.len()).collect();
+    order.sort_by_key(|&i| {
+        (
+            groups[i]
+                .roots
+                .iter()
+                .map(|r| r.0)
+                .min()
+                .unwrap_or(u32::MAX),
+            i,
+        )
+    });
+
+    let mut result = PinnedConfirmation {
+        analyses: Vec::new(),
+        stop: pg_parse::StopReasons::default(),
+        work_steps: 0,
+        reparses: 0,
+    };
+    for i in order {
+        let group = &groups[i];
+        let lex_entry_filter = |le: LexEntryId| group.roots.contains(&le);
+        let rule_filter = |r: RuleRef| rule_is_allowed(g, &group.rules, r);
+        let (outcome, stopped) = checked_reparse(
+            morpher,
+            word,
+            Some(&lex_entry_filter),
+            Some(&rule_filter),
+            budget,
+        );
+        result.reparses += 1;
+        result.stop = result.stop.union(stopped);
+        result.analyses.extend(
+            outcome
+                .structured
+                .into_iter()
+                .zip(outcome.analyses)
+                .map(|(wa, (join, surface))| (wa, join, surface)),
+        );
+    }
+    result.work_steps = budget.work_steps() as u64;
+    result
+}
+
+/// The unfiltered call: one reparse with no lexical or rule filter (plain HC through the same checked helper), for a caller that decides a restricted parse would prune nothing worth a filter.
+pub fn confirm_unfiltered(
+    morpher: &Morpher,
+    word: &str,
+    budget: &pg_rules::stratum::WordBudget,
+) -> PinnedConfirmation {
+    let (outcome, stop) = checked_reparse(morpher, word, None, None, budget);
+    PinnedConfirmation {
+        analyses: outcome
+            .structured
+            .into_iter()
+            .zip(outcome.analyses)
+            .map(|(wa, (join, surface))| (wa, join, surface))
+            .collect(),
+        stop,
+        work_steps: budget.work_steps() as u64,
+        reparses: 1,
+    }
+}
+
 fn confirm_batch_impl(
     g: &Grammar,
     owners: &[Option<MorphemeOwner>],
@@ -487,15 +617,14 @@ fn confirm_batch_impl(
         }
         let timer = crate::word_timer::start();
         let work_before = budget.work_steps();
-        let outcome = morpher.parse_word_selected_with_budget(
+        let (outcome, stopped) = checked_reparse(
+            morpher,
             word,
-            &ParseOptions::default(),
             Some(&lex_entry_filter),
             Some(&rule_filter),
             &budget,
         );
         let elapsed = timer.elapsed();
-        let stopped = outcome.stop_reasons();
         // Read BEFORE the loop below consumes `outcome`.
         if let Some(diagnostics) = diagnostics.as_deref_mut() {
             diagnostics.confirmation_work = outcome.work_steps;

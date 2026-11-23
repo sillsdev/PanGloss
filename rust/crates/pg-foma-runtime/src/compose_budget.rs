@@ -119,6 +119,16 @@ pub enum ApplyDimension {
     StemBound,
     /// Not a magnitude cap: the confirming parser stopped on a work, time, memory, capture or shape limit, so its analyses are a prefix and none are returned (`value` is the confirmation work steps consumed, `limit` is 0); the payload names which limits fired.
     Confirmation(pg_parse::StopReasons),
+    /// Cascade backend: the lazy product's state count reached its cap.
+    ProductStates,
+    /// Cascade backend: the lazy product's arc count reached its cap.
+    ProductArcs,
+    /// Cascade backend: the lazy product's expansion steps reached their cap.
+    ProductSteps,
+    /// Cascade backend: the lazy product's bytes reached their cap.
+    ProductBytes,
+    /// Cascade backend: the number of pin groups read out reached its cap.
+    PinGroups,
 }
 
 impl ApplyDimension {
@@ -129,6 +139,11 @@ impl ApplyDimension {
             ApplyDimension::NormalizedCandidates => "repeat-normalization alternatives",
             ApplyDimension::StemBound => "stem cap above the proposer's stem bound",
             ApplyDimension::Confirmation(_) => "confirmation",
+            ApplyDimension::ProductStates => "product states",
+            ApplyDimension::ProductArcs => "product arcs",
+            ApplyDimension::ProductSteps => "product steps",
+            ApplyDimension::ProductBytes => "product bytes",
+            ApplyDimension::PinGroups => "pin groups",
         }
     }
 }
