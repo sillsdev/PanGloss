@@ -318,6 +318,14 @@ impl IntermediateBundles {
         Ok(id)
     }
 
+    /// A row distinct from every interned row with the same lanes: a private `Modify` token or an EMPTY twin.
+    fn push_distinct(&mut self, row: Vec<u64>, rule: &str) -> Result<CharDefId, PhonologyLoweringError> {
+        let id = CharDefId(self.next_id);
+        self.push(id, row, rule)?;
+        self.next_id += 1;
+        Ok(id)
+    }
+
     fn rhs_updates(
         g: &Grammar,
         table: &CharDefTable,
@@ -544,6 +552,11 @@ impl IntermediateBundles {
         }
     }
 
+    /// Every retained row with its token id and lanes.
+    pub(crate) fn row_table(&self) -> &[(CharDefId, Vec<u64>)] {
+        &self.rows
+    }
+
     /// The attested segment ids, then the private ids.
     pub(crate) fn row_ids(&self) -> (Vec<CharDefId>, Vec<CharDefId>) {
         let attested = self.evidence.attested_rows;
@@ -614,6 +627,18 @@ impl IntermediateBundles {
 /// The joint-fixpoint closure of one grammar's rewrite rules, for gates that compare the cascade's class membership and images with the synthesis code (plan section 2.0, KC-0b).
 pub struct JointClosure {
     bundles: IntermediateBundles,
+    kinds: HashMap<CharDefId, RowKind>,
+}
+
+/// What a closure row stands for beyond its lanes (plan 2.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RowKind {
+    /// An attested segment, or a bundle some rule made: spelled by every compatible attested segment.
+    Plain,
+    /// The image of a `Modify` or `InsertContext` whose class restricts the char-def set to these members: spelled only by the members that unify.
+    Private(Vec<CharDefId>),
+    /// The EMPTY twin of an alpha-output image: spelled only as nothing.
+    EmptyTwin,
 }
 
 /// Row counts of a [`JointClosure`] against the token cap.
@@ -624,6 +649,9 @@ pub struct JointClosureReport {
     pub total_rows: usize,
     /// Rows no attested segment can spell, so spelled as nothing.
     pub epsilon_rows: usize,
+    /// Private `Modify`/`InsertContext` tokens, and EMPTY twins, among the private rows.
+    pub private_modify_rows: usize,
+    pub empty_twin_rows: usize,
     /// The token-id cap: 0x1900 ids (6,400), and the row bound.
     pub token_cap: usize,
 }
@@ -635,7 +663,149 @@ impl JointClosure {
         table: TableId,
         rules: &[&RewriteRuleDef],
     ) -> Result<Self, PhonologyLoweringError> {
-        IntermediateBundles::build_joint(g, table, rules).map(|bundles| Self { bundles })
+        let mut bundles = IntermediateBundles::build_joint(g, table, rules)?;
+        let kinds = Self::add_private_rows(g, table, rules, &mut bundles)?;
+        Ok(Self { bundles, kinds })
+    }
+
+    /// Adds the rows that carry more than lanes: a private token `(lanes, members)` for each image of a `Modify`/`InsertContext` whose class restricts the char-def set (unless every compatible segment is a member, the static check of 2.6), and an EMPTY twin of every image of a rule whose alpha variable is read with one polarity and written with the other.
+    fn add_private_rows(
+        g: &Grammar,
+        table_id: TableId,
+        rules: &[&RewriteRuleDef],
+        bundles: &mut IntermediateBundles,
+    ) -> Result<HashMap<CharDefId, RowKind>, PhonologyLoweringError> {
+        let table = &g.char_tables[table_id.0 as usize];
+        let first_rule = rules.first().map_or("", |rule| rule.xml_id.as_str());
+        let width = g.phon_features.len();
+        let type_lane = g.phon_features.type_flat().0 as usize;
+        let mut kinds = HashMap::new();
+        let plain: Vec<Vec<u64>> = bundles.rows.iter().map(|(_, row)| row.clone()).collect();
+        let compatible_segments = |lanes: &[u64]| -> Vec<CharDefId> {
+            table
+                .iter()
+                .filter(|(_, cd)| cd.kind() == CharDefKind::Segment && compatible(lanes, cd.feature_lanes()))
+                .map(|(id, _)| id)
+                .collect()
+        };
+        let mut seen: HashSet<(Vec<u64>, Vec<CharDefId>)> = HashSet::new();
+        let affix_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| rule.affix_allomorphs())
+            .flatten()
+            .flat_map(|allomorph| &allomorph.rhs);
+        let compound_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| match rule {
+                MorphRuleDef::Compounding(rule) => Some(&rule.subrules),
+                _ => None,
+            })
+            .flatten()
+            .flat_map(|subrule| &subrule.rhs);
+        for action in affix_actions.chain(compound_actions) {
+            let (context, modify) = match action {
+                OutputAction::Modify(_, context) => (context, true),
+                OutputAction::InsertContext(context) => (context, false),
+                _ => continue,
+            };
+            let class = &g.natural_classes[context.nat_class.0 as usize];
+            let all_pins = pg_rules::morph::ctx_pins(g, table_id, context);
+            let flat: Vec<_> = all_pins
+                .iter()
+                .map(|(lane, bits)| (pg_grammar::featsys::FlatIndex(*lane as u32), pg_featstruct::SymbolBits(*bits)))
+                .collect();
+            let members: Vec<CharDefId> = match pg_grammar::segment::nat_class_cd_set_with_constraints(table, class, &flat) {
+                pg_shape::CdSet::Unrestricted => continue,
+                pg_shape::CdSet::Members(bits) => table.iter().map(|(id, _)| id).filter(|id| bits.contains(id.0)).collect(),
+            };
+            if members.is_empty() && matches!(class.kind, NaturalClassKind::Segments(_)) {
+                // E4: the pins would read as any-value, so this is refused by name instead of modelled.
+                return Err(PhonologyLoweringError::UnsupportedRewrite(format!(
+                    "class {} has no eligible member",
+                    class.xml_id
+                )));
+            }
+            let pins: Vec<_> = all_pins.into_iter().filter(|(lane, _)| *lane < width).collect();
+            let alpha: Vec<usize> = context.vars.iter().map(|var| var.feature.0 as usize).collect();
+            let images: Vec<Vec<u64>> = if modify {
+                plain
+                    .iter()
+                    .map(|base| {
+                        let mut row = base.clone();
+                        for &(lane, bits) in &pins {
+                            row[lane] = bits;
+                        }
+                        for &lane in &alpha {
+                            row[lane] = 0;
+                        }
+                        row[type_lane] = TYPE_SEGMENT_BITS;
+                        row
+                    })
+                    .collect()
+            } else {
+                let mut row = vec![0; plain.first().map_or(0, Vec::len)];
+                for &(lane, bits) in &pins {
+                    row[lane] = bits;
+                }
+                row[type_lane] = TYPE_SEGMENT_BITS;
+                vec![row]
+            };
+            for image in images {
+                if compatible_segments(&image).iter().all(|cd| members.contains(cd)) {
+                    continue;
+                }
+                if seen.insert((image.clone(), members.clone())) {
+                    let id = bundles.push_distinct(image, first_rule)?;
+                    kinds.insert(id, RowKind::Private(members.clone()));
+                }
+            }
+        }
+        // EMPTY twins: a rule reads a variable with one polarity and writes it with the other.
+        for rule in rules {
+            fn vars_of(nodes: &[PatternNode], out: &mut Vec<(pg_grammar::model::VarId, bool)>) {
+                for node in nodes {
+                    match node {
+                        PatternNode::Context(context) => {
+                            out.extend(context.vars.iter().map(|v| (v.var, v.plus)))
+                        }
+                        PatternNode::Quantifier { children, .. } => vars_of(children, out),
+                        _ => {}
+                    }
+                }
+            }
+            let (mut read, mut written) = (Vec::new(), Vec::new());
+            vars_of(&rule.lhs.nodes, &mut read);
+            for sub in &rule.subrules {
+                vars_of(&sub.rhs.nodes, &mut written);
+                for env in [&sub.left_env, &sub.right_env].into_iter().flatten() {
+                    vars_of(&env.nodes, &mut read);
+                }
+            }
+            if !written.iter().any(|(var, plus)| read.iter().any(|(v, p)| v == var && p != plus)) {
+                continue;
+            }
+            let updates = IntermediateBundles::rhs_updates(g, table, rule)?;
+            let mut images: HashSet<Vec<u64>> = HashSet::new();
+            for update in &updates {
+                images.insert(update.apply(&update.fresh, type_lane));
+                for base in &plain {
+                    images.insert(update.apply(base, type_lane));
+                }
+            }
+            let mut images: Vec<Vec<u64>> = images.into_iter().collect();
+            images.sort();
+            for image in images {
+                let id = bundles.push_distinct(image, &rule.xml_id)?;
+                kinds.insert(id, RowKind::EmptyTwin);
+            }
+        }
+        Ok(kinds)
+    }
+
+    pub fn row_kind(&self, id: CharDefId) -> RowKind {
+        self.kinds.get(&id).cloned().unwrap_or(RowKind::Plain)
     }
 
     /// Every row with its token id, attested rows first.
@@ -699,18 +869,40 @@ impl JointClosure {
     /// The attested segments row `idx` may be spelled as, and whether it may also be spelled as nothing: when no segment is compatible, or when some concrete completion of an any-value lane unifies with no segment, or when there are more than 256 completions (plan 2.6).
     pub fn spellings(&self, g: &Grammar, idx: usize) -> (Vec<CharDefId>, bool) {
         let (id, row) = &self.bundles.rows[idx];
-        let spelled = self.bundles.row_spellings(g, row, *id);
         let table = &g.char_tables[self.bundles.table.0 as usize];
+        let kind = self.row_kind(*id);
+        if kind == RowKind::EmptyTwin {
+            return (Vec::new(), true);
+        }
+        let mut spelled = self.bundles.row_spellings(g, row, *id);
+        if let RowKind::Private(members) = &kind {
+            if g.phon_features.is_empty() {
+                // A featureless table spells by identity: a private token is spelled by its members.
+                spelled = members
+                    .iter()
+                    .copied()
+                    .filter(|cd| table.get(*cd).kind() == CharDefKind::Segment)
+                    .collect();
+            } else {
+                spelled.retain(|cd| members.contains(cd));
+            }
+        }
+        let allowed = |cd: CharDefId| match &kind {
+            RowKind::Private(members) => members.contains(&cd),
+            _ => true,
+        };
         let epsilon = spelled.is_empty()
-            || match self.completions(g, idx, 256) {
+            || (!g.phon_features.is_empty()
+                && match self.completions(g, idx, 256) {
                 None => true,
                 Some(completions) => completions.iter().any(|c| {
-                    !table.iter().any(|(_, cd)| {
+                    !table.iter().any(|(cd_id, cd)| {
                         cd.kind() == CharDefKind::Segment
+                            && allowed(cd_id)
                             && c.iter().zip(cd.feature_lanes()).take(g.phon_features.len()).all(|(a, b)| a & b != 0)
                     })
                 }),
-            };
+            });
         (spelled, epsilon)
     }
 
@@ -719,7 +911,9 @@ impl JointClosure {
             attested_rows: self.bundles.evidence.attested_rows,
             private_rows: self.bundles.rows.len() - self.bundles.evidence.attested_rows,
             total_rows: self.bundles.rows.len(),
-            epsilon_rows: self.bundles.unspelled_rows(g),
+            epsilon_rows: (0..self.bundles.rows.len()).filter(|&i| self.spellings(g, i).1).count(),
+            private_modify_rows: self.kinds.values().filter(|k| matches!(k, RowKind::Private(_))).count(),
+            empty_twin_rows: self.kinds.values().filter(|k| **k == RowKind::EmptyTwin).count(),
             token_cap: 0x1900,
         }
     }

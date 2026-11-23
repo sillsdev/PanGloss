@@ -22,7 +22,7 @@ mod intermediate;
 pub(crate) use block::{compile_block, is_block_rule, pair_filter};
 pub(crate) use insertion::{compile_fed_insertion, render_branch, replacement_rows};
 pub(crate) use intermediate::IntermediateBundles;
-pub use intermediate::{JointClosure, JointClosureReport};
+pub use intermediate::{JointClosure, JointClosureReport, RowKind};
 
 /// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.
 fn class_members(
