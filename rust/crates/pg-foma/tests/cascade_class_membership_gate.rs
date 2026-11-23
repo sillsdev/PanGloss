@@ -18,7 +18,7 @@ use pg_shape::{NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 /// What synthesis is given for one focus element.
 #[derive(Clone)]
 enum BlockNode {
-    Segment { lanes: Vec<u64>, explicit_full: Vec<u32> },
+    Segment { lanes: Vec<u64>, cd: u32 },
     Boundary(CharDefId),
 }
 
@@ -47,31 +47,20 @@ fn strip(rule: &RewriteRuleDef) -> RewriteRuleDef {
     }
 }
 
-fn shape_of(g: &Grammar, focus: &[BlockNode], ids: &[Option<CharDefId>]) -> Shape {
-    let width = g.phon_features.len() as u32;
-    let wide = width as usize + 1;
+fn shape_of(g: &Grammar, focus: &[BlockNode]) -> Shape {
+    let wide = g.phon_features.len() + 1;
     let pad = |lanes: &[u64]| {
         let mut v = lanes.to_vec();
         v.resize(wide, 15);
         v
     };
     let mut b = ShapeBuilder::with_features(wide as u32);
-    for (node, id) in focus.iter().zip(ids) {
+    for node in focus {
         match node {
             BlockNode::Boundary(cd) => {
-                if width == 0 {
-                    b.push_boundary(cd.0)
-                } else {
-                    b.push_boundary_with_lanes(cd.0, &pad(g.char_tables[0].get(*cd).feature_lanes()))
-                }
+                b.push_boundary_with_lanes(cd.0, &pad(g.char_tables[0].get(*cd).feature_lanes()))
             }
-            BlockNode::Segment { lanes, .. } => {
-                if width == 0 {
-                    b.push_segment(id.unwrap().0)
-                } else {
-                    b.push_segment_with_lanes(NO_CHAR_DEF, &pad(lanes))
-                }
-            }
+            BlockNode::Segment { lanes, cd } => b.push_segment_with_lanes(*cd, &pad(lanes)),
         }
     }
     b.finish()
@@ -136,14 +125,21 @@ fn elements(g: &Grammar, closure: &JointClosure) -> Vec<Element> {
             let drop = (rng.next() as usize) % variants.len();
             variants.swap_remove(drop);
         }
+        let attested = (id.0 as usize) < g.char_tables[0].len();
         for lanes in variants {
-            out.push(Element {
-                token: Some(*id),
-                node: BlockNode::Segment {
-                    lanes,
-                    explicit_full: Vec::new(),
-                },
-            });
+            if attested && lanes == *row {
+                out.push(Element {
+                    token: Some(*id),
+                    node: BlockNode::Segment { lanes: lanes.clone(), cd: id.0 },
+                });
+            }
+            // Without features only a char-def identifies a segment: a node with none matches every literal, so it says nothing about its token.
+            if !(attested && g.phon_features.is_empty()) {
+                out.push(Element {
+                    token: Some(*id),
+                    node: BlockNode::Segment { lanes, cd: NO_CHAR_DEF },
+                });
+            }
         }
     }
     for id in closure.boundary_ids(g) {
@@ -158,7 +154,6 @@ fn elements(g: &Grammar, closure: &JointClosure) -> Vec<Element> {
 #[derive(Default)]
 struct Tally {
     grammars: usize,
-    featureless: usize,
     refused: Vec<String>,
     rules: usize,
     skipped_nodes: usize,
@@ -235,11 +230,6 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
             }
         }
     }
-    // Featureless tables match by spelling, which a bare lane shape does not reproduce (the probe matched every token); reported as remaining work.
-    if g.phon_features.is_empty() {
-        tally.featureless += 1;
-        return;
-    }
     for rule in &rules {
         tally.rules += 1;
         let n_all = rule.lhs.nodes.len();
@@ -297,9 +287,8 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
                     }
                 }
                 let focus: Vec<BlockNode> = idx.iter().map(|&i| pool[i].node.clone()).collect();
-                let ids: Vec<Option<CharDefId>> = idx.iter().map(|&i| pool[i].token).collect();
                 tally.cases += 1;
-                let shape = shape_of(g, &focus, &ids);
+                let shape = shape_of(g, &focus);
                 let result = synthesize(g, &stripped, &shape);
                 let Some(out) = result.first() else { continue };
                 tally.matched += 1;
@@ -347,8 +336,8 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
         check_grammar(&f.label(), &g, &mut tally);
     }
     println!(
-        "W2 summary: featureless_not_probed={} grammars={} refused={} rules={} skipped_lhs={} cases={} matched={} sampled_rules={} under={} missing_images={}",
-        tally.featureless, tally.grammars, tally.refused.len(), tally.rules, tally.skipped_nodes, tally.cases, tally.matched,
+        "W2 summary: grammars={} refused={} rules={} skipped_lhs={} cases={} matched={} sampled_rules={} under={} missing_images={}",
+        tally.grammars, tally.refused.len(), tally.rules, tally.skipped_nodes, tally.cases, tally.matched,
         tally.sampled_rules, tally.under.len(), tally.missing_images.len()
     );
     for r in &tally.refused {
