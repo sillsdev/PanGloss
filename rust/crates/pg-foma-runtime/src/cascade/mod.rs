@@ -3,6 +3,7 @@
 //! Additive and self-contained: it uses no foma determinise, minimise or compose and touches no
 //! existing module. The read-out ([`readout`]) consumes the product's [`TrimmedGraph`] directly.
 
+pub mod analyzer;
 pub mod budget;
 pub mod layer;
 pub mod product;
