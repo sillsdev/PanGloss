@@ -221,18 +221,28 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
     let mut x = String::from(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?><HermitCrabInput><Language><Name>named</Name>\
 <PartsOfSpeech><PartOfSpeech id=\"posV\"><Name>v</Name></PartOfSpeech></PartsOfSpeech>\
-<PhonologicalFeatureSystem><SymbolicFeature id=\"featCons\"><Name>cons</Name><Symbols>\
-<Symbol id=\"featConsP\">+</Symbol><Symbol id=\"featConsM\">-</Symbol></Symbols></SymbolicFeature>\
-</PhonologicalFeatureSystem><CharacterDefinitionTable id=\"t1\"><Name>t1</Name><SegmentDefinitions>",
+<PhonologicalFeatureSystem>",
     );
+    for j in 0..segments.len() {
+        x += &format!(
+            "<SymbolicFeature id=\"f{j}\"><Name>f{j}</Name><Symbols><Symbol id=\"f{j}P\">+</Symbol>\
+<Symbol id=\"f{j}M\">-</Symbol></Symbols></SymbolicFeature>"
+        );
+    }
+    x += "</PhonologicalFeatureSystem><CharacterDefinitionTable id=\"t1\"><Name>t1</Name><SegmentDefinitions>";
     for (i, reps) in segments.iter().enumerate() {
         let reps: String = reps
             .iter()
             .map(|r| format!("<Representation>{r}</Representation>"))
             .collect();
+        let values: String = (0..segments.len())
+            .map(|j| {
+                let v = if i == j { "P" } else { "M" };
+                format!("<FeatureValue feature=\"f{j}\" symbolValues=\"f{j}{v}\" />")
+            })
+            .collect();
         x += &format!(
-            "<SegmentDefinition id=\"c{i}\"><Representations>{reps}</Representations>\
-<FeatureValue feature=\"featCons\" symbolValues=\"featConsP\" /></SegmentDefinition>"
+            "<SegmentDefinition id=\"c{i}\"><Representations>{reps}</Representations>{values}</SegmentDefinition>"
         );
     }
     x += "</SegmentDefinitions>";
@@ -471,4 +481,18 @@ fn every_allomorph_of_a_root_and_an_unspellable_segment_are_modelled() {
     let x = xml(&[&["a"], &["t"], &["k"], &["s"], &["ts"], &[]], None, &strata);
     let analysed = agree(&x, &["ta", "ka", "tas", "kas", "tsa", "tsas", "a"]);
     assert!(analysed >= 5, "{analysed}");
+}
+
+#[test]
+fn a_circumfix_is_found_only_with_both_halves_in_a_chain_and_a_pool() {
+    for order in ["linear", "unordered"] {
+        let strata = [StratumSpec {
+            order,
+            rules: vec![rule(&[("s", "k")], 1)],
+            entries: vec!["ta"],
+        }];
+        let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+        let analysed = agree(&x, &["ta", "stak", "sta", "tak", "sstakk"]);
+        assert_eq!(analysed, 2, "{order}");
+    }
 }
