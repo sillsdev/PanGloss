@@ -14,7 +14,6 @@ edge-cases/compound-allomorph-identity-affix-reuse
 edge-cases/cross-subrule-feeding
 edge-cases/cross-table-root-respelling
 edge-cases/do-not-use-for-parsing-flag-ignored
-edge-cases/family-blocked-generation
 edge-cases/feature-system-breadth
 edge-cases/featureless-modify-from-input
 edge-cases/featureless-segment-class-rewrite
