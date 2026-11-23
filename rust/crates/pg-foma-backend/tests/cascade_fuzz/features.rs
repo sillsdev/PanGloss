@@ -2,9 +2,7 @@
 
 use std::collections::BTreeSet;
 
-/// One independent generator switch. A grammar carries the set of switches it drew; a word
-/// counts for a switch only when plain HC's analysis or phonology actually used a rule tagged
-/// with it.
+/// One independent generator switch; a word counts for it only when HC used a rule tagged with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Feature {
     RewriteSubstitute,

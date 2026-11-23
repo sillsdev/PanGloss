@@ -1,5 +1,4 @@
-//! Seeded synthetic-grammar generator: a [`Plan`] says which switches to draw, [`generate`]
-//! renders the HermitCrab XML plus the tags that tie every rule to its switches.
+//! Seeded synthetic-grammar generator: a [`Plan`] picks the switches, [`generate`] renders the XML.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,8 +27,7 @@ pub struct Plan {
 }
 
 impl Plan {
-    /// The plan the gate uses for `seed`: one primary switch in rotation, a few random extras,
-    /// every fifth seed a refused construct, every eleventh normal seed the all-kinds alphabet.
+    /// The plan the gate uses for `seed`: a rotating primary switch, random extras, periodic refusals.
     pub fn for_seed(seed: u64) -> Plan {
         let mut rng = Rng::new(seed ^ 0x9e37_79b9);
         if seed % 5 == 4 {

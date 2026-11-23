@@ -1,5 +1,4 @@
-//! Plain HermitCrab as the reference: loading, parsing, outcome classes, applied-feature
-//! counting, word enumeration and the restricted parse.
+//! Plain HermitCrab as the reference: loading, parsing, outcome classes and applied-feature counting.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
@@ -93,8 +92,7 @@ pub fn parse(morpher: &Morpher, grammar: &Grammar, word: &str) -> Outcome {
     Outcome { status, multiset }
 }
 
-/// Features whose rules HC's accepted analyses of `word` used, plus phonological rules that
-/// produced output while HC searched a word it accepted.
+/// Features whose rules HC's accepted analyses of `word` used, plus phonology that produced output.
 pub fn applied_features(
     morpher: &Morpher,
     grammar: &Grammar,
@@ -235,8 +233,7 @@ pub fn generated_words(
             break;
         }
     }
-    // Generation needs the realizational features of the request; parse unapplies the rule on
-    // the written form, so the grammar's recorded suffix is appended to the plain words.
+    // Parse unapplies the realizational rule on the written form, so the recorded suffix is appended.
     let plain: Vec<String> = words.iter().take(60).cloned().collect();
     for w in plain {
         for t in &generated.real_suffixes {

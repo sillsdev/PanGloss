@@ -1,5 +1,4 @@
-//! Cascade fuzz gate. The candidate is plain HC against plain HC until the cascade backend
-//! exists; see `cascade_fuzz/mod.rs` for replay by seed.
+//! Cascade fuzz gate: replay by seed is `CASCADE_FUZZ_REPLAY=<seed>`, a range `CASCADE_FUZZ_START`/`CASCADE_FUZZ_SEEDS`.
 
 mod cascade_fuzz;
 
