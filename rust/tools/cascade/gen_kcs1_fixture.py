@@ -25,17 +25,17 @@ from multiprocessing import Pool
 # Every S.9 character kind in one table: a base with a precomposed marked form (e, é); a base with no precomposed
 # marked form plus a combining mark (t̃); three mark-only segments of one combining class (and so two on one base);
 # a digraph with an apostrophe (t') and the apostrophe as a segment of its own (the generator offers every unit of a
-# digraph standalone, a cascade writes it only after the digraph's first unit); a hyphen; a segment with both cases (t, T); a segment with only a capital
+# digraph standalone, a cascade writes it only after the digraph's first unit); a hyphen; r, which is keyboard-adjacent to e; a segment with both cases (t, T); a segment with only a capital
 # (Q); a base whose full folding is two characters (ß); a boundary with a written form (+).
-REPS_SEG = ["e", "é", "t", "T", "t̃", "t'", "'", "Q", "ß", "-", "́", "̀", "̂"]
+REPS_SEG = ["e", "r", "é", "t", "T", "t̃", "t'", "'", "Q", "ß", "-", "́", "̀", "̂"]
 REPS_BND = ["+"]
 M1, M2, M3 = "́", "̀", "̂"
 
 ONE = ["e", "é", "t", "T", "Q", "ß", "-", "+", "'", "t̃", "e" + M2, "e" + M3, "e" + M1 + M2, "e" + M1 + M2 + M3,
        "t" + M3, "T" + M1, "Q" + M1, "ß" + M2, M1, M1 + M2, "z", "e" + (M1 + M2 + M3) * 3, "te"[:1] + M1 + M1,
-       "'" + M1, "-" + M1 + M2]
+       "'" + M1, "-" + M1 + M2, "r", "R", "r" + M2]
 TWO = ["et", "te", "Te", "Qe", "ße", "-t", "+e", "t'", "e" + M1 + "t", "t" + M2 + M1 + "e", M1 + "e", "ez",
-       "zt", "ee", "tT", "ß-", "Q+"]
+       "zt", "ee", "tT", "ß-", "Q+", "er", "re", "Re", "rt", "tr"]
 
 def recase(word):
     us = g.units(word)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""[copy of the WS0 reference with one fix in exact_inventory, marked KCS1] Reference candidate generator for the speller error model (plan S.2, WS0).  Stdlib only; run with `python3 -I`.
+"""Reference candidate generator for the speller error model (plan S.2, WS0).  Stdlib only; run with `python3 -I`.
 
 Normative model (plan S.2)
   * every string is a canonical-equivalence class held as its NFD code points;
@@ -214,7 +214,7 @@ class Grammar:
         for u, ext in self.rep_units:
             if len(u[1]) <= k:
                 if ext: queue.append(u)
-                else: plain.add(u)      # KCS1 fix: an inner unit of a digraph must not shadow the same unit as a segment
+                else: plain.add(u)      # an inner digraph unit must not shadow the same unit written as a segment
         while queue:
             u = queue.pop()
             if u in seen: continue

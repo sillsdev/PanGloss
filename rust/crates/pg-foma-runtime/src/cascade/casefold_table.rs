@@ -3,7 +3,7 @@
 //! Every code point with `ch.casefold() != ch`: full case folding, CaseFolding.txt statuses C and F.
 //! The table must match the Unicode version of the unicode-normalization crate.
 
-pub const UNIDATA_VERSION: &str = "16.0.0";
+pub const CASEFOLD_UNICODE_VERSION: &str = "16.0.0";
 pub const GENERATOR_PYTHON: &str = "3.14.8";
 
 /// Sorted by code point.

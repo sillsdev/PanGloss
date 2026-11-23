@@ -26,7 +26,7 @@ def main():
     out.write(f"//! Python {sys.version.split()[0]}, unicodedata.unidata_version = {ud.unidata_version}.\n")
     out.write("//! Every code point with `ch.casefold() != ch`: full case folding, CaseFolding.txt statuses C and F.\n")
     out.write("//! The table must match the Unicode version of the unicode-normalization crate.\n\n")
-    out.write(f'pub const UNIDATA_VERSION: &str = "{ud.unidata_version}";\n')
+    out.write(f'pub const CASEFOLD_UNICODE_VERSION: &str = "{ud.unidata_version}";\n')
     out.write(f'pub const GENERATOR_PYTHON: &str = "{sys.version.split()[0]}";\n\n')
     out.write("/// Sorted by code point.\n")
     out.write("pub static CASEFOLD: &[(u32, &str)] = &[\n")
