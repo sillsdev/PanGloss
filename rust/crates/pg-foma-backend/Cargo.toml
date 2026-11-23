@@ -42,6 +42,14 @@ pg-grammar-gen = { workspace = true, features = ["oracle"] }
 pg-fst.workspace = true
 
 [[test]]
+name = "cascade_fuzz_gate"
+path = "tests/cascade_fuzz_gate.rs"
+
+[[test]]
+name = "cascade_w5_fuzz"
+path = "tests/cascade_w5_fuzz.rs"
+
+[[test]]
 name = "backend_strategy"
 path = "tests/harnesses/backend_strategy.rs"
 
