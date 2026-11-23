@@ -246,6 +246,11 @@ impl UnitModel {
         self.tokens.len() as u32
     }
 
+    /// The alphabet size every layer of one product uses: characters and unit tokens share it.
+    pub fn universe(&self) -> u32 {
+        self.token_count().max(self.chars.len() as u32)
+    }
+
     pub fn unit_tok(&self, t: Token) -> UnitTok {
         self.tokens[t as usize]
     }
@@ -336,7 +341,7 @@ pub fn build_units_layer(
     model: &UnitModel,
     meter: &mut BuildMeter,
 ) -> Result<NfaLayer, BuildRefused> {
-    let mut b = NfaBuilder::new("Units", model.chars.len() as u32, meter);
+    let mut b = NfaBuilder::new("Units", model.universe(), meter);
     let start = b.add_state(true)?;
     let mid = b.add_state(true)?;
     b.set_start(start);

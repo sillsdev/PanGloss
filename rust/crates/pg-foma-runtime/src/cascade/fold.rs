@@ -41,10 +41,14 @@ pub fn build_fold_layer(
     meter: &mut BuildMeter,
 ) -> Result<NfaLayer, BuildRefused> {
     let n = model.token_count();
-    let mut b = NfaBuilder::new("Fold", n, meter);
+    let u = model.universe();
+    let mut b = NfaBuilder::new("Fold", u, meter);
     let s = b.add_state(true)?;
-    let all = b.add_set(TokenSet::full(n))?;
-    let image: Vec<u32> = (0..n).map(|t| model.fold_token(t)).collect();
+    let units: Vec<u32> = (0..n).collect();
+    let all = b.add_set(TokenSet::from_tokens(u, &units))?;
+    let image: Vec<u32> = (0..u)
+        .map(|t| if t < n { model.fold_token(t) } else { t })
+        .collect();
     let img = b.add_image(image)?;
     b.add_arc(s, Input::Class(all), Output::Image(img), s, &[], 0, 0)?;
     Ok(b.finish())

@@ -14,7 +14,7 @@ const M3: char = '\u{302}';
 
 /// Any concatenation of representations; each arc carries its character token as a tag.
 fn rep_layer(model: &UnitModel, reps: &[String], meter: &mut BuildMeter) -> NfaLayer {
-    let mut b = NfaBuilder::new("Rep", model.chars().len() as u32, meter);
+    let mut b = NfaBuilder::new("Rep", model.universe(), meter);
     let hub = b.add_state(true).unwrap();
     b.set_start(hub);
     for r in reps {
@@ -78,11 +78,21 @@ impl Harness {
     }
 
     fn graph(&self, max_edits: u8, cuts: &[usize], tiny_prepass: bool) -> (TrimmedGraph, Report) {
+        self.graph_with(max_edits, cuts, tiny_prepass, WordBudget::UNLIMITED)
+    }
+
+    fn graph_with(
+        &self,
+        max_edits: u8,
+        cuts: &[usize],
+        tiny_prepass: bool,
+        budget: WordBudget,
+    ) -> (TrimmedGraph, Report) {
         let layers: [&dyn Layer; 5] = [&self.rep, &self.units, &self.fold, &self.err1, &self.err2];
-        let product = Product::new(&layers);
+        let product = Product::new(&layers).unwrap();
         let mut scratch = ProductScratch::new(5);
         let mut req = Request::new(self.model.typed_tokens(), max_edits);
-        req.budget = WordBudget::UNLIMITED;
+        req.budget = budget;
         req.prepass = PrepassPlan {
             cuts: cuts.to_vec(),
             budget: if tiny_prepass {
@@ -669,6 +679,23 @@ fn prepass_cuts_give_the_same_strings() {
     assert_eq!(rep.prepass, PrepassUsed::None);
     assert!(rep.prepass_attempts_overrun >= 1);
     assert_eq!(h.read_strings(&g, 2), base);
+}
+
+#[test]
+fn prepass_is_not_charged_to_the_word_budget_c151() {
+    // Three same-class mark-only segments on one base; the word budget is exactly what the main pass alone needs.
+    let reps = ["e", "\u{301}", "\u{300}", "\u{302}"];
+    let h = Harness::new(&reps, "e\u{301}\u{300}\u{302}");
+    let (_, plain) = h.graph(1, &[], false);
+    let budget = WordBudget {
+        states: plain.states,
+        arcs: plain.arcs,
+        steps: plain.steps,
+        bytes: plain.bytes,
+    };
+    let (_, with) = h.graph_with(1, &[1], false, budget);
+    assert_ne!(with.prepass, PrepassUsed::None);
+    assert!(with.prepass_bytes > 0 && with.prepass_states > 0);
 }
 
 // ---------------------------------------------------------------- KC-S1

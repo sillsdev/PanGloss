@@ -170,11 +170,12 @@ pub fn build_err_layer(
     typed.sort();
     typed.dedup();
     let empty = model.empty_base();
-    let mut b = NfaBuilder::new(name, n, meter);
+    let u = model.universe();
+    let mut b = NfaBuilder::new(name, u, meter);
     let clean = b.add_state(true)?;
     let used = b.add_state(true)?;
     b.set_start(clean);
-    let all = b.add_set(TokenSet::from_tokens(n, &folded))?;
+    let all = b.add_set(TokenSet::from_tokens(u, &folded))?;
     b.add_arc(clean, Input::Class(all), Output::Same, clean, &[], 0, 0)?;
     b.add_arc(used, Input::Class(all), Output::Same, used, &[], 0, 0)?;
 
@@ -202,7 +203,7 @@ pub fn build_err_layer(
             if set.is_empty() {
                 continue;
             }
-            let s = b.add_set(TokenSet::from_tokens(n, &set))?;
+            let s = b.add_set(TokenSet::from_tokens(u, &set))?;
             b.add_arc(clean, Input::Class(s), Output::Tok(v), used, &[], weight, 1)?;
         }
         // A typed unit missing from the candidate.
@@ -217,7 +218,7 @@ pub fn build_err_layer(
         if set.is_empty() {
             continue;
         }
-        let s = b.add_set(TokenSet::from_tokens(n, &set))?;
+        let s = b.add_set(TokenSet::from_tokens(u, &set))?;
         b.add_arc(clean, Input::Class(s), Output::Eps, used, &[], weight, 1)?;
     }
     // Swap of two adjacent unequal units.
@@ -227,7 +228,7 @@ pub fn build_err_layer(
         b.add_arc(clean, Input::Tok(u1), Output::Eps, p, &[], w.trans, 1)?;
         let rest: Vec<Token> = folded.iter().copied().filter(|&x| x != u1).collect();
         if !rest.is_empty() {
-            let s = b.add_set(TokenSet::from_tokens(n, &rest))?;
+            let s = b.add_set(TokenSet::from_tokens(u, &rest))?;
             b.add_arc(p, Input::Class(s), Output::Same, q, &[], 0, 0)?;
         }
         b.add_arc(q, Input::Eps, Output::Tok(u1), used, &[], 0, 0)?;
