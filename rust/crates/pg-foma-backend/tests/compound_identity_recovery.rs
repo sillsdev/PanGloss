@@ -451,7 +451,7 @@ fn grammar_with_reduplication() -> Grammar {
     let id = MRuleId(g.mrules.len() as u32);
     g.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
-            morpheme: MorphemeId(0),
+            morpheme: MorphemeId(g.morphemes.len() as u32),
             name: Some("doubling".to_string()),
             blockable: false,
             partial_reason: None,
@@ -481,7 +481,21 @@ fn grammar_with_reduplication() -> Grammar {
                 properties: vec![],
             }],
         }));
-    g.strata[0].mrules.push(id);
+    // The doubling sits in a stratum after every other affix, since the proposer refuses a reduplication before a later affix.
+    let first = &g.strata[0];
+    let last = pg_grammar::model::StratumDef {
+        name: None,
+        table: first.table,
+        mrule_order: first.mrule_order,
+        prules: first.prules.clone(),
+        mrules: vec![id],
+        templates: vec![],
+        entries: vec![],
+    };
+    let mut owner = g.morphemes[0].clone();
+    owner.stratum = pg_grammar::model::StratumId(g.strata.len() as u8);
+    g.morphemes.push(owner);
+    g.strata.push(last);
     g
 }
 
