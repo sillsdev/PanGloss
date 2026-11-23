@@ -699,6 +699,9 @@ fn refuses_partial_rule_gap(grammar: &pg_grammar::model::Grammar) -> bool {
 // Probes a narrowing rewrite `o t -> t` and a reduplication in a stratum before the partial rule.
 const NARROWING_PROBE: &str = include_str!("fixtures/partial-rule-gap-probes/p2-narrowing.xml");
 const EARLY_REDUP_PROBE: &str = include_str!("fixtures/partial-rule-gap-probes/p1-early-redup.xml");
+// A partial rule that only a template slot names.
+const SLOT_PARTIAL_PROBE: &str =
+    include_str!("fixtures/partial-rule-gap-probes/p3-slot-partial.xml");
 
 #[test]
 fn a_partial_rule_with_a_deletion_or_reduplication_is_refused() {
@@ -735,6 +738,10 @@ fn a_partial_rule_with_a_deletion_or_reduplication_is_refused() {
             "p1-early-redup",
             pg_grammar::load(EARLY_REDUP_PROBE).expect("probe loads"),
         ),
+        (
+            "p3-slot-partial",
+            pg_grammar::load(SLOT_PARTIAL_PROBE).expect("probe loads"),
+        ),
     ];
     for (name, grammar) in &mut cases {
         assert!(refuses_partial_rule_gap(grammar), "{name}");
@@ -768,7 +775,11 @@ const REDUP_LOPLOPKOR: &str = include_str!("fixtures/partial-rule-gap-probes/r2-
 
 #[test]
 fn a_deletion_across_a_junction_is_refused() {
-    for (name, xml) in [("lipt", JUNCTION_LIPT), ("ktip", JUNCTION_KTIP)] {
+    for (name, xml) in [
+        ("lipt", JUNCTION_LIPT),
+        ("ktip", JUNCTION_KTIP),
+        ("slot-partial", SLOT_PARTIAL_PROBE),
+    ] {
         let grammar = pg_grammar::load(xml).expect("probe loads");
         assert!(
             refuses_gap(&grammar, ProposalRecallGap::JunctionDeletion),

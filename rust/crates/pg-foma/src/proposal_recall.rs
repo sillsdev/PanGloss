@@ -229,10 +229,15 @@ pub(crate) fn refusals_with_spelling(
 
 /// Stopgap: a partial affix rule plus a peelable reduplication or a deleting rewrite; TODO replace with fixes for the junction-deletion and reduplication-before-later-affix holes, tracked in #415 (deletion across a morph junction) and #416 (whole-stem reduplication before a template-slot or later-stratum affix).
 fn partial_rule_deletion_or_reduplication(g: &Grammar) -> bool {
+    let is_partial = |mid: &pg_grammar::model::MRuleId| matches!(&g.mrules[mid.0 as usize], MorphRuleDef::AffixProcess(rule) if rule.is_partial());
     let Some(first_partial) = g.strata.iter().position(|stratum| {
-        stratum.mrules.iter().any(|&mid| {
-            matches!(&g.mrules[mid.0 as usize], MorphRuleDef::AffixProcess(rule) if rule.is_partial())
-        })
+        stratum.mrules.iter().any(is_partial)
+            || stratum
+                .templates
+                .iter()
+                .flat_map(|id| &g.templates[id.0 as usize].slots)
+                .flat_map(|slot| &slot.rules)
+                .any(is_partial)
     }) else {
         return false;
     };
