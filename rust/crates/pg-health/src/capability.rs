@@ -18,6 +18,7 @@ pub enum ProposalRecallGap {
     PhonologicalReduplication,
     AmbiguousSegmentSpelling,
     TruncationComposition,
+    PartialRuleDeletionOrReduplication,
     NarrowingClassOutput,
     SymbolicEpenthesis,
     RecursiveCompoundDepth,

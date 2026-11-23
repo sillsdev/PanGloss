@@ -30,7 +30,6 @@ fn metathesis_that_can_straddle_a_morph_boundary_is_refused_by_cause() {
         "metathesis-boundary-morph-order-prefix-root",
         "metathesis-boundary-morph-order-compound",
         "metathesis-boundary-between-switches-prefix",
-        "metathesis-boundary-between-switches-root",
         "metathesis-boundary-between-switches-compound",
         "metathesis-boundary-between-switches-marker",
         "metathesis-boundary-right-to-left-prefix",
@@ -43,6 +42,14 @@ fn metathesis_that_can_straddle_a_morph_boundary_is_refused_by_cause() {
         "metathesis-boundary-two-suffixes",
         // A segment class matches the union of its members' features, so root a is a switch too.
         "metathesis-segment-class-union",
+    ] {
+        assert!(
+            refused_as_metathesis_across_morphs(&format!("machine:edge-cases/{name}")),
+            "{name}"
+        );
+    }
+    for name in [
+        "metathesis-boundary-between-switches-root",
         // A rule whose `leftSwitch` names the earlier node, which FieldWorks never writes.
         "metathesis-reversed-switch-order",
     ] {
@@ -95,7 +102,7 @@ fn a_cross_morph_swap_that_keeps_the_morph_order_is_refused() {
 #[test]
 fn a_morph_with_no_segment_next_to_a_cross_morph_swap_is_refused() {
     assert!(refused_as_metathesis_across_morphs(
-        "staging:edge-cases/metathesis-boundary-null-prefix"
+        "machine:edge-cases/metathesis-boundary-null-prefix"
     ));
 }
 

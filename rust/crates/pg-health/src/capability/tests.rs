@@ -18,6 +18,10 @@ fn proposal_recall_cause_wire_names_are_stable() {
             "truncation_composition",
         ),
         (
+            ProposalRecallGap::PartialRuleDeletionOrReduplication,
+            "partial_rule_deletion_or_reduplication",
+        ),
+        (
             ProposalRecallGap::NarrowingClassOutput,
             "narrowing_class_output",
         ),

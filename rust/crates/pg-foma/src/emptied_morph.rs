@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use pg_grammar::chardef::{CharDefKind, CharDefTable};
 use pg_grammar::model::{
-    Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, PatternNode, PhonRuleDef,
+    Grammar, MRuleId, MorphRuleDef, OutputAction, PartRef, PatternNode, PhonRuleDef, RewriteRuleDef,
 };
 use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
 
@@ -174,6 +174,12 @@ fn can_hold_skippable_node(g: &Grammar, last: usize) -> bool {
     roots || literals || rewrites
 }
 
+/// Whether some subrule of a rewrite writes fewer nodes than it matches, which is what this crate calls a deleting rewrite (an empty output, or a narrowing such as `o t -> t`).
+pub(crate) fn rewrite_deletes(rule: &RewriteRuleDef) -> bool {
+    let lhs = rule.lhs.nodes.len();
+    rule.subrules.iter().any(|sub| sub.rhs.nodes.len() < lhs)
+}
+
 /// What stratum `k` and the strata after it can delete, given `later` for the strata after it. Walking stratum `k`'s rewrites last to first, a rewrite that deletes adds what it matches; a rewrite that can change a segment while some later rule deletes adds what it matches too, since the segment it changes may become one a later rule deletes; a morphological rule that modifies copied segments while any deletion follows makes every segment deletable. A node this test cannot read, or a grammar with more than one character table, deletes any segment.
 fn absorb_stratum(g: &Grammar, k: usize, later: Deletable) -> Deletable {
     let stratum = &g.strata[k];
@@ -184,7 +190,7 @@ fn absorb_stratum(g: &Grammar, k: usize, later: Deletable) -> Deletable {
             continue;
         };
         let lhs = rule.lhs.nodes.len();
-        let deletes = rule.subrules.iter().any(|sub| sub.rhs.nodes.len() < lhs);
+        let deletes = rewrite_deletes(rule);
         let changes = lhs > 0 && rule.subrules.iter().any(|sub| !sub.rhs.nodes.is_empty());
         if !deletes && !(changes && !matches!(out, Deletable::Nothing)) {
             continue;

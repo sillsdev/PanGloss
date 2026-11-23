@@ -75,16 +75,3 @@ languages/fusional-realizational-morphology
 languages/prefixal-discontinuous-slot-dependency
 languages/suffixing-evidential-adjacency-chain-require-rules
 languages/suffixing-extension-slot-ordering-single-stem-name
-edge-cases/null-prefix-root-initial-deletion-later-suffix
-edge-cases/epenthesis-beside-prefix-then-prefix-deletion
-edge-cases/change-epenthesis-prefix-deletion-chain
-edge-cases/prefix-required-environment-after-epenthesis
-edge-cases/prefix-excluded-environment-after-epenthesis
-edge-cases/root-required-environment-after-epenthesis-before-suffix
-edge-cases/epenthesis-then-swap-keeps-its-edge-before-suffix
-edge-cases/epenthesis-then-swap-with-root-keeps-its-edge
-edge-cases/prefix-required-environment-after-epenthesis-later-suffix
-edge-cases/swap-leaves-a-deleted-node-in-place-before-suffix
-edge-cases/prefix-required-environment-after-epenthesis-later-compound
-edge-cases/swap-across-a-deleted-node-keeps-the-gap-before-suffix
-edge-cases/compound-after-an-insertion-keeps-the-bare-node
