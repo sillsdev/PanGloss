@@ -8,8 +8,10 @@
 
 pub mod build;
 pub mod lex;
+pub mod recipe;
 pub mod refusal;
 pub mod repr;
+pub mod schedule;
 pub mod spell;
 pub mod zone;
 
