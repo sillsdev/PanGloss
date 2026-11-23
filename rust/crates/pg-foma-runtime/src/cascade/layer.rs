@@ -381,7 +381,12 @@ impl Layer for NfaLayer {
                     }
                 }
                 // The output does not depend on the token read: one arc stands for the whole class.
-                Output::Eps | Output::Tok(_) => self.emit(a, 0, f),
+                Output::Eps | Output::Tok(_) => {
+                    // an empty class reads nothing: no arc
+                    if set.iter().next().is_some() {
+                        self.emit(a, 0, f)
+                    }
+                }
             }
         }
         steps

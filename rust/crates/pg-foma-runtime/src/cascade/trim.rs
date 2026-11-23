@@ -5,6 +5,10 @@
 //! tag-set id into `tag_sets`, and a self-loop (`src == dst`) is an arc like any other, so a tagged
 //! epsilon loop survives as a tagged self-loop. For speller requests the arc key later also holds
 //! the written character, folded unit and case mark (S.6): add them to [`GraphArc`] at W5.
+//!
+//! With a weight ceiling `theta` the graph is NOT exactly the `<= theta` subgraph: each arc passes
+//! the creation test on its own (`g_min(src) + w + h <= theta`), so with a weak or absent `h` an
+//! arc can lie only on accepting paths above `theta`. The read-out must filter by path weight.
 
 use super::layer::Tag;
 

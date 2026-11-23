@@ -381,9 +381,7 @@ fn product_arcs(g: &TrimmedGraph) -> (BTreeSet<Key>, ArcMap) {
 
 // ---------------------------------------------------------------- generator
 
-const UNIVERSE: u32 = 3;
-
-fn gen_layer(rng: &mut Rng, top: bool, commit: bool) -> RLayer {
+fn gen_layer(rng: &mut Rng, top: bool, commit: bool, uni: u32) -> RLayer {
     let n = 1 + rng.below(3) as u32;
     let finals: Vec<bool> = (0..n).map(|_| rng.chance(60)).collect();
     let mut arcs = Vec::new();
@@ -403,14 +401,15 @@ fn gen_layer(rng: &mut Rng, top: bool, commit: bool) -> RLayer {
             0 => (1000, 0),
             1 => (500, 1),
             2 => (0, 1),
+            3 => (700, 2),
             _ => (0, 0),
         };
         let kind = rng.below(if top { 2 } else { 8 });
-        let tok = |r: &mut Rng| r.below(UNIVERSE as u64) as u32;
+        let tok = |r: &mut Rng| r.below(uni as u64) as u32;
         let class = |r: &mut Rng| -> Vec<u32> {
-            let mut m: Vec<u32> = (0..UNIVERSE).filter(|_| r.chance(60)).collect();
+            let mut m: Vec<u32> = (0..uni).filter(|_| r.chance(60)).collect();
             if m.is_empty() {
-                m.push(r.below(UNIVERSE as u64) as u32);
+                m.push(r.below(uni as u64) as u32);
             }
             m
         };
@@ -422,7 +421,7 @@ fn gen_layer(rng: &mut Rng, top: bool, commit: bool) -> RLayer {
             4 => (RIn::Tok(tok(rng)), ROut::Eps),
             5 => (RIn::Class(class(rng)), ROut::Same),
             6 => {
-                let img: Vec<u32> = (0..UNIVERSE).map(|_| tok(rng)).collect();
+                let img: Vec<u32> = (0..uni).map(|_| tok(rng)).collect();
                 (RIn::Class(class(rng)), ROut::Image(img))
             }
             _ => (
@@ -459,15 +458,15 @@ fn gen_layer(rng: &mut Rng, top: bool, commit: bool) -> RLayer {
     RLayer { n, finals, arcs }
 }
 
-fn gen_instance(rng: &mut Rng) -> Vec<RLayer> {
+fn gen_instance(rng: &mut Rng, uni: u32) -> Vec<RLayer> {
     let l = 2 + rng.below(4) as usize;
     let commit = rng.chance(25);
     (0..l)
-        .map(|k| gen_layer(rng, k == 0, commit && k > 0))
+        .map(|k| gen_layer(rng, k == 0, commit && k > 0, uni))
         .collect()
 }
 
-fn gen_word(rng: &mut Rng, m: &Machine) -> Vec<u32> {
+fn gen_word(rng: &mut Rng, m: &Machine, uni: u32) -> Vec<u32> {
     let mut by_from: Vec<Vec<Rel>> = vec![Vec::new(); m.n as usize];
     for a in &m.arcs {
         by_from[a.from as usize].push(*a);
@@ -495,11 +494,11 @@ fn gen_word(rng: &mut Rng, m: &Machine) -> Vec<u32> {
         match rng.below(3) {
             0 if !word.is_empty() => {
                 let p = rng.below(word.len() as u64) as usize;
-                word[p] = rng.below(UNIVERSE as u64) as u32;
+                word[p] = rng.below(uni as u64) as u32;
             }
             1 => word.insert(
                 rng.below(word.len() as u64 + 1) as usize,
-                rng.below(UNIVERSE as u64) as u32,
+                rng.below(uni as u64) as u32,
             ),
             _ if !word.is_empty() => {
                 word.remove(rng.below(word.len() as u64) as usize);
@@ -605,6 +604,7 @@ struct Stats {
     accepted: u32,
     prepass: u32,
     fallback: u32,
+    lazy: u32,
 }
 
 #[test]
@@ -612,14 +612,32 @@ fn random_composition_equals_oracle() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     let mut stats = Stats::default();
     while stats.instances < 10_000 {
-        let layers = gen_instance(&mut rng);
+        // alphabet 3 to 5; one layer in three instances is lazy (the speller's real shape has a
+        // lazy copy layer in the prefix over an eager suffix)
+        let uni = 3 + rng.below(3) as u32;
+        let layers = gen_instance(&mut rng, uni);
         let m = oracle_machine(&layers);
-        let built: Vec<NfaLayer> = layers.iter().map(|l| l.build(UNIVERSE)).collect();
-        let refs: Vec<&dyn Layer> = built.iter().map(|l| l as &dyn Layer).collect();
+        let built: Vec<NfaLayer> = layers.iter().map(|l| l.build(uni)).collect();
+        let lazies: Vec<Lazy> = built.iter().map(Lazy).collect();
+        let lazy_at = if rng.chance(33) {
+            stats.lazy += 1;
+            Some(rng.below(layers.len() as u64) as usize)
+        } else {
+            None
+        };
+        let refs: Vec<&dyn Layer> = (0..layers.len())
+            .map(|k| {
+                if lazy_at == Some(k) {
+                    &lazies[k] as &dyn Layer
+                } else {
+                    &built[k] as &dyn Layer
+                }
+            })
+            .collect();
         // one scratch for several words, in random order (C77)
         let mut scratch = ProductScratch::new(layers.len());
         for _ in 0..3 {
-            let word = gen_word(&mut rng, &m);
+            let word = gen_word(&mut rng, &m, uni);
             compare(
                 &layers,
                 &m,
@@ -635,8 +653,9 @@ fn random_composition_equals_oracle() {
     }
     eprintln!("W3 random: {stats:?}");
     assert!(stats.accepted > 3000, "too few non-empty cases: {stats:?}");
+    assert!(stats.lazy > 2500, "lazy layers not exercised: {stats:?}");
     assert!(
-        stats.prepass > 3000 && stats.fallback > 300,
+        stats.prepass > 2500 && stats.fallback > 300,
         "pre-pass not exercised: {stats:?}"
     );
 }
@@ -1175,7 +1194,14 @@ impl Layer for Lazy<'_> {
     fn is_eager(&self) -> bool {
         false
     }
+    fn has_edits(&self) -> bool {
+        self.0.has_edits()
+    }
     fn start(&self, s: &mut LayerScratch) -> StateId {
+        // ids equal the underlying ids, so keys compare with the oracle's
+        for k in 0..self.0.state_count() as u32 {
+            s.intern(&[k]);
+        }
         let u = self.0.start(s);
         s.intern(&[u])
     }
@@ -1260,4 +1286,69 @@ fn best_first_finds_least_weight_and_theta_cuts() {
     };
     assert_eq!(graph.arcs.len(), 1, "the edit arc is not created at E = 0");
     let _ = HashMap::<u8, u8>::new();
+}
+
+/// The effective-cut rule: a layer above the requested cut carries an edit, so the pre-pass table
+/// (keyed by the edits used in the suffix) would disagree with the word's count. The cut must be
+/// pulled up to that layer; without it the only path is cut and the word is wrongly rejected.
+#[test]
+fn cut_is_pulled_up_to_the_first_edit_layer() {
+    let mut edit = arc(0, RIn::Tok(0), ROut::Tok(1), 1, &[]);
+    edit.w = 1000;
+    edit.e = 1;
+    let f = Fixture::new(
+        vec![
+            simple(2, &[1], vec![arc(0, RIn::Eps, ROut::Tok(0), 1, &[])]),
+            simple(2, &[1], vec![edit]),
+            simple(2, &[1], vec![arc(0, RIn::Tok(1), ROut::Tok(2), 1, &[])]),
+        ],
+        3,
+    );
+    let out = f.run(&[2], |r| {
+        r.max_edits = 1;
+        r.prepass = PrepassPlan {
+            cuts: vec![2],
+            budget: PrepassBudget::default(),
+        };
+    });
+    let Outcome::Complete { graph, report } = out else {
+        panic!("{out:?}")
+    };
+    assert!(graph.start.is_some(), "the word is accepted with one edit");
+    assert_eq!(report.prepass, PrepassUsed::Suffix(1));
+    assert!(report
+        .prepass_notes
+        .contains(&PrepassNote::PulledUpToFirstEdit {
+            requested: 2,
+            cut: 1
+        }));
+}
+
+/// The report says why the pre-pass ladder collapsed: lazy layer in the suffix, empty suffix, duplicates.
+#[test]
+fn report_says_why_no_prepass() {
+    let f = wide();
+    let lazy = Lazy(&f.built[1]);
+    let refs: Vec<&dyn Layer> = vec![&f.built[0], &lazy, &f.built[2]];
+    let p = Product::new(&refs);
+    let mut req = Request::new(&[0, 1], 0);
+    req.prepass.cuts = vec![0, 1, 3, 2, 2];
+    let Outcome::Complete { report, .. } = p.run(&mut ProductScratch::new(3), &req) else {
+        panic!()
+    };
+    assert_eq!(report.prepass, PrepassUsed::Suffix(2));
+    assert_eq!(
+        report.prepass_notes,
+        vec![
+            PrepassNote::LazyLayerInSuffix {
+                requested: 0,
+                cut: 0
+            },
+            PrepassNote::LazyLayerInSuffix {
+                requested: 1,
+                cut: 1
+            },
+            PrepassNote::EmptySuffix { requested: 3 },
+        ]
+    );
 }
