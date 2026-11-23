@@ -32,6 +32,8 @@ pub struct TrimmedGraph {
     /// Number of layers `L`; each state key has `KEY_PREFIX + L` words.
     pub layers: usize,
     pub word_len: usize,
+    /// The weight ceiling the product ran under; the read-out filters by it.
+    pub theta: Option<u32>,
     /// `None` when the start is not on an accepting path (the word is proven out of the language).
     pub start: Option<u32>,
     pub keys: Vec<u32>,
@@ -60,6 +62,7 @@ impl TrimmedGraph {
 pub struct RawGraph {
     pub layers: usize,
     pub word_len: usize,
+    pub theta: Option<u32>,
     pub keys: Vec<u32>,
     pub accepting: Vec<bool>,
     pub arcs: Vec<GraphArc>,
@@ -107,6 +110,7 @@ pub fn trim(raw: RawGraph) -> TrimmedGraph {
     let mut out = TrimmedGraph {
         layers: raw.layers,
         word_len: raw.word_len,
+        theta: raw.theta,
         start: None,
         keys: Vec::new(),
         accepting: Vec::new(),

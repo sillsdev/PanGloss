@@ -42,6 +42,10 @@ pub const fn tagset_bytes(len: usize) -> u64 {
     TAGSET_FIXED_BYTES + 4 * len as u64
 }
 
+/// Ids are `u32` and `u32::MAX` is a sentinel, so no table may hold more entries than this, whatever
+/// the limits say (`WordBudget::UNLIMITED` included).
+pub const ID_LIMIT: u64 = u32::MAX as u64 - 1;
+
 const MIB: u64 = 1 << 20;
 
 /// Per-word limits of the main pass (S.8 table, one column per edit limit).
@@ -163,7 +167,7 @@ impl WordMeter {
     /// One new state of `bytes` bytes: the states limit first, then the bytes limit; nothing is
     /// added unless both pass.
     pub fn charge_state(&mut self, bytes: u64) -> Result<(), CascadeStop> {
-        if over(self.states, 1, self.limits.states) {
+        if over(self.states, 1, self.limits.states.min(ID_LIMIT)) {
             return Err(CascadeStop::ProductStates);
         }
         if over(self.bytes, bytes, self.limits.bytes) {
@@ -176,7 +180,7 @@ impl WordMeter {
 
     /// One new product arc (a merge into an existing arc is not an arc and is not charged here).
     pub fn charge_arc(&mut self) -> Result<(), CascadeStop> {
-        if over(self.arcs, 1, self.limits.arcs) {
+        if over(self.arcs, 1, self.limits.arcs.min(ID_LIMIT)) {
             return Err(CascadeStop::ProductArcs);
         }
         if over(self.bytes, ARC_BYTES, self.limits.bytes) {

@@ -4,6 +4,9 @@
 //! Decisions that are easy to break and are pinned by the tests:
 //! - **No epsilon-filter.** Every interleaving is explored; states are interned on the key and
 //!   product arcs are stored per `(src, dst, weight, edits)` with the UNION of their tag sets.
+//! - **The top layer's input tape is free**: its token and class arcs are moves too (the main pass
+//!   takes `arcs_free` at layer 0, as the pre-pass does at its cut), so a top layer with input
+//!   arcs never silently loses a word.
 //! - **Every layer's epsilon-input arcs are moves at every state**, not only when a lower layer
 //!   asks for a token (mutation C63).
 //! - **The pre-pass has its own budgets and never makes a word `Incomplete`**: an overrun frees it,
@@ -23,7 +26,8 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 
 use super::budget::{
-    state_bytes, tagset_bytes, CascadeStop, PrepassBudget, WordBudget, WordMeter, QUEUE_ENTRY_BYTES,
+    state_bytes, tagset_bytes, CascadeStop, PrepassBudget, WordBudget, WordMeter, ID_LIMIT,
+    QUEUE_ENTRY_BYTES,
 };
 use super::layer::{Arc, Layer, LayerScratch, StateId, Tag, Token};
 use super::trim::{distance_to_accept, trim, GraphArc, RawGraph, TrimmedGraph, KEY_PREFIX};
@@ -303,6 +307,9 @@ impl Tables {
         if let Some(&id) = self.tag_index.get(tags) {
             return Ok(id);
         }
+        if self.tag_sets.len() as u64 >= ID_LIMIT {
+            return Err(CascadeStop::ProductBytes);
+        }
         meter.charge_bytes(tagset_bytes(tags.len()))?;
         let id = self.tag_sets.len() as u32;
         self.tag_sets.push(tags.into());
@@ -311,10 +318,31 @@ impl Tables {
     }
 }
 
+/// Why a set of layers is not a product.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProductError {
+    NoLayers,
+    /// A layer's alphabet differs from layer 0's, so a token written above would silently match nothing.
+    UniverseMismatch {
+        layer: usize,
+        expected: u32,
+        found: u32,
+    },
+}
+
 impl<'a> Product<'a> {
-    pub fn new(layers: &'a [&'a dyn Layer]) -> Self {
-        assert!(!layers.is_empty());
-        Product { layers }
+    pub fn new(layers: &'a [&'a dyn Layer]) -> Result<Self, ProductError> {
+        let first = layers.first().ok_or(ProductError::NoLayers)?.universe();
+        for (layer, l) in layers.iter().enumerate() {
+            if l.universe() != first {
+                return Err(ProductError::UniverseMismatch {
+                    layer,
+                    expected: first,
+                    found: l.universe(),
+                });
+            }
+        }
+        Ok(Product { layers })
     }
 
     pub fn layer_count(&self) -> usize {
@@ -558,6 +586,7 @@ impl<'a> Product<'a> {
                 graph: TrimmedGraph {
                     layers: l,
                     word_len: n,
+                    theta: req.theta,
                     ..TrimmedGraph::default()
                 },
                 report,
@@ -690,7 +719,7 @@ impl<'a> Product<'a> {
                     left: &left,
                     emit: &mut emit,
                 };
-                walk.all_moves(0, false, cur[0] as usize)
+                walk.all_moves(0, true, cur[0] as usize)
             };
             if let Err(stop) = result {
                 finish_incomplete!(stop)
@@ -705,6 +734,7 @@ impl<'a> Product<'a> {
         let graph = trim(RawGraph {
             layers: l,
             word_len: n,
+            theta: req.theta,
             keys: t.keys,
             accepting: t.accepting,
             arcs: t.arcs,
