@@ -1664,3 +1664,25 @@ fn refused_intern_ends_the_word_at_every_byte_limit() {
     assert_eq!(at_intern, full);
     assert!(matches!(run(full), Outcome::Complete { .. }));
 }
+
+/// The trim's allocations are charged to the product bytes before it runs.
+#[test]
+fn trim_allocations_are_charged_to_product_bytes() {
+    let f = wide();
+    let word = [0, 1, 0, 1, 1];
+    let (_, rep) = f.graph(&word);
+    let trim_cost = trim::trim_bytes(rep.states as usize, rep.arcs as usize, trim::KEY_PREFIX + 3);
+    assert!(rep.bytes > trim_cost);
+    let run = |bytes: u64| f.run(&word, |r| r.budget.bytes = bytes);
+    match run(rep.bytes - 1) {
+        Outcome::Incomplete { stop, report } => {
+            assert_eq!(stop, CascadeStop::ProductBytes);
+            assert!(
+                report.bytes <= rep.bytes - trim_cost,
+                "stopped before the trim charge"
+            );
+        }
+        o => panic!("{o:?}"),
+    }
+    assert!(matches!(run(rep.bytes), Outcome::Complete { .. }));
+}

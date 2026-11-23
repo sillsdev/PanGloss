@@ -30,7 +30,9 @@ use super::budget::{
     QUEUE_ENTRY_BYTES,
 };
 use super::layer::{Arc, Layer, LayerScratch, StateId, Tag, Token};
-use super::trim::{distance_to_accept, trim, GraphArc, RawGraph, TrimmedGraph, KEY_PREFIX};
+use super::trim::{
+    distance_to_accept, trim, trim_bytes, GraphArc, RawGraph, TrimmedGraph, KEY_PREFIX,
+};
 
 const INF: u32 = u32::MAX;
 
@@ -726,6 +728,12 @@ impl<'a> Product<'a> {
             }
         }
 
+        // the trim's adjacency, flags and copy of the graph, charged before they are built
+        if let Err(s) =
+            meter.charge_bytes(trim_bytes(tables.accepting.len(), tables.arcs.len(), width))
+        {
+            finish_incomplete!(s)
+        }
         report.states = meter.states;
         report.arcs = meter.arcs;
         report.steps = meter.steps;
