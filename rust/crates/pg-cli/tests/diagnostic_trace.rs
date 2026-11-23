@@ -353,6 +353,42 @@ fn an_earlier_eligible_allomorph_blocking_the_used_one_is_a_typed_stop() {
     }
 }
 
+/// The grammar's allomorph numbering: every subrule then every lexical allomorph, in document order, as the loader numbers them.
+fn allomorph_index(grammar: &str, id: &str) -> String {
+    let ids = |tag: &str| -> Vec<String> {
+        let open = format!("<{tag} id=\"");
+        grammar
+            .split(open.as_str())
+            .skip(1)
+            .map(|rest| rest.split('"').next().unwrap().to_owned())
+            .collect()
+    };
+    let numbered: Vec<_> = ids("MorphologicalSubrule")
+        .into_iter()
+        .chain(ids("Allomorph"))
+        .collect();
+    let at = numbered.iter().position(|candidate| candidate == id);
+    format!(
+        "allomorph:{}",
+        at.unwrap_or_else(|| panic!("no allomorph {id}"))
+    )
+}
+
+#[test]
+fn the_blocked_stop_names_the_later_allomorph_as_blocked_and_the_earlier_as_blocker() {
+    for (word, blocked, blocker) in [("wakta", "aWak", "aWok"), ("pitdeta", "msubE1", "msubE0")] {
+        let (got_blocked, got_blocker) = blocked_pair(&parse(ALLOMORPH_BLOCKED, word, &[]));
+        assert!(
+            got_blocked.ends_with(&allomorph_index(ALLOMORPH_BLOCKED, blocked)),
+            "{word}: blocked {got_blocked} is not {blocked}"
+        );
+        assert!(
+            got_blocker.ends_with(&allomorph_index(ALLOMORPH_BLOCKED, blocker)),
+            "{word}: blocker {got_blocker} is not {blocker}"
+        );
+    }
+}
+
 #[test]
 fn an_unblocked_allomorph_records_no_blocked_stop() {
     for word in ["wak", "wokta", "pitde"] {
