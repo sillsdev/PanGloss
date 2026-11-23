@@ -11,11 +11,12 @@ pub mod trim;
 
 pub use budget::{BuildMeter, BuildRefused, BuildStop, CascadeStop, PrepassBudget, WordBudget};
 pub use layer::{
-    identity_layer, prepare_layer, Arc, Input, Layer, LayerScratch, NfaBuilder, NfaLayer, Output,
-    StateId, Tag, Token, TokenSet,
+    identity_layer, prepare_layer, Arc, BadTag, Input, Layer, LayerScratch, NfaBuilder, NfaLayer,
+    Output, StateId, Tag, TagKind, Token, TokenSet,
 };
 pub use product::{
-    Outcome, PrepassNote, PrepassPlan, PrepassUsed, Product, ProductScratch, Report, Request,
+    Outcome, PrepassNote, PrepassPlan, PrepassUsed, Product, ProductError, ProductScratch, Report,
+    Request,
 };
 pub use trim::{GraphArc, TrimmedGraph};
 

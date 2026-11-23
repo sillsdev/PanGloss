@@ -13,9 +13,63 @@ use super::budget::{BuildMeter, BuildRefused};
 pub type Token = u32;
 pub type StateId = u32;
 
-/// `root(entry)`, `nonhead(entry)` or `rule(id)` packed by the caller; opaque here.
+/// A tag on an arc: `root(entry)`, `nonhead(entry)` or `rule(id)`, packed into one word.
+///
+/// The two high bits are the kind (`00` root, `01` non-head, `10` rule, `11` never built) and the
+/// low 30 bits the id. Use [`Tag::root`], [`Tag::nonhead`] and [`Tag::rule`] to build one and
+/// [`Tag::kind`] to read it back; the decoder is total and an unknown word is an error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tag(pub u32);
+
+/// What a [`Tag`] says, with its id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TagKind {
+    /// A head root entry.
+    Root(u32),
+    /// A non-head (compounding) entry: never pinned.
+    NonHead(u32),
+    Rule(u32),
+}
+
+/// A tag word whose kind bits are not any [`TagKind`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BadTag(pub Tag);
+
+impl Tag {
+    /// Ids are 30 bits.
+    pub const ID_BITS: u32 = 30;
+    const KIND_ROOT: u32 = 0;
+    const KIND_NONHEAD: u32 = 1 << Self::ID_BITS;
+    const KIND_RULE: u32 = 2 << Self::ID_BITS;
+
+    fn pack(kind: u32, id: u32) -> Tag {
+        assert!(id < 1 << Self::ID_BITS, "tag id {id} does not fit 30 bits");
+        Tag(kind | id)
+    }
+
+    pub fn root(entry: u32) -> Tag {
+        Self::pack(Self::KIND_ROOT, entry)
+    }
+
+    pub fn nonhead(entry: u32) -> Tag {
+        Self::pack(Self::KIND_NONHEAD, entry)
+    }
+
+    pub fn rule(id: u32) -> Tag {
+        Self::pack(Self::KIND_RULE, id)
+    }
+
+    /// The kind and id this tag was built as, or an error for a word nothing builds.
+    pub fn kind(self) -> Result<TagKind, BadTag> {
+        let id = self.0 & ((1 << Self::ID_BITS) - 1);
+        match self.0 & !((1 << Self::ID_BITS) - 1) {
+            Self::KIND_ROOT => Ok(TagKind::Root(id)),
+            Self::KIND_NONHEAD => Ok(TagKind::NonHead(id)),
+            Self::KIND_RULE => Ok(TagKind::Rule(id)),
+            _ => Err(BadTag(self)),
+        }
+    }
+}
 
 /// An interned bitset over the alphabet `0..universe`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -140,7 +194,8 @@ impl LayerScratch {
             return id;
         }
         let bytes = super::budget::interned_bytes(key.len());
-        if self.refused || self.charged.saturating_add(bytes) > self.allowance {
+        let id_space_full = self.interned.len() as u64 >= super::budget::ID_LIMIT;
+        if self.refused || id_space_full || self.charged.saturating_add(bytes) > self.allowance {
             self.refused = true;
             return u32::MAX;
         }
@@ -154,6 +209,8 @@ impl LayerScratch {
 
 /// Moves are generated downward, so arcs are indexed by INPUT token (3.1).
 pub trait Layer: Sync {
+    /// The alphabet size `0..universe`; every layer of one product must agree.
+    fn universe(&self) -> u32;
     /// Eager layers may sit in the pre-pass suffix; a lazy one may not (3.3).
     fn is_eager(&self) -> bool {
         true
@@ -346,6 +403,10 @@ impl NfaLayer {
 }
 
 impl Layer for NfaLayer {
+    fn universe(&self) -> u32 {
+        self.universe
+    }
+
     fn has_edits(&self) -> bool {
         self.has_edits
     }

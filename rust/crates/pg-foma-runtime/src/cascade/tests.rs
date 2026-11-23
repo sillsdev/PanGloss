@@ -151,10 +151,6 @@ fn oracle_machine(layers: &[RLayer]) -> Machine {
         fin: top.finals.clone(),
         arcs: top.expand(),
     };
-    assert!(
-        m.arcs.iter().all(|a| a.i.is_none()),
-        "layer 0 has epsilon input only"
-    );
     for l in &layers[1..] {
         let b = l.expand();
         let nb = l.n;
@@ -376,7 +372,7 @@ fn product_arcs(g: &TrimmedGraph) -> (BTreeSet<Key>, ArcMap) {
 
 // ---------------------------------------------------------------- generator
 
-fn gen_layer(rng: &mut Rng, top: bool, commit: bool, uni: u32) -> RLayer {
+fn gen_layer(rng: &mut Rng, commit: bool, uni: u32) -> RLayer {
     let n = 1 + rng.below(3) as u32;
     let finals: Vec<bool> = (0..n).map(|_| rng.chance(60)).collect();
     let mut arcs = Vec::new();
@@ -399,7 +395,7 @@ fn gen_layer(rng: &mut Rng, top: bool, commit: bool, uni: u32) -> RLayer {
             3 => (700, 2),
             _ => (0, 0),
         };
-        let kind = rng.below(if top { 2 } else { 8 });
+        let kind = rng.below(8);
         let tok = |r: &mut Rng| r.below(uni as u64) as u32;
         let class = |r: &mut Rng| -> Vec<u32> {
             let mut m: Vec<u32> = (0..uni).filter(|_| r.chance(60)).collect();
@@ -457,7 +453,7 @@ fn gen_instance(rng: &mut Rng, uni: u32) -> Vec<RLayer> {
     let l = 2 + rng.below(4) as usize;
     let commit = rng.chance(25);
     (0..l)
-        .map(|k| gen_layer(rng, k == 0, commit && k > 0, uni))
+        .map(|k| gen_layer(rng, commit && k > 0, uni))
         .collect()
 }
 
@@ -518,7 +514,7 @@ fn compare(
     let l = layers.len();
     let e = rng.below(3) as u8;
     let og = oracle_graph(m, word, e as u32);
-    let prod = Product::new(nfa);
+    let prod = Product::new(nfa).unwrap();
     let mut req = Request::new(word, e);
     // cut position varied; sometimes a tiny pre-pass budget so the fallback runs
     let c1 = rng.below(l as u64 + 1) as usize;
@@ -691,7 +687,7 @@ impl Fixture {
     }
     fn run(&self, word: &[u32], req: impl FnOnce(&mut Request)) -> Outcome {
         let refs = self.refs();
-        let prod = Product::new(&refs);
+        let prod = Product::new(&refs).unwrap();
         let mut scratch = ProductScratch::new(refs.len());
         let mut r = Request::new(word, 0);
         req(&mut r);
@@ -1063,7 +1059,7 @@ fn trim_keeps_every_co_reachable_state_c21() {
 fn scratch_reset_between_words_c77() {
     let f = wide();
     let refs = f.refs();
-    let prod = Product::new(&refs);
+    let prod = Product::new(&refs).unwrap();
     let mut shared = ProductScratch::new(refs.len());
     // an aborted word leaves its tables behind; the next word must not see them
     let mut tight = Request::new(&[0, 1, 1, 0, 1], 0);
@@ -1142,7 +1138,7 @@ fn identity_gate_and_wrap_c60_c70_c76() {
         let layer = prepare_layer(net(2), runs, &mut meter).unwrap();
         let top = top.build(2);
         let refs: Vec<&dyn Layer> = vec![&top, &layer];
-        let p = Product::new(&refs);
+        let p = Product::new(&refs).unwrap();
         let o = p.run(&mut ProductScratch::new(2), &Request::new(&[word], 0));
         let Outcome::Complete { graph, .. } = o else {
             panic!()
@@ -1179,6 +1175,9 @@ fn identity_gate_and_wrap_c60_c70_c76() {
 /// The lazy-layer scratch: a layer that interns its states per word, behind the same interface.
 struct Lazy<'a>(&'a NfaLayer);
 impl Layer for Lazy<'_> {
+    fn universe(&self) -> u32 {
+        self.0.universe()
+    }
     fn is_eager(&self) -> bool {
         false
     }
@@ -1214,11 +1213,18 @@ impl Layer for Lazy<'_> {
     }
     fn arcs_free<'a>(
         &'a self,
-        _: &mut LayerScratch,
-        _: StateId,
-        _: &mut dyn FnMut(Arc<'a>),
+        s: &mut LayerScratch,
+        id: StateId,
+        f: &mut dyn FnMut(Arc<'a>),
     ) -> u64 {
-        unreachable!("a lazy layer is never in the suffix")
+        let under = s.interned[id as usize][0];
+        let mut v = Vec::new();
+        let st = self.0.arcs_free(s, under, &mut |a| v.push(a));
+        for a in v {
+            let to = s.intern(&[a.to]);
+            f(Arc { to, ..a });
+        }
+        st
     }
 }
 
@@ -1227,7 +1233,7 @@ fn lazy_layer_is_kept_out_of_the_suffix_and_scratch_is_per_word() {
     let f = wide();
     let lazy = Lazy(&f.built[1]);
     let refs: Vec<&dyn Layer> = vec![&f.built[0], &lazy, &f.built[2]];
-    let p = Product::new(&refs);
+    let p = Product::new(&refs).unwrap();
     let mut scratch = ProductScratch::new(3);
     for word in [&[0u32, 1, 1][..], &[1], &[0, 0, 1, 0]] {
         let mut req = Request::new(word, 0);
@@ -1316,7 +1322,7 @@ fn report_says_why_no_prepass() {
     let f = wide();
     let lazy = Lazy(&f.built[1]);
     let refs: Vec<&dyn Layer> = vec![&f.built[0], &lazy, &f.built[2]];
-    let p = Product::new(&refs);
+    let p = Product::new(&refs).unwrap();
     let mut req = Request::new(&[0, 1], 0);
     req.prepass.cuts = vec![0, 1, 3, 2, 2];
     let Outcome::Complete { report, .. } = p.run(&mut ProductScratch::new(3), &req) else {
@@ -1403,7 +1409,7 @@ fn random_near_limit_weights_never_lose_a_word() {
         let m = oracle_machine(&zero);
         let built: Vec<NfaLayer> = layers.iter().map(|l| l.build(uni)).collect();
         let refs: Vec<&dyn Layer> = built.iter().map(|l| l as &dyn Layer).collect();
-        let prod = Product::new(&refs);
+        let prod = Product::new(&refs).unwrap();
         let mut scratch = ProductScratch::new(layers.len());
         for _ in 0..3 {
             let word = gen_word(&mut rng, &m, uni);
@@ -1437,7 +1443,7 @@ fn lazy_layer_interning_is_charged_to_product_bytes() {
     let (_, eager) = f.graph(&word);
     let lazy = Lazy(&f.built[1]);
     let refs: Vec<&dyn Layer> = vec![&f.built[0], &lazy, &f.built[2]];
-    let p = Product::new(&refs);
+    let p = Product::new(&refs).unwrap();
     let mut scratch = ProductScratch::new(3);
     let run = |scratch: &mut ProductScratch, bytes: u64| {
         let mut req = Request::new(&word, 0);
@@ -1477,4 +1483,184 @@ fn intern_refuses_before_allocating_past_the_allowance() {
     assert_eq!(s.interned.len(), 1);
     assert_eq!(s.index.len(), 1);
     assert_eq!(s.take_charged(), budget::interned_bytes(1));
+}
+
+/// A top layer with a token input arc is a free-tape move, not a silently dropped word.
+#[test]
+fn top_layer_token_and_class_inputs_are_moves() {
+    let a = arc(0, RIn::Tok(0), ROut::Same, 0, &[5]);
+    let f = Fixture::new(vec![simple(1, &[0], vec![a])], 1);
+    let (g, _) = f.graph(&[0]);
+    assert_eq!(g.start, Some(0), "accepted word lost");
+    assert_eq!(tags_of(&g), BTreeSet::from([5]));
+    let b = arc(0, RIn::Class(vec![0, 1]), ROut::Same, 0, &[6]);
+    let f = Fixture::new(vec![simple(1, &[0], vec![b])], 2);
+    let g = f.check_oracle(&[1, 0]);
+    assert_eq!(tags_of(&g), BTreeSet::from([6]));
+    for cuts in [vec![], vec![0]] {
+        let Outcome::Complete { graph, .. } = f.run(&[1, 0], |r| r.prepass.cuts = cuts.clone())
+        else {
+            panic!()
+        };
+        assert_eq!(graph, g);
+    }
+}
+
+#[test]
+fn every_packed_tag_decodes_to_the_kind_it_was_built_as() {
+    let max = (1u32 << Tag::ID_BITS) - 1;
+    let ids = [0, 1, 2, 3, 1000, 1 << 20, max - 1, max];
+    let mut seen = BTreeSet::new();
+    for id in ids {
+        for (tag, want) in [
+            (Tag::root(id), TagKind::Root(id)),
+            (Tag::nonhead(id), TagKind::NonHead(id)),
+            (Tag::rule(id), TagKind::Rule(id)),
+        ] {
+            assert_eq!(tag.kind(), Ok(want));
+            assert!(seen.insert(tag.0), "two kinds packed to one word");
+        }
+    }
+    // the unused kind and every word of it is an error, never a default kind
+    for w in [3u32 << Tag::ID_BITS, u32::MAX, (3 << Tag::ID_BITS) | 7] {
+        assert_eq!(Tag(w).kind(), Err(BadTag(Tag(w))));
+    }
+    let mut rng = Rng(77);
+    for _ in 0..10_000 {
+        let w = rng.next() as u32;
+        match Tag(w).kind() {
+            Ok(TagKind::Root(i)) => assert_eq!(Tag::root(i), Tag(w)),
+            Ok(TagKind::NonHead(i)) => assert_eq!(Tag::nonhead(i), Tag(w)),
+            Ok(TagKind::Rule(i)) => assert_eq!(Tag::rule(i), Tag(w)),
+            Err(BadTag(t)) => assert_eq!(t.0 >> Tag::ID_BITS, 3),
+        }
+    }
+}
+
+#[test]
+#[should_panic(expected = "30 bits")]
+fn tag_id_over_thirty_bits_is_refused() {
+    let _ = Tag::rule(1 << Tag::ID_BITS);
+}
+
+#[test]
+fn product_refuses_layers_of_different_alphabets() {
+    let a = Fixture::new(vec![simple(1, &[0], vec![])], 2);
+    let b = Fixture::new(vec![simple(1, &[0], vec![])], 3);
+    let refs: Vec<&dyn Layer> = vec![&a.built[0], &b.built[0]];
+    assert_eq!(
+        Product::new(&refs).err(),
+        Some(ProductError::UniverseMismatch {
+            layer: 1,
+            expected: 2,
+            found: 3
+        })
+    );
+    assert_eq!(Product::new(&[]).err(), Some(ProductError::NoLayers));
+}
+
+#[test]
+fn id_space_is_refused_even_when_unlimited() {
+    let mut m = budget::WordMeter::new(WordBudget::UNLIMITED);
+    m.states = budget::ID_LIMIT;
+    assert_eq!(m.charge_state(1), Err(CascadeStop::ProductStates));
+    m.arcs = budget::ID_LIMIT;
+    assert_eq!(m.charge_arc(), Err(CascadeStop::ProductArcs));
+    m.states = budget::ID_LIMIT - 1;
+    assert_eq!(m.charge_state(1), Ok(()));
+}
+
+/// A lazy layer whose interned key is longer than the product key, interning on demand.
+struct Fat<'a>(&'a NfaLayer);
+const FAT_WORDS: usize = 20;
+impl Fat<'_> {
+    fn key(u: u32) -> [u32; FAT_WORDS] {
+        let mut k = [0; FAT_WORDS];
+        k[0] = u;
+        k
+    }
+}
+impl Layer for Fat<'_> {
+    fn universe(&self) -> u32 {
+        self.0.universe()
+    }
+    fn is_eager(&self) -> bool {
+        false
+    }
+    fn has_edits(&self) -> bool {
+        self.0.has_edits()
+    }
+    fn start(&self, s: &mut LayerScratch) -> StateId {
+        let u = self.0.start(s);
+        s.intern(&Self::key(u))
+    }
+    fn is_final(&self, s: &LayerScratch, id: StateId) -> bool {
+        self.0.is_final(s, s.interned[id as usize][0])
+    }
+    fn arcs_from<'a>(
+        &'a self,
+        s: &mut LayerScratch,
+        id: StateId,
+        input: Option<Token>,
+        f: &mut dyn FnMut(Arc<'a>),
+    ) -> u64 {
+        let under = s.interned[id as usize][0];
+        let mut v = Vec::new();
+        let st = self.0.arcs_from(s, under, input, &mut |a| v.push(a));
+        for a in v {
+            let to = s.intern(&Self::key(a.to));
+            f(Arc { to, ..a });
+        }
+        st
+    }
+    fn arcs_free<'a>(
+        &'a self,
+        s: &mut LayerScratch,
+        id: StateId,
+        f: &mut dyn FnMut(Arc<'a>),
+    ) -> u64 {
+        let under = s.interned[id as usize][0];
+        let mut v = Vec::new();
+        let st = self.0.arcs_free(s, under, &mut |a| v.push(a));
+        for a in v {
+            let to = s.intern(&Self::key(a.to));
+            f(Arc { to, ..a });
+        }
+        st
+    }
+}
+
+/// A refused intern ends the word on bytes at every limit; the refused state id is never used.
+#[test]
+fn refused_intern_ends_the_word_at_every_byte_limit() {
+    let top = simple(2, &[1], vec![arc(0, RIn::Eps, ROut::Tok(0), 1, &[])]);
+    let bottom = simple(2, &[1], vec![arc(0, RIn::Tok(0), ROut::Same, 1, &[])]);
+    let f = Fixture::new(vec![top, bottom], 1);
+    let fat = Fat(&f.built[1]);
+    let refs: Vec<&dyn Layer> = vec![&f.built[0], &fat];
+    let p = Product::new(&refs).unwrap();
+    let word = [0];
+    let run = |bytes: u64| {
+        let mut req = Request::new(&word, 0);
+        req.budget.bytes = bytes;
+        p.run(&mut ProductScratch::new(2), &req)
+    };
+    let Outcome::Complete { report, graph } = run(u64::MAX) else {
+        panic!()
+    };
+    assert!(graph.start.is_some());
+    let full = report.bytes;
+    let mut at_intern = 0;
+    for limit in 0..full {
+        match run(limit) {
+            Outcome::Incomplete { stop, report } => {
+                assert_eq!(stop, CascadeStop::ProductBytes, "limit {limit}");
+                assert!(report.bytes <= limit);
+                at_intern += 1;
+            }
+            Outcome::Complete { .. } => panic!("limit {limit} of {full} completed"),
+        }
+    }
+    assert_eq!(at_intern, full);
+    assert!(matches!(run(full), Outcome::Complete { .. }));
 }
