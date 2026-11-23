@@ -463,6 +463,7 @@ fn grammar_with_reduplication() -> Grammar {
             is_template_rule: false,
             is_clitic_rule: None,
             allomorphs: vec![AffixAllomorphDef {
+                xml_key: String::new(),
                 id: AllomorphId(0),
                 environments: vec![],
                 co_occurrence: vec![],

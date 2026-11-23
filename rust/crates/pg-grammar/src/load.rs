@@ -1828,6 +1828,7 @@ fn load_affix_allomorph(
 
     Ok(AffixAllomorphDef {
         id: allo_id,
+        xml_key: sub.attr("id").unwrap_or("").to_string(),
         environments,
         // See `load_root_allomorph`'s matching comment: filled by the post-strata pass in `load()`.
         co_occurrence: Vec::new(),
@@ -2251,6 +2252,7 @@ fn load_root_allomorph(
 
     Ok(RootAllomorphDef {
         id: allo_id,
+        xml_key: allo.attr("id").unwrap_or("").to_string(),
         shape,
         is_bound: parse_bool(allo.attr("isBound"), false),
         environments,
