@@ -10,7 +10,9 @@ use pg_foma_backend::backend_runtime::{
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = require_fixture("edge-cases", "backend-gated-generic");
-    let xml = fixture.load_grammar_xml();
+    let xml = pg_conformance_fixtures::grammar_xml_with_context_free_deletions(
+        &fixture.load_grammar_xml(),
+    );
     let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
     assert_eq!(xml.matches(wide_target).count(), 1);
     let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);

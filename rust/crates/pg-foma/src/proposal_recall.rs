@@ -256,7 +256,7 @@ fn partial_rule_deletion_or_reduplication(g: &Grammar) -> bool {
         })
 }
 
-/// Whether a rewrite that writes fewer nodes than it matches has a non-empty left or right environment while the grammar has an affix rule (#415).
+/// A rewrite with an environment that writes fewer nodes than it matches, in a grammar with affix rules, unless it deletes only boundaries.
 fn deletion_with_environment_beside_affixes(g: &Grammar) -> bool {
     let has_affix = g
         .mrules
@@ -264,17 +264,41 @@ fn deletion_with_environment_beside_affixes(g: &Grammar) -> bool {
         .any(|rule| rule.affix_allomorphs().is_some());
     has_affix
         && g.strata.iter().any(|stratum| {
+            let table = &g.char_tables[stratum.table.0 as usize];
             stratum.prules.iter().any(|id| {
                 matches!(&g.prules[id.0 as usize], PhonRuleDef::Rewrite(rule)
                 if crate::emptied_morph::rewrite_deletes(rule)
                     && rule.subrules.iter().any(|sub| {
-                        [&sub.left_env, &sub.right_env]
-                            .into_iter()
-                            .flatten()
-                            .any(|env| !env.nodes.is_empty())
+                        sub.rhs.nodes.len() < rule.lhs.nodes.len()
+                            && !deletes_only_boundaries(table, &rule.lhs.nodes, &sub.rhs.nodes)
+                            && [&sub.left_env, &sub.right_env]
+                                .into_iter()
+                                .flatten()
+                                .any(|env| !env.nodes.is_empty())
                     }))
             })
         })
+}
+
+/// Deleted nodes are all boundaries when plain input and boundary-free output hold one output segment per input segment, so no morph loses a segment.
+fn deletes_only_boundaries(
+    table: &pg_grammar::chardef::CharDefTable,
+    lhs: &[PatternNode],
+    rhs: &[PatternNode],
+) -> bool {
+    use pg_grammar::chardef::CharDefKind;
+    let kind = |node: &PatternNode| match node {
+        PatternNode::CharDef(id) if (id.0 as usize) < table.len() => Some(table.get(*id).kind()),
+        _ => None,
+    };
+    let (Some(lhs), Some(rhs)) = (
+        lhs.iter().map(kind).collect::<Option<Vec<_>>>(),
+        rhs.iter().map(kind).collect::<Option<Vec<_>>>(),
+    ) else {
+        return false;
+    };
+    rhs.iter().all(|k| *k == CharDefKind::Segment)
+        && rhs.len() == lhs.iter().filter(|k| **k == CharDefKind::Segment).count()
 }
 
 /// Whether a peelable reduplication sits in a grammar with an affix in some template slot, or in a stratum after the reduplication's own (#416).
