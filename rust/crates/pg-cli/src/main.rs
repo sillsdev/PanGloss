@@ -166,6 +166,7 @@ mod recipe_optimize;
 mod rich_trace;
 mod serve;
 mod serve_generate;
+mod serve_match;
 mod stats_cmd;
 mod stats_manifest;
 mod stored_analysis_health;

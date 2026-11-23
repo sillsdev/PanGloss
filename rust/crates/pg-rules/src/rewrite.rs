@@ -637,7 +637,28 @@ fn compile_env_impl(
     id_lane: bool,
     synthesis: bool,
 ) -> Option<EnvFst> {
-    let env = env?;
+    try_compile_env_impl(g, table_id, env, strip_boundaries, id_lane, synthesis)
+        .expect("environment compiles")
+}
+
+/// `compile_env` for an untrusted pattern (query text rather than a loaded grammar): a bridge failure comes back as `Err` instead of a panic.
+pub(crate) fn try_compile_env(
+    g: &Grammar,
+    table_id: TableId,
+    env: &Pattern,
+) -> Result<Option<EnvFst>, String> {
+    try_compile_env_impl(g, table_id, Some(env), false, false, true).map_err(|e| e.to_string())
+}
+
+fn try_compile_env_impl(
+    g: &Grammar,
+    table_id: TableId,
+    env: Option<&Pattern>,
+    strip_boundaries: bool,
+    id_lane: bool,
+    synthesis: bool,
+) -> Result<Option<EnvFst>, crate::bridge::BridgeError> {
+    let Some(env) = env else { return Ok(None) };
     let stripped;
     let nodes: &[PatternNode] = if strip_boundaries {
         let table = &g.char_tables[table_id.0 as usize];
@@ -647,7 +668,7 @@ fn compile_env_impl(
         &env.nodes
     };
     if nodes.is_empty() {
-        return None; // C#: an empty (or fully boundary-stripped) environment pattern installs no matcher.
+        return Ok(None); // C#: an empty (or fully boundary-stripped) environment pattern installs no matcher.
     }
     let owned_pattern;
     let pat_ref: &Pattern = if strip_boundaries {
@@ -662,9 +683,7 @@ fn compile_env_impl(
         .with_table(table_id)
         .id_lane(id_lane)
         .identity_lanes(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
-    let mut compiled = bridge
-        .compile_pattern(pat_ref)
-        .expect("environment compiles");
+    let mut compiled = bridge.compile_pattern(pat_ref)?;
     let only_anchor = compiled.top_level_len == 0 && (compiled.anchor_start || compiled.anchor_end);
     let agreement = compiled
         .agreement_nodes
@@ -698,7 +717,7 @@ fn compile_env_impl(
         }
     }
 
-    Some(EnvFst {
+    Ok(Some(EnvFst {
         fst: compiled
             .input
             .compile_with_direction(Direction::LeftToRight),
@@ -721,7 +740,37 @@ fn compile_env_impl(
                 })
                 .collect()
         },
-    })
+    }))
+}
+
+impl EnvFst {
+    /// Every `(start, end)` span (half-open, in `segs` positions) where this pattern matches anywhere in `segs`, honouring its `#` anchors; sorted ascending and deduped. The query seam of `crate::pattern_match`; alpha-variable agreement is not resolved here.
+    pub(crate) fn find_spans(&self, segs: &[Segment]) -> Vec<(usize, usize)> {
+        if self.only_anchor {
+            let all_optional = |s: &[Segment]| s.iter().all(|x| x.optional);
+            return match (self.anchor_start, self.anchor_end) {
+                (true, true) if all_optional(segs) => vec![(0, segs.len())],
+                (true, false) => vec![(0, 0)],
+                (false, true) => vec![(segs.len(), segs.len())],
+                _ => Vec::new(),
+            };
+        }
+        if segs.is_empty() {
+            return Vec::new();
+        }
+        let input = env_input(self, segs);
+        let results = Transduce::new(&self.fst, input)
+            .anchored(self.anchor_start, self.anchor_end)
+            .all_matches();
+        let mut spans: Vec<(usize, usize)> = results
+            .iter()
+            .filter_map(|r| self.fst.get_offsets(ENTIRE_MATCH, &r.registers))
+            .map(|(a, b)| (a as usize, b as usize))
+            .collect();
+        spans.sort_unstable();
+        spans.dedup();
+        spans
+    }
 }
 
 fn env_input<'a>(env: &EnvFst, segs: &'a [Segment]) -> std::borrow::Cow<'a, [Segment]> {
