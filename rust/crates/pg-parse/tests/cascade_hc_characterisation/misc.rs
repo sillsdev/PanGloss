@@ -106,7 +106,7 @@ fn test_29_edge_only_application_keeps_a_boundary_inside_earlier_inserted_materi
     }
 }
 
-/// TEST 31: a concatenation of segment representations whose marks are out of canonical order is never accepted.
+/// TEST 31: a concatenation of segment representations whose marks are out of canonical order is never accepted as that derivation; the typed string is accepted as the canonical one.
 #[test]
 fn test_31_non_canonical_mark_order_is_never_accepted() {
     let acute = "\u{301}";
@@ -125,11 +125,61 @@ fn test_31_non_canonical_mark_order_is_never_accepted() {
         .load();
     let bad = generate(&g, "R", &["S"]);
     let good = generate(&g, "Q", &["T"]);
-    // CONTRADICTS PLAN: TEST 31. HC's forward synthesis does produce the out-of-order concatenation (acute then dot below), and HC's analysis normalises its input to canonical order first, so the typed non-canonical string is accepted, as the canonical derivation `Q+T`. The plan's Units cut ("HC can never accept that concatenation") holds only for the cascade's own concatenation; a typed word must be normalised before the product reads it.
+    // HC accepts the non-canonical string as the canonical derivation; not a plan contradiction. HC's forward synthesis does produce the out-of-order concatenation (acute then dot below), and HC's analysis normalises its input to canonical order first, so the typed non-canonical string is accepted, as the canonical derivation `Q+T`. The plan's Units cut holds for the derivation, not the string: a typed word is normalised (NFD) before the product reads it.
     assert_eq!(bad, [format!("a{acute}{dot}")]);
     assert_eq!(good, [format!("a{dot}{acute}")]);
     for form in [&bad[0], &good[0]] {
         assert_eq!(analyses(&g, form), ["Q+T"], "{form:?}");
+    }
+}
+
+/// Every ordering of `items`.
+fn permutations(items: &[&'static str]) -> Vec<Vec<&'static str>> {
+    if items.len() <= 1 {
+        return vec![items.to_vec()];
+    }
+    let mut out = Vec::new();
+    for i in 0..items.len() {
+        let mut rest = items.to_vec();
+        let head = rest.remove(i);
+        for mut tail in permutations(&rest) {
+            tail.insert(0, head);
+            out.push(tail);
+        }
+    }
+    out
+}
+
+/// TEST 31, mark permutations (review reviews/w0-contradictions.md section 4): of every ordering of 2-3 marks on one unit, a typed string is accepted exactly when its NFD form is, and with the same analysis. Marks of different combining classes (cedilla 202, dot below 220, acute 230) are included.
+#[test]
+fn test_31_every_mark_permutation_is_accepted_iff_its_nfd_form_is() {
+    use unicode_normalization::UnicodeNormalization;
+    let (cedilla, dot, acute) = ("\u{327}", "\u{323}", "\u{301}");
+    let mut lang = Lang::new("");
+    lang.segments =
+        seg("a", &[], &[]) + &seg(cedilla, &[], &[]) + &seg(dot, &[], &[]) + &seg(acute, &[], &[]);
+    let g = lang
+        .stratum(Stratum::new("S").entries(
+            &(entry("TWO", &format!("a{dot}{acute}"))
+                + &entry("THREE", &format!("a{cedilla}{dot}{acute}"))),
+        ))
+        .load();
+    let mut checked = 0;
+    for marks in [vec![dot, acute], vec![cedilla, dot, acute]] {
+        for order in permutations(&marks) {
+            let typed = format!("a{}", order.concat());
+            let nfd: String = typed.nfd().collect();
+            let expected = if marks.len() == 2 { ["TWO"] } else { ["THREE"] };
+            assert_eq!(analyses(&g, &nfd), expected, "NFD form of {typed:?}");
+            assert_eq!(analyses(&g, &typed), expected, "typed {typed:?}");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 2 + 6);
+    // A different mark set is accepted in no order.
+    for order in permutations(&[cedilla, acute]) {
+        let typed = format!("a{}", order.concat());
+        assert!(analyses(&g, &typed).is_empty(), "{typed:?}");
     }
 }
 

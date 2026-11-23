@@ -78,7 +78,7 @@ fn test_05_max_apps_is_enforced_for_compounding_roles() {
     assert_eq!(analyses(&g2, "kakaka").len(), 1);
 }
 
-/// TEST 8: in an Unordered stratum a second template pass needs an mrule application in between. CONTRADICTS PLAN: TEST 8 (plan 2.1, "after a template pass the mrules run again on a changed word ... passes alternate"). With HC's default `final="true"` template no mrule ever follows the pass (the template closes the word), so `ktm`, `ktmt` and every longer alternation are refused; with `final="false"` nothing at all parses in any stratum shape tried (a non-final template last-applied is refused at the blocking stratum, and the optional empty pass is itself such a word). The alternation the plan describes is therefore not observable at the parse or generate surface.
+/// TEST 8, final template: in an Unordered stratum a final template (HC's default) closes the word to later non-clitic mrules, so only `M* . one pass` words exist. The alternation itself is pinned by the two-stratum tests below, because a non-final template is accepted only in a non-blocking stratum.
 #[test]
 fn test_08_unordered_template_passes_alternate_with_mrules() {
     let build = |is_final: bool, optional: bool| {
@@ -124,14 +124,137 @@ fn test_08_unordered_template_passes_alternate_with_mrules() {
         "forward synthesis puts the template pass last whatever order the rules are named in"
     );
     assert!(gen(&["M", "T", "M"]).is_empty());
-    for optional in [true, false] {
-        let g = build(false, optional);
+}
+
+/// Two strata for the non-final template: S0 (not blocking: no prules, not the last stratum) holds the mrule M and the non-final one-slot template T; S1 holds the mrule N (max 2) when asked. The last admitted stratum is always blocking, so a word whose last applied step is a non-final template must be cleared by an mrule of S1 to be accepted.
+fn two_stratum(order: &'static str, with_n: bool) -> pg_grammar_model::model::Grammar {
+    let mut s1 = Stratum::new("S1").order(order);
+    if with_n {
+        s1 = s1.rules("mN", &affix("N", "", "n", r#"multipleApplication="2""#));
+    }
+    Lang::new("kmtn")
+        .stratum(
+            Stratum::new("S0")
+                .order(order)
+                .rules("mM", &affix("M", "", "m", r#"multipleApplication="3""#))
+                .defs(&affix("T", "", "t", r#"multipleApplication="3""#))
+                .templates(&template_with(&["mT"], false, true))
+                .entries(&entry("K", "k")),
+        )
+        .stratum(s1)
+        .load()
+}
+
+fn accepted(g: &pg_grammar_model::model::Grammar, alphabet: &str, max: usize) -> Vec<String> {
+    strings_over(alphabet, max)
+        .into_iter()
+        .map(|s| format!("k{s}"))
+        .filter(|w| !analyses(g, w).is_empty())
+        .collect()
+}
+
+/// TEST 8 / TEST 28, the plan's alternation (plan 2.1 line 715), observed where it can be: a non-final template in a non-blocking stratum S0 and an mrule in S1 (review reviews/w0-contradictions.md section 1). In Unordered a second template pass needs an mrule application in between, so `ktmn`, `ktmtn` and `ktmtmn` are words and `tt` never occurs.
+#[test]
+fn test_08_unordered_non_final_template_alternates_with_mrules_across_strata() {
+    let g = two_stratum("unordered", true);
+    let language = accepted(&g, "mtn", 7);
+    for w in ["ktn", "kmtn", "ktmn", "kmtmn", "ktmtn", "ktmtmn", "kmmtmtn"] {
+        assert!(language.iter().any(|l| l == w), "{w} is a word");
+    }
+    assert_eq!(analyses(&g, "ktmn"), ["K+T+M+N"]);
+    assert!(
+        language.iter().all(|w| !w.contains("tt")),
+        "a second template pass always needs an mrule in between: {language:?}"
+    );
+    assert!(analyses(&g, "ktt").is_empty());
+    assert!(analyses(&g, "kttn").is_empty());
+    assert!(analyses(&g, "ktmttn").is_empty());
+    // The S1 mrule clears the non-final flag, so every word ends in it.
+    assert!(language.iter().all(|w| w.ends_with('n')), "{language:?}");
+    assert!(
+        analyses(&g, "kt").is_empty(),
+        "the blocking stratum refuses a last non-final pass"
+    );
+}
+
+/// TEST 8, Linear: the mrules run first and the template runs once, last, so one template pass per stratum (plan 2.1 line 714): `ktn` and `kmtn` are words, `ktmn` and `kttn` are not.
+#[test]
+fn test_08_linear_non_final_template_runs_one_pass_per_stratum() {
+    let g = two_stratum("linear", true);
+    let language = accepted(&g, "mtn", 7);
+    for w in ["kn", "kmn", "ktn", "kmtn", "kmmtn", "kmmmtnn"] {
+        assert!(language.iter().any(|l| l == w), "{w} is a word");
+    }
+    for w in ["ktmn", "kttn", "ktmtn", "kmtmn"] {
+        assert!(
+            analyses(&g, w).is_empty(),
+            "{w}: no second template pass, no mrule after it"
+        );
+    }
+    assert!(
+        language.iter().all(|w| w.matches('t').count() <= 1),
+        "at most one template pass: {language:?}"
+    );
+}
+
+/// TEST 8, the separate negative: with no mrule in S1 a non-final template leaves every word refused, in either order, whether or not the slot is optional.
+#[test]
+fn test_08_non_final_template_without_a_later_mrule_parses_nothing() {
+    for order in ["unordered", "linear"] {
+        let g = two_stratum(order, false);
+        assert!(accepted(&g, "mt", 5).is_empty(), "{order}: nothing parses");
         for w in ["k", "km", "kt", "kmt", "ktm"] {
             assert!(
                 analyses(&g, w).is_empty(),
-                "a non-final template refuses every word: {w}"
+                "{order}: a last-applied non-final template is refused at the blocking stratum: {w}"
             );
         }
+    }
+    // A single-stratum grammar is blocking too: the same refusal.
+    for optional in [true, false] {
+        let g = Lang::new("kmt")
+            .stratum(
+                Stratum::new("S")
+                    .order("unordered")
+                    .rules("mM", &affix("M", "", "m", ""))
+                    .defs(&affix("T", "", "t", ""))
+                    .templates(&template_with(&["mT"], false, optional))
+                    .entries(&entry("K", "k")),
+            )
+            .load();
+        for w in ["k", "km", "kt", "kmt", "ktm"] {
+            assert!(analyses(&g, w).is_empty(), "optional={optional}: {w}");
+        }
+    }
+}
+
+/// TEST 8, clitic: a clitic mrule bypasses the final-template gate (morph.rs `template_gated = ... && !clitic`), so after a FINAL template in an Unordered stratum a clitic mrule can still follow the pass while an ordinary mrule cannot.
+#[test]
+fn test_08_clitic_mrule_follows_a_final_template_pass() {
+    let g = Lang::new("kmtc")
+        .stratum(
+            Stratum::new("S")
+                .order("unordered")
+                .rules(
+                    "mM mC",
+                    &(affix("M", "", "m", "") + &affix("C", "", "c", r#"isCliticRule="true""#)),
+                )
+                .defs(&affix("T", "", "t", ""))
+                .templates(&template(&["mT"]))
+                .entries(&entry("K", "k")),
+        )
+        .load();
+    for w in ["kc", "ktc", "kmtc"] {
+        assert!(
+            !analyses(&g, w).is_empty(),
+            "{w}: the clitic follows the pass"
+        );
+    }
+    for w in ["ktm", "ktmc"] {
+        assert!(
+            analyses(&g, w).is_empty(),
+            "{w}: an ordinary mrule cannot follow a final pass"
+        );
     }
 }
 
@@ -168,7 +291,7 @@ fn test_07_realizational_rules_use_the_four_output_actions_and_apply_once() {
     );
 }
 
-/// TEST 9: the compounding non-head is a bare lexical shape; the compounding rule's own stratum decides which roots it takes. CONTRADICTS PLAN: TEST 9 (plan 2.4.6 line 851, "a prefix or suffix block drawn from `Lex` (strata <= s)"). HC looks the non-head up in the root trie of the compounding rule's own stratum only (`search_roots(stratum, ..)`, pg-parse/src/morpher.rs:1051-1060): a non-head root of a lower stratum is found in neither its bare nor its rewritten spelling.
+/// TEST 9: the compounding non-head is a bare lexical shape; the compounding rule's own stratum decides which roots it takes. PLAN AMENDED: TEST 9 (precision-only; plan 2.4.6 line 851 said "drawn from `Lex` (strata <= s)", which over-approximates HC). HC looks the non-head up in the root trie of the compounding rule's own stratum only (`search_roots(stratum, ..)`, pg-parse/src/morpher.rs:1051-1060): a non-head root of a lower stratum is found in neither its bare nor its rewritten spelling.
 #[test]
 fn test_09_compounding_non_head_is_a_bare_lexical_shape() {
     let classes = r#"<FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass><SegmentNaturalClass id="ncY"><Name>y</Name><Segment segment="cy" /></SegmentNaturalClass>"#;
@@ -199,14 +322,14 @@ fn test_09_compounding_non_head_is_a_bare_lexical_shape() {
     let g = build(true, true);
     assert_eq!(analyses(&g, "hkx"), ["H+NH"], "bare lexical shape");
     assert!(analyses(&g, "hky").is_empty());
-    // CONTRADICTS PLAN: TEST 9 -- a lower-stratum non-head is not reachable at all.
+    // PLAN AMENDED: TEST 9 (precision-only) -- a lower-stratum non-head is not reachable at all.
     let g = build(true, false);
     for w in ["hkx", "hky"] {
         assert!(analyses(&g, w).is_empty(), "{w}");
     }
 }
 
-/// TEST 2: blocking replaces the word by another family member's seed, so the identity HC reports is not the derivation that produced the surface. CONTRADICTS PLAN: TEST 2 (plan line 730, "a replacement, not a removal"), forward side only: `generate_words` for the blocked derivation returns no word at all, not the family relative's word. The parse side matches the plan: with the family the surface `aat` is analysed only as the bare root `B`, never as `A+T`, and a pin group {root A, rule T} confirms nothing.
+/// TEST 2: blocking replaces the word by another family member's seed, so the identity HC reports is not the derivation that produced the surface. Forward side (plan line 730, "a replacement, not a removal"; sillsdev/PanGloss#423): `generate_words` for the blocked derivation returns no word at all, not the family relative's word. The parse side matches the plan: with the family the surface `aat` is analysed only as the bare root `B`, never as `A+T`, and a pin group {root A, rule T} confirms nothing.
 #[test]
 fn test_02_blocking_replaces_the_derivation_at_the_confirm_seam() {
     let build = |family: bool| {
@@ -238,8 +361,10 @@ fn test_02_blocking_replaces_the_derivation_at_the_confirm_seam() {
         "the family replaces A+T by B's seed"
     );
     assert_eq!(analyses(&fam, "aa"), ["A"]);
+    // PINS PARITY BUG sillsdev/PanGloss#423 (confirmed vs C#; flip when fixed)
     assert!(generate(&fam, "A", &["T"]).is_empty());
     assert_eq!(generate(&fam, "B", &[]), ["aat"]);
+    // PINS PARITY BUG sillsdev/PanGloss#423 (confirmed vs C#; flip when fixed)
     assert!(
         restricted(&fam, "aat", &["A"], &["T"]).is_empty(),
         "the pins {{A, T}} confirm nothing"
@@ -297,20 +422,29 @@ fn test_26_a_compound_in_its_own_stratum_is_rewritten_as_a_whole() {
     }
 }
 
-/// TEST 28: template passes and the mrules of an Unordered stratum interleave freely, but one pass applies its slots in order. CONTRADICTS PLAN: TEST 28 (plan 2.1, Unordered interleave): with the default final template a pass closes the word to later mrules, so only `M* . one pass` words exist (see TEST 8).
+/// TEST 28: template passes and the mrules of an Unordered stratum interleave, but one pass applies its slots in order. A final template closes the word to later mrules (only `M* . one pass` words); the interleaving shows with a non-final template in S0 and an mrule N in S1, where a second pass needs an mrule in between (see TEST 8).
 #[test]
 fn test_28_unordered_mrules_interleave_with_template_passes() {
-    let g = Lang::new("kmt12")
-        .stratum(
-            Stratum::new("S")
-                .order("unordered")
-                .rules("mM", &affix("M", "", "m", r#"multipleApplication="2""#))
-                .defs(&affix("T1", "", "1", ""))
-                .defs(&affix("T2", "", "2", ""))
-                .templates(&template(&["mT1", "mT2"]))
-                .entries(&entry("K", "k")),
-        )
-        .load();
+    let build = |is_final: bool, with_n: bool| {
+        let mut s1 = Stratum::new("S1");
+        if with_n {
+            s1 = s1.rules("mN", &affix("N", "", "n", r#"multipleApplication="2""#));
+        }
+        Lang::new("kmt12n")
+            .stratum(
+                Stratum::new("S0")
+                    .order("unordered")
+                    .rules("mM", &affix("M", "", "m", r#"multipleApplication="2""#))
+                    .defs(&affix("T1", "", "1", r#"multipleApplication="2""#))
+                    .defs(&affix("T2", "", "2", r#"multipleApplication="2""#))
+                    .templates(&template_with(&["mT1", "mT2"], is_final, true))
+                    .entries(&entry("K", "k")),
+            )
+            .stratum(s1)
+            .load()
+    };
+    // Final template, one stratum worth of behaviour: `M* . one pass`.
+    let g = build(true, false);
     let language: Vec<String> = strings_over("m12", 5)
         .into_iter()
         .map(|s| format!("k{s}"))
@@ -321,6 +455,16 @@ fn test_28_unordered_mrules_interleave_with_template_passes() {
     }
     for w in ["k21", "k1m", "k2m1", "km12m", "k11"] {
         assert!(!language.iter().any(|l| l == w), "{w} is refused");
+    }
+    // Non-final template in S0, N in S1: passes interleave with mrules; slot order holds inside each pass.
+    let g = build(false, true);
+    for w in [
+        "k12n", "k1n", "k2n", "km12n", "k1m2n", "k12m12n", "k1m1n", "kmm12n",
+    ] {
+        assert!(!analyses(&g, w).is_empty(), "{w} is a word");
+    }
+    for w in ["k21n", "k11n", "k22n", "k1m21n", "k12", "k1m"] {
+        assert!(analyses(&g, w).is_empty(), "{w} is refused");
     }
 }
 
