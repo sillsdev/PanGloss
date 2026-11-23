@@ -954,6 +954,7 @@ dependencies = [
  "rayon",
  "rustc-hash",
  "serde",
+ "unicode-normalization",
 ]
 
 [[package]]

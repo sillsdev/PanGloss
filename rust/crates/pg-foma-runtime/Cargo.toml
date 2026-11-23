@@ -21,6 +21,7 @@ pg-shape.workspace = true
 rayon.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
+unicode-normalization.workspace = true
 
 [dev-dependencies]
 pg-foma-runtime = { path = ".", features = ["test-support", "test-concurrency-hook"] }
