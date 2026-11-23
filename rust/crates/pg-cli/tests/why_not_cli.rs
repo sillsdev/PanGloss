@@ -604,7 +604,10 @@ fn a_deleted_segment_still_counts_for_its_allomorphs_environment() {
     assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
     assert_eq!(r["failure"]["object"]["id"], "aSal", "{r}");
     let plain = r["failure"]["plain"].as_str().unwrap();
-    assert!(plain.contains("\"sak\"") && plain.contains("\"salk\""), "{plain}");
+    assert!(
+        plain.contains("\"sak\"") && plain.contains("\"salk\""),
+        "{plain}"
+    );
 }
 
 #[test]
