@@ -20,7 +20,6 @@
 
 use std::collections::BTreeSet;
 
-use pg_foma_runtime::cascade::analyzer::rule_tag;
 use pg_foma_runtime::cascade::{
     BuildMeter, BuildRefused, Input, NfaBuilder, NfaLayer, Output, Tag, TokenSet,
 };
@@ -239,7 +238,7 @@ pub fn build_zone(
             sk.eps.push((ident, suffix));
             for p in positions {
                 for a in &p.alts {
-                    let tag = rule_tag(a.rule);
+                    let tag = Tag::rule(a.rule.0);
                     if is_null(a) {
                         sk.arc(start, Input::Eps, Output::Eps, start, &[tag]);
                     }
@@ -260,7 +259,7 @@ pub fn build_zone(
                     let next = sk.state(false);
                     sk.eps.push((cur, next));
                     for a in &p.alts {
-                        let tag = rule_tag(a.rule);
+                        let tag = Tag::rule(a.rule.0);
                         if is_null(a) {
                             sk.arc(cur, Input::Eps, Output::Eps, cur, &[tag]);
                         } else if !a.pre.is_empty() {
@@ -282,7 +281,7 @@ pub fn build_zone(
                     for a in &p.alts {
                         if !a.suf.is_empty() {
                             let to = if p.looping { r } else { next };
-                            sk.path(r, to, &a.suf, rule_tag(a.rule));
+                            sk.path(r, to, &a.suf, Tag::rule(a.rule.0));
                         }
                     }
                     r = next;

@@ -21,49 +21,10 @@ use std::collections::BTreeMap;
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId};
 use pg_parse::{Morpher, WordAnalysis};
 
-use super::layer::{Layer, NfaLayer, Tag, Token};
+use super::layer::{Layer, NfaLayer, Token};
 use super::product::{Outcome, Product, ProductScratch, Request};
 use super::readout::{self, ReadoutBudget, ReadoutMode};
 use crate::confirm::{confirm_pin_groups, PinGroup};
-
-/// What a layer arc's [`Tag`] names. Tags are opaque to the product; this is the packing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TagKind {
-    /// A head root entry (`root(entry)`).
-    Root(LexEntryId),
-    /// A compounding non-head entry (`nonhead(entry)`); not read out as a pin.
-    NonHead(LexEntryId),
-    /// An affix-process or realizational rule (`rule(id)`).
-    Rule(MRuleId),
-}
-
-const KIND_SHIFT: u32 = 30;
-const PAYLOAD: u32 = (1 << KIND_SHIFT) - 1;
-
-pub fn root_tag(entry: LexEntryId) -> Tag {
-    assert!(entry.0 <= PAYLOAD, "entry id out of the tag range");
-    Tag(entry.0)
-}
-
-pub fn nonhead_tag(entry: LexEntryId) -> Tag {
-    assert!(entry.0 <= PAYLOAD, "entry id out of the tag range");
-    Tag((1 << KIND_SHIFT) | entry.0)
-}
-
-pub fn rule_tag(rule: MRuleId) -> Tag {
-    assert!(rule.0 <= PAYLOAD, "rule id out of the tag range");
-    Tag((2 << KIND_SHIFT) | rule.0)
-}
-
-pub fn decode_tag(tag: Tag) -> TagKind {
-    let payload = tag.0 & PAYLOAD;
-    match tag.0 >> KIND_SHIFT {
-        0 => TagKind::Root(LexEntryId(payload)),
-        1 => TagKind::NonHead(LexEntryId(payload)),
-        2 => TagKind::Rule(MRuleId(payload)),
-        other => panic!("unknown tag kind {other}"),
-    }
-}
 
 /// The compiled layers of one grammar, top (lexicon) to bottom (`Repr`), and the character table
 /// of the word tape.
@@ -133,7 +94,7 @@ impl CascadeAnalyzer {
     /// they add layers above `W` and raise `max_edits`; the read-out below is unchanged.
     pub fn propose(&self, tokens: &[Token]) -> Outcome {
         let refs = self.layers.layer_refs();
-        let product = Product::new(&refs);
+        let product = Product::new(&refs).expect("layers share one alphabet");
         let mut scratch = ProductScratch::new(product.layer_count());
         product.run(&mut scratch, &Request::new(tokens, 0))
     }
@@ -175,16 +136,14 @@ impl CascadeAnalyzer {
             arcs: report.arcs,
             ..ProposalNote::default()
         };
-        let groups = match readout::read_out(
-            &graph,
-            &readout_kind,
-            None,
-            ReadoutBudget::default(),
-            ReadoutMode::Single,
-        ) {
+        let groups = match readout::read_out(&graph, ReadoutBudget::default(), ReadoutMode::Single)
+        {
             readout::Readout::Complete { groups, .. } => groups,
             readout::Readout::Incomplete { stop, .. } => {
                 return done(CascadeStatus::Incomplete(format!("{stop:?}")), note)
+            }
+            readout::Readout::BadTag(bad) => {
+                return done(CascadeStatus::Incomplete(format!("{bad:?}")), note)
             }
         };
         if groups.is_empty() {
@@ -218,40 +177,5 @@ impl CascadeAnalyzer {
             analyses: confirmed.analyses,
             proposal: note,
         }
-    }
-}
-
-/// What the read-out is told about a product tag.
-fn readout_kind(tag: Tag) -> readout::TagKind {
-    match decode_tag(tag) {
-        TagKind::Root(e) => readout::TagKind::Root(e),
-        TagKind::Rule(r) => readout::TagKind::Rule(r),
-        TagKind::NonHead(_) => readout::TagKind::Other,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tags_round_trip() {
-        for id in [0u32, 1, 77, PAYLOAD] {
-            assert_eq!(
-                decode_tag(root_tag(LexEntryId(id))),
-                TagKind::Root(LexEntryId(id))
-            );
-            assert_eq!(
-                decode_tag(nonhead_tag(LexEntryId(id))),
-                TagKind::NonHead(LexEntryId(id))
-            );
-        }
-        for id in [0u32, 5, 4000] {
-            assert_eq!(
-                decode_tag(rule_tag(MRuleId(id))),
-                TagKind::Rule(MRuleId(id))
-            );
-        }
-        assert_ne!(root_tag(LexEntryId(3)), rule_tag(MRuleId(3)));
     }
 }

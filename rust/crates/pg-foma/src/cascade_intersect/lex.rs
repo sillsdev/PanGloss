@@ -10,10 +10,9 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use pg_foma_runtime::cascade::analyzer::root_tag;
-use pg_foma_runtime::cascade::{BuildMeter, Input, NfaBuilder, NfaLayer, Output};
+use pg_foma_runtime::cascade::{BuildMeter, Input, NfaBuilder, NfaLayer, Output, Tag};
 use pg_grammar::chardef::CharDefTable;
-use pg_grammar::model::{Grammar, LexEntryId};
+use pg_grammar::model::Grammar;
 
 use super::refusal::BuildError;
 
@@ -62,7 +61,7 @@ pub fn build_lex(
                 Input::Eps,
                 Output::Eps,
                 end,
-                &[root_tag(LexEntryId(ei as u32))],
+                &[Tag::root(ei as u32)],
                 0,
                 0,
             )?;

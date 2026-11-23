@@ -530,8 +530,7 @@ fn a_circumfix_is_found_only_with_both_halves_in_a_chain_and_a_pool() {
 
 #[test]
 fn every_tag_lex_and_the_zones_emit_decodes_to_the_kind_it_was_built_as() {
-    use pg_foma_runtime::cascade::analyzer::{decode_tag, TagKind};
-    use pg_foma_runtime::cascade::{Layer, LayerScratch};
+    use pg_foma_runtime::cascade::{Layer, LayerScratch, TagKind};
     let strata = [
         linear(
             vec![rule(&[("", "s"), ("", "")], 1), rule(&[("k", "")], 1)],
@@ -552,14 +551,17 @@ fn every_tag_lex_and_the_zones_emit_decodes_to_the_kind_it_was_built_as() {
         }
         out
     };
-    let lex: BTreeSet<_> = tags_of(0).into_iter().map(decode_tag).collect();
-    let want: BTreeSet<_> = (0..grammar.entries.len() as u32)
-        .map(|e| TagKind::Root(LexEntryId(e)))
+    let lex: std::collections::HashSet<_> = tags_of(0)
+        .into_iter()
+        .map(|t| t.kind().expect("a built tag"))
+        .collect();
+    let want: std::collections::HashSet<_> = (0..grammar.entries.len() as u32)
+        .map(TagKind::Root)
         .collect();
     assert_eq!(lex, want, "Lex emits exactly one root tag per entry");
-    let zone_tags: BTreeSet<_> = (1..layers.layers.len() - 1)
+    let zone_tags: std::collections::HashSet<_> = (1..layers.layers.len() - 1)
         .flat_map(&mut tags_of)
-        .map(decode_tag)
+        .map(|t| t.kind().expect("a built tag"))
         .collect();
     assert_eq!(zone_tags.len(), 3);
     assert!(zone_tags.iter().all(|t| matches!(t, TagKind::Rule(_))));
