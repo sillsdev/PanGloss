@@ -58,3 +58,7 @@ path = "tests/harnesses/parse.rs"
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
+
+[[test]]
+name = "cascade_hc_characterisation"
+path = "tests/cascade_hc_characterisation.rs"
