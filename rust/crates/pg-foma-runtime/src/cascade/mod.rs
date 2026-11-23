@@ -14,7 +14,9 @@ pub use layer::{
     identity_layer, prepare_layer, Arc, Input, Layer, LayerScratch, NfaBuilder, NfaLayer, Output,
     StateId, Tag, Token, TokenSet,
 };
-pub use product::{Outcome, PrepassPlan, PrepassUsed, Product, ProductScratch, Report, Request};
+pub use product::{
+    Outcome, PrepassNote, PrepassPlan, PrepassUsed, Product, ProductScratch, Report, Request,
+};
 pub use trim::{GraphArc, TrimmedGraph};
 
 #[cfg(test)]

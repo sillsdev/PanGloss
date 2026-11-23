@@ -76,6 +76,19 @@ pub enum PrepassUsed {
     None,
 }
 
+/// A requested pre-pass cut that was changed or skipped, and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PrepassNote {
+    /// The cut was moved up to the first edit-carrying layer (the table's `u` must equal the word's).
+    PulledUpToFirstEdit { requested: usize, cut: usize },
+    /// The suffix from `cut` would hold a lazy layer: no pre-pass for this request.
+    LazyLayerInSuffix { requested: usize, cut: usize },
+    /// The cut leaves no suffix layer.
+    EmptySuffix { requested: usize },
+    /// Two requested cuts became the same suffix; the second is not a new rung.
+    DuplicateCut { requested: usize, cut: usize },
+}
+
 #[derive(Clone, Debug)]
 pub struct Report {
     pub states: u64,
@@ -85,6 +98,8 @@ pub struct Report {
     pub peak_queue: usize,
     pub prepass: PrepassUsed,
     pub prepass_attempts_overrun: u32,
+    /// Why requested cuts did not become attempts (the ladder collapsing is visible here).
+    pub prepass_notes: Vec<PrepassNote>,
     pub prepass_states: u64,
     pub prepass_steps: u64,
     pub prepass_bytes: u64,
@@ -289,18 +304,18 @@ impl<'a> Product<'a> {
     }
 
     /// The suffix start actually used for a requested cut: pulled up so every edit-carrying layer
-    /// is inside it; `None` when the suffix would be empty or would hold a lazy layer.
-    fn effective_cut(&self, requested: usize) -> Option<usize> {
+    /// is inside it. `Err` says why there is no suffix: it would be empty or hold a lazy layer.
+    fn effective_cut(&self, requested: usize) -> Result<usize, PrepassNote> {
         let l = self.layers.len();
         let first_edit = self.layers.iter().position(|x| x.has_edits()).unwrap_or(l);
         let cut = requested.min(first_edit);
         if cut >= l {
-            return None;
+            return Err(PrepassNote::EmptySuffix { requested });
         }
         if self.layers[cut..].iter().any(|x| !x.is_eager()) {
-            return None;
+            return Err(PrepassNote::LazyLayerInSuffix { requested, cut });
         }
-        Some(cut)
+        Ok(cut)
     }
 
     fn prepass(&self, cut: usize, req: &Request) -> (PrepassResult, PrepassStats) {
@@ -370,6 +385,8 @@ impl<'a> Product<'a> {
                 emit: &mut emit,
             };
             walk.all_moves(cut, true, cur[0] as usize)?;
+            // transient: the moves of this one state, charged to the pre-pass meter
+            meter.charge_bytes(pending.len() as u64 * (4 * width as u64 + 8))?;
             for (key, w) in pending {
                 let id = match index.get(key.as_slice()) {
                     Some(&id) => id,
@@ -394,6 +411,8 @@ impl<'a> Product<'a> {
                         .all(|k| self.layers[k].is_final(&lscr[k], key[KEY_PREFIX + k - cut]))
             })
             .collect();
+        // transient: reverse adjacency, distances and the table, charged before they are built
+        meter.charge_bytes(count as u64 * 48 + arcs.len() as u64 * 24)?;
         let dist = distance_to_accept(count, &arcs, &accepting);
         let mut table = HashMap::new();
         for s in 0..count {
@@ -422,6 +441,7 @@ impl<'a> Product<'a> {
             peak_queue: 0,
             prepass: PrepassUsed::None,
             prepass_attempts_overrun: 0,
+            prepass_notes: Vec::new(),
             prepass_states: 0,
             prepass_steps: 0,
             prepass_bytes: 0,
@@ -431,10 +451,22 @@ impl<'a> Product<'a> {
         let mut table: Option<PrepassTable> = None;
         let mut tried: Vec<usize> = Vec::new();
         for &requested in &req.prepass.cuts {
-            let Some(cut) = self.effective_cut(requested) else {
-                continue;
+            let cut = match self.effective_cut(requested) {
+                Ok(c) => c,
+                Err(note) => {
+                    report.prepass_notes.push(note);
+                    continue;
+                }
             };
+            if cut < requested {
+                report
+                    .prepass_notes
+                    .push(PrepassNote::PulledUpToFirstEdit { requested, cut });
+            }
             if tried.contains(&cut) {
+                report
+                    .prepass_notes
+                    .push(PrepassNote::DuplicateCut { requested, cut });
                 continue;
             }
             tried.push(cut);
@@ -519,6 +551,7 @@ impl<'a> Product<'a> {
                 continue;
             }
             tables.closed[idu] = true;
+            debug_assert!(f >= last_f, "f decreased: h is not consistent");
             if f < last_f {
                 report.f_monotone = false;
             }
@@ -582,7 +615,9 @@ impl<'a> Product<'a> {
                     tags.sort();
                     tags.dedup();
                     let w32 = acc.weight.min(INF as u64 - 1) as u32;
-                    let akey = (id, dst, w32, acc.edits as u8);
+                    let edits8 =
+                        u8::try_from(acc.edits).expect("edits fit u8: u2 <= e_max was checked");
+                    let akey = (id, dst, w32, edits8);
                     match tables.arc_index.get(&akey).copied() {
                         None => {
                             meter.charge_arc()?;
@@ -592,7 +627,7 @@ impl<'a> Product<'a> {
                                 src: id,
                                 dst,
                                 weight: w32,
-                                edits: acc.edits as u8,
+                                edits: edits8,
                                 tags: tid,
                             });
                         }
