@@ -33,6 +33,8 @@ pub struct CascadeLayers {
     pub names: Vec<String>,
     /// NFD character to its token on the word tape (what `Repr` writes).
     pub char_ids: BTreeMap<char, Token>,
+    /// Whether the cascade was built for a reference morpher that carries supplied roots.
+    pub supplied_roots: bool,
 }
 
 impl CascadeLayers {
@@ -49,6 +51,8 @@ pub enum CascadeStatus {
     InvalidShape,
     /// A budget or HC's confirmation allowance stopped the word; names the cause.
     Incomplete(String),
+    /// The reference morpher is not the one the cascade was built for; no answer is given.
+    Refused(String),
 }
 
 /// What the proposal said about the word, for reports and tests.
@@ -105,6 +109,16 @@ impl CascadeAnalyzer {
             analyses: Vec::new(),
             proposal,
         };
+        if morpher.has_supplied_roots() != self.layers.supplied_roots {
+            return done(
+                CascadeStatus::Refused(format!(
+                    "morpher has supplied roots {} but the cascade was built for {}",
+                    morpher.has_supplied_roots(),
+                    self.layers.supplied_roots
+                )),
+                ProposalNote::default(),
+            );
+        }
         let Some(surface) = g.strata.last() else {
             return done(CascadeStatus::Complete, ProposalNote::default());
         };

@@ -161,10 +161,11 @@ pub enum Refusal {
     OverlappingSimultaneousFocus,
     ClassModifyWithoutFeatureLanes,
     UnboundedTruncation,
+    RootClassNode,
 }
 
 impl Refusal {
-    pub const ALL: [Refusal; 8] = [
+    pub const ALL: [Refusal; 9] = [
         Refusal::BlockableFamily,
         Refusal::SuppliedRoots,
         Refusal::TwoCharacterTables,
@@ -173,6 +174,7 @@ impl Refusal {
         Refusal::OverlappingSimultaneousFocus,
         Refusal::ClassModifyWithoutFeatureLanes,
         Refusal::UnboundedTruncation,
+        Refusal::RootClassNode,
     ];
 
     /// The construct name a backend refusal must carry.
@@ -186,6 +188,7 @@ impl Refusal {
             Refusal::OverlappingSimultaneousFocus => "overlapping simultaneous multi-token focus",
             Refusal::ClassModifyWithoutFeatureLanes => "class Modify without feature lanes",
             Refusal::UnboundedTruncation => "unbounded truncation",
+            Refusal::RootClassNode => "root natural-class node",
         }
     }
 }

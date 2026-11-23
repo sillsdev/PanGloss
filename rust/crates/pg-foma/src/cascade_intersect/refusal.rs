@@ -21,6 +21,7 @@ pub mod construct {
     pub const OVERLAPPING_FOCUS: &str = "overlapping simultaneous multi-token focus";
     pub const CLASS_MODIFY: &str = "class Modify without feature lanes";
     pub const UNBOUNDED_TRUNCATION: &str = "unbounded truncation";
+    pub const ROOT_CLASS_NODE: &str = "root natural-class node";
     // Outside W5's feature set, not refused for good: later work items build these.
     pub const PHONOLOGY: &str = "phonology rules";
     pub const COMPOUNDING: &str = "compounding";
@@ -242,6 +243,17 @@ pub fn check_all(g: &Grammar, supplied_roots: bool) -> Vec<Refusal> {
         }
     }
     for entry in &g.entries {
+        let table = &g.char_tables[0];
+        let class_node = entry.allomorphs.iter().any(|a| {
+            pg_grammar::segment::segment(table, &a.shape.text).is_err()
+                || a.shape.shape.interior().any(|(_, _, cd, _)| cd == u32::MAX)
+        });
+        if class_node {
+            out.push(Refusal::new(
+                construct::ROOT_CLASS_NODE,
+                format!("entry {}", entry.authored_id),
+            ));
+        }
         if entry.allomorphs.iter().any(|a| a.is_pattern) {
             out.push(Refusal::new(
                 construct::PATTERN_ROOT,

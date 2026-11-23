@@ -16,7 +16,7 @@ use pg_foma_runtime::confirm::{confirm_pin_groups, PinGroup};
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId};
 use pg_parse::Morpher;
 
-const NAMED: [&str; 8] = [
+const NAMED: [&str; 9] = [
     "families with a blockable rule",
     "supplied roots",
     "several character tables",
@@ -25,6 +25,7 @@ const NAMED: [&str; 8] = [
     "overlapping simultaneous multi-token focus",
     "class Modify without feature lanes",
     "unbounded truncation",
+    "root natural-class node",
 ];
 
 struct CascadeCandidate {
@@ -59,6 +60,12 @@ impl CascadeCandidate {
             if NAMED.iter().any(|n| text.contains(n)) {
                 (Admission::Refused(text), None, None)
             } else {
+                if generated.features.iter().all(|f| W5_FEATURES.contains(f)) {
+                    return Err(format!(
+                        "not modelled ({text}) but every feature is in the W5 set: {:?}",
+                        generated.features
+                    ));
+                }
                 (Admission::NotModelled(text), None, None)
             }
         };
@@ -94,7 +101,7 @@ impl Candidate for CascadeCandidate {
         let status = match result.status {
             CascadeStatus::Complete => Status::Complete,
             CascadeStatus::InvalidShape => Status::InvalidShape,
-            CascadeStatus::Incomplete(why) => Status::Incomplete(why),
+            CascadeStatus::Incomplete(why) | CascadeStatus::Refused(why) => Status::Incomplete(why),
         };
         let analyses: Vec<_> = result.analyses.into_iter().map(|(a, _, _)| a).collect();
         outcome_of(self.grammar, status, &analyses)
@@ -161,6 +168,7 @@ fn the_cascade_agrees_with_plain_hc_on_the_w5_feature_set() {
     let full = cfg.seeds >= 250;
     cfg.min_inbound_grammars_per_feature = 0;
     cfg.min_applied_words_per_feature = 0;
+    let (min_inbound, min_applied) = (2, 3);
     let report = run(&cfg, CascadeCandidate::build);
     assert_green(&report);
     assert!(report.t2_checked > 0 || cfg.seeds < 20, "no T2 word ran");
@@ -168,7 +176,7 @@ fn the_cascade_agrees_with_plain_hc_on_the_w5_feature_set() {
         for f in W5_FEATURES {
             let c = report.per_feature.get(&f).cloned().unwrap_or_default();
             assert!(
-                c.inbound_grammars + c.wide_grammars >= 1 && c.applied_words >= 3,
+                c.inbound_grammars >= min_inbound && c.applied_words >= min_applied,
                 "{f:?}: {c:?}"
             );
         }
@@ -454,6 +462,70 @@ fn each_refused_construct_is_named_when_the_candidate_is_built_from_its_seed() {
             other => panic!("{refusal:?}: {other:?}"),
         }
     }
+}
+
+#[test]
+fn a_root_with_a_natural_class_node_is_refused_by_name() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["t[Any]"])];
+    let x = xml(&[&["a"], &["t"], &["s"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let refusals = check_all(&grammar, false);
+    let text: Vec<String> = refusals.iter().map(|r| r.text()).collect();
+    assert!(
+        text.iter().any(|t| t.contains("root natural-class node")),
+        "{text:?}"
+    );
+    let mut meter = BuildMeter::default_limits();
+    assert!(build_cascade(&grammar, false, &mut meter).is_err());
+}
+
+#[test]
+fn a_morpher_with_supplied_roots_is_refused_when_the_cascade_was_built_without() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta"])];
+    let x = xml(&[&["a"], &["t"], &["s"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let root = pg_parse::SuppliedRoot {
+        entry_id: "pgl_x".into(),
+        realization_id: "pgl_x:sig0".into(),
+        lexical_spelling: "t".into(),
+        gloss: String::new(),
+        syn_fs: pg_featstruct::FeatureStruct::EMPTY,
+        mpr: pg_grammar::model::MprSet::EMPTY,
+        stratum: pg_grammar::model::StratumId(0),
+        authority: pg_parse::RootAuthority::Supplied,
+    };
+    let overlay = pg_parse::SuppliedRootOverlay::build(&grammar, vec![root]).unwrap();
+    let with = Morpher::new_with_overlay(&grammar, 2_000_000, &overlay);
+    let without = Morpher::new(&grammar, 2_000_000);
+    assert!(with.has_supplied_roots() && !without.has_supplied_roots());
+    let mut meter = BuildMeter::default_limits();
+    let (layers, _) = build_cascade(&grammar, false, &mut meter).unwrap();
+    let analyzer = CascadeAnalyzer::new(layers);
+    let got = analyzer.analyze(&grammar, &with, "ts");
+    assert!(
+        matches!(got.status, CascadeStatus::Refused(_)),
+        "{:?}",
+        got.status
+    );
+    assert!(got.analyses.is_empty());
+    let ok = analyzer.analyze(&grammar, &without, "tas");
+    assert_eq!(ok.status, CascadeStatus::Complete);
+}
+
+#[test]
+fn the_accounting_check_reads_the_grammar_and_the_built_layers_not_the_builders_own_loop() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta"])];
+    let x = xml(&[&["a"], &["t"], &["s"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let mut meter = BuildMeter::default_limits();
+    let (_, full) = build_cascade(&grammar, false, &mut meter).unwrap();
+    assert!(!full.emitted_rules.is_empty());
+    let mut a = full.clone();
+    a.emitted_rules.clear();
+    assert!(pg_foma::cascade_intersect::build::verify_for_test(&grammar, &a).is_err());
+    let mut b = full.clone();
+    b.unreached_rules.insert(MRuleId(0));
+    assert!(pg_foma::cascade_intersect::build::verify_for_test(&grammar, &b).is_err());
 }
 
 #[test]

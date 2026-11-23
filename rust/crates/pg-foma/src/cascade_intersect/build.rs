@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use pg_foma_runtime::cascade::analyzer::CascadeLayers;
 use pg_foma_runtime::cascade::BuildMeter;
+use pg_foma_runtime::cascade::{Layer, LayerScratch, NfaLayer, TagKind};
 use pg_grammar::chardef::CharDefKind;
 use pg_grammar::model::{Grammar, MRuleId, MorphRuleDef, MorphRuleOrder};
 
@@ -26,6 +27,8 @@ pub struct Accounting {
     pub placed_allomorphs: BTreeSet<(MRuleId, usize)>,
     pub unreached_rules: BTreeSet<MRuleId>,
     pub slots: BTreeSet<(usize, usize)>,
+    /// Rules whose tag appears on some arc of a built zone layer.
+    pub emitted_rules: BTreeSet<MRuleId>,
     pub zones: BTreeSet<usize>,
     pub layers: usize,
     /// Tokens whose only spelling is epsilon.
@@ -71,13 +74,14 @@ pub fn build_cascade(
 ) -> Result<(CascadeLayers, Accounting), BuildError> {
     check(g, supplied_roots)?;
     let table = &g.char_tables[0];
-    let universe = table.len() as u32;
     let spelling = spell_table(table, meter)?;
     let char_ids: BTreeMap<char, u32> = Spelling::alphabet(table)
         .into_iter()
         .enumerate()
         .map(|(i, c)| (c, i as u32))
         .collect();
+    // One alphabet for every layer: the tokens and the NFD characters share the id space.
+    let universe = table.len().max(char_ids.len()) as u32;
     let boundaries: Vec<u32> = table
         .iter()
         .filter(|(_, cd)| cd.kind() == CharDefKind::Boundary)
@@ -93,14 +97,11 @@ pub fn build_cascade(
     let mut layers = vec![lex.layer];
     let mut names = vec!["Lex".to_string()];
 
-    let mut placed_rules: BTreeSet<MRuleId> = BTreeSet::new();
-    let mut expected_slots = BTreeSet::new();
     let mut zone_placements: Vec<BTreeSet<(MRuleId, usize)>> = Vec::new();
     for (si, stratum) in g.strata.iter().enumerate() {
         let mut positions = Vec::new();
         for &id in &stratum.mrules {
             let (alts, max_apps) = rule_alts(g, id)?;
-            placed_rules.insert(id);
             positions.push(Position::new(max_apps, alts));
         }
         for &tid in &stratum.templates {
@@ -108,9 +109,7 @@ pub fn build_cascade(
                 let mut alts = Vec::new();
                 for &id in &slot.rules {
                     alts.extend(rule_alts(g, id)?.0);
-                    placed_rules.insert(id);
                 }
-                expected_slots.insert((tid.0 as usize, k));
                 acct.slots.insert((tid.0 as usize, k));
                 positions.push(Position::new(1, alts));
             }
@@ -126,6 +125,7 @@ pub fn build_cascade(
                 "{name} does not contain the identity from its start state"
             )));
         }
+        acct.emitted_rules.extend(rule_tags(&zone.layer));
         zone_placements.push(zone.placed);
         acct.zones.insert(si);
         layers.push(zone.layer);
@@ -134,7 +134,7 @@ pub fn build_cascade(
     for placed in &zone_placements {
         acct.placed_allomorphs.extend(placed.iter().copied());
     }
-    layers.push(build_repr(&spelling, &char_ids, meter)?);
+    layers.push(build_repr(&spelling, &char_ids, universe, meter)?);
     names.push("Repr".to_string());
     if layers.len() > MAX_LAYERS {
         return Err(BuildError::Accounting(format!(
@@ -144,30 +144,59 @@ pub fn build_cascade(
     }
     acct.layers = layers.len();
 
+    let (reachable, _) = reachable_parts(g);
     for (i, rule) in g.mrules.iter().enumerate() {
         let id = MRuleId(i as u32);
-        if !placed_rules.contains(&id) && rule.affix_allomorphs().is_some() {
+        if !reachable.contains(&id) && rule.affix_allomorphs().is_some() {
             acct.unreached_rules.insert(id);
         }
     }
-    verify(g, &acct, &placed_rules, &expected_slots)?;
+    verify(g, &acct)?;
     Ok((
         CascadeLayers {
             layers,
             names,
             char_ids,
+            supplied_roots,
         },
         acct,
     ))
 }
 
-/// The accounting check: the grammar's parts, enumerated afresh, against what was mapped.
-fn verify(
-    g: &Grammar,
-    acct: &Accounting,
-    placed_rules: &BTreeSet<MRuleId>,
-    expected_slots: &BTreeSet<(usize, usize)>,
-) -> Result<(), BuildError> {
+/// The rules and template slots a grammar's strata can reach, read from the grammar alone.
+fn reachable_parts(g: &Grammar) -> (BTreeSet<MRuleId>, BTreeSet<(usize, usize)>) {
+    let (mut rules, mut slots) = (BTreeSet::new(), BTreeSet::new());
+    for stratum in &g.strata {
+        rules.extend(stratum.mrules.iter().copied());
+        for &tid in &stratum.templates {
+            for (k, slot) in g.templates[tid.0 as usize].slots.iter().enumerate() {
+                slots.insert((tid.0 as usize, k));
+                rules.extend(slot.rules.iter().copied());
+            }
+        }
+    }
+    (rules, slots)
+}
+
+/// The rule ids tagged on any arc of `layer`, read back from the built arcs.
+fn rule_tags(layer: &NfaLayer) -> BTreeSet<MRuleId> {
+    let mut scratch = LayerScratch::default();
+    let mut out = BTreeSet::new();
+    for s in 0..layer.state_count() as u32 {
+        layer.arcs_free(&mut scratch, s, &mut |a| {
+            for t in a.tags {
+                if let Ok(TagKind::Rule(id)) = t.kind() {
+                    out.insert(MRuleId(id));
+                }
+            }
+        });
+    }
+    out
+}
+
+/// The accounting check: the grammar's parts, read from the grammar, against what was built.
+fn verify(g: &Grammar, acct: &Accounting) -> Result<(), BuildError> {
+    let (reachable, expected_slots) = reachable_parts(g);
     let mut missing = Vec::new();
     for (ei, entry) in g.entries.iter().enumerate() {
         for ai in 0..entry.allomorphs.len() {
@@ -181,17 +210,23 @@ fn verify(
         let Some(allomorphs) = rule.affix_allomorphs() else {
             continue;
         };
-        if placed_rules.contains(&id) {
+        if reachable.contains(&id) {
             for k in 0..allomorphs.len() {
                 if !acct.placed_allomorphs.contains(&(id, k)) {
                     missing.push(format!("allomorph {k} of rule {i}"));
                 }
             }
+            if !acct.emitted_rules.contains(&id) {
+                missing.push(format!("rule {i} has no tagged arc in any zone layer"));
+            }
+            if acct.unreached_rules.contains(&id) {
+                missing.push(format!("rule {i} is reachable but named unreached"));
+            }
         } else if !acct.unreached_rules.contains(&id) {
-            missing.push(format!("rule {i} (neither placed nor named unreached)"));
+            missing.push(format!("rule {i} (neither reachable nor named unreached)"));
         }
     }
-    for slot in expected_slots {
+    for slot in &expected_slots {
         if !acct.slots.contains(slot) {
             missing.push(format!("slot {} of template {}", slot.1, slot.0));
         }
@@ -208,8 +243,7 @@ fn verify(
     }
 }
 
-/// Runs the accounting check against `acct` with every placed rule treated as placed, for tests.
+/// Runs the accounting check against `acct`, for tests.
 pub fn verify_for_test(g: &Grammar, acct: &Accounting) -> Result<(), BuildError> {
-    let placed: BTreeSet<MRuleId> = acct.placed_allomorphs.iter().map(|(r, _)| *r).collect();
-    verify(g, acct, &placed, &acct.slots)
+    verify(g, acct)
 }

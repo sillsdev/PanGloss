@@ -14,9 +14,9 @@ use super::spell::Spelling;
 pub fn build_repr(
     spelling: &Spelling,
     char_ids: &BTreeMap<char, u32>,
+    universe: u32,
     meter: &mut BuildMeter,
 ) -> Result<NfaLayer, BuildRefused> {
-    let universe = spelling.forms.len() as u32;
     let mut b = NfaBuilder::new("Repr", universe, meter);
     let start = b.add_state(true)?;
     b.set_start(start);

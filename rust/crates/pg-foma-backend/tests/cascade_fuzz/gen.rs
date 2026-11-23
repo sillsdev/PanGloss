@@ -42,8 +42,14 @@ impl Plan {
         }
         let normal_index = (seed - seed / 5) as usize;
         let mut features = FeatureSet::new();
-        features.insert(Feature::ALL[normal_index % Feature::ALL.len()]);
-        for _ in 0..rng.below(3) {
+        let primary = Feature::ALL[normal_index % Feature::ALL.len()];
+        features.insert(primary);
+        // These switches fall out of the in-bound set when mixed, so they are drawn alone.
+        let alone = matches!(
+            primary,
+            Feature::Circumfix | Feature::MaxAppsTwo | Feature::TwoNullAffixesOneZone
+        );
+        for _ in 0..if alone { 0 } else { rng.below(3) } {
             features.insert(*rng.pick(&Feature::ALL));
         }
         let alphabet = if normal_index % 11 == 10 {
@@ -58,7 +64,7 @@ impl Plan {
             features,
             refusal: None,
             alphabet,
-            wide: (normal_index + normal_index / Feature::ALL.len()) % 7 == 6,
+            wide: !alone && (normal_index + normal_index / Feature::ALL.len()) % 7 == 6,
         }
     }
 }
@@ -1136,6 +1142,9 @@ impl Builder<'_> {
             let mut attrs = String::new();
             let mut extra = String::new();
             let mut allos = vec![units.concat()];
+            if self.plan.refusal == Some(Refusal::RootClassNode) && i == 0 {
+                allos[0].push_str("[Any]");
+            }
             if self.plan.refusal == Some(Refusal::BlockableFamily) && i < 2 {
                 attrs.push_str(" family=\"famA\"");
                 self.need_family = true;
@@ -1485,6 +1494,7 @@ pub fn generate(plan: &Plan) -> Generated {
         }
         Some(Refusal::BlockableFamily)
         | Some(Refusal::SuppliedRoots)
+        | Some(Refusal::RootClassNode)
         | Some(Refusal::TwoCharacterTables) => {
             for s in 0..n_strata {
                 b.affix(Shape::Suffix, s, true);

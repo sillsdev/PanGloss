@@ -5,8 +5,8 @@
 //! allomorph has no segment token is just that arc from the start state. All allomorphs of all
 //! entries of every stratum are in this one layer: a root of a later stratum reaches its stratum's
 //! zone through the earlier zones by identity (every zone contains the identity from its start).
-//! The token string is the shape synthesis seeds: `segment_with_features(text)` (the same greedy
-//! segmentation of the text), falling back to the stored shape when the text does not segment.
+//! The token string is the shape synthesis seeds: the greedy segmentation of the text. A text that
+//! does not segment (a root with a class node) is refused before this layer is built.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -16,11 +16,11 @@ use pg_grammar::model::Grammar;
 
 use super::refusal::BuildError;
 
-/// The token string of a root allomorph's text, exactly as synthesis seeds it.
-pub fn root_tokens(table: &CharDefTable, text: &str, stored: &pg_shape::Shape) -> Vec<u32> {
-    let shape = pg_grammar::segment::segment(table, text);
-    let shape = shape.as_ref().unwrap_or(stored);
-    shape.interior().map(|(_, _, cd, _)| cd).collect()
+/// The token string of a root allomorph's text, exactly as synthesis seeds it; `None` when the text
+/// does not segment (a root with a class node, which the refusal function names).
+pub fn root_tokens(table: &CharDefTable, text: &str) -> Option<Vec<u32>> {
+    let shape = pg_grammar::segment::segment(table, text).ok()?;
+    Some(shape.interior().map(|(_, _, cd, _)| cd).collect())
 }
 
 pub struct LexBuilt {
@@ -45,7 +45,12 @@ pub fn build_lex(
         let table = &g.char_tables[g.strata[stratum.0 as usize].table.0 as usize];
         for (ai, allo) in entry.allomorphs.iter().enumerate() {
             let mut at = start;
-            for t in root_tokens(table, &allo.shape.text, &allo.shape.shape) {
+            let Some(tokens) = root_tokens(table, &allo.shape.text) else {
+                return Err(BuildError::Accounting(format!(
+                    "root allomorph {ai} of entry {ei} does not segment"
+                )));
+            };
+            for t in tokens {
                 at = match children.get(&(at, t)) {
                     Some(&next) => next,
                     None => {

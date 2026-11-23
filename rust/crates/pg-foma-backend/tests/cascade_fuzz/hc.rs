@@ -169,7 +169,7 @@ pub fn applied_features(
     applied
 }
 
-/// Every word of the grammar's own generation: bare roots, one or two rules, compounds.
+/// Every word of the grammar's own generation: bare roots, one to three rules, compounds.
 pub fn generated_words(
     morpher: &Morpher,
     grammar: &Grammar,
@@ -216,6 +216,23 @@ pub fn generated_words(
             let i = rng.below(pairs.len());
             let pair = pairs.swap_remove(i);
             words.extend(run(root, &pair));
+        }
+        let mut triples = Vec::new();
+        for &a in &rules {
+            for &b in &rules {
+                for &c in &rules {
+                    triples.push([
+                        GenMorpheme::Rule(a),
+                        GenMorpheme::Rule(b),
+                        GenMorpheme::Rule(c),
+                    ]);
+                }
+            }
+        }
+        for _ in 0..triples.len().min(12) {
+            let i = rng.below(triples.len());
+            let triple = triples.swap_remove(i);
+            words.extend(run(root, &triple));
         }
         if compounds {
             for &other in roots.iter().take(3) {
