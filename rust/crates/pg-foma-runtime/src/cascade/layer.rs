@@ -85,22 +85,66 @@ pub struct Arc<'a> {
 
 /// Per-word mutable state of one layer. Eager layers use none of it; a lazy layer (the bounded copy
 /// buffer of 2.4.4) interns its states here. Reset before every word.
-#[derive(Default, Debug)]
+///
+/// Interning is charged to the product byte budget BEFORE it allocates: the product calls
+/// [`LayerScratch::begin`] with the bytes still available, `intern` refuses (allocates nothing,
+/// returns `u32::MAX`, sets [`LayerScratch::refused`]) once the allowance would be passed, and the
+/// product then ends the word with `ProductBytes` without using the arcs of that call.
+#[derive(Debug)]
 pub struct LayerScratch {
     pub interned: Vec<Vec<u32>>,
     pub index: HashMap<Vec<u32>, u32>,
+    allowance: u64,
+    charged: u64,
+    refused: bool,
+}
+
+impl Default for LayerScratch {
+    fn default() -> Self {
+        LayerScratch {
+            interned: Vec::new(),
+            index: HashMap::new(),
+            allowance: u64::MAX,
+            charged: 0,
+            refused: false,
+        }
+    }
 }
 
 impl LayerScratch {
     pub fn reset(&mut self) {
         self.interned.clear();
         self.index.clear();
+        self.begin(u64::MAX);
+    }
+
+    /// Start a metered call: at most `allowance` bytes may be interned until the next `begin`.
+    pub fn begin(&mut self, allowance: u64) {
+        self.allowance = allowance;
+        self.charged = 0;
+        self.refused = false;
+    }
+
+    /// The bytes interned since the last `begin` (for the product to add to its meter).
+    pub fn take_charged(&mut self) -> u64 {
+        std::mem::take(&mut self.charged)
+    }
+
+    /// True when an `intern` since the last `begin` was refused for want of bytes.
+    pub fn refused(&self) -> bool {
+        self.refused
     }
 
     pub fn intern(&mut self, key: &[u32]) -> u32 {
         if let Some(&id) = self.index.get(key) {
             return id;
         }
+        let bytes = super::budget::interned_bytes(key.len());
+        if self.refused || self.charged.saturating_add(bytes) > self.allowance {
+            self.refused = true;
+            return u32::MAX;
+        }
+        self.charged += bytes;
         let id = self.interned.len() as u32;
         self.interned.push(key.to_vec());
         self.index.insert(key.to_vec(), id);

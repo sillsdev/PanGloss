@@ -1,9 +1,4 @@
-//! W3 tests: a brute-force composition oracle on random small transducers (cut position, edit
-//! limit, weight ceiling and pre-pass budgets varied), and named cases for the mutations C20-C77.
-//!
-//! The oracle composes the layers EAGERLY and pairwise with per-token arcs (no class arcs, no
-//! chains, no best-first), then walks the composed machine over the word with explicit `(tuple, i,
-//! u)` configurations and trims. It shares only the input data with the product.
+//! Random oracle comparison and named cases for the product (mutations C20-C77).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
@@ -612,8 +607,7 @@ fn random_composition_equals_oracle() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     let mut stats = Stats::default();
     while stats.instances < 10_000 {
-        // alphabet 3 to 5; one layer in three instances is lazy (the speller's real shape has a
-        // lazy copy layer in the prefix over an eager suffix)
+        // alphabet 3 to 5; one layer in three instances is lazy, like the speller's copy layer
         let uni = 3 + rng.below(3) as u32;
         let layers = gen_instance(&mut rng, uni);
         let m = oracle_machine(&layers);
@@ -726,8 +720,7 @@ fn tags_of(g: &TrimmedGraph) -> BTreeSet<u32> {
         .collect()
 }
 
-/// C63: ε-input arcs are moves at every state, whether or not a lower layer asks for a token. Two
-/// committed layers: each must commit before it reads, and the lower one has no token arc to ask with.
+/// C63: epsilon-input arcs are moves at every state, even when a lower layer has no token arc to ask with.
 #[test]
 fn two_committed_layers_both_commit_c63() {
     let f = Fixture::new(
@@ -860,8 +853,7 @@ fn wide() -> Fixture {
     Fixture::new(vec![l0, copy(1), copy(2)], 2)
 }
 
-/// C20, C36: every product budget ends the word with `Incomplete` naming its dimension, exactly at
-/// the figure the unlimited run used, and the counters never pass the limit.
+/// C20, C36: each budget ends the word with `Incomplete` naming it, exactly at the unlimited run's figure.
 #[test]
 fn each_budget_is_incomplete_not_truncation_c20_c36() {
     let f = wide();
@@ -912,8 +904,7 @@ fn each_budget_is_incomplete_not_truncation_c20_c36() {
     }
 }
 
-/// C51: a pre-pass that overruns its own budget is dropped, the suffix shortened, then none; the
-/// word still completes with the same graph.
+/// C51: an overrunning pre-pass is dropped, then shortened, then none; the graph is unchanged.
 #[test]
 fn prepass_overrun_falls_back_and_never_incomplete_c51() {
     let f = wide();
@@ -950,8 +941,7 @@ fn prepass_overrun_falls_back_and_never_incomplete_c51() {
     assert_eq!(report.prepass, PrepassUsed::Suffix(0));
 }
 
-/// C65: the pre-pass is never charged to the word: the word's limits equal the figures of the run
-/// WITHOUT a pre-pass and the run WITH one still completes.
+/// C65: the pre-pass is never charged to the word, so a run with one completes at the same limits.
 #[test]
 fn prepass_is_not_charged_to_the_word_c65() {
     let f = wide();
@@ -1032,8 +1022,7 @@ fn prepass_suffix_is_contiguous_c34() {
     }
 }
 
-/// C21: the backward trim keeps every co-reachable state, including one whose only route to
-/// acceptance leaves through a self-loop state and through tagged arcs.
+/// C21: the trim keeps every co-reachable state, including routes through self-loops and tagged arcs.
 #[test]
 fn trim_keeps_every_co_reachable_state_c21() {
     let f = Fixture::new(
@@ -1123,8 +1112,7 @@ fn build_bytes_charged_before_allocation_and_symbolic_c50() {
     assert!(meter.bytes() <= 64 + 48 + 16);
 }
 
-/// C60, C70, C76: the identity gate. An obligatory rule fails the test; in `Id` mode it is replaced
-/// by the identity; `BuildSteps` exhaustion is a refusal.
+/// C60, C70, C76: the identity gate refuses an obligatory rule, or replaces it in `Id` mode.
 #[test]
 fn identity_gate_and_wrap_c60_c70_c76() {
     let net = |universe| {
@@ -1288,9 +1276,7 @@ fn best_first_finds_least_weight_and_theta_cuts() {
     let _ = HashMap::<u8, u8>::new();
 }
 
-/// The effective-cut rule: a layer above the requested cut carries an edit, so the pre-pass table
-/// (keyed by the edits used in the suffix) would disagree with the word's count. The cut must be
-/// pulled up to that layer; without it the only path is cut and the word is wrongly rejected.
+/// The cut is pulled up to the first edit layer, or the table's edit count disagrees and the word is rejected.
 #[test]
 fn cut_is_pulled_up_to_the_first_edit_layer() {
     let mut edit = arc(0, RIn::Tok(0), ROut::Tok(1), 1, &[]);
@@ -1351,4 +1337,144 @@ fn report_says_why_no_prepass() {
             PrepassNote::EmptySuffix { requested: 3 },
         ]
     );
+}
+
+/// A suffix weight at the u32 limit stays below the INF sentinel, so the accepted word is kept.
+#[test]
+fn saturated_prepass_distance_is_not_a_proven_non_word() {
+    let mut a = arc(0, RIn::Eps, ROut::Tok(0), 1, &[]);
+    a.w = u32::MAX - 1;
+    let mut b = arc(1, RIn::Eps, ROut::Tok(0), 2, &[]);
+    b.w = 1;
+    let f = Fixture::new(vec![simple(3, &[2], vec![a, b])], 1);
+    let word = [0, 0];
+    let (plain, _) = f.graph(&word);
+    assert!(plain.start.is_some());
+    assert_eq!(plain.arcs.len(), 2);
+    for theta in [None, Some(u32::MAX)] {
+        let Outcome::Complete { graph, report } = f.run(&word, |r| {
+            r.prepass.cuts = vec![0];
+            r.theta = theta;
+        }) else {
+            panic!()
+        };
+        assert_eq!(report.prepass, PrepassUsed::Suffix(0));
+        assert_eq!(graph.start, Some(0), "theta {theta:?}: accepted word lost");
+        assert_eq!(graph.arcs.len(), 2);
+    }
+}
+
+#[test]
+fn distance_to_accept_clamps_below_the_sentinel() {
+    use super::trim::distance_to_accept;
+    let d = distance_to_accept(3, &[(0, 1, u32::MAX - 1), (1, 2, 5)], &[false, false, true]);
+    assert_eq!(d, vec![u32::MAX - 1, 5, 0]);
+    // unreachable stays the sentinel
+    let d = distance_to_accept(2, &[], &[false, true]);
+    assert_eq!(d, vec![u32::MAX, 0]);
+}
+
+/// Weights near the u32 limit never turn an accepted word into a non-word: the states equal the zero-weight oracle's.
+#[test]
+fn random_near_limit_weights_never_lose_a_word() {
+    let mut rng = Rng(0x0123_4567_89ab_cdef);
+    let (mut instances, mut accepted, mut prepassed) = (0, 0, 0);
+    while instances < 4_000 {
+        let uni = 3 + rng.below(3) as u32;
+        let mut layers = gen_instance(&mut rng, uni);
+        let zero = layers.clone();
+        for l in &mut layers {
+            for a in &mut l.arcs {
+                a.w = match rng.below(4) {
+                    0 => u32::MAX - 1,
+                    1 => u32::MAX,
+                    2 => u32::MAX - 1000 + a.w % 7,
+                    _ => a.w,
+                };
+            }
+        }
+        let zero: Vec<RLayer> = zero
+            .into_iter()
+            .map(|mut l| {
+                l.arcs.iter_mut().for_each(|a| a.w = 0);
+                l
+            })
+            .collect();
+        let m = oracle_machine(&zero);
+        let built: Vec<NfaLayer> = layers.iter().map(|l| l.build(uni)).collect();
+        let refs: Vec<&dyn Layer> = built.iter().map(|l| l as &dyn Layer).collect();
+        let prod = Product::new(&refs);
+        let mut scratch = ProductScratch::new(layers.len());
+        for _ in 0..3 {
+            let word = gen_word(&mut rng, &m, uni);
+            let e = rng.below(3) as u8;
+            let want = oracle_graph(&m, &word, e as u32).states;
+            let mut req = Request::new(&word, e);
+            req.prepass.cuts = vec![rng.below(layers.len() as u64) as usize];
+            let Outcome::Complete { graph, report } = prod.run(&mut scratch, &req) else {
+                panic!("incomplete")
+            };
+            let got: BTreeSet<Key> = (0..graph.state_count() as u32)
+                .map(|s| graph.key(s).to_vec())
+                .collect();
+            assert_eq!(got, want, "word {word:?} e {e} layers {layers:#?}");
+            accepted += !want.is_empty() as u32;
+            prepassed += (report.prepass != PrepassUsed::None) as u32;
+        }
+        instances += 1;
+    }
+    assert!(
+        accepted > 1000 && prepassed > 1000,
+        "{accepted} {prepassed}"
+    );
+}
+
+/// A lazy layer's interned states count against the product bytes: the eager run's figure no longer suffices.
+#[test]
+fn lazy_layer_interning_is_charged_to_product_bytes() {
+    let f = wide();
+    let word = [0, 1, 0, 1, 1];
+    let (_, eager) = f.graph(&word);
+    let lazy = Lazy(&f.built[1]);
+    let refs: Vec<&dyn Layer> = vec![&f.built[0], &lazy, &f.built[2]];
+    let p = Product::new(&refs);
+    let mut scratch = ProductScratch::new(3);
+    let run = |scratch: &mut ProductScratch, bytes: u64| {
+        let mut req = Request::new(&word, 0);
+        req.budget.bytes = bytes;
+        p.run(scratch, &req)
+    };
+    let Outcome::Complete {
+        report: unlimited, ..
+    } = run(&mut scratch, u64::MAX)
+    else {
+        panic!()
+    };
+    let interned = budget::interned_bytes(1) * f.built[1].state_count() as u64;
+    assert_eq!(unlimited.bytes, eager.bytes + interned);
+    match run(&mut scratch, eager.bytes) {
+        Outcome::Incomplete { stop, report } => {
+            assert_eq!(stop, CascadeStop::ProductBytes);
+            assert!(report.bytes <= eager.bytes);
+        }
+        o => panic!("{o:?}"),
+    }
+    assert!(matches!(
+        run(&mut scratch, unlimited.bytes),
+        Outcome::Complete { .. }
+    ));
+}
+
+#[test]
+fn intern_refuses_before_allocating_past_the_allowance() {
+    let mut s = LayerScratch::default();
+    s.begin(budget::interned_bytes(1));
+    assert_eq!(s.intern(&[7]), 0);
+    assert_eq!(s.intern(&[7]), 0, "a hit is free");
+    assert!(!s.refused());
+    assert_eq!(s.intern(&[8]), u32::MAX);
+    assert!(s.refused());
+    assert_eq!(s.interned.len(), 1);
+    assert_eq!(s.index.len(), 1);
+    assert_eq!(s.take_charged(), budget::interned_bytes(1));
 }

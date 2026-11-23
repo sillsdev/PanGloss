@@ -137,7 +137,9 @@ pub fn trim(raw: RawGraph) -> TrimmedGraph {
 }
 
 /// Least remaining weight from every node to an accepting node (Dijkstra over the reversed arcs);
-/// `u32::MAX` where there is none. `arcs` are `(src, dst, weight)`.
+/// `u32::MAX` where there is none. A finite distance is clamped to `u32::MAX - 1` so it never
+/// reads as "none"; a clamped value only underestimates, so it stays admissible. `arcs` are
+/// `(src, dst, weight)`.
 pub fn distance_to_accept(n: usize, arcs: &[(u32, u32, u32)], accepting: &[bool]) -> Vec<u32> {
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
@@ -158,7 +160,7 @@ pub fn distance_to_accept(n: usize, arcs: &[(u32, u32, u32)], accepting: &[bool]
             continue;
         }
         for &(p, w) in &radj[s as usize] {
-            let nd = d.saturating_add(w);
+            let nd = d.saturating_add(w).min(u32::MAX - 1);
             if nd < dist[p as usize] {
                 dist[p as usize] = nd;
                 heap.push(Reverse((nd, p)));

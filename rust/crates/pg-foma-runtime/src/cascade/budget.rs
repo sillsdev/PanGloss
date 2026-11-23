@@ -29,6 +29,14 @@ pub const fn state_bytes(key_words: usize) -> u64 {
     STATE_FIXED_BYTES + 8 * key_words as u64
 }
 
+/// Bytes charged for one state interned by a lazy layer's scratch of `key_words` words: the key
+/// twice (table and index) and a hash entry.
+pub const fn interned_bytes(key_words: usize) -> u64 {
+    INTERNED_FIXED_BYTES + 8 * key_words as u64
+}
+
+pub const INTERNED_FIXED_BYTES: u64 = 48;
+
 /// Bytes charged for one interned tag set of `len` tags.
 pub const fn tagset_bytes(len: usize) -> u64 {
     TAGSET_FIXED_BYTES + 4 * len as u64
