@@ -47,12 +47,23 @@ impl Plan {
         // These switches fall out of the in-bound set when mixed, so they are drawn alone.
         let alone = matches!(
             primary,
-            Feature::Circumfix | Feature::MaxAppsTwo | Feature::TwoNullAffixesOneZone
+            Feature::Circumfix
+                | Feature::MaxAppsTwo
+                | Feature::TwoNullAffixesOneZone
+                | Feature::Infix
+                | Feature::BoundedTruncation
+                | Feature::Reordering
         );
         for _ in 0..if alone { 0 } else { rng.below(3) } {
             features.insert(*rng.pick(&Feature::ALL));
         }
-        let alphabet = if normal_index % 11 == 10 {
+        let interior_only = matches!(
+            primary,
+            Feature::Infix | Feature::BoundedTruncation | Feature::Reordering
+        );
+        let alphabet = if interior_only {
+            AlphabetKind::Small
+        } else if normal_index % 11 == 10 {
             AlphabetKind::SpellerKinds
         } else if rng.chance(20) {
             AlphabetKind::Large

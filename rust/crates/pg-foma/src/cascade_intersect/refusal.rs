@@ -26,6 +26,7 @@ pub mod construct {
     pub const PHONOLOGY: &str = "phonology rules";
     pub const COMPOUNDING: &str = "compounding";
     pub const INTERIOR: &str = "interior affix allomorph";
+    pub const REDUPLICATION: &str = "reduplication";
     pub const MODIFY: &str = "Modify or InsertContext allomorph";
     pub const PATTERN_ROOT: &str = "pattern root allomorph";
     pub const LAYERS: &str = "layer count";
@@ -38,7 +39,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    fn new(construct: &'static str, detail: impl Into<String>) -> Self {
+    pub(super) fn new(construct: &'static str, detail: impl Into<String>) -> Self {
         Refusal {
             construct,
             detail: detail.into(),
@@ -97,7 +98,7 @@ fn rule_label(rule: &MorphRuleDef, index: usize) -> String {
         .map_or_else(|| format!("mrule {index}"), str::to_string)
 }
 
-fn unbounded(nodes: &[PatternNode]) -> bool {
+pub(super) fn unbounded(nodes: &[PatternNode]) -> bool {
     nodes.iter().any(|n| match n {
         PatternNode::Quantifier { max, children, .. } => max.is_none() || unbounded(children),
         _ => false,
@@ -208,38 +209,22 @@ pub fn check_all(g: &Grammar, supplied_roots: bool) -> Vec<Refusal> {
                 continue;
             };
             let at = format!("{}, allomorph {k}", rule_label(rule, i));
-            out.push(match kind {
+            let refusal = match kind {
                 InteriorKind::Modify | InteriorKind::InsertContext if featureless => {
                     Refusal::new(construct::CLASS_MODIFY, at)
                 }
                 InteriorKind::Modify | InteriorKind::InsertContext => {
                     Refusal::new(construct::MODIFY, at)
                 }
-                InteriorKind::Truncation => {
-                    let copied: Vec<u16> = a
-                        .rhs
-                        .iter()
-                        .filter_map(|x| match x {
-                            OutputAction::Copy(PartRef::Input(k)) => Some(*k),
-                            _ => None,
-                        })
-                        .collect();
-                    let drops_unbounded = a
-                        .lhs
-                        .iter()
-                        .enumerate()
-                        .any(|(p, pat)| !copied.contains(&(p as u16)) && unbounded(&pat.nodes));
-                    if drops_unbounded {
-                        Refusal::new(construct::UNBOUNDED_TRUNCATION, at)
-                    } else {
-                        Refusal::new(construct::INTERIOR, format!("{at}: bounded truncation"))
+                InteriorKind::Truncation | InteriorKind::Other => {
+                    match super::recipe::recipe_refusal(a) {
+                        Some(r) => Refusal::new(r.construct, format!("{at}: {}", r.detail)),
+                        // Recipe T models it (W9): no refusal.
+                        None => continue,
                     }
                 }
-                InteriorKind::Other => Refusal::new(
-                    construct::INTERIOR,
-                    format!("{at}: infix, reduplication or reordering"),
-                ),
-            });
+            };
+            out.push(refusal);
         }
     }
     for entry in &g.entries {
