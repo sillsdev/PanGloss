@@ -617,10 +617,7 @@ fn an_environment_checked_on_a_synthesized_form_says_so() {
 
 #[test]
 fn a_deleted_segment_still_counts_for_its_allomorphs_environment() {
-    // prDelL deletes the l of "sal" before k, so the pinned derivation surfaces
-    // as "sak", not "salk". The engine keeps the deleted node (as C# does), so it
-    // can place the allomorph and reports the first failing check in the fixed
-    // order: aSal's own excluded environment (_ k), before any surface mismatch.
+    // prDelL deletes the l, but the engine keeps the node, so aSal is placed and its excluded `_ k` fails first.
     let r = answer_on(
         "why-not-phon-delete.xml",
         "salk",
