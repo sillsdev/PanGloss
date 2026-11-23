@@ -18,8 +18,7 @@ pub enum Admission {
     NotApplicable,
     Admitted,
     Refused(String),
-    /// The grammar is outside the candidate's feature set but is not one of the constructs the
-    /// generator draws as a refusal; the gate skips it and counts it.
+    /// Outside the candidate's feature set and not a drawn refusal: skipped and counted.
     NotModelled(String),
 }
 

@@ -1,5 +1,4 @@
-//! Cascade fuzz gate. The candidate is plain HC against plain HC until the cascade backend
-//! exists; see `cascade_fuzz/mod.rs` for replay by seed.
+//! Cascade fuzz gate self-checks: plain HC against plain HC, and injected defects that must fail it.
 
 mod cascade_fuzz;
 

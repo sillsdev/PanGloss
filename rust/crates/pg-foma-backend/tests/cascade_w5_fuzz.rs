@@ -1,6 +1,4 @@
-//! The cascade backend against plain HC over generated grammars: the W5 candidate is
-//! `CascadeAnalyzer` followed by `confirm_pin_groups`. Replay a seed with
-//! `CASCADE_FUZZ_REPLAY=<seed> cargo test -p pg-foma-backend --test cascade_w5_fuzz -- --nocapture`.
+//! The cascade analyzer plus `confirm_pin_groups` against plain HC over generated grammars.
 
 mod cascade_fuzz;
 
@@ -275,7 +273,9 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
                     if t.is_empty() {
                         String::new()
                     } else {
-                        format!("<InsertSegments><PhoneticShape>{t}</PhoneticShape></InsertSegments>")
+                        format!(
+                            "<InsertSegments><PhoneticShape>{t}</PhoneticShape></InsertSegments>"
+                        )
                     }
                 };
                 x += &format!(
@@ -286,7 +286,9 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
                     ins(suf)
                 );
             }
-            x += &format!("</MorphologicalSubrules><MorphemeId>M{id}</MorphemeId></MorphologicalRule>");
+            x += &format!(
+                "</MorphologicalSubrules><MorphemeId>M{id}</MorphemeId></MorphologicalRule>"
+            );
         }
         x += "</MorphologicalRuleDefinitions><LexicalEntries>";
         for text in &s.entries {
@@ -296,7 +298,9 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
                 .split('|')
                 .enumerate()
                 .map(|(k, t)| {
-                    format!("<Allomorph id=\"{id}a{k}\"><PhoneticShape>{t}</PhoneticShape></Allomorph>")
+                    format!(
+                        "<Allomorph id=\"{id}a{k}\"><PhoneticShape>{t}</PhoneticShape></Allomorph>"
+                    )
                 })
                 .collect();
             x += &format!(
@@ -313,11 +317,13 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
 
 /// Cascade and plain HC give the same multiset on every word; returns how many words HC analysed.
 fn agree(xml: &str, words: &[&str]) -> usize {
-    let grammar: &'static Grammar =
-        Box::leak(Box::new(pg_grammar::load(xml).unwrap_or_else(|e| panic!("{e}\n{xml}"))));
+    let grammar: &'static Grammar = Box::leak(Box::new(
+        pg_grammar::load(xml).unwrap_or_else(|e| panic!("{e}\n{xml}")),
+    ));
     let morpher = Morpher::new(grammar, 2_000_000);
     let mut meter = BuildMeter::default_limits();
-    let (layers, _) = build_cascade(grammar, false, &mut meter).unwrap_or_else(|e| panic!("{}", e.text()));
+    let (layers, _) =
+        build_cascade(grammar, false, &mut meter).unwrap_or_else(|e| panic!("{}", e.text()));
     let analyzer = CascadeAnalyzer::new(layers);
     let mut analysed = 0;
     for w in words {
@@ -356,7 +362,10 @@ fn prefixes_suffixes_circumfixes_and_null_allomorphs_agree_with_hc() {
     let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
     let analysed = agree(
         &x,
-        &["ta", "taa", "tta", "ttaa", "kta", "ktaa", "skta", "ska", "stak", "skak", "sktak", "kka", "aka", "tak", "s", ""],
+        &[
+            "ta", "taa", "tta", "ttaa", "kta", "ktaa", "skta", "ska", "stak", "skak", "sktak",
+            "kka", "aka", "tak", "s", "",
+        ],
     );
     assert!(analysed >= 8, "{analysed}");
 }
@@ -364,8 +373,15 @@ fn prefixes_suffixes_circumfixes_and_null_allomorphs_agree_with_hc() {
 #[test]
 fn a_digraph_and_a_second_representation_are_explored_in_every_segmentation() {
     let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta", "tsa"])];
-    let x = xml(&[&["a"], &["t"], &["s"], &["ts", "c"], &["k", "q"]], None, &strata);
-    let analysed = agree(&x, &["ta", "tas", "tsa", "tsas", "ca", "cas", "ka", "qa", "tats"]);
+    let x = xml(
+        &[&["a"], &["t"], &["s"], &["ts", "c"], &["k", "q"]],
+        None,
+        &strata,
+    );
+    let analysed = agree(
+        &x,
+        &["ta", "tas", "tsa", "tsas", "ca", "cas", "ka", "qa", "tats"],
+    );
     assert!(analysed >= 4, "{analysed}");
 }
 
@@ -384,7 +400,10 @@ fn a_boundary_in_an_affix_insert_or_at_a_junction_is_written_or_dropped() {
         linear(vec![rule(&[("k+", "")], 1)], &[]),
     ];
     let x = xml(&[&["a"], &["t"], &["k"], &["s"]], Some("+"), &strata);
-    let analysed = agree(&x, &["ta", "tas", "ta+s", "kta", "ktas", "k+tas", "kta+s", "+"]);
+    let analysed = agree(
+        &x,
+        &["ta", "tas", "ta+s", "kta", "ktas", "k+tas", "kta+s", "+"],
+    );
     assert!(analysed >= 2, "{analysed}");
 }
 
@@ -393,13 +412,20 @@ fn a_rule_repeats_exactly_max_apps_times_in_a_chain_and_an_unordered_pool() {
     for order in ["linear", "unordered"] {
         let strata = [StratumSpec {
             order,
-            rules: vec![rule(&[("", "s")], 3), rule(&[("", "k")], 2), rule(&[("s", "")], 2)],
+            rules: vec![
+                rule(&[("", "s")], 3),
+                rule(&[("", "k")], 2),
+                rule(&[("s", "")], 2),
+            ],
             entries: vec!["ta"],
         }];
         let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
         let analysed = agree(
             &x,
-            &["ta", "tas", "tass", "tasss", "tassss", "tak", "takk", "takkk", "taks", "tasks", "taskk", "sta", "ssta", "sssta", "stas"],
+            &[
+                "ta", "tas", "tass", "tasss", "tassss", "tak", "takk", "takkk", "taks", "tasks",
+                "taskk", "sta", "ssta", "sssta", "stas",
+            ],
         );
         assert!(analysed >= 6, "{order}: {analysed}");
     }
@@ -420,7 +446,8 @@ fn roots_of_a_later_stratum_pass_through_the_earlier_zones_unchanged() {
 fn each_refused_construct_is_named_when_the_candidate_is_built_from_its_seed() {
     use cascade_fuzz::features::Refusal;
     for (i, refusal) in Refusal::ALL.into_iter().enumerate() {
-        let generated = cascade_fuzz::gen::generate(&cascade_fuzz::gen::Plan::for_seed(4 + 5 * i as u64));
+        let generated =
+            cascade_fuzz::gen::generate(&cascade_fuzz::gen::Plan::for_seed(4 + 5 * i as u64));
         let c = CascadeCandidate::build(&generated).unwrap();
         match c.admission() {
             Admission::Refused(t) => assert!(t.contains(refusal.named_construct()), "{t}"),
@@ -478,7 +505,11 @@ fn confirmation_runs_under_the_reference_morphers_own_limits() {
 #[test]
 fn every_allomorph_of_a_root_and_an_unspellable_segment_are_modelled() {
     let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta|ka", "tsa"])];
-    let x = xml(&[&["a"], &["t"], &["k"], &["s"], &["ts"], &[]], None, &strata);
+    let x = xml(
+        &[&["a"], &["t"], &["k"], &["s"], &["ts"], &[]],
+        None,
+        &strata,
+    );
     let analysed = agree(&x, &["ta", "ka", "tas", "kas", "tsa", "tsas", "a"]);
     assert!(analysed >= 5, "{analysed}");
 }
@@ -502,7 +533,10 @@ fn every_tag_lex_and_the_zones_emit_decodes_to_the_kind_it_was_built_as() {
     use pg_foma_runtime::cascade::analyzer::{decode_tag, TagKind};
     use pg_foma_runtime::cascade::{Layer, LayerScratch};
     let strata = [
-        linear(vec![rule(&[("", "s"), ("", "")], 1), rule(&[("k", "")], 1)], &["ta|ka", "tsa"]),
+        linear(
+            vec![rule(&[("", "s"), ("", "")], 1), rule(&[("k", "")], 1)],
+            &["ta|ka", "tsa"],
+        ),
         linear(vec![rule(&[("s", "k")], 1)], &["ka"]),
     ];
     let x = xml(&[&["a"], &["t"], &["k"], &["s"], &["ts"]], None, &strata);
@@ -529,7 +563,10 @@ fn every_tag_lex_and_the_zones_emit_decodes_to_the_kind_it_was_built_as() {
         .collect();
     assert_eq!(zone_tags.len(), 3);
     assert!(zone_tags.iter().all(|t| matches!(t, TagKind::Rule(_))));
-    assert!(tags_of(layers.layers.len() - 1).is_empty(), "Repr carries no tags");
+    assert!(
+        tags_of(layers.layers.len() - 1).is_empty(),
+        "Repr carries no tags"
+    );
 }
 
 #[test]
@@ -559,7 +596,8 @@ fn a_zone_drops_a_boundary_token_it_reads_and_spelling_gives_an_unspellable_row_
     let strata = [linear(vec![], &["ta"])];
     let grammar = pg_grammar::load(&xml(&[&["a"], &["t"], &[]], None, &strata)).unwrap();
     let spelling =
-        pg_foma::cascade_intersect::spell::spell_table(&grammar.char_tables[0], &mut meter).unwrap();
+        pg_foma::cascade_intersect::spell::spell_table(&grammar.char_tables[0], &mut meter)
+            .unwrap();
     assert_eq!(spelling.forms[2], vec![Vec::<char>::new()]);
     assert_eq!(spelling.epsilon_only, 1);
 }

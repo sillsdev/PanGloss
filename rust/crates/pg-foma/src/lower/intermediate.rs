@@ -38,6 +38,9 @@ struct RhsUpdate {
     fresh: Vec<u64>,
 }
 
+/// A `Modify`: its pin lanes and the lanes it copies from.
+type ModifyAction = (Vec<(usize, u64)>, Vec<usize>);
+
 impl RhsUpdate {
     fn apply(&self, base: &[u64], type_lane: usize) -> Vec<u64> {
         let mut row = base.to_vec();
@@ -121,9 +124,7 @@ impl IntermediateBundles {
         Ok(result)
     }
 
-    /// The joint fixpoint of the cascade plan (section 2.0): rows closed under every rule's rhs updates, every `Modify` pin set and every `InsertContext` row of the grammar, in any order, until nothing new appears.
-    ///
-    /// Unlike [`IntermediateBundles::build`] no rule uses an `Exact` block plan, so `blocks` stays empty and every rule is closed by its general (widened) updates; and the closure of one source never waits for another, so the result is a superset for any stratum layout. Exceeding the row cap or byte charge is an error naming the first rule. Additive: nothing in `build` reads or calls this.
+    /// Rows closed under every rule's rhs updates, `Modify` pin set and `InsertContext` row, in any order; a superset for any stratum layout, with no `Exact` block plans. Exceeding the row cap or byte charge is an error naming the first rule.
     pub(crate) fn build_joint(
         g: &Grammar,
         table_id: TableId,
@@ -192,7 +193,7 @@ impl IntermediateBundles {
         table_id: TableId,
         width: usize,
         type_lane: usize,
-    ) -> (Vec<(Vec<(usize, u64)>, Vec<usize>)>, Vec<Vec<u64>>) {
+    ) -> (Vec<ModifyAction>, Vec<Vec<u64>>) {
         let (mut modifies, mut inserts) = (Vec::new(), Vec::new());
         let affix_actions = g
             .mrules
