@@ -506,8 +506,9 @@ fn net_differentials(whole: bool, g: &Grammar, label: &str, tally: &mut Tally, r
     let opts = foma::options::FomaOptions::default();
     let parts = match CascadeParts::build(&opts, g, &prules) {
         Ok(p) => p,
-        Err(_) => {
+        Err(e) => {
             tally.net_refused += 1;
+            println!("W2 net-unbuildable: {label}: {e:?}");
             return;
         }
     };
@@ -885,4 +886,29 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
 #[test]
 fn whole_rule_differential_nets_contain_synthesis() {
     run(true);
+}
+
+/// Names every grammar whose cascade cannot be built, with the refusal: those grammars are UNCHECKED by the net differentials (membership, spelling and image checks still cover them).
+#[test]
+fn unbuildable_cascades_are_named() {
+    let scope = if std::env::var_os("HC_CONFORMANCE_SUITE").is_some() || pg_conformance_fixtures::suite_root().exists() {
+        pg_conformance_fixtures::ConformanceScope::All
+    } else {
+        pg_conformance_fixtures::ConformanceScope::Local
+    };
+    let opts = foma::options::FomaOptions::default();
+    let mut n = 0;
+    for f in pg_conformance_fixtures::discover_scoped(scope) {
+        let xml = f.load_grammar_xml();
+        let Ok(g) = pg_grammar::load(&xml) else { continue };
+        let prules: Vec<&PhonRuleDef> = g.prules.iter().filter(|r| matches!(r, PhonRuleDef::Rewrite(_))).collect();
+        if prules.is_empty() {
+            continue;
+        }
+        if let Err(e) = CascadeParts::build(&opts, &g, &prules) {
+            n += 1;
+            println!("W2 net-unbuildable: {}: {e:?}", f.label());
+        }
+    }
+    println!("W2 net-unbuildable total={n}");
 }
