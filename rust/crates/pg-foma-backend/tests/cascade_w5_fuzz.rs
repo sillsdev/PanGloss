@@ -435,3 +435,25 @@ fn the_accounting_check_names_a_dropped_allomorph_slot_stratum_or_root_allomorph
     }
     assert!(pg_foma::cascade_intersect::build::verify_for_test(&grammar, &full).is_ok());
 }
+
+#[test]
+fn confirmation_runs_under_the_reference_morphers_own_limits() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta", "ka"])];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
+    let grammar: &'static Grammar = Box::leak(Box::new(pg_grammar::load(&x).unwrap()));
+    let mut meter = BuildMeter::default_limits();
+    let (layers, _) = build_cascade(grammar, false, &mut meter).unwrap();
+    let analyzer = CascadeAnalyzer::new(layers);
+    let roomy = Morpher::new(grammar, 2_000_000);
+    let done = analyzer.analyze(grammar, &roomy, "tas");
+    assert_eq!(done.status, CascadeStatus::Complete);
+    assert!(!done.analyses.is_empty());
+    let tiny = Morpher::new(grammar, 2);
+    let stopped = analyzer.analyze(grammar, &tiny, "tas");
+    assert!(
+        matches!(stopped.status, CascadeStatus::Incomplete(_)),
+        "{:?}",
+        stopped.status
+    );
+    assert!(stopped.analyses.is_empty());
+}
