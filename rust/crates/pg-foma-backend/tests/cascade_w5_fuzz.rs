@@ -513,6 +513,22 @@ fn a_morpher_with_supplied_roots_is_refused_when_the_cascade_was_built_without()
 }
 
 #[test]
+fn a_word_character_missing_from_the_alphabet_is_refused_not_answered_empty() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta"])];
+    let x = xml(&[&["a"], &["t"], &["s"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let morpher = Morpher::new(&grammar, 2_000_000);
+    let mut meter = BuildMeter::default_limits();
+    let (mut layers, _) = build_cascade(&grammar, false, &mut meter).unwrap();
+    layers.char_ids.remove(&'s');
+    let got = CascadeAnalyzer::new(layers).analyze(&grammar, &morpher, "tas");
+    match got.status {
+        CascadeStatus::Refused(why) => assert!(why.contains("unknown character"), "{why}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn the_accounting_check_reads_the_grammar_and_the_built_layers_not_the_builders_own_loop() {
     let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta"])];
     let x = xml(&[&["a"], &["t"], &["s"]], None, &strata);

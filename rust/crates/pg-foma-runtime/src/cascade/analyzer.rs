@@ -87,10 +87,10 @@ impl CascadeAnalyzer {
     }
 
     /// The word on the character tape; `None` when a character is in no written form.
-    fn word_tokens(&self, word: &str) -> Option<Vec<Token>> {
+    fn word_tokens(&self, word: &str) -> Result<Vec<Token>, char> {
         pg_grammar::nfd::nfd(word)
             .chars()
-            .map(|c| self.layers.char_ids.get(&c).copied())
+            .map(|c| self.layers.char_ids.get(&c).copied().ok_or(c))
             .collect()
     }
 
@@ -126,14 +126,14 @@ impl CascadeAnalyzer {
         if pg_grammar::segment::segment(table, word).is_err() {
             return done(CascadeStatus::InvalidShape, ProposalNote::default());
         }
-        let Some(tokens) = self.word_tokens(word) else {
-            return done(
-                CascadeStatus::Complete,
-                ProposalNote {
-                    empty: true,
-                    ..ProposalNote::default()
-                },
-            );
+        let tokens = match self.word_tokens(word) {
+            Ok(tokens) => tokens,
+            Err(c) => {
+                return done(
+                    CascadeStatus::Refused(format!("unknown character {c:?} in the word")),
+                    ProposalNote::default(),
+                )
+            }
         };
         let outcome = self.propose(&tokens);
         let (graph, report) = match outcome {
