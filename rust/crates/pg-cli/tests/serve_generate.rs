@@ -179,6 +179,159 @@ fn a_phonological_rule_appears_as_a_step_with_its_input_and_output() {
     assert_eq!(steps[0]["output"], "kad");
 }
 
+/// The kat snapshot with a suffix of the given allomorph forms, each allowed after a vowel so every one matches `ranna`.
+fn suffix_snapshot(forms: &[&str]) -> String {
+    let mut doc: Value = serde_json::from_str(SNAPSHOT).unwrap();
+    let allomorphs: Vec<Value> = forms
+        .iter()
+        .enumerate()
+        .map(|(i, form)| {
+            json!({
+                "guid": format!("00000000-0000-0000-0000-0000000006{i}0"),
+                "morphType": "suffix",
+                "isAbstract": false,
+                "forms": [{"ws": "fx", "form": form}],
+                "environments": ["00000000-0000-0000-0000-000000000017"],
+            })
+        })
+        .collect();
+    let template = doc["lexicon"]["entries"][2].clone();
+    let mut entry = template;
+    entry["guid"] = json!("00000000-0000-0000-0000-000000000060");
+    entry["allomorphs"] = Value::Array(allomorphs);
+    entry["msas"][0]["guid"] = json!("00000000-0000-0000-0000-000000000062");
+    entry["senses"][0]["guid"] = json!("00000000-0000-0000-0000-000000000063");
+    entry["senses"][0]["msa"] = json!("00000000-0000-0000-0000-000000000062");
+    doc["lexicon"]["entries"]
+        .as_array_mut()
+        .unwrap()
+        .push(entry);
+    doc.to_string()
+}
+
+const SUFFIX_RANNA: &str = r#"{"schemaVersion":1,"root":{"entryGuid":"00000000-0000-0000-0000-000000000040","msaGuid":"00000000-0000-0000-0000-000000000042","msaClass":"MoStemMsa"},"morphemes":[{"entryGuid":"00000000-0000-0000-0000-000000000060","msaGuid":"00000000-0000-0000-0000-000000000062","msaClass":"MoInflAffMsa"}]}"#;
+
+fn generate_suffix(forms: &[&str], extra: Value) -> Value {
+    let project = Project::new("suffix.json", &suffix_snapshot(forms));
+    let mut server = Server::start(&project);
+    let request: Value = serde_json::from_str(SUFFIX_RANNA).unwrap();
+    let mut message = json!({"id": "s", "op": "generate", "request": request, "trace": true});
+    for (key, value) in extra.as_object().unwrap() {
+        message[key] = value.clone();
+    }
+    server.ask(message)
+}
+
+/// A derivation must start at the seed, chain input to output, and end at the surface.
+fn assert_chain(steps: &Value, seed: &str, surface: &str) {
+    let steps = steps.as_array().unwrap();
+    assert!(!steps.is_empty());
+    assert_eq!(steps[0]["input"], seed, "{steps:?}");
+    for pair in steps.windows(2) {
+        assert_eq!(pair[0]["output"], pair[1]["input"], "{steps:?}");
+    }
+    let last = steps.last().unwrap()["output"].as_str().unwrap();
+    assert_eq!(last.replace('+', ""), surface, "{steps:?}");
+}
+
+#[test]
+fn two_allomorphs_neutralised_to_one_surface_report_both_derivations_not_a_guess() {
+    let r = generate_suffix(&["t", "d"], json!({}));
+    assert_eq!(r["complete"], true, "{r}");
+    let seeds = r["seeds"].as_array().unwrap();
+    let surfaces: Vec<&Value> = seeds
+        .iter()
+        .flat_map(|seed| seed["surfaces"].as_array().unwrap())
+        .collect();
+    assert_eq!(surfaces.len(), 1, "{r}");
+    let surface = surfaces[0];
+    assert_eq!(surface["surface"], "rannad", "{r}");
+    assert_eq!(surface["derivations"], 2, "{r}");
+    assert_eq!(
+        surface["steps"],
+        json!([]),
+        "several derivations give no single steps: {r}"
+    );
+    assert_eq!(surface["stepsUnresolved"], false, "{r}");
+    let alternatives = surface["alternatives"].as_array().unwrap();
+    assert_eq!(alternatives.len(), 2, "{r}");
+    let mut kinds: Vec<Vec<String>> = alternatives
+        .iter()
+        .map(|steps| {
+            assert_chain(steps, "ranna", "rannad");
+            steps
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|step| step["rule"]["kind"].as_str().unwrap().to_string())
+                .collect()
+        })
+        .collect();
+    kinds.sort();
+    assert_eq!(kinds, [vec!["morph"], vec!["morph", "phon"]], "{r}");
+    for steps in alternatives {
+        let morph = &steps[0];
+        let expected = if steps.as_array().unwrap().len() == 2 {
+            "ranna+t"
+        } else {
+            "ranna+d"
+        };
+        assert_eq!(morph["output"], expected, "{r}");
+    }
+}
+
+#[test]
+fn sibling_branches_keep_their_own_steps() {
+    let r = generate_suffix(&["t", "s"], json!({}));
+    assert_eq!(r["complete"], true, "{r}");
+    let mut by_surface = std::collections::BTreeMap::new();
+    for seed in r["seeds"].as_array().unwrap() {
+        for surface in seed["surfaces"].as_array().unwrap() {
+            by_surface.insert(
+                surface["surface"].as_str().unwrap().to_string(),
+                surface.clone(),
+            );
+        }
+    }
+    assert_eq!(
+        by_surface.keys().cloned().collect::<Vec<_>>(),
+        ["rannad", "rannas"],
+        "{r}"
+    );
+    for (surface, value) in &by_surface {
+        assert_eq!(value["derivations"], 1, "{r}");
+        assert_eq!(value["stepsUnresolved"], false, "{r}");
+        assert_chain(&value["steps"], "ranna", surface);
+    }
+    assert_eq!(
+        by_surface["rannad"]["steps"].as_array().unwrap().len(),
+        2,
+        "{r}"
+    );
+    assert_eq!(
+        by_surface["rannas"]["steps"].as_array().unwrap().len(),
+        1,
+        "{r}"
+    );
+}
+
+#[test]
+fn a_truncated_trace_reports_its_surfaces_without_guessing_steps() {
+    let full = generate_suffix(&["t"], json!({}));
+    let nodes = full["traceSteps"].as_u64().unwrap();
+    assert!(nodes > 3, "{full}");
+    for cap in 1..nodes {
+        let r = generate_suffix(&["t"], json!({"maxTraceSteps": cap}));
+        for seed in r["seeds"].as_array().unwrap() {
+            assert_eq!(seed["traceTruncated"], true, "cap {cap}: {r}");
+            for surface in seed["surfaces"].as_array().unwrap() {
+                assert_eq!(surface["stepsUnresolved"], true, "cap {cap}: {r}");
+                assert_eq!(surface["steps"], json!([]), "cap {cap}: {r}");
+            }
+        }
+    }
+}
+
 #[test]
 fn trace_off_returns_surfaces_without_steps() {
     let project = Project::new("kat.fwdata", FWDATA);
@@ -334,6 +487,10 @@ fn describe_matches_what_the_op_emits() {
     let surface = &seed["surfaces"][0];
     assert_eq!(keys(surface), declared("surfaceFields"));
     assert_eq!(keys(&surface["steps"][0]), declared("stepFields"));
+    assert_eq!(keys(&surface["steps"][0]["rule"]), declared("ruleFields"));
+    for allomorph in seed["allomorphs"].as_array().unwrap() {
+        assert_eq!(keys(allomorph), declared("allomorphFields"));
+    }
 
     let limits = &r["limits"];
     assert_eq!(limits["generationCap"], op["limits"]["generationCap"]);

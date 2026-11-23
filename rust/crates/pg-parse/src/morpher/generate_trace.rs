@@ -1,6 +1,6 @@
 //! Bounded generation keeping each seed's allomorph choices and rule trace, for `pangloss serve`'s `generate` op.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
 use pg_featstruct::FeatureStruct;
@@ -120,10 +120,14 @@ pub struct GenerateStep {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeedSurface {
     pub surface: String,
-    /// The derivation, outermost application first; empty when no trace was requested.
+    /// The one derivation in application order; empty when no trace was requested, when no single derivation could be proven, or when several distinct ones reached the surface.
     pub steps: Vec<GenerateStep>,
-    /// How many distinct derivations of this seed reached the surface; `steps` is the least.
+    /// How many words of this seed reached the surface, whether or not their derivations differ.
     pub derivations: usize,
+    /// A derivation could not be attributed from the trace tree, so no steps are given.
+    pub steps_unresolved: bool,
+    /// Each distinct derivation, sorted and capped, when more than one reached the surface; `steps` is then empty.
+    pub alternatives: Vec<Vec<GenerateStep>>,
 }
 
 /// One seed (a root allomorph plus one selection of the others) and what it generated.
@@ -207,6 +211,7 @@ impl<'g> Morpher<'g> {
                 let seed_key = format!("r{allo_idx}/p{permutation_index}");
                 permutation_index += 1;
                 let seed = self.build_generation_seed(root, allo_idx, perm, real_fs.clone());
+                let seed_shape = seed.shape.clone();
                 let items = self.seed_items(root, allo_idx, perm);
                 let policy = FinalTemplateSynthesisPolicy {
                     always_enforce: self.always_enforce_final_templates,
@@ -236,6 +241,8 @@ impl<'g> Morpher<'g> {
                                 surface,
                                 steps: Vec::new(),
                                 derivations,
+                                steps_unresolved: false,
+                                alternatives: Vec::new(),
                             })
                             .collect();
                         (surfaces, false)
@@ -253,7 +260,7 @@ impl<'g> Morpher<'g> {
                             policy,
                             None,
                         );
-                        let surfaces = self.traced_seed_surfaces(generated, &sink);
+                        let surfaces = self.traced_seed_surfaces(generated, &sink, &seed_shape);
                         trace_left = Some(left.saturating_sub(sink.len()));
                         outcome.trace_nodes = outcome.trace_nodes.saturating_add(sink.len());
                         (surfaces, sink.truncated())
@@ -361,110 +368,199 @@ impl<'g> Morpher<'g> {
         }
     }
 
-    /// Every valid word of one seed, keyed by surface, each with the least derivation that reached it.
-    fn traced_seed_surfaces(&self, generated: Vec<Word>, sink: &TreeTraceSink) -> Vec<SeedSurface> {
+    /// Every valid word of one seed, keyed by surface, each derivation attributed from the trace tree's own structure or reported unresolved.
+    fn traced_seed_surfaces(
+        &self,
+        generated: Vec<Word>,
+        sink: &TreeTraceSink,
+        seed_shape: &pg_shape::Shape,
+    ) -> Vec<SeedSurface> {
         let parents = sink.parent_index();
-        let log = event_log(sink);
-        let mut found: BTreeMap<String, (Vec<GenerateStep>, usize)> = BTreeMap::new();
+        let log = if sink.truncated() {
+            None
+        } else {
+            event_log(sink, &parents)
+        };
+        let mut found: BTreeMap<String, SurfaceTally> = BTreeMap::new();
         for word in generated {
             if !self.is_word_valid(&word) {
                 continue;
             }
-            let chain: Vec<TraceHandle> = word
-                .trace
-                .filter(|handle| *handle != TraceHandle::DUMMY)
-                .map(|handle| sink.path_from_root(&parents, handle))
-                .unwrap_or_default();
-            let steps = self.steps_for(&log, &chain, &word);
-            let entry = found
-                .entry(self.generated_surface_of(&word))
-                .or_insert_with(|| (steps.clone(), 0));
-            entry.1 += 1;
-            if steps < entry.0 {
-                entry.0 = steps;
+            let attributed = log
+                .as_ref()
+                .and_then(|log| self.attribute(log, sink, &parents, &word, seed_shape));
+            let tally = found.entry(self.generated_surface_of(&word)).or_default();
+            tally.derivations += 1;
+            match attributed {
+                Some(steps) => {
+                    tally.sequences.insert(steps);
+                }
+                None => tally.unresolved = true,
             }
         }
         found
             .into_iter()
-            .map(|(surface, (steps, derivations))| SeedSurface {
-                surface,
-                steps,
-                derivations,
-            })
+            .map(|(surface, tally)| tally.finish(surface))
             .collect()
     }
 
-    /// The rule applications that turned the seed into `word`, found by walking the event log backward by shape because only morphological nodes chain through the word's cursor.
-    fn steps_for(&self, log: &[LogEvent], chain: &[TraceHandle], word: &Word) -> Vec<GenerateStep> {
-        let g = self.g;
-        let chained: Vec<usize> = chain.iter().map(|handle| handle.index() as usize).collect();
-        let mut target = word.shape.clone();
-        let mut bound = log.len();
-        let mut reversed = Vec::new();
-        while let Some((index, event)) =
-            log[..bound]
-                .iter()
-                .enumerate()
-                .rev()
-                .find(|(index, event)| {
-                    event
-                        .output
-                        .as_ref()
-                        .is_some_and(|(_, shape)| *shape == target)
-                        && match event.kind {
-                            EventKind::Phon(_) => event
-                                .input
-                                .as_ref()
-                                .is_some_and(|(_, shape)| shape != &target),
-                            EventKind::Morph(_) => chained.contains(index),
-                            EventKind::Stratum => false,
-                        }
-                })
-        {
-            let (out_stratum, out_shape) = event.output.as_ref().expect("matched on its output");
-            let (before_stratum, before) = match event.kind {
-                EventKind::Phon(_) => event.input.clone().expect("matched on its input"),
-                _ => morph_input(log, &chained, index, *out_stratum),
-            };
-            reversed.push(GenerateStep {
-                stratum: stratum_display(g, *out_stratum),
-                rule: step_rule(g, event.kind.step_kind().expect("matched a rule event")),
-                input: render_shape(g, before_stratum, &before),
-                output: render_shape(g, *out_stratum, out_shape),
-                subrule: event.subrule,
-            });
-            target = before;
-            bound = index;
+    /// The one rule sequence from the seed to `word` whose every step is a node of the word's own derivation, or `None` when none or several fit.
+    fn attribute(
+        &self,
+        log: &SeedLog,
+        sink: &TreeTraceSink,
+        parents: &[Option<u32>],
+        word: &Word,
+        seed_shape: &pg_shape::Shape,
+    ) -> Option<Vec<GenerateStep>> {
+        let nodes: Vec<usize> = match word.trace.filter(|handle| *handle != TraceHandle::DUMMY) {
+            Some(handle) => sink
+                .path_from_root(parents, handle)
+                .into_iter()
+                .map(|handle| handle.index() as usize)
+                .collect(),
+            None => vec![0],
+        };
+        if nodes.first() != Some(&0) {
+            return None;
         }
-        reversed.reverse();
-        reversed
+        let mut search = Search {
+            g: self.g,
+            log,
+            nodes: &nodes,
+            end: &word.shape,
+            found: Vec::new(),
+            stopped: false,
+        };
+        search.walk(0, seed_shape, 0, &mut Vec::new());
+        if search.stopped || search.found.len() != 1 {
+            return None;
+        }
+        search.found.pop()
     }
 }
 
-/// The word entering the morphological rule at `index`: the output of the previous chained morphological rule in its stratum, else that stratum's input.
-fn morph_input(
-    log: &[LogEvent],
-    chained: &[usize],
-    index: usize,
-    stratum: StratumId,
-) -> (StratumId, pg_shape::Shape) {
-    for earlier in (0..index).rev() {
-        let event = &log[earlier];
-        match event.kind {
-            EventKind::Morph(_) if chained.contains(&earlier) => {
-                if let Some(output) = &event.output {
-                    return output.clone();
+/// What one surface collected across the words of a seed that reached it.
+#[derive(Default)]
+struct SurfaceTally {
+    derivations: usize,
+    unresolved: bool,
+    sequences: BTreeSet<Vec<GenerateStep>>,
+}
+
+impl SurfaceTally {
+    /// Most distinct derivations reported for one surface.
+    const MAX_ALTERNATIVES: usize = 16;
+
+    fn finish(self, surface: String) -> SeedSurface {
+        let derivations = self.derivations;
+        let mut result = SeedSurface {
+            surface,
+            derivations,
+            steps: Vec::new(),
+            steps_unresolved: self.unresolved,
+            alternatives: Vec::new(),
+        };
+        if self.unresolved {
+            return result;
+        }
+        let mut sequences: Vec<Vec<GenerateStep>> = self.sequences.into_iter().collect();
+        if sequences.len() == 1 {
+            result.steps = sequences.remove(0);
+        } else {
+            sequences.truncate(Self::MAX_ALTERNATIVES);
+            result.alternatives = sequences;
+        }
+        result
+    }
+}
+
+/// One seed's trace nodes reduced to rule applications, with the phonological ones indexed by the node they hang under.
+struct SeedLog {
+    events: Vec<LogEvent>,
+    phon_under: HashMap<usize, Vec<usize>>,
+}
+
+/// A depth-first search for the derivations of one word, charged to the work budget.
+struct Search<'a> {
+    g: &'a Grammar,
+    log: &'a SeedLog,
+    nodes: &'a [usize],
+    end: &'a pg_shape::Shape,
+    found: Vec<Vec<GenerateStep>>,
+    stopped: bool,
+}
+
+impl Search<'_> {
+    /// Between node `at` and the next one on the word's path, apply any phonological rule hanging under `at` whose input is the current shape, then take the next node's own step.
+    fn walk(
+        &mut self,
+        at: usize,
+        current: &pg_shape::Shape,
+        last: usize,
+        acc: &mut Vec<GenerateStep>,
+    ) {
+        if self.stopped || self.found.len() > 1 {
+            return;
+        }
+        if !pg_fst::work::consume() {
+            self.stopped = true;
+            return;
+        }
+        let node = self.nodes[at];
+        let upper = self.nodes.get(at + 1).copied().unwrap_or(usize::MAX);
+        if let Some(candidates) = self.log.phon_under.get(&node) {
+            for &index in candidates {
+                if index <= last || index >= upper {
+                    continue;
                 }
-            }
-            EventKind::Stratum if event.is_input => {
-                if let Some(input) = &event.input {
-                    return input.clone();
+                let event = &self.log.events[index];
+                let (Some((in_stratum, input)), Some((out_stratum, output))) =
+                    (&event.input, &event.output)
+                else {
+                    continue;
+                };
+                if input != current {
+                    continue;
                 }
+                acc.push(self.step(event, *in_stratum, input, *out_stratum, output));
+                self.walk(at, output, index, acc);
+                acc.pop();
             }
-            _ => {}
+        }
+        let Some(&next) = self.nodes.get(at + 1) else {
+            if current == self.end && !self.found.contains(acc) {
+                self.found.push(acc.clone());
+            }
+            return;
+        };
+        let event = &self.log.events[next];
+        match (event.kind, &event.output) {
+            (EventKind::Morph(_), Some((stratum, output))) => {
+                acc.push(self.step(event, *stratum, current, *stratum, output));
+                self.walk(at + 1, output, next, acc);
+                acc.pop();
+            }
+            _ => self.walk(at + 1, current, next, acc),
         }
     }
-    (stratum, pg_shape::Shape::default())
+
+    fn step(
+        &self,
+        event: &LogEvent,
+        in_stratum: StratumId,
+        input: &pg_shape::Shape,
+        out_stratum: StratumId,
+        output: &pg_shape::Shape,
+    ) -> GenerateStep {
+        GenerateStep {
+            stratum: stratum_display(self.g, out_stratum),
+            rule: step_rule(self.g, event.kind.step_kind().expect("a rule event")),
+            input: render_shape(self.g, in_stratum, input),
+            output: render_shape(self.g, out_stratum, output),
+            subrule: event.subrule,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -484,45 +580,66 @@ impl EventKind {
     }
 }
 
-/// One node of a seed's trace, reduced to what the backward walk reads.
+/// One node of a seed's trace, reduced to what the derivation search reads.
 struct LogEvent {
     kind: EventKind,
-    is_input: bool,
     subrule: Option<i32>,
     input: Option<(StratumId, pg_shape::Shape)>,
     output: Option<(StratumId, pg_shape::Shape)>,
 }
 
-/// Applied synthesis events in the order they ran; failed or not-applied nodes carry no usable pair and are dropped by their kind.
-fn event_log(sink: &TreeTraceSink) -> Vec<LogEvent> {
-    (0..sink.len())
-        .map(|index| {
-            sink.with_node(TraceHandle::from_index(index as u32), |node| {
-                let kind = match (node.type_, node.source) {
-                    (TraceType::PhonologicalRuleSynthesis, TraceSource::PhonRule(id)) => {
-                        EventKind::Phon(id)
-                    }
-                    (
-                        TraceType::MorphologicalRuleSynthesis | TraceType::CompoundingRuleSynthesis,
-                        TraceSource::MorphRule(id),
-                    ) if node.failure_reason.is_none() => EventKind::Morph(StepKind::Morph(id)),
-                    (TraceType::TemplateSynthesisOutput, TraceSource::Template(id))
-                        if node.failure_reason.is_none() =>
-                    {
-                        EventKind::Morph(StepKind::Template(id))
-                    }
-                    _ => EventKind::Stratum,
-                };
-                LogEvent {
-                    kind,
-                    is_input: node.type_ == TraceType::StratumSynthesisInput,
-                    subrule: node.subrule_index.filter(|index| *index >= 0),
-                    input: node.input.as_ref().map(|w| (w.stratum, w.shape.clone())),
-                    output: node.output.as_ref().map(|w| (w.stratum, w.shape.clone())),
+/// The seed's rule-application nodes, or `None` when the work budget ran out first; stratum nodes keep no shapes.
+fn event_log(sink: &TreeTraceSink, parents: &[Option<u32>]) -> Option<SeedLog> {
+    let mut events = Vec::with_capacity(sink.len());
+    let mut phon_under: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (index, parent) in parents.iter().enumerate() {
+        if !pg_fst::work::consume() {
+            return None;
+        }
+        let event = sink.with_node(TraceHandle::from_index(index as u32), |node| {
+            let kind = match (node.type_, node.source) {
+                (TraceType::PhonologicalRuleSynthesis, TraceSource::PhonRule(id)) => {
+                    EventKind::Phon(id)
                 }
-            })
-        })
-        .collect()
+                (
+                    TraceType::MorphologicalRuleSynthesis | TraceType::CompoundingRuleSynthesis,
+                    TraceSource::MorphRule(id),
+                ) if node.failure_reason.is_none() => EventKind::Morph(StepKind::Morph(id)),
+                (TraceType::TemplateSynthesisOutput, TraceSource::Template(id))
+                    if node.failure_reason.is_none() =>
+                {
+                    EventKind::Morph(StepKind::Template(id))
+                }
+                _ => EventKind::Stratum,
+            };
+            let keep = !matches!(kind, EventKind::Stratum);
+            LogEvent {
+                kind,
+                subrule: node.subrule_index.filter(|index| *index >= 0),
+                input: node
+                    .input
+                    .as_ref()
+                    .filter(|_| keep)
+                    .map(|w| (w.stratum, w.shape.clone())),
+                output: node
+                    .output
+                    .as_ref()
+                    .filter(|_| keep)
+                    .map(|w| (w.stratum, w.shape.clone())),
+            }
+        });
+        if let (EventKind::Phon(_), Some((_, input)), Some((_, output))) =
+            (event.kind, &event.input, &event.output)
+        {
+            if input != output {
+                if let Some(parent) = *parent {
+                    phon_under.entry(parent as usize).or_default().push(index);
+                }
+            }
+        }
+        events.push(event);
+    }
+    Some(SeedLog { events, phon_under })
 }
 
 #[derive(Clone, Copy)]

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::morpher::{
-    GeneratedSeed, Morpher, SeedItem, SeedSurface, StepRule, TracedGenerateLimits,
+    GenerateStep, GeneratedSeed, Morpher, SeedItem, SeedSurface, StepRule, TracedGenerateLimits,
     TracedGenerateOutcome, TracedStopReason,
 };
 use serde_json::{json, Map, Value};
@@ -69,7 +69,9 @@ pub(crate) fn describe() -> Value {
         "errorCodes": ERROR_CODES,
         "resultFields": ["complete", "stopReason", "workUnits", "seedChoices", "traceSteps", "limits", "seeds"],
         "seedFields": ["seedKey", "allomorphs", "surfaces", "traceTruncated"],
-        "surfaceFields": ["surface", "derivations", "steps"],
+        "surfaceFields": ["surface", "derivations", "steps", "stepsUnresolved", "alternatives"],
+        "allomorphFields": ["role", "entryGuid", "msaGuid", "allomorphId", "formGuid", "shape", "ruleName"],
+        "ruleFields": ["kind", "id", "name", "guid"],
         "stepFields": ["stratum", "rule", "input", "output", "subrule"],
     })
 }
@@ -245,21 +247,32 @@ fn render_rule(rule: &StepRule) -> Value {
 fn render_surface(options: &Options, surface: &SeedSurface) -> Value {
     let mut value = json!({"surface": surface.surface, "derivations": surface.derivations});
     if options.trace {
-        value["steps"] = Value::Array(
+        value["steps"] = render_steps(&surface.steps);
+        value["stepsUnresolved"] = Value::Bool(surface.steps_unresolved);
+        value["alternatives"] = Value::Array(
             surface
-                .steps
+                .alternatives
                 .iter()
-                .map(|step| {
-                    json!({
-                        "stratum": step.stratum,
-                        "rule": render_rule(&step.rule),
-                        "input": step.input,
-                        "output": step.output,
-                        "subrule": step.subrule,
-                    })
-                })
+                .map(|steps| render_steps(steps))
                 .collect(),
         );
     }
     value
+}
+
+fn render_steps(steps: &[GenerateStep]) -> Value {
+    Value::Array(
+        steps
+            .iter()
+            .map(|step| {
+                json!({
+                    "stratum": step.stratum,
+                    "rule": render_rule(&step.rule),
+                    "input": step.input,
+                    "output": step.output,
+                    "subrule": step.subrule,
+                })
+            })
+            .collect(),
+    )
 }

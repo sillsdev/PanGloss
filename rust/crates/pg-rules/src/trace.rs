@@ -49,9 +49,6 @@ impl TraceHandle {
     pub const DUMMY: TraceHandle = TraceHandle(u32::MAX);
 
     /// An observation cursor whose ancestry exceeded the capture budget.
-    pub fn dbg_handle(i: u32) -> TraceHandle {
-        TraceHandle(i)
-    }
     pub const OMITTED_OBSERVATION: TraceHandle = TraceHandle(u32::MAX - 1);
 
     const OBSERVATION_BIT: u32 = 1 << 31;
