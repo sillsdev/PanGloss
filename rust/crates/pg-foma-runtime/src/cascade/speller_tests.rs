@@ -1104,3 +1104,28 @@ fn an_edit_limit_over_two_is_refused_by_name() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn best_n_keeps_both_roots_of_a_group_tied_with_the_stop_weight_c144() {
+    let st = Stack::new(
+        &[
+            e(&[0, 1], &[Tag::root(0)]),
+            e(&[0, 2], &[Tag::root(1)]),
+            e(&[0, 2], &[Tag::root(2)]),
+            e(&[1, 1], &[Tag::root(3)]),
+        ],
+        Weights::UNIT,
+        false,
+    );
+    for n in [1usize, 2] {
+        let (g, _, _, _) = complete(plain(&st, &[0, 1], &opts(1, Mode::Best(n), None)));
+        assert_eq!(g.len(), n);
+    }
+    let (g, _, _, _) = complete(plain(&st, &[0, 1], &opts(1, Mode::Best(2), None)));
+    let f = &g[1].variants[0].features;
+    assert_eq!(
+        f.roots.iter().map(|r| r.0).collect::<BTreeSet<_>>(),
+        BTreeSet::from([1, 2]),
+        "a group whose weight equals the stop weight is complete with all its roots"
+    );
+}
