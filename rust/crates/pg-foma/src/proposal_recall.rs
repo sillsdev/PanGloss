@@ -114,6 +114,16 @@ pub(crate) fn refusals_with_spelling(
             "partial morphological rule in a grammar that also has a deleting rewrite (from the first partial rule's stratum on) or a peelable reduplication",
             "stopgap refusal: the proposer loses analyses when a deletion removes affix material at a junction before a template-slot affix, or when a peelable reduplication precedes a later affix; neither needs a partial rule (#415, #416), but the two upstream partial-rule fixtures reach them and the predicate keys on a partial rule to keep every other admission unchanged"));
     }
+    if deletion_with_environment_beside_affixes(g) {
+        gaps.push((ProposalRecallGap::JunctionDeletion,
+            "deleting or narrowing rewrite with an environment in a grammar that has affix rules",
+            "a deletion whose left or right context reaches into the neighbouring morph removes material across a morph junction, and the proposer spells each morph on its own, so it misses the analysis (#415); a context-free deletion is not affected, but a rewrite with an environment is refused as a whole"));
+    }
+    if reduplication_before_later_affix(g) {
+        gaps.push((ProposalRecallGap::ReduplicationBeforeLaterAffix,
+            "peelable whole-stem reduplication in a grammar with an affix in a template slot or in a later stratum",
+            "the reduplication peeler does not follow the reduplicant through a template-slot or later-stratum affix, so an analysis such as root, reduplication, suffix is not proposed (#416)"));
+    }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
         if stratum
             .mrules
@@ -239,4 +249,50 @@ fn partial_rule_deletion_or_reduplication(g: &Grammar) -> bool {
                     if crate::emptied_morph::rewrite_deletes(rule))
             })
         })
+}
+
+/// Whether a rewrite that writes fewer nodes than it matches has a non-empty left or right environment while the grammar has an affix rule (#415).
+fn deletion_with_environment_beside_affixes(g: &Grammar) -> bool {
+    let has_affix = g
+        .mrules
+        .iter()
+        .any(|rule| rule.affix_allomorphs().is_some());
+    has_affix
+        && g.strata.iter().any(|stratum| {
+            stratum.prules.iter().any(|id| {
+                matches!(&g.prules[id.0 as usize], PhonRuleDef::Rewrite(rule)
+                if crate::emptied_morph::rewrite_deletes(rule)
+                    && rule.subrules.iter().any(|sub| {
+                        [&sub.left_env, &sub.right_env]
+                            .into_iter()
+                            .flatten()
+                            .any(|env| !env.nodes.is_empty())
+                    }))
+            })
+        })
+}
+
+/// Whether a peelable reduplication sits in a grammar with an affix in some template slot, or in a stratum after the reduplication's own (#416).
+fn reduplication_before_later_affix(g: &Grammar) -> bool {
+    let is_affix = |mid: &pg_grammar::model::MRuleId| {
+        g.mrules[mid.0 as usize].affix_allomorphs().is_some()
+            && !reduplication_rule_is_peelable(g, *mid)
+    };
+    let template_affix = g
+        .strata
+        .iter()
+        .flat_map(|stratum| &stratum.templates)
+        .flat_map(|id| &g.templates[id.0 as usize].slots)
+        .flat_map(|slot| &slot.rules)
+        .any(is_affix);
+    g.strata.iter().enumerate().any(|(index, stratum)| {
+        stratum
+            .mrules
+            .iter()
+            .any(|&mid| reduplication_rule_is_peelable(g, mid))
+            && (template_affix
+                || g.strata[index + 1..]
+                    .iter()
+                    .any(|later| later.mrules.iter().any(is_affix)))
+    })
 }

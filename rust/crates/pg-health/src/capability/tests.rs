@@ -21,6 +21,11 @@ fn proposal_recall_cause_wire_names_are_stable() {
             ProposalRecallGap::PartialRuleDeletionOrReduplication,
             "partial_rule_deletion_or_reduplication",
         ),
+        (ProposalRecallGap::JunctionDeletion, "junction_deletion"),
+        (
+            ProposalRecallGap::ReduplicationBeforeLaterAffix,
+            "reduplication_before_later_affix",
+        ),
         (
             ProposalRecallGap::NarrowingClassOutput,
             "narrowing_class_output",

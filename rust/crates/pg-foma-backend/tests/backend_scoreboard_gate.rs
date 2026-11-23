@@ -122,6 +122,8 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
             FEATURE_CLASS_BOUNDED_RTL_FIXTURE | FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE,
             TunedSurfaceProbed,
         ) => "refused",
+        // Refused since #415: a narrowing rewrite with an environment (`+ b -> m` after a nasal) in a grammar with affixes; it deletes only a boundary, which a later change may prove safe.
+        (BOUNDARY_NARROWING_FIXTURE, TunedSurfaceProbed) => "refused",
         (MPR_WIDE_FIXTURE, TunedSurfaceProbed) => "oracle_exact",
         (f, TunedSurfaceProbed) if PROPOSING_REVIEW_FIXTURES.contains(&f) => "oracle_exact",
         (f, TunedSurfaceProbed)
@@ -135,8 +137,7 @@ fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'stati
             "refused"
         }
         (f, TunedSurfaceProbed)
-            if f == BOUNDARY_NARROWING_FIXTURE
-                || REWRITE_DEFAULT_FIXTURES.contains(&f)
+            if REWRITE_DEFAULT_FIXTURES.contains(&f)
                 || f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                 || f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                 || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>

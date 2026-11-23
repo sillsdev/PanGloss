@@ -749,3 +749,41 @@ fn a_partial_rule_with_a_deletion_or_reduplication_is_refused() {
         "a partial rule with neither a deletion nor a reduplication stays admitted"
     );
 }
+
+fn refuses_gap(grammar: &pg_grammar::model::Grammar, gap: ProposalRecallGap) -> bool {
+    use pg_foma::analyzer::{compile_proposer, FomaError};
+    match compile_proposer(grammar) {
+        Err(FomaError::CapabilityRefused(refusals)) => refusals
+            .iter()
+            .any(|d| d.refusal == CapabilityRefusal::ProposalRecall(gap)),
+        _ => false,
+    }
+}
+
+// Minimal repros of #415 (`lipt`, `ktip`) and #416 (`loplopt`, `loplopkor`): each loses an analysis today.
+const JUNCTION_LIPT: &str = include_str!("fixtures/partial-rule-gap-probes/j1-lipt.xml");
+const JUNCTION_KTIP: &str = include_str!("fixtures/partial-rule-gap-probes/j2-ktip.xml");
+const REDUP_LOPLOPT: &str = include_str!("fixtures/partial-rule-gap-probes/r1-loplopt.xml");
+const REDUP_LOPLOPKOR: &str = include_str!("fixtures/partial-rule-gap-probes/r2-loplopkor.xml");
+
+#[test]
+fn a_deletion_across_a_junction_is_refused() {
+    for (name, xml) in [("lipt", JUNCTION_LIPT), ("ktip", JUNCTION_KTIP)] {
+        let grammar = pg_grammar::load(xml).expect("probe loads");
+        assert!(
+            refuses_gap(&grammar, ProposalRecallGap::JunctionDeletion),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_reduplication_before_a_later_affix_is_refused() {
+    for (name, xml) in [("loplopt", REDUP_LOPLOPT), ("loplopkor", REDUP_LOPLOPKOR)] {
+        let grammar = pg_grammar::load(xml).expect("probe loads");
+        assert!(
+            refuses_gap(&grammar, ProposalRecallGap::ReduplicationBeforeLaterAffix),
+            "{name}"
+        );
+    }
+}

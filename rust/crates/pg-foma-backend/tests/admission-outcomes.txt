@@ -17,11 +17,11 @@ machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr	TunedSurfacePr
 machine:edge-cases/ambiguous-disagree-mixed-plus-class	TunedSurfaceProbed	refused
 machine:edge-cases/ambiguous-disagree-repeated-minus-partial-focus	TunedSurfaceProbed	refused
 machine:edge-cases/authored-null-affix-allomorph	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/boundary-first-in-narrowing-lhs	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/boundary-first-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/boundary-first-in-narrowing-lhs	TunedSurfaceProbed	refused
+machine:edge-cases/boundary-first-in-narrowing-lhs-strrep	TunedSurfaceProbed	refused
 machine:edge-cases/boundary-leftover-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/boundary-mid-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/boundary-narrowing-probe	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/boundary-narrowing-probe	TunedSurfaceProbed	refused
 machine:edge-cases/chained-output-feature-override-loss	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/change-epenthesis-prefix-deletion-chain	TunedSurfaceProbed	refused
 machine:edge-cases/circumfix-conditioned-halves	TunedSurfaceProbed	oracle_exact
@@ -84,7 +84,7 @@ machine:edge-cases/infix-interdigitation	TunedSurfaceProbed	refused
 machine:edge-cases/infix-split-root-allomorph-environment	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/interposed-optional-multi-rhs	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/iterative-epenthesis-cascade	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/lexical-lookup-sibling-allomorphs	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/lexical-lookup-sibling-allomorphs	TunedSurfaceProbed	refused
 machine:edge-cases/literal-hash-affix-context	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/loader-pattern-shapes	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/merge-subrules-pos-ltr-template	TunedSurfaceProbed	oracle_exact

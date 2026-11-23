@@ -19,6 +19,8 @@ pub enum ProposalRecallGap {
     AmbiguousSegmentSpelling,
     TruncationComposition,
     PartialRuleDeletionOrReduplication,
+    JunctionDeletion,
+    ReduplicationBeforeLaterAffix,
     NarrowingClassOutput,
     SymbolicEpenthesis,
     RecursiveCompoundDepth,
