@@ -5,9 +5,12 @@
 
 pub mod analyzer;
 pub mod budget;
+pub mod copybuf;
 pub mod layer;
 pub mod product;
 pub mod readout;
+pub mod spell_read;
+pub mod speller;
 pub mod trim;
 
 pub use budget::{BuildMeter, BuildRefused, BuildStop, CascadeStop, PrepassBudget, WordBudget};
