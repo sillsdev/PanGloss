@@ -23,8 +23,7 @@ use pg_parse::{Morpher, WordAnalysis};
 
 use super::layer::{Layer, NfaLayer, Tag, Token};
 use super::product::{Outcome, Product, ProductScratch, Request};
-use super::readout::{self, ArcTags, ReadoutMode};
-use super::trim::{TrimmedGraph as ProductGraph, KEY_PREFIX};
+use super::readout::{self, ReadoutBudget, ReadoutMode};
 use crate::confirm::{confirm_pin_groups, PinGroup};
 
 /// What a layer arc's [`Tag`] names. Tags are opaque to the product; this is the packing.
@@ -176,12 +175,18 @@ impl CascadeAnalyzer {
             arcs: report.arcs,
             ..ProposalNote::default()
         };
-        let Some(readout_graph) = to_readout_graph(&graph, &tokens, &self.layers) else {
-            note.empty = true;
-            return done(CascadeStatus::Complete, note);
+        let groups = match readout::read_out(
+            &graph,
+            &readout_kind,
+            None,
+            ReadoutBudget::default(),
+            ReadoutMode::Single,
+        ) {
+            readout::Readout::Complete { groups, .. } => groups,
+            readout::Readout::Incomplete { stop, .. } => {
+                return done(CascadeStatus::Incomplete(format!("{stop:?}")), note)
+            }
         };
-        let nfd_word = pg_grammar::nfd::nfd(word);
-        let groups = readout::read_out(&readout_graph, &nfd_word, ReadoutMode::Single);
         if groups.is_empty() {
             note.empty = true;
             return done(CascadeStatus::Complete, note);
@@ -216,57 +221,13 @@ impl CascadeAnalyzer {
     }
 }
 
-/// Adapts the product graph to the read-out contract; `None` when no path accepts.
-fn to_readout_graph(
-    graph: &ProductGraph,
-    tokens: &[Token],
-    layers: &CascadeLayers,
-) -> Option<readout::TrimmedGraph> {
-    let start = graph.start?;
-    let chars: BTreeMap<Token, char> = layers.char_ids.iter().map(|(c, t)| (*t, *c)).collect();
-    let mut arcs: BTreeMap<(u32, u32, Option<char>), ArcTags> = BTreeMap::new();
-    for a in &graph.arcs {
-        let src_pos = graph.key(a.src)[0] as usize;
-        let dst_pos = graph.key(a.dst)[0] as usize;
-        let written = match dst_pos.checked_sub(src_pos) {
-            Some(0) => None,
-            Some(1) => Some(chars[&tokens[src_pos]]),
-            _ => panic!("a product move advanced the word by {src_pos} to {dst_pos}"),
-        };
-        let slot = arcs.entry((a.src, a.dst, written)).or_default();
-        for tag in graph.arc_tags(a) {
-            match decode_tag(*tag) {
-                TagKind::Root(e) => {
-                    if !slot.roots.contains(&e) {
-                        slot.roots.push(e);
-                    }
-                }
-                TagKind::Rule(r) => {
-                    if !slot.rules.contains(&r) {
-                        slot.rules.push(r);
-                    }
-                }
-                TagKind::NonHead(_) => {}
-            }
-        }
+/// What the read-out is told about a product tag.
+fn readout_kind(tag: Tag) -> readout::TagKind {
+    match decode_tag(tag) {
+        TagKind::Root(e) => readout::TagKind::Root(e),
+        TagKind::Rule(r) => readout::TagKind::Rule(r),
+        TagKind::NonHead(_) => readout::TagKind::Other,
     }
-    debug_assert!(KEY_PREFIX >= 1);
-    Some(readout::TrimmedGraph {
-        num_states: graph.state_count() as u32,
-        start,
-        accepting: (0..graph.state_count() as u32)
-            .filter(|&s| graph.accepting[s as usize])
-            .collect(),
-        arcs: arcs
-            .into_iter()
-            .map(|((src, dst, written), tags)| readout::Arc {
-                src,
-                dst,
-                written,
-                tags,
-            })
-            .collect(),
-    })
 }
 
 #[cfg(test)]
