@@ -178,7 +178,12 @@ mod tests {
     }
 
     fn arc(src: u32, dst: u32, written: Option<char>, t: ArcTags) -> Arc {
-        Arc { src, dst, written, tags: t }
+        Arc {
+            src,
+            dst,
+            written,
+            tags: t,
+        }
     }
 
     fn group(roots: &[u32], rules: &[u32]) -> PinGroup {
@@ -245,7 +250,12 @@ mod tests {
     }
 
     fn graph(num_states: u32, accepting: &[u32], arcs: Vec<Arc>) -> TrimmedGraph {
-        TrimmedGraph { num_states, start: 0, accepting: accepting.to_vec(), arcs }
+        TrimmedGraph {
+            num_states,
+            start: 0,
+            accepting: accepting.to_vec(),
+            arcs,
+        }
     }
 
     #[test]
@@ -259,7 +269,10 @@ mod tests {
     #[test]
     fn accepted_string_without_tags_is_one_empty_group() {
         let g = graph(2, &[1], vec![arc(0, 1, Some('a'), ArcTags::default())]);
-        assert_eq!(read_out(&g, "a", ReadoutMode::Single), vec![group(&[], &[])]);
+        assert_eq!(
+            read_out(&g, "a", ReadoutMode::Single),
+            vec![group(&[], &[])]
+        );
     }
 
     #[test]
@@ -273,7 +286,10 @@ mod tests {
                 arc(0, 2, Some('a'), tags(&[8], &[9])),
             ],
         );
-        assert_eq!(read_out(&g, "a", ReadoutMode::Single), vec![group(&[7], &[3])]);
+        assert_eq!(
+            read_out(&g, "a", ReadoutMode::Single),
+            vec![group(&[7], &[3])]
+        );
     }
 
     #[test]
@@ -288,7 +304,10 @@ mod tests {
                 arc(2, 3, Some('c'), tags(&[], &[11])),
             ],
         );
-        assert_eq!(read_out(&g, "abc", ReadoutMode::Single), vec![group(&[1], &[10, 11])]);
+        assert_eq!(
+            read_out(&g, "abc", ReadoutMode::Single),
+            vec![group(&[1], &[10, 11])]
+        );
     }
 
     #[test]
@@ -304,7 +323,10 @@ mod tests {
                 arc(2, 3, None, tags(&[], &[20])),
             ],
         );
-        assert_eq!(read_out(&g, "a", ReadoutMode::Single), vec![group(&[1, 2], &[10, 20])]);
+        assert_eq!(
+            read_out(&g, "a", ReadoutMode::Single),
+            vec![group(&[1, 2], &[10, 20])]
+        );
     }
 
     #[test]
@@ -340,9 +362,15 @@ mod tests {
                 arc(0, 3, Some('a'), ArcTags::default()),
             ],
         );
-        assert_eq!(read_out(&g, "abb", ReadoutMode::Single), vec![group(&[1], &[4])]);
+        assert_eq!(
+            read_out(&g, "abb", ReadoutMode::Single),
+            vec![group(&[1], &[4])]
+        );
         // With no 'b' written, the loop is not used.
-        assert_eq!(read_out(&g, "a", ReadoutMode::Single), vec![group(&[1], &[])]);
+        assert_eq!(
+            read_out(&g, "a", ReadoutMode::Single),
+            vec![group(&[1], &[])]
+        );
     }
 
     #[test]
@@ -357,7 +385,10 @@ mod tests {
                 arc(2, 1, None, tags(&[], &[2])),
             ],
         );
-        assert_eq!(read_out(&g, "a", ReadoutMode::Single), vec![group(&[1], &[1, 2])]);
+        assert_eq!(
+            read_out(&g, "a", ReadoutMode::Single),
+            vec![group(&[1], &[1, 2])]
+        );
     }
 
     #[test]
@@ -398,14 +429,23 @@ mod tests {
                 arc(1, 2, Some('b'), ArcTags::default()),
             ],
         );
-        assert_eq!(read_out(&g, "ab", ReadoutMode::Single), vec![group(&[], &[])]);
-        assert_eq!(read_out(&g, "aab", ReadoutMode::Single), vec![group(&[], &[7])]);
+        assert_eq!(
+            read_out(&g, "ab", ReadoutMode::Single),
+            vec![group(&[], &[])]
+        );
+        assert_eq!(
+            read_out(&g, "aab", ReadoutMode::Single),
+            vec![group(&[], &[7])]
+        );
     }
 
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self, m: u32) -> u32 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             ((self.0 >> 33) as u32) % m
         }
     }
@@ -433,7 +473,12 @@ mod tests {
             arcs.push(arc(rng.next(ns), rng.next(ns), written, t));
         }
         let accepting: Vec<u32> = (0..ns).filter(|_| rng.next(3) == 0).collect();
-        TrimmedGraph { num_states: ns, start: 0, accepting, arcs }
+        TrimmedGraph {
+            num_states: ns,
+            start: 0,
+            accepting,
+            arcs,
+        }
     }
 
     #[test]
