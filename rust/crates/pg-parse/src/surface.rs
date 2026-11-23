@@ -98,7 +98,7 @@ fn matching_str_reps<'t>(
 /// concrete-singleton identity (a boundary's own representation, or a segment's own char-def);
 /// `char_def == NO_CHAR_DEF` defers to `cd_set` (`CdSet::Unrestricted`/`Members`), mirroring
 /// `Shape::node_cd_set`'s convention and `root_trie.rs::edge_matches`'s same shape of predicate.
-pub(crate) fn matching_reps_for_node<'t>(
+pub fn matching_reps_for_node<'t>(
     table: &'t CharDefTable,
     kind: NodeKind,
     char_def: u32,

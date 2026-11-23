@@ -165,6 +165,10 @@ struct Tally {
     /// per matcher: (cases, matched, probes, sampled probes)
     kinds: std::collections::BTreeMap<String, (u64, u64, u64, u64)>,
     skipped_env: usize,
+    spelling_cases: u64,
+    spelling_capped: u64,
+    spelling_private_gaps: Vec<String>,
+    spelling_private_count: u64,
     skipped_other: usize,
 }
 
@@ -275,6 +279,64 @@ fn strip_one(rule: &RewriteRuleDef, only: usize) -> RewriteRuleDef {
         self_opaquing: keep.self_opaquing,
     }];
     r
+}
+
+/// Spelling differential: every closure row x every cd state x every concrete completion, the cascade's spellings (attested segments, or nothing) cover the representations `matching_reps_for_node` gives.
+fn spelling_differential(g: &Grammar, closure: &JointClosure, tally: &mut Tally, label: &str) {
+    let table = &g.char_tables[0];
+    let wide = g.phon_features.len() + 1;
+    let seg_classes: Vec<Vec<u32>> = g
+        .natural_classes
+        .iter()
+        .filter_map(|c| match &c.kind {
+            pg_grammar::model::NaturalClassKind::Segments(m) => Some(m.iter().map(|cd| cd.0).collect()),
+            _ => None,
+        })
+        .collect();
+    for idx in 0..closure.rows().len() {
+        let (id, row) = (&closure.rows()[idx].0, &closure.rows()[idx].1);
+        let (spelled, epsilon) = closure.spellings(g, idx);
+        let cascade: HashSet<&str> = spelled.iter().flat_map(|cd| table.get(*cd).representations_nfd().iter().map(String::as_str)).collect();
+        let Some(completions) = closure.completions(g, idx, 256) else {
+            tally.spelling_capped += 1;
+            continue;
+        };
+        let attested = (id.0 as usize) < table.len();
+        for lanes in completions {
+            let mut padded = lanes.clone();
+            padded.resize(wide, 15);
+            // (a) its own char-def, (b) no char-def and no restriction, (c) no char-def and a segment-list restriction (a private `Modify` token).
+            let mut states: Vec<(String, u32, pg_shape::CdSet, bool)> = Vec::new();
+            // Without features a node with no char-def spells every segment: it is not a state of any row.
+            if !(attested && g.phon_features.is_empty()) {
+                states.push(("free".into(), NO_CHAR_DEF, pg_shape::CdSet::Unrestricted, false));
+            }
+            if attested && lanes == *row {
+                states.push(("own".into(), id.0, pg_shape::CdSet::Unrestricted, false));
+            }
+            for (n, members) in seg_classes.iter().enumerate().filter(|_| !g.phon_features.is_empty()) {
+                states.push((format!("segment-class {n}"), NO_CHAR_DEF, pg_shape::CdSet::Members(pg_shape::CdBits::from_ids(members.iter().copied())), true));
+            }
+            for (name, cd, set, private) in states {
+                tally.spelling_cases += 1;
+                let reps = pg_parse::surface::matching_reps_for_node(table, NodeKind::Segment, cd, &set, &padded, true);
+                let missing: Vec<&str> = reps.iter().copied().filter(|r| !cascade.contains(r)).collect();
+                let needs_eps = reps.is_empty() && !epsilon;
+                if missing.is_empty() && !needs_eps {
+                    continue;
+                }
+                let msg = format!("{label} row {idx} {row:?} state {name} completion {lanes:?}: synthesis spells {reps:?}, cascade spells {cascade:?} epsilon={epsilon}");
+                if private {
+                    tally.spelling_private_count += 1;
+                    if tally.spelling_private_gaps.len() < 5 {
+                        tally.spelling_private_gaps.push(msg);
+                    }
+                } else {
+                    tally.under.push(msg);
+                }
+            }
+        }
+    }
 }
 
 fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
@@ -455,6 +517,7 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
             }
         }
     }
+    spelling_differential(g, &closure, tally, label);
     // Affix allomorph lhs through the matcher affix synthesis uses.
     let segs: Vec<&Element> = elems.iter().filter(|el| matches!(el.node, BlockNode::Segment { .. })).collect();
     for rule in &g.mrules {
@@ -523,6 +586,10 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
     );
     for (k, (cases, hit, probes, sampled)) in &tally.kinds {
         println!("W2 matcher {k}: probes={probes} sampled={sampled} cases={cases} matched={hit}");
+    }
+    println!("W2 spelling: cases={} capped_rows={} private_modify_token_gaps={}", tally.spelling_cases, tally.spelling_capped, tally.spelling_private_count);
+    for m in tally.spelling_private_gaps.iter().take(5) {
+        println!("W2 private-gap {m}");
     }
     println!("W2 skipped: env={} other={}", tally.skipped_env, tally.skipped_other);
     for r in &tally.refused {

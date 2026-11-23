@@ -664,6 +664,56 @@ impl JointClosure {
         })
     }
 
+    /// The concrete lane vectors row `idx` stands for: every zero (any-value) phonological lane takes each single value, each complement and the whole set. `None` above `cap` completions (the token then gets the epsilon spelling, plan 2.6).
+    pub fn completions(&self, g: &Grammar, idx: usize, cap: usize) -> Option<Vec<Vec<u64>>> {
+        let row = &self.bundles.rows[idx].1;
+        let mut out = vec![row.clone()];
+        for lane in (0..g.phon_features.len().min(row.len())).filter(|&l| row[l] == 0) {
+            let mask = g.phon_features.mask(pg_grammar::featsys::FlatIndex(lane as u32));
+            let mut values = vec![mask];
+            for bit in 0..64 {
+                let one = 1u64 << bit;
+                if mask & one != 0 {
+                    values.push(one);
+                    if mask & !one != 0 {
+                        values.push(mask & !one);
+                    }
+                }
+            }
+            let mut next = Vec::new();
+            for base in &out {
+                for value in &values {
+                    let mut r = base.clone();
+                    r[lane] = *value;
+                    next.push(r);
+                }
+            }
+            if next.len() > cap {
+                return None;
+            }
+            out = next;
+        }
+        Some(out)
+    }
+
+    /// The attested segments row `idx` may be spelled as, and whether it may also be spelled as nothing: when no segment is compatible, or when some concrete completion of an any-value lane unifies with no segment, or when there are more than 256 completions (plan 2.6).
+    pub fn spellings(&self, g: &Grammar, idx: usize) -> (Vec<CharDefId>, bool) {
+        let (id, row) = &self.bundles.rows[idx];
+        let spelled = self.bundles.row_spellings(g, row, *id);
+        let table = &g.char_tables[self.bundles.table.0 as usize];
+        let epsilon = spelled.is_empty()
+            || match self.completions(g, idx, 256) {
+                None => true,
+                Some(completions) => completions.iter().any(|c| {
+                    !table.iter().any(|(_, cd)| {
+                        cd.kind() == CharDefKind::Segment
+                            && c.iter().zip(cd.feature_lanes()).take(g.phon_features.len()).all(|(a, b)| a & b != 0)
+                    })
+                }),
+            };
+        (spelled, epsilon)
+    }
+
     pub fn report(&self, g: &Grammar) -> JointClosureReport {
         JointClosureReport {
             attested_rows: self.bundles.evidence.attested_rows,
