@@ -153,3 +153,7 @@ workspace = true
 name = "propose_parity"
 path = "examples/propose_parity.rs"
 required-features = ["examples"]
+
+[[test]]
+name = "cascade_class_membership_gate"
+path = "tests/cascade_class_membership_gate.rs"
