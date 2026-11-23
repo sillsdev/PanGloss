@@ -54,7 +54,7 @@ impl ProposedWord {
 }
 
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
-type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
+type TimedConfirmedBuckets = (ConfirmedBuckets, pg_parse::StopReasons, Duration);
 
 /// `Ok` payload of `FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`: the deduped
 /// candidate set plus peel/diagnostics bookkeeping.
@@ -155,6 +155,8 @@ pub struct FomaOutcome {
     /// `structured.len()` — kept as its own field (rather than making callers re-derive it) since
     /// it is the OTHER half of the same headline number (candidates_generated vs confirmed).
     pub confirmed: usize,
+    /// Which limits stopped the confirming parser (work, time, memory, capture, shape). When any is set, `analyses` is at best a prefix (the plain and batch paths return none) and every consumer must treat the word as incomplete, not as having no analyses.
+    pub confirmation_stop: pg_parse::StopReasons,
     /// Whether `crate::peel::ReduplicationPeeler::peel_candidates` returned at least one
     /// candidate for this word (regardless of whether it survived the union dedup against
     /// `propose`'s own output) — the redup gate's own diagnostic ("redup words
@@ -329,8 +331,8 @@ pub fn propose_union_peel_with_diagnostics(
                         .normalization_cap()
                         .expect("normalization trip requires a normalization cap"),
                 ),
-                ApplyDimension::StemBound => {
-                    unreachable!("a proposer never trips the stem bound; assembly checks it")
+                ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
+                    unreachable!("a proposer trips neither the stem bound nor confirmation")
                 }
             };
             return Err((dimension, value, limit, proposal, proposal_calls));
@@ -376,8 +378,8 @@ pub fn propose_union_peel_with_diagnostics(
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
-            ApplyDimension::StemBound => {
-                unreachable!("a proposer never trips the stem bound; assembly checks it")
+            ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
+                unreachable!("a proposer trips neither the stem bound nor confirmation")
             }
         };
         return Err((dimension, value, limit, proposal, proposal_calls));
@@ -417,7 +419,8 @@ fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> A
 /// Whether a confirmation call should account for its own topology.
 ///
 /// Filtering forces the accounting on regardless: a shadow run exists to price the candidates it
-/// would have removed, and that price is only readable from the per-chunk record.
+/// would have removed, and that price is only readable from the per-chunk record. The stop flags
+/// are collected under both, so a plain call is as cheap as before without ever hiding a stop.
 pub(crate) enum ConfirmDetail {
     Plain,
     Diagnostic,
@@ -487,10 +490,9 @@ pub(crate) fn filter_then_confirm(
     let mut report = FilterShadowReport::inactive(settings.mode(), candidates.len());
     let Some(filter) = settings.filter().filter(|_| settings.is_active()) else {
         let (buckets, confirm) = match detail {
-            ConfirmDetail::Plain => (
-                confirm::confirm_batch(g, owners, morpher, candidates, word),
-                confirm::ConfirmBatchDiagnostics::default(),
-            ),
+            ConfirmDetail::Plain => {
+                confirm::confirm_batch_stopping(g, owners, morpher, candidates, word)
+            }
             ConfirmDetail::Diagnostic => {
                 confirm::confirm_batch_with_diagnostics(g, owners, morpher, candidates, word)
             }
@@ -688,7 +690,9 @@ impl<'g> FomaAnalyzer<'g> {
             word,
             ConfirmDetail::Plain,
         );
-        for bucket in run.buckets {
+        // A stopped confirmation returns a prefix of the analyses, so none are returned and the flag says why.
+        let confirmation_stop = run.confirm.stop;
+        for bucket in run.buckets.into_iter().filter(|_| !confirmation_stop.any()) {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
                 analyses.push((join, surface));
@@ -696,6 +700,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
 
         FomaOutcome {
+            confirmation_stop,
             confirmed: structured.len(),
             analyses,
             structured,
@@ -712,8 +717,8 @@ impl<'g> FomaAnalyzer<'g> {
     /// confirmation runs: partial candidates are never confirmed, because a partial confirm would
     /// produce an analysis set that looks authoritative and is not.
     ///
-    /// `ApplyBudget::unbounded` can never trip, so `Self::analyze_word` delegating here is a
-    /// behavior-preserving no-op for every existing caller.
+    /// A confirmation that stops on any limit of its own (work, time, memory, capture, shape)
+    /// returns `ApplyDimension::Confirmation` with no analyses, for the same reason.
     pub fn analyze_word_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> FomaApplyOutcome {
         let (candidates, peel_used, peel_chain_depth_error) =
             match self.propose_candidates_budgeted(word, budget) {
@@ -739,6 +744,14 @@ impl<'g> FomaAnalyzer<'g> {
             word,
             ConfirmDetail::Plain,
         );
+        // A stopped confirmation returns a prefix of the analyses, so none are returned.
+        if run.confirm.incomplete {
+            return FomaApplyOutcome::Incomplete {
+                dimension: ApplyDimension::Confirmation(run.confirm.stop),
+                value: run.confirm.confirmation_work,
+                limit: 0,
+            };
+        }
         for bucket in run.buckets {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
@@ -747,6 +760,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
 
         FomaApplyOutcome::Complete(FomaOutcome {
+            confirmation_stop: pg_parse::StopReasons::default(),
             confirmed: structured.len(),
             analyses,
             structured,
@@ -790,8 +804,8 @@ impl<'g> FomaAnalyzer<'g> {
                     .normalization_cap()
                     .expect("normalization trip requires a normalization cap"),
             ),
-            ApplyDimension::StemBound => {
-                unreachable!("a proposer never trips the stem bound; assembly checks it")
+            ApplyDimension::StemBound | ApplyDimension::Confirmation(_) => {
+                unreachable!("a proposer trips neither the stem bound nor confirmation")
             }
         };
 
@@ -933,6 +947,7 @@ impl<'g> FomaAnalyzer<'g> {
             }
         }
         let outcome = FomaOutcome {
+            confirmation_stop: confirmation.stop,
             confirmed: structured.len(),
             analyses,
             structured,
@@ -1291,7 +1306,7 @@ pub fn confirm_proposed_words(
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect();
         finish_confirmed(proposed, buckets_per_word)
@@ -1308,11 +1323,30 @@ pub fn confirm_proposed_words_in_pool(
     proposed: Vec<ProposedWord>,
     pool: &rayon::ThreadPool,
 ) -> Vec<(FomaOutcome, Duration)> {
+    confirm_proposed_words_in_pool_with_morpher(
+        g,
+        owners,
+        words,
+        proposed,
+        pool,
+        &Morpher::new(g, usize::MAX),
+    )
+}
+
+/// `confirm_proposed_words_in_pool` with the caller's confirming `Morpher`, so its limits apply to every word.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn confirm_proposed_words_in_pool_with_morpher(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    pool: &rayon::ThreadPool,
+    morpher: &Morpher<'_>,
+) -> Vec<(FomaOutcome, Duration)> {
     if words.is_empty() {
         return Vec::new();
     }
     assert_eq!(words.len(), proposed.len(), "one proposal record per word");
-    let morpher = Morpher::new(g, usize::MAX);
     let buckets_per_word: Vec<TimedConfirmedBuckets> = pool.install(|| {
         words
             .par_iter()
@@ -1322,13 +1356,13 @@ pub fn confirm_proposed_words_in_pool(
                 let run = filter_then_confirm(
                     g,
                     owners,
-                    &morpher,
+                    morpher,
                     &proposal.filter,
                     &proposal.candidates,
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect()
     });
@@ -1394,7 +1428,7 @@ pub fn confirm_proposed_words_in_pool_with_probe(
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect()
     });
@@ -1408,25 +1442,29 @@ fn finish_confirmed(
     proposed
         .into_iter()
         .zip(buckets_per_word)
-        .map(|(proposal, (buckets, confirm_elapsed))| {
-            let candidates_generated = proposal.candidates.len();
-            let mut analyses = Vec::new();
-            let mut structured = Vec::new();
-            for bucket in buckets {
-                for (wa, join, surface) in bucket {
-                    structured.push(wa);
-                    analyses.push((join, surface));
+        .map(
+            |(proposal, (buckets, confirmation_stop, confirm_elapsed))| {
+                let candidates_generated = proposal.candidates.len();
+                let mut analyses = Vec::new();
+                let mut structured = Vec::new();
+                // A stopped confirmation returns a prefix of the analyses, so none are returned.
+                for bucket in buckets.into_iter().filter(|_| !confirmation_stop.any()) {
+                    for (wa, join, surface) in bucket {
+                        structured.push(wa);
+                        analyses.push((join, surface));
+                    }
                 }
-            }
-            let outcome = FomaOutcome {
-                confirmed: structured.len(),
-                analyses,
-                structured,
-                candidates_generated,
-                peel_used: proposal.peel_used,
-                peel_chain_depth_error: proposal.peel_chain_depth_error,
-            };
-            (outcome, proposal.propose_elapsed + confirm_elapsed)
-        })
+                let outcome = FomaOutcome {
+                    confirmation_stop,
+                    confirmed: structured.len(),
+                    analyses,
+                    structured,
+                    candidates_generated,
+                    peel_used: proposal.peel_used,
+                    peel_chain_depth_error: proposal.peel_chain_depth_error,
+                };
+                (outcome, proposal.propose_elapsed + confirm_elapsed)
+            },
+        )
         .collect()
 }

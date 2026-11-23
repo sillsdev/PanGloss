@@ -28,7 +28,7 @@ pub use batch::{hc_parse_batch, BatchWordOutcome};
 pub use identity::{AnalysisIdentity, IdentityError, MorphemeKey, IDENTITY_PROFILE};
 pub use morpher::{
     GenMorpheme, GenerateWordsOutcome, GenerateWordsStopReason, Morpher, ParseOptions,
-    ParseOutcome, SynthesisBudget, TracedSynthesisOutcome,
+    ParseOutcome, StopReasons, SynthesisBudget, TracedSynthesisOutcome,
 };
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use parse_morph::{
