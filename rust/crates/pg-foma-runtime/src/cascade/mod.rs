@@ -25,4 +25,6 @@ pub use product::{
 pub use trim::{GraphArc, TrimmedGraph};
 
 #[cfg(test)]
+mod speller_tests;
+#[cfg(test)]
 mod tests;
