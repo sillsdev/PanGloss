@@ -102,6 +102,8 @@ mod trace_rule_sequence_gate;
 mod trace_template_outcomes;
 #[path = "../truncate_morphotactic_identity.rs"]
 mod truncate_morphotactic_identity;
+#[path = "../work_cap_getter.rs"]
+mod work_cap_getter;
 #[path = "../xample_migration_differential_gate.rs"]
 mod xample_migration_differential_gate;
 #[path = "../zero_width_morph_identity.rs"]

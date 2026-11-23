@@ -869,6 +869,11 @@ impl<'g> Morpher<'g> {
             .with_word_cap(self.word_mem_cap)
     }
 
+    /// The configured per-word work cap (`usize::MAX` when unbounded).
+    pub fn work_cap(&self) -> usize {
+        self.work_cap
+    }
+
     /// The configured per-word wall-clock allowance, if any.
     pub fn word_timeout(&self) -> Option<Duration> {
         self.word_timeout
