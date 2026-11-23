@@ -393,9 +393,9 @@ pub struct PinGroup {
 
 /// Result of `confirm_pin_groups` or `confirm_unfiltered`.
 pub struct PinnedConfirmation {
-    /// Every analysis the reparses returned, concatenated in group order, never de-duplicated: HC's multiset is kept.
+    /// Every analysis the reparses returned, concatenated in group order, never de-duplicated: HC's multiset is kept. Empty whenever `stop.any()`.
     pub analyses: Vec<(EngineAnalysis, String, String)>,
-    /// The union of the stop flags of every reparse, always computed; `stop.any()` means `analyses` may be a prefix.
+    /// The union of the stop flags of every reparse, always computed; `stop.any()` means `analyses` was emptied.
     pub stop: pg_parse::StopReasons,
     /// The allowance's final cumulative work count (`WordBudget::work_steps`), not a sum over groups.
     pub work_steps: u64,
@@ -413,7 +413,7 @@ impl PinnedConfirmation {
 ///
 /// Groups run in ascending order of their smallest root id (a group without roots sorts last, ties by position), so which groups ran before a cap never depends on hashing. Head roots must be disjoint across groups (asserted): the lexical-entry filter acts only at head lookup, so an analysis headed by root `r` comes from exactly the one reparse whose group holds `r`, with its full multiplicity, and the results are concatenated. Every analysis returned is one plain HC returns for `word`; recall rests on the caller's groups covering a derivation's head root and rules.
 ///
-/// Analyses from a group whose reparse stopped are kept, not dropped: when `incomplete()` they may be a prefix and the caller must discard them. An empty `groups` slice runs no reparse and returns no analyses and no stop; that is not a rejection unless the proposal that produced the groups was itself complete.
+/// On any stop `analyses` is empty, as on #400's single-word path: a prefix of HC's analyses is never returned. The stop reasons of all groups are unioned. An empty `groups` slice runs no reparse and returns no analyses and no stop; that is not a rejection unless the proposal that produced the groups was itself complete.
 ///
 /// Additive to `confirm_batch`: nothing there changes behaviour.
 pub fn confirm_pin_groups(
@@ -485,6 +485,9 @@ fn reparse_groups<'b>(
                 .map(|(wa, (join, surface))| (wa, join, surface)),
         );
     }
+    if result.stop.any() {
+        result.analyses.clear();
+    }
     result
 }
 
@@ -496,12 +499,16 @@ pub fn confirm_unfiltered(
 ) -> PinnedConfirmation {
     let (outcome, stop) = checked_reparse(morpher, word, None, None, budget);
     PinnedConfirmation {
-        analyses: outcome
-            .structured
-            .into_iter()
-            .zip(outcome.analyses)
-            .map(|(wa, (join, surface))| (wa, join, surface))
-            .collect(),
+        analyses: if stop.any() {
+            Vec::new()
+        } else {
+            outcome
+                .structured
+                .into_iter()
+                .zip(outcome.analyses)
+                .map(|(wa, (join, surface))| (wa, join, surface))
+                .collect()
+        },
         stop,
         work_steps: budget.work_steps() as u64,
         reparses: 1,

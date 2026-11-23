@@ -468,9 +468,39 @@ mod pin_groups {
         assert_eq!(got.reparses, 2);
         assert!(got.stop.capped, "the first group's stop was overwritten");
         assert!(got.incomplete());
+        assert!(
+            got.analyses.is_empty(),
+            "a stopped call returns no analyses"
+        );
         let roomy_alone = morpher.word_budget();
         let last_only = group(&[LexEntryId(2)], &rules);
         let clean = confirm_pin_groups(&g, &morpher, "kpq", &[last_only], &roomy_alone);
         assert!(!clean.incomplete(), "the last group alone must complete");
+    }
+
+    /// A stop in any one group, first or last, empties the analyses of the groups that completed.
+    #[test]
+    fn a_stop_in_any_group_empties_the_analyses() {
+        let g = fixture();
+        let morpher = Morpher::new(&g, usize::MAX);
+        let tight = Morpher::new(&g, 1).word_budget();
+        let rules = all_rules(&g);
+        let ks = group(&[LexEntryId(0), LexEntryId(1)], &rules);
+        let l = group(&[LexEntryId(2)], &rules);
+        for stop_at in [0usize, 1] {
+            let roomy = morpher.word_budget();
+            let budgets = if stop_at == 0 {
+                [&tight, &roomy]
+            } else {
+                [&roomy, &tight]
+            };
+            let got = reparse_groups(&g, &morpher, "k", &[ks.clone(), l.clone()], &mut |k| {
+                budgets[k]
+            });
+            assert!(got.stop.capped, "stop_at={stop_at}");
+            assert!(got.analyses.is_empty(), "stop_at={stop_at}: analyses kept");
+        }
+        let ok = confirm_pin_groups(&g, &morpher, "k", &[ks], &morpher.word_budget());
+        assert!(!ok.incomplete() && !ok.analyses.is_empty());
     }
 }
