@@ -27,7 +27,7 @@ use super::readout::{self, ReadoutBudget, ReadoutMode};
 use crate::confirm::{confirm_pin_groups, PinGroup};
 
 /// What a layer arc's [`Tag`] names. Tags are opaque to the product; this is the packing.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TagKind {
     /// A head root entry (`root(entry)`).
     Root(LexEntryId),

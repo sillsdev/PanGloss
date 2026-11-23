@@ -496,3 +496,70 @@ fn a_circumfix_is_found_only_with_both_halves_in_a_chain_and_a_pool() {
         assert_eq!(analysed, 2, "{order}");
     }
 }
+
+#[test]
+fn every_tag_lex_and_the_zones_emit_decodes_to_the_kind_it_was_built_as() {
+    use pg_foma_runtime::cascade::analyzer::{decode_tag, TagKind};
+    use pg_foma_runtime::cascade::{Layer, LayerScratch};
+    let strata = [
+        linear(vec![rule(&[("", "s"), ("", "")], 1), rule(&[("k", "")], 1)], &["ta|ka", "tsa"]),
+        linear(vec![rule(&[("s", "k")], 1)], &["ka"]),
+    ];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"], &["ts"]], None, &strata);
+    let grammar = pg_grammar::load(&x).unwrap();
+    let mut meter = BuildMeter::default_limits();
+    let (layers, _) = build_cascade(&grammar, false, &mut meter).unwrap();
+    let mut tags_of = |layer: usize| {
+        let l = &layers.layers[layer];
+        let mut scratch = LayerScratch::default();
+        let mut out = Vec::new();
+        for s in 0..l.state_count() as u32 {
+            l.arcs_free(&mut scratch, s, &mut |a| out.extend_from_slice(a.tags));
+        }
+        out
+    };
+    let lex: BTreeSet<_> = tags_of(0).into_iter().map(decode_tag).collect();
+    let want: BTreeSet<_> = (0..grammar.entries.len() as u32)
+        .map(|e| TagKind::Root(LexEntryId(e)))
+        .collect();
+    assert_eq!(lex, want, "Lex emits exactly one root tag per entry");
+    let zone_tags: BTreeSet<_> = (1..layers.layers.len() - 1)
+        .flat_map(&mut tags_of)
+        .map(decode_tag)
+        .collect();
+    assert_eq!(zone_tags.len(), 3);
+    assert!(zone_tags.iter().all(|t| matches!(t, TagKind::Rule(_))));
+    assert!(tags_of(layers.layers.len() - 1).is_empty(), "Repr carries no tags");
+}
+
+#[test]
+fn a_zone_drops_a_boundary_token_it_reads_and_spelling_gives_an_unspellable_row_an_epsilon() {
+    use pg_foma_runtime::cascade::{Layer, LayerScratch};
+    let mut meter = BuildMeter::default_limits();
+    let zone = pg_foma::cascade_intersect::zone::build_zone(
+        "z",
+        6,
+        &[5],
+        pg_foma::cascade_intersect::zone::ZoneKind::Pool,
+        &[],
+        &mut meter,
+    )
+    .unwrap()
+    .layer;
+    let mut scratch = LayerScratch::default();
+    let start = zone.start(&mut scratch);
+    let (mut kept, mut dropped) = (false, false);
+    zone.arcs_from(&mut scratch, start, Some(5), &mut |a| match a.output {
+        Some(5) => kept = true,
+        None => dropped = true,
+        _ => {}
+    });
+    assert!(kept && dropped, "a boundary is kept or dropped");
+
+    let strata = [linear(vec![], &["ta"])];
+    let grammar = pg_grammar::load(&xml(&[&["a"], &["t"], &[]], None, &strata)).unwrap();
+    let spelling =
+        pg_foma::cascade_intersect::spell::spell_table(&grammar.char_tables[0], &mut meter).unwrap();
+    assert_eq!(spelling.forms[2], vec![Vec::<char>::new()]);
+    assert_eq!(spelling.epsilon_only, 1);
+}
