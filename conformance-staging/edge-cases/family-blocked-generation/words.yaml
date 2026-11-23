@@ -1,0 +1,17 @@
+# oracle-provenance: founding-oracle machine-commit=74ee09bf (C# HermitCrab, issue sillsdev/PanGloss#423)
+language: FamilyBlockedGeneration
+inspired_by: ["synthetic stem family whose relative blocks a derivation"]
+sources: ["sillsdev/PanGloss#423"]
+requires: [morphology]
+fieldworks_producible: true
+words:
+  - word: aa
+    note: "The bare family member A."
+    parses:
+      - signature: "A|aa"
+        rules: []
+  - word: aat
+    note: "A+T and B share this surface; the family relative B blocks A+T, so only B is reported."
+    parses:
+      - signature: "B|aat"
+        rules: []

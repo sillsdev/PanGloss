@@ -696,3 +696,40 @@ fn mpr_wide_generation_matches_csharp_boundary_cross_product() {
         )
         .is_empty());
 }
+
+/// sillsdev/PanGloss#423: a derivation blocked by a stem-family relative generates the relative's word, as C# `Morpher.GenerateWords` does (machine 74ee09bf).
+#[test]
+fn family_blocked_generation_returns_the_relative_word() {
+    use pg_featstruct::FeatureStruct;
+    use pg_grammar_model::model::{LexEntryId, MRuleId};
+    use pg_parse::GenMorpheme;
+    let fixture = require_fixture("edge-cases", "family-blocked-generation");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let entry = |id: &str| {
+        LexEntryId(
+            grammar
+                .entries
+                .iter()
+                .position(|e| e.authored_id == id)
+                .unwrap() as u32,
+        )
+    };
+    let rule = MRuleId(
+        grammar
+            .mrules
+            .iter()
+            .position(|r| r.authored_name() == Some("T"))
+            .unwrap() as u32,
+    );
+    let generate = |root: &str, rules: &[GenMorpheme]| {
+        morpher.generate_words(entry(root), rules, FeatureStruct::EMPTY)
+    };
+    assert_eq!(
+        generate("eA", &[GenMorpheme::Rule(rule)]),
+        ["aat"],
+        "A+T is blocked by relative B, whose word is returned"
+    );
+    assert_eq!(generate("eB", &[]), ["aat"]);
+    assert_eq!(generate("eA", &[]), ["aa"]);
+}

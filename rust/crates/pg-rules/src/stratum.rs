@@ -2425,7 +2425,10 @@ fn guided_synth(
         return Vec::new();
     }
     for o in &mut outs {
-        o.mrule_app_index -= 1;
+        // C# `Word.MorphologicalRuleApplied` steps the index only while a rule is pending. A blocking output is a fresh seed already at -1, and stepping it to -2 made `is_word_valid` drop it (sillsdev/PanGloss#423). The non-head index steps for every compounding rule, as in C#.
+        if o.mrule_app_index >= 0 {
+            o.mrule_app_index -= 1;
+        }
         if is_compound {
             o.non_head_app_index -= 1;
         }
