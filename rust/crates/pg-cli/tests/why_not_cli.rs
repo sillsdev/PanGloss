@@ -591,14 +591,20 @@ fn an_environment_checked_on_a_synthesized_form_says_so() {
 }
 
 #[test]
-fn a_surface_mismatch_after_phonology_is_unknown() {
+fn a_deleted_segment_still_counts_for_its_allomorphs_environment() {
+    // prDelL deletes the l of "sal" before k, so the pinned derivation surfaces
+    // as "sak", not "salk". The engine keeps the deleted node (as C# does), so it
+    // can place the allomorph and reports the first failing check in the fixed
+    // order: aSal's own excluded environment (_ k), before any surface mismatch.
     let r = answer_on(
         "why-not-phon-delete.xml",
         "salk",
         &["--expect", "eSal,mrSufK"],
     );
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure");
+    assert_eq!(failure_kind(&r), "environment_unmet", "{r}");
+    assert_eq!(r["failure"]["object"]["id"], "aSal", "{r}");
+    let plain = r["failure"]["plain"].as_str().unwrap();
+    assert!(plain.contains("\"sak\"") && plain.contains("\"salk\""), "{plain}");
 }
 
 #[test]
