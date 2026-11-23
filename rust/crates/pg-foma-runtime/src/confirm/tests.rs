@@ -412,4 +412,65 @@ mod pin_groups {
             "the property must exercise L1: {checked_l1}"
         );
     }
+
+    fn dup_fixture() -> Grammar {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput><Language><Name>DupFixture</Name>
+<PartsOfSpeech><PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech></PartsOfSpeech>
+<CharacterDefinitionTable id="t1"><Name>Main</Name><SegmentDefinitions>
+<SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cr"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+</SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+<Strata><Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrR"><Name>Main</Name>
+<MorphologicalRuleDefinitions>
+<MorphologicalRule id="mrR" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>R</Name>
+<MorphologicalSubrules>
+<MorphologicalSubrule id="subR1"><MorphologicalInput><PhoneticSequence id="stemR1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+<MorphologicalOutput><CopyFromInput index="stemR1" /><InsertSegments><PhoneticShape>r</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+<MorphologicalSubrule id="subR2"><MorphologicalInput><PhoneticSequence id="stemR2"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+<MorphologicalOutput><CopyFromInput index="stemR2" /><InsertSegments><PhoneticShape>r</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule>
+</MorphologicalSubrules><MorphemeId>R</MorphemeId></MorphologicalRule>
+</MorphologicalRuleDefinitions>
+<LexicalEntries><LexicalEntry id="eK" partOfSpeech="posV"><Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs><MorphemeId>K</MorphemeId></LexicalEntry></LexicalEntries>
+</Stratum></Strata></Language></HermitCrabInput>"#;
+        pg_grammar::load(xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"))
+    }
+
+    /// Two derivations spelling the same morpheme sequence: HC returns the key twice and so must the pinned entry.
+    #[test]
+    fn identical_key_duplicate_analyses_are_both_kept() {
+        let g = dup_fixture();
+        let morpher = Morpher::new(&g, usize::MAX);
+        let want = plain(&morpher, "kr");
+        assert_eq!(want.len(), 2, "fixture must give HC a duplicate: {want:?}");
+        assert_eq!(want[0], want[1]);
+        let all = group(&all_roots(&g), &all_rules(&g));
+        let got = confirm_pin_groups(&g, &morpher, "kr", &[all], &fresh(&morpher));
+        assert_eq!(sorted(keys(&got.analyses)), want);
+        let got = confirm_unfiltered(&morpher, "kr", &fresh(&morpher));
+        assert_eq!(sorted(keys(&got.analyses)), want);
+    }
+
+    /// Only the first group's allowance stops; the last group completes cleanly. The union must keep the earlier stop.
+    #[test]
+    fn an_earlier_groups_stop_survives_a_clean_last_group() {
+        let g = fixture();
+        let morpher = Morpher::new(&g, usize::MAX);
+        let tight = Morpher::new(&g, 60).word_budget();
+        let roomy = morpher.word_budget();
+        let rules = all_rules(&g);
+        let first = group(&[LexEntryId(0), LexEntryId(1)], &rules);
+        let last = group(&[LexEntryId(2)], &rules);
+        let budgets = [&tight, &roomy];
+        let got = reparse_groups(&g, &morpher, "kpq", &[last, first], &mut |k| budgets[k]);
+        assert_eq!(got.reparses, 2);
+        assert!(got.stop.capped, "the first group's stop was overwritten");
+        assert!(got.incomplete());
+        let roomy_alone = morpher.word_budget();
+        let last_only = group(&[LexEntryId(2)], &rules);
+        let clean = confirm_pin_groups(&g, &morpher, "kpq", &[last_only], &roomy_alone);
+        assert!(!clean.incomplete(), "the last group alone must complete");
+    }
 }
