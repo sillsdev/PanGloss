@@ -362,6 +362,14 @@ fn units_cut_by_character_class_not_by_code_point() {
 }
 
 #[test]
+fn cut_units_decomposes_before_cutting_c106() {
+    assert_eq!(
+        cut_units("\u{E9}"),
+        vec![("e".to_string(), "\u{301}".to_string())]
+    );
+}
+
+#[test]
 fn nfc_and_nfd_typed_words_are_the_same_word_c106() {
     let reps = ["e", "t", "\u{301}"];
     let nfc = Harness::new(&reps, "t\u{E9}");
