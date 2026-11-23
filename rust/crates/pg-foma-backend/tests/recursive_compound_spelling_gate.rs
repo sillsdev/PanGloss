@@ -339,9 +339,17 @@ fn singleton_phonology_is_not_refused_when_no_stratum_applies_a_compounding_rule
             "morphologicalRules=\"PRE\"",
         );
     let g = pg_grammar::load(&xml).unwrap();
+    // The deletion's own context still reaches across a morph junction (#415), so the grammar is refused for that cause and no longer for the compound one.
+    let Err(pg_foma::analyzer::FomaError::CapabilityRefused(refusals)) = compile_proposer(&g)
+    else {
+        panic!("a deletion with an environment beside affixes must refuse");
+    };
     assert!(
-        compile_proposer(&g).is_ok(),
-        "defined but unstaged compounding rules cannot form a compound"
+        refusals
+            .iter()
+            .all(|d| d.refusal
+                == CapabilityRefusal::ProposalRecall(ProposalRecallGap::JunctionDeletion)),
+        "defined but unstaged compounding rules cannot form a compound: {refusals:?}"
     );
 }
 
