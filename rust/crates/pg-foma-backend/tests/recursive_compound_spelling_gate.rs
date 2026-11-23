@@ -12,10 +12,14 @@ use pg_health::capability::{CapabilityRefusal, ProposalRecallGap};
 use pg_parse::Morpher;
 
 fn fixture(suffix: &str) -> FixtureRef {
-    let name = format!("staging:edge-cases/spelling-coverage-compound-{suffix}");
+    let name = format!("edge-cases/spelling-coverage-compound-{suffix}");
     discover()
         .into_iter()
-        .find(|f| f.label() == name)
+        .find(|f| {
+            f.label()
+                .split_once(':')
+                .is_some_and(|(_, path)| path == name)
+        })
         .unwrap_or_else(|| panic!("missing {name}"))
 }
 

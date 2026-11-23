@@ -730,7 +730,7 @@ fn allomorphs_valid_impl(
         }
         _ => EnvironmentCapture::Off,
     };
-    let layout = MorphLayout::decode(&w.morphs, w.shape.len());
+    let layout = MorphLayout::decode(&w.morphs, w.shape.len(), w.extras.bare_nodes());
     let mut sorted_indices: Vec<usize> = (0..w.morphs.len()).collect();
     sorted_indices.sort_by_key(|&index| w.morphs[index].order);
     let sorted: Vec<&MorphRecord> = sorted_indices

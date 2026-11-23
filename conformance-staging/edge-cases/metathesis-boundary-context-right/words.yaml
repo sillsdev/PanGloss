@@ -1,0 +1,76 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-19
+language: MetathesisBoundaryContextRight
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: "a"
+    note: >-
+      Root a alone: no s-t pair, nothing swaps.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "p"
+    note: >-
+      Root p alone: nothing swaps.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "st"
+    note: >-
+      Root st alone: the rule needs a following a, so st is not swapped.
+    parses:
+      - signature: "Z|st"
+        rules: []
+  - word: "aa"
+    note: >-
+      Root a with suffix +a: no s-t pair (X+SUF).
+    parses:
+      - signature: "X+SUF|a+?a"
+        rules: [SUF]
+  - word: "pa"
+    note: >-
+      Root p with suffix +a: no s-t pair (Y+SUF).
+    parses:
+      - signature: "Y+SUF|p+?a"
+        rules: [SUF]
+  - word: "a+a"
+    note: >-
+      Root a, boundary, suffix a: the boundary is optional on the surface.
+    parses:
+      - signature: "X+SUF|a+?a"
+        rules: [SUF]
+  - word: "p+a"
+    note: >-
+      Root p, boundary, suffix a.
+    parses:
+      - signature: "Y+SUF|p+?a"
+        rules: [SUF]
+  - word: "tsa"
+    note: >-
+      Root st before suffix +a: the right context a is reached across the boundary, and C# gives the skipped boundary to t's group, the switch matched before it; only segments move, so s moves after t and the boundary and the surface is t+sa.
+    parses:
+      - signature: "Z+SUF|t+?sa"
+        rules: [SUF, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "t+sa"
+    note: >-
+      The same analysis with the moved boundary written after t: C# accepts it.
+    parses:
+      - signature: "Z+SUF|t+?sa"
+        rules: [SUF, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "ts+a"
+    note: >-
+      The boundary left before the context, where the pre-fix Rust HC put it: C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "st+a"
+    note: >-
+      Never a surface: the obligatory rule rewrites st+a, and C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "sta"
+    note: >-
+      Never a surface: the obligatory rule rewrites it, and C# rejects it.
+    expect_fail: true
+    exercises: ["MetathesisRule"]

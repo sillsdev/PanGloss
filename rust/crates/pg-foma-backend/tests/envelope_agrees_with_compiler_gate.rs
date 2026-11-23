@@ -235,7 +235,7 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
     }
     assert_eq!(
         claimed,
-        ["staging:edge-cases/spelling-coverage-compound-depth-prefix-zone"],
+        ["machine:edge-cases/spelling-coverage-compound-depth-prefix-zone"],
         "the set of mixed-circumfix-zone witnesses changed"
     );
 }

@@ -26,6 +26,8 @@ pub enum ProposalRecallGap {
     CompoundJunctionTokenization,
     SingletonRootBoundary,
     CompoundJunctionPhonology,
+    MetathesisAcrossMorphs,
+    EmptiedMorphReorder,
     RecursiveCompoundAsymmetricLicense,
     RecursiveCompoundMprRestriction,
     RecursiveCompoundMprOutput,

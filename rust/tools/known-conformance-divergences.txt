@@ -15,3 +15,11 @@
 # reproduce a C#-side crash bug -- already tracked as a known, explicit scope decision (not silently
 # folded into "out of scope") in rust/docs/p13-simultaneous-design.md sections 6.2 and 7, item 2.
 edge-cases/simultaneous-epenthesis-cascade
+
+# edge-cases/metathesis-deletion-restores-segment-between-switches -- (from fpc #50, upstream of the
+# staged copy in conformance-staging/). Its words.yaml records `ats`, `at+s`, `atsa` and `at+sa` as
+# expect_fail: the founding oracle cannot parse them (sillsdev/machine#649), and PanGloss pairs only
+# the nodes the switches consumed, so it parses each as `PRE+R0` or `PRE+R2`. Planned difference:
+# docs/divergences/132-metathesis-analysis-pairs-a-switch-with-a-restored-segment.md; the gate's per-word record is `pangloss_expectations` in
+# oracle-conformance-known-divergences.json.
+edge-cases/metathesis-deletion-restores-segment-between-switches

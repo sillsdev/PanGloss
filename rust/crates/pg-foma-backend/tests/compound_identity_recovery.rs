@@ -1,8 +1,7 @@
-//! The proposer offers, and confirmation keeps exactly, every HC identity for words whose tag paths repeat a morpheme; expected signatures come from the pinned C# oracle via each fixture's `STAGING.md`.
+//! The proposer offers, and confirmation keeps exactly, every HC identity for words whose tag paths repeat a morpheme; expected signatures come from the pinned C# oracle in each fixture's `words.yaml`.
 
 use std::sync::Arc;
 
-use pg_conformance_fixtures::discover;
 use pg_foma::candidate_filter::index::FilterIndex;
 use pg_foma::candidate_filter::pipeline::FilterMode;
 use pg_foma::candidate_filter::shadow::CandidateFilterSettings;
@@ -22,11 +21,7 @@ const SAME_SPELLING: &str = "compound-allomorph-identity-same-spelling";
 const ALL: [&str; 5] = [TWO, DISTINCT, SEPARATED, AFFIX, SAME_SPELLING];
 
 fn fixture(name: &str) -> pg_conformance_fixtures::FixtureRef {
-    let label = format!("staging:edge-cases/{name}");
-    discover()
-        .into_iter()
-        .find(|f| f.label() == label)
-        .unwrap_or_else(|| panic!("fixture {label} is missing"))
+    pg_conformance_fixtures::require_fixture("edge-cases", name)
 }
 
 /// The fixture's own words plus every string of length 1..=4 over the two-letter inventory, so the neighbors of each declared word are measured too.
@@ -175,11 +170,15 @@ fn pinned_identity_multisets_are_recovered_exactly() {
         (TWO, "pa", &[("root+root", 0, 1)]),
         (TWO, "pp", &[("root", 0, 1)]),
         (TWO, "aaa", &[]),
-        (DISTINCT, "pp", &[("x", 0, 1), ("y", 0, 1)]),
-        (DISTINCT, "ap", &[("x+x", 0, 1)]),
-        (DISTINCT, "app", &[("x+y", 0, 1)]),
-        (DISTINCT, "ppa", &[("y+x", 0, 1)]),
-        (DISTINCT, "ppp", &[("x+y", 0, 1), ("y+x", 0, 1)]),
+        (DISTINCT, "pp", &[("x", 0, 2), ("y", 0, 1)]),
+        (DISTINCT, "ap", &[("x+x", 0, 1), ("x+x", 1, 1)]),
+        (DISTINCT, "app", &[("x+y", 0, 1), ("x+y", 1, 1)]),
+        (DISTINCT, "ppa", &[("y+x", 0, 1), ("y+x", 1, 1)]),
+        (
+            DISTINCT,
+            "ppp",
+            &[("x+y", 0, 1), ("x+y", 1, 1), ("y+x", 0, 1), ("y+x", 1, 1)],
+        ),
         (SEPARATED, "pa", &[("PRE+root", 1, 1), ("root+root", 0, 1)]),
         (SEPARATED, "pp", &[("PRE+root", 1, 1), ("root", 0, 1)]),
         (SEPARATED, "ppa", &[("PRE+root+root", 1, 2)]),
@@ -193,15 +192,20 @@ fn pinned_identity_multisets_are_recovered_exactly() {
         (SAME_SPELLING, "a", &[("root", 0, 2)]),
         (SAME_SPELLING, "aa", &[("root", 0, 2), ("root+root", 0, 2)]),
     ];
+    let mut mismatches = Vec::new();
     for name in ALL {
         let g = fixture(name).load_grammar();
         measure_all(name, &g, |word, row| {
             if let Some((_, _, want)) = pins.iter().find(|(n, w, _)| *n == name && *w == word) {
-                assert_eq!(shape(&row.confirmed), expected(want), "{name}: {word}");
-                assert_eq!(shape(&row.oracle), expected(want), "{name}: {word}");
+                for got in [shape(&row.confirmed), shape(&row.oracle)] {
+                    if got != expected(want) {
+                        mismatches.push(format!("{name}: {word}: {got:?}"));
+                    }
+                }
             }
         });
     }
+    assert!(mismatches.is_empty(), "{mismatches:#?}");
     for (name, word, _) in pins {
         assert!(
             words(name).iter().any(|w| w == word),
@@ -244,8 +248,17 @@ fn the_proposer_offers_the_two_occurrence_identity_the_legacy_decoder_erases() {
     offered.sort();
     assert_eq!(
         offered,
-        vec![(2, 0), (2, 1)],
-        "distinct tags add nothing beyond the legacy head choices"
+        vec![
+            (1, 0),
+            (2, 0),
+            (2, 0),
+            (2, 1),
+            (2, 1),
+            (3, 0),
+            (3, 1),
+            (3, 2)
+        ],
+        "the offers for distinct entries under two compounding rules changed"
     );
 }
 

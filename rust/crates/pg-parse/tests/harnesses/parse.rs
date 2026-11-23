@@ -4,6 +4,12 @@
 #[path = "../partials_preservation.rs"]
 mod partials_preservation;
 
+#[path = "../metathesis_after_deletion.rs"]
+mod metathesis_after_deletion;
+
+#[path = "../metathesis_match_order.rs"]
+mod metathesis_match_order;
+
 #[path = "../adhoc_affix_copies.rs"]
 mod adhoc_affix_copies;
 #[path = "../adhoc_allomorph_copies.rs"]

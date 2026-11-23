@@ -100,6 +100,13 @@ pub(crate) fn refusals_with_spelling(
             "non-final template followed by another template",
             "the surface skeleton represents one template application, so template reentry or cross-stratum template completion can lose analyses"));
     }
+    if crate::emptied_morph::deletion_can_empty_morph_before_later_affix(g)
+        || crate::emptied_morph::shape_edit_can_reorder_morphs_before_later_affix(g)
+    {
+        gaps.push((ProposalRecallGap::EmptiedMorphReorder,
+            "deletion or insertion that can change which morph a later stratum's affix orders first",
+            "Rust HC, like C#, orders a morph that lost every node, or sits beside a deleted or inserted node, by the later affix's copy, and the surface skeleton tags morphs in their lexical order"));
+    }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
         if stratum
             .mrules
@@ -135,6 +142,13 @@ pub(crate) fn refusals_with_spelling(
                 "structural truncation and ordinary copied-host affix routes do not preserve every composed derivation"));
         }
         for id in &stratum.prules {
+            if matches!(&g.prules[id.0 as usize], PhonRuleDef::Metathesis(rule)
+                if crate::metathesis_span::metathesis_can_swap_across_morphs(g, *id, rule))
+            {
+                gaps.push((ProposalRecallGap::MetathesisAcrossMorphs,
+                    "metathesis in a grammar whose morphology can place the switches in different morphs",
+                    "a swap across a morph boundary reorders the morphs in the analysis, and the surface skeleton tags morphs in their order before phonology"));
+            }
             let PhonRuleDef::Rewrite(rule) = &g.prules[id.0 as usize] else {
                 continue;
             };

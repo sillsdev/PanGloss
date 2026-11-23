@@ -23,6 +23,8 @@ mod backend_selection_contract;
 mod bare_root_compile_time_discharge;
 #[path = "../grammar_health_publication_gate.rs"]
 mod grammar_health_publication_gate;
+#[path = "../metathesis_across_morphs_gate.rs"]
+mod metathesis_across_morphs_gate;
 #[path = "../proposal_recall_gate.rs"]
 mod proposal_recall_gate;
 #[path = "../recursive_compound_spelling_gate.rs"]

@@ -29,6 +29,12 @@
       "note": "Divergence 050 / Machine #520: hc.dll (master c2454760, includes #539) finds no parse for the two metathesis words while a POS-scoped deletion exists; expectations are hand-forward-derived, see words.yaml."
     },
     {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "kind": "forward-synthesis",
+      "reason": "4/10 word(s) mismatched: ats: expected [PRE+R0|at+?s] got []; at+s: expected [PRE+R0|at+?s] got []; atsa: expected [PRE+R2|at+?sa] got []; at+sa: expected [PRE+R2|at+?sa] got []",
+      "note": "Divergence 132 (the mechanism of divergence 050 / Machine #520): hc.dll at 1ddef2bd pairs a switch with the optional p that pd's analysis restored, so it cannot parse words its own GenerateWords produces. Reason text measured 2026-11-20 with the 1ddef2bd hc-conformance self-check. sillsdev/machine#649; the suite copy (sillsdev/fieldworks-parser-conformance#50) records these four words as expect_fail, which pangloss_expectations below excuses once pinned. Remove when machine#649 lands and the oracle pin moves."
+    },
+    {
       "fixture": "edge-cases/featureless-modify-from-input",
       "kind": "forward-synthesis",
       "reason": "3/8 word(s) mismatched: kitas: expected [KATA+MODS|kitas | KITA+MODS|kitas] got [KITA+MODS|kitas]; tisis: expected [TASI+MODS|tisis] got []; pisas: expected [PASA+MODS|pisas] got []",
@@ -47,5 +53,40 @@
       "note": "Divergence 129 (partial-feature grammars, owner decision 2026-11-05): PanGloss lets a segment with no value for a feature satisfy a [feature:-] rule target; hc.dll matches by subsumption. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
     }
   ],
-  "evidence_measured_date": "2026-09-30"
+  "evidence_measured_date": "2026-09-30",
+  "_pangloss_expectations_comment": "Words on which PanGloss deliberately disagrees with a pinned suite row that records a C# defect (a docs/divergences/ entry). conformance_fixtures_gate excuses a mismatch only on the pinned copy and only when both renderings match exactly, and fails on an entry the pinned fixture no longer needs.",
+  "pangloss_expectations": [
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "ats",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R0|at+?s\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R0. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "at+s",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R0|at+?s\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R0. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "atsa",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R2|at+?sa\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R2. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "at+sa",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R2|at+?sa\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R2. Delete when machine#649 lands and the suite row is flipped."
+    }
+  ]
 }

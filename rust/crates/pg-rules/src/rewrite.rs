@@ -56,6 +56,8 @@ pub(crate) struct MutNode {
     /// C# `Modified == Dirty` — set after a node is (un)rewritten so the iterative matcher, whose
     /// LHS carries `Modified=Clean`, will not re-match it.
     pub(crate) dirty: bool,
+    /// Where the node sat in the rule's input, for re-anchoring morphs after synthesis: twice its input index for an input node or a node that replaced one, `None` for an inserted node.
+    pub(crate) input_key: Option<u32>,
 }
 
 impl MutNode {
@@ -167,6 +169,7 @@ impl MutShape {
                 optional: s.flags(i).is_optional(),
                 deleted: false,
                 dirty: false,
+                input_key: Some(2 * i as u32),
             })
             .collect();
         MutShape {
@@ -202,6 +205,26 @@ impl MutShape {
             node.explicit_full = explicit_full_of(table, node.char_def);
         }
         result
+    }
+
+    /// The input key of each node `to_shape` keeps, an inserted node taking the odd key just after the node before it; `None` when the rule kept every one of `input_len` interior nodes in place and inserted none. C# keeps a deleted node in the shape, so its morph annotations stay put; `Word::remap_morph_orders` uses these keys to keep morph positions aligned the same way.
+    pub(crate) fn anchor_keys(&self, input_len: usize) -> Option<Vec<u32>> {
+        let mut keys = Vec::new();
+        let mut previous = 0;
+        for node in &self.nodes {
+            if matches!(node.kind, NodeKind::LeftAnchor | NodeKind::RightAnchor) || node.deleted {
+                continue;
+            }
+            let key = node.input_key.unwrap_or(previous | 1);
+            keys.push(key);
+            previous = key;
+        }
+        let unchanged = keys.len() == input_len
+            && keys
+                .iter()
+                .enumerate()
+                .all(|(index, &key)| key == 2 * (index as u32 + 1));
+        (!unchanged).then_some(keys)
     }
 
     /// Freeze back to an immutable `Shape`: drop deleted nodes, carry Optional (segments via the
@@ -1942,6 +1965,10 @@ fn apply_synthesis_site(
             for (node, vars) in inserted.iter_mut().zip(rhs_vars) {
                 apply_variable_bindings(g, node, vars, &site.bindings);
             }
+            let key = ms.nodes[first].input_key;
+            for node in &mut inserted {
+                node.input_key = key;
+            }
             let count = inserted.len();
             ms.nodes.splice(last + 1..last + 1, inserted);
             if probe && rule.mode == RewriteMode::Simultaneous {
@@ -2028,15 +2055,32 @@ fn synthesis_envs(pc: &PruleCache) -> Vec<(&Option<EnvFst>, &Option<EnvFst>)> {
         .collect()
 }
 
-fn shape_for_outcomes(ms: &MutShape, outcomes: &[SubruleOutcome]) -> Vec<Shape> {
-    if outcomes
+fn shape_for_outcomes(ms: &MutShape, outcomes: &[SubruleOutcome], input: &Shape) -> Vec<Shape> {
+    rewrite_for_outcomes(ms, outcomes, input)
+        .map(|rewritten| rewritten.shape)
+        .into_iter()
+        .collect()
+}
+
+/// A synthesis rewrite that applied: its shape, and where each input node went when the rule deleted or inserted one.
+pub(crate) struct SynthesisRewrite {
+    pub(crate) shape: Shape,
+    /// `MutShape::anchor_keys` of the result: where each kept node sat in the input. `None` when no node was deleted or inserted.
+    pub(crate) anchor_keys: Option<Vec<u32>>,
+}
+
+fn rewrite_for_outcomes(
+    ms: &MutShape,
+    outcomes: &[SubruleOutcome],
+    input: &Shape,
+) -> Option<SynthesisRewrite> {
+    outcomes
         .iter()
         .any(|o| matches!(o, SubruleOutcome::Applied))
-    {
-        vec![ms.to_shape()]
-    } else {
-        Vec::new()
-    }
+        .then(|| SynthesisRewrite {
+            shape: ms.to_shape(),
+            anchor_keys: ms.anchor_keys(input.len().saturating_sub(2)),
+        })
 }
 
 // Public API.
@@ -2082,7 +2126,7 @@ pub fn synthesize_with_mpr(
         None,
         None,
     );
-    shape_for_outcomes(&ms, &outcomes)
+    shape_for_outcomes(&ms, &outcomes, input)
 }
 
 /// Use the grammar-resident rule's compiled matchers.
@@ -2097,6 +2141,9 @@ pub(crate) fn synthesize_with_mpr_cached(
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
     synthesize_with_mpr_cached_stats(g, pid, rule, input, syn_fs, mpr, cache, None)
+        .map(|rewritten| rewritten.shape)
+        .into_iter()
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2109,7 +2156,7 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
     mpr: &MprSet,
     cache: &crate::cache::RuleCache,
     stats: Option<PRuleStatsCtx>,
-) -> Vec<Shape> {
+) -> Option<SynthesisRewrite> {
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
     let mut ms = MutShape::for_rewrite(g, table, input);
@@ -2127,7 +2174,7 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
         stats,
         None,
     );
-    shape_for_outcomes(&ms, &outcomes)
+    rewrite_for_outcomes(&ms, &outcomes, input)
 }
 
 // C# `SynthesisRewriteRule.Apply` traces post-hoc from a per-subrule-index side channel (gate-failure reason, or success) rather than inline; readout reports the FIRST successful index and stops, mirroring the same gate order `subrule_applicable` checks.
@@ -2240,7 +2287,7 @@ pub fn synthesize_with_mpr_traced(
         None,
         None,
     );
-    let result = shape_for_outcomes(&ms, &outcomes);
+    let result = shape_for_outcomes(&ms, &outcomes, input);
     let mut out_word = Word::new(
         result.first().cloned().unwrap_or_else(|| input.clone()),
         StratumId(0),
@@ -2267,6 +2314,9 @@ pub fn synthesize_with_mpr_cached_traced(
     parent: TraceHandle,
 ) -> Vec<Shape> {
     synthesize_with_mpr_cached_traced_stats(g, pid, rule, input, cache, trace, parent, None)
+        .map(|rewritten| rewritten.shape)
+        .into_iter()
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2279,7 +2329,7 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     stats: Option<PRuleStatsCtx>,
-) -> Vec<Shape> {
+) -> Option<SynthesisRewrite> {
     let mode = trace.mode();
     if matches!(mode, crate::trace::TraceMode::Off) {
         return synthesize_with_mpr_cached_stats(
@@ -2315,9 +2365,9 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
         stats,
         observation.as_ref(),
     );
-    let result = shape_for_outcomes(&ms, &outcomes);
+    let result = rewrite_for_outcomes(&ms, &outcomes, &input.shape);
     if let Some(observation) = observation {
-        if result.is_empty()
+        if result.is_none()
             && pg_fst::work::active_budget()
                 .is_none_or(|budget| !budget.capped() && !budget.timed_out())
         {
@@ -2333,9 +2383,8 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     }
     let mut out_word = input.clone();
     out_word.shape = result
-        .first()
-        .cloned()
-        .unwrap_or_else(|| input.shape.clone());
+        .as_ref()
+        .map_or_else(|| input.shape.clone(), |rewritten| rewritten.shape.clone());
     report_subrule_outcomes(
         trace,
         input.trace.unwrap_or(parent),
@@ -3195,7 +3244,11 @@ fn ana_narrow_deletion(
             node.unresolved_variables = vars.iter().map(|occ| occ.feature as u32).collect();
             apply_variable_bindings(g, node, vars, bindings);
         }
-        ms.nodes.splice(site_node + 1..site_node + 1, inserted);
+        // Machine 1ddef2bd `RewriteRuleSpec.MatchSubrule` runs this analysis right to left and inserts after the matched node's raw `Prev`, so the node lands just before the next segment or anchor, past any boundary (v12-072).
+        let at = (site_node + 1..ms.nodes.len())
+            .find(|&j| ms.nodes[j].kind != NodeKind::Boundary)
+            .unwrap_or(ms.nodes.len());
+        ms.nodes.splice(at..at, inserted);
     }
     true
 }
@@ -3714,6 +3767,7 @@ fn new_seg_node_dirty(
         optional,
         deleted: false,
         dirty,
+        input_key: None,
     }
 }
 

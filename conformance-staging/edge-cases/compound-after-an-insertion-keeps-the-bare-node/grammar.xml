@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>MetathesisBoundaryBetweenSwitchesPrefix</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="v">
+        <Name>V</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="f">
+        <Name>f</Name>
+        <Symbols>
+          <Symbol id="fP">+</Symbol>
+          <Symbol id="fM">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="g">
+        <Name>g</Name>
+        <Symbols>
+          <Symbol id="gP">+</Symbol>
+          <Symbol id="gM">-</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="t">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="f" symbolValues="fP" />
+          <FeatureValue feature="g" symbolValues="gP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cP">
+          <Representations>
+            <Representation>p</Representation>
+          </Representations>
+          <FeatureValue feature="f" symbolValues="fM" />
+          <FeatureValue feature="g" symbolValues="gM" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cT">
+          <Representations>
+            <Representation>t</Representation>
+          </Representations>
+          <FeatureValue feature="f" symbolValues="fM" />
+          <FeatureValue feature="g" symbolValues="gP" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cS">
+          <Representations>
+            <Representation>s</Representation>
+          </Representations>
+          <FeatureValue feature="f" symbolValues="fP" />
+          <FeatureValue feature="g" symbolValues="gM" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="b">
+          <Representations>
+            <Representation>+</Representation>
+          </Representations>
+        </BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="any">
+        <Name>Any</Name>
+      </FeatureNaturalClass>
+    <FeatureNaturalClass id="T"><Name>T</Name><FeatureValue feature="f" symbolValues="fM" /><FeatureValue feature="g" symbolValues="gP" /></FeatureNaturalClass><FeatureNaturalClass id="P"><Name>P</Name><FeatureValue feature="f" symbolValues="fM" /><FeatureValue feature="g" symbolValues="gM" /></FeatureNaturalClass><FeatureNaturalClass id="Sx"><Name>Sx</Name><FeatureValue feature="f" symbolValues="fP" /><FeatureValue feature="g" symbolValues="gM" /></FeatureNaturalClass><FeatureNaturalClass id="A"><Name>A</Name><FeatureValue feature="f" symbolValues="fP" /><FeatureValue feature="g" symbolValues="gP" /></FeatureNaturalClass><SegmentNaturalClass id="scS"><Name>scS</Name><Segment segment="cS" /></SegmentNaturalClass><SegmentNaturalClass id="scT"><Name>scT</Name><Segment segment="cT" /></SegmentNaturalClass><SegmentNaturalClass id="scA"><Name>scA</Name><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="scSA"><Name>scSA</Name><Segment segment="cS" /><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="scTA"><Name>scTA</Name><Segment segment="cT" /><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="scST"><Name>scST</Name><Segment segment="cS" /><Segment segment="cT" /></SegmentNaturalClass><FeatureNaturalClass id="gP"><Name>gP</Name><FeatureValue feature="g" symbolValues="gP" /></FeatureNaturalClass><FeatureNaturalClass id="fM"><Name>fM</Name><FeatureValue feature="f" symbolValues="fM" /></FeatureNaturalClass><FeatureNaturalClass id="gM"><Name>gM</Name><FeatureValue feature="g" symbolValues="gM" /></FeatureNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions><PhonologicalRule id="pe0"><Name>pe0</Name><PhoneticInput><PhoneticSequence></PhoneticSequence></PhoneticInput><PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment id="pe0on0" segment="cA" /></PhoneticSequence></PhoneticOutput><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment id="pe0ln0" segment="cP" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment><RightEnvironment><PhoneticTemplate><PhoneticSequence><Segment id="pe0rn0" segment="cS" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></PhonologicalSubrule></PhonologicalSubrules></PhonologicalRule></PhonologicalRuleDefinitions><Strata><Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="SU0" phonologicalRules="pe0"><Name>S0</Name><MorphologicalRuleDefinitions><MorphologicalRule id="SU0" requiredPartsOfSpeech="v"><Name>SU0</Name><MorphologicalSubrules><MorphologicalSubrule id="SU00"><MorphologicalInput><PhoneticSequence id="SU0S"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="SU0S" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>SU0</MorphemeId></MorphologicalRule></MorphologicalRuleDefinitions><LexicalEntries><LexicalEntry id="r0" partOfSpeech="v"><Allomorphs><Allomorph id="r0a"><PhoneticShape>tp</PhoneticShape><RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="Sx" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments></Allomorph></Allomorphs><MorphemeId>R0</MorphemeId></LexicalEntry><LexicalEntry id="r1" partOfSpeech="v"><Allomorphs><Allomorph id="r1a"><PhoneticShape>ap</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R1</MorphemeId></LexicalEntry></LexicalEntries></Stratum><Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="KO1"><Name>S1</Name><MorphologicalRuleDefinitions><CompoundingRule id="KO1"><Name>KO1</Name><CompoundingSubrules><CompoundingSubrule><HeadMorphologicalInput><PhoneticSequence id="KO1h"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput><NonHeadMorphologicalInput><PhoneticSequence id="KO1n"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="any" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput><MorphologicalOutput><CopyFromInput index="KO1h" /><CopyFromInput index="KO1n" /></MorphologicalOutput></CompoundingSubrule></CompoundingSubrules></CompoundingRule></MorphologicalRuleDefinitions><LexicalEntries><LexicalEntry id="r0" partOfSpeech="v"><Allomorphs><Allomorph id="r0a"><PhoneticShape>ta</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R0</MorphemeId></LexicalEntry></LexicalEntries></Stratum></Strata>
+  </Language>
+</HermitCrabInput>

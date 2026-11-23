@@ -515,6 +515,90 @@ pub fn parse_upstream_baseline(text: &str) -> std::collections::BTreeSet<String>
         .collect()
 }
 
+/// One word on which PanGloss deliberately disagrees with a pinned suite fixture, because the
+/// suite's row records a C# defect that a divergence ledger entry describes (for example an
+/// `expect_fail` row for a word C# generates but cannot parse). Both sides are the gate's exact
+/// rendering, so any change in either fails closed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PanglossExpectation {
+    /// `category/name`.
+    pub fixture: String,
+    pub word: String,
+    /// The suite row as the gate renders it ([`OracleMismatch::expected`]).
+    pub upstream: String,
+    /// PanGloss's analyses as the gate renders them ([`OracleMismatch::got`]).
+    pub pangloss: String,
+    /// The `docs/divergences/` entry, such as `132`.
+    pub divergence: String,
+    pub note: String,
+}
+
+/// `rust/tools/oracle-conformance-known-divergences.json`, which holds both the C# self-check
+/// baseline (`divergences`) and PanGloss's own recorded disagreements (`pangloss_expectations`).
+pub fn known_divergences_path() -> PathBuf {
+    repo_root().join("rust/tools/oracle-conformance-known-divergences.json")
+}
+
+/// The `pangloss_expectations` array of the known-divergences file (empty when absent).
+pub fn parse_pangloss_expectations(json: &str) -> Result<Vec<PanglossExpectation>, String> {
+    #[derive(Deserialize)]
+    struct KnownDivergences {
+        #[serde(default)]
+        pangloss_expectations: Vec<PanglossExpectation>,
+    }
+    serde_json::from_str::<KnownDivergences>(json)
+        .map(|f| f.pangloss_expectations)
+        .map_err(|e| format!("known-divergences file: {e}"))
+}
+
+/// The index of the expectation that excuses `mismatch` from fixture `fixture_id`. Only a pinned
+/// fixture can be excused: a staged copy carries PanGloss's own rows, so it must match outright.
+pub fn pangloss_expectation_for(
+    expectations: &[PanglossExpectation],
+    root: Root,
+    fixture_id: &str,
+    mismatch: &OracleMismatch,
+) -> Option<usize> {
+    if root != Root::Machine {
+        return None;
+    }
+    expectations.iter().position(|e| {
+        e.fixture == fixture_id
+            && e.word == mismatch.word
+            && e.upstream == mismatch.expected
+            && e.pangloss == mismatch.got
+    })
+}
+
+/// Expectations that no longer earn their place: one naming no discovered fixture, or one whose
+/// pinned fixture was replayed without the recorded mismatch (`used[i]` false), which happens once
+/// the suite row is fixed. Each result is `(fixture, word, reason)`.
+pub fn pangloss_expectation_violations(
+    expectations: &[PanglossExpectation],
+    used: &[bool],
+    fixtures: &[FixtureRef],
+) -> Vec<(String, String, &'static str)> {
+    let id = |f: &FixtureRef| format!("{}/{}", f.category, f.name);
+    expectations
+        .iter()
+        .zip(used)
+        .filter_map(|(e, &used)| {
+            let pinned = fixtures
+                .iter()
+                .any(|f| f.root == Root::Machine && id(f) == e.fixture);
+            let reason = if !fixtures.iter().any(|f| id(f) == e.fixture) {
+                "names no discovered fixture"
+            } else if pinned && !used {
+                "the pinned fixture no longer shows this mismatch; delete the entry"
+            } else {
+                return None;
+            };
+            Some((e.fixture.clone(), e.word.clone(), reason))
+        })
+        .collect()
+}
+
 /// The three populations a claimed `FieldworksProducibility` partitions fixtures into, each sorted
 /// by label — a caller reporting "fixtures covered" must show these separately rather than folding
 /// `EngineOnly`/`Unmarked` fixtures into a FieldWorks-facing coverage count.
@@ -1245,6 +1329,11 @@ fn validate_variant_name(name: &str) -> Result<(), String> {
 }
 
 impl WordsYaml {
+    /// Parse `words.yaml` text that is not on disk as a fixture, such as a suite row set under review.
+    pub fn from_yaml_str(text: &str) -> Result<Self, String> {
+        serde_yaml::from_str(text).map_err(|e| format!("parse words.yaml: {e}"))
+    }
+
     /// Copy the fixture metadata into an independent run using one variant's settings and answers.
     pub fn for_variant(&self, variant: &SettingsVariant) -> Self {
         Self {

@@ -127,7 +127,7 @@ pub(crate) struct MorphLayout {
 impl MorphLayout {
     /// Infer envelopes from positioned starts, then overlay owning singletons. Unowned gaps inside
     /// those inferred envelopes (such as compound linkers) cannot be reconstructed by this decoder.
-    pub(crate) fn decode(morphs: &[MorphRecord], shape_len: usize) -> Self {
+    pub(crate) fn decode(morphs: &[MorphRecord], shape_len: usize, bare_nodes: &[u32]) -> Self {
         let last = shape_len.saturating_sub(3) as u32;
         let mut groups = Vec::with_capacity(morphs.len());
         let mut index = 0;
@@ -172,6 +172,11 @@ impl MorphLayout {
                     .map(|group| &morphs[group.host])
                     .find(|next| next.status == MorphStatus::Real && next.order > morph.order)
                     .map_or(last, |next| next.order.saturating_sub(1).max(morph.order));
+                // C# AllomorphEnvironment.cs:88-97 reads `morph.Range.End.Next`, and an annotation's range never holds a node inserted at its edge (AnnotationList.cs:131-138).
+                let mut end = end;
+                while end > morph.order && bare_nodes.contains(&end) {
+                    end -= 1;
+                }
                 groups[group_index].range = (morph.order, end);
             }
         }
@@ -195,6 +200,11 @@ impl MorphLayout {
                         *owner = Some(group_index);
                     }
                 }
+            }
+        }
+        for &bare in bare_nodes {
+            if let Some(owner) = node_owners.get_mut(bare as usize) {
+                *owner = None;
             }
         }
         for (group_index, group) in groups.iter().enumerate() {
@@ -519,6 +529,163 @@ impl WordKey {
 }
 
 impl Word {
+    /// Re-anchor morph records after a phonological rule moved nodes, as C# `SynthesisMetathesisRuleSpec.ApplyRhs` re-adds each morph annotation from its children's new positions; `origin[i]` is the old index (anchors included) of the node now at `i`.
+    pub(crate) fn reorder_morphs(&mut self, origin: &[usize]) {
+        let shape_len = self.shape.len();
+        if origin.len() != shape_len {
+            return;
+        }
+        let layout = MorphLayout::decode(&self.morphs, shape_len, self.extras.bare_nodes());
+        let interior = shape_len.saturating_sub(2);
+        let mut new_of_old = vec![0u32; interior];
+        for new in 0..interior {
+            new_of_old[origin[new + 1] - 1] = new as u32;
+        }
+        let bare: Vec<u32> = self
+            .extras
+            .bare_nodes()
+            .iter()
+            .filter_map(|&b| new_of_old.get(b as usize).copied())
+            .collect();
+        // C# SynthesisMetathesisRuleSpec.ApplyRhs moves only the two switch groups and a deleted node is in neither, so the gaps keep their positions.
+        let gaps = self.extras.deleted_gaps().to_vec();
+        self.extras.set_shape_marks(gaps, bare);
+        let mut starts: Vec<u32> = layout.groups.iter().map(|g| g.range.0).collect();
+        let mut pinned: Vec<bool> = layout
+            .groups
+            .iter()
+            .map(|g| {
+                self.morphs[g.host].status == MorphStatus::Real
+                    && self.extras.pinned_starts().contains(&self.run_key(g.host))
+            })
+            .collect();
+        for (group_index, group) in layout.groups.iter().enumerate() {
+            let host = &self.morphs[group.host];
+            starts[group_index] = match host.status {
+                MorphStatus::Real => {
+                    let first_node = layout
+                        .node_owners
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, owner)| *owner == Some(group_index))
+                        .map(|(old, _)| new_of_old[old])
+                        .min()
+                        .unwrap_or(group.range.0);
+                    // A deleted first node stays where it was, just before the node now at its old start.
+                    pinned[group_index] &= group.range.0 <= first_node;
+                    if pinned[group_index] {
+                        group.range.0
+                    } else {
+                        first_node
+                    }
+                }
+                MorphStatus::SubsumedFirst => new_of_old
+                    .get(host.order as usize)
+                    .copied()
+                    .unwrap_or(host.order),
+                MorphStatus::Floating | MorphStatus::SubsumedChild => group.range.0,
+            };
+        }
+        if layout
+            .groups
+            .iter()
+            .zip(&starts)
+            .all(|(group, &start)| group.range.0 == start)
+        {
+            return;
+        }
+        let mut sequence: Vec<usize> = (0..layout.groups.len()).collect();
+        sequence.sort_by_key(|&g| (starts[g], !pinned[g]));
+        let mut morphs = Vec::with_capacity(self.morphs.len());
+        for g in sequence {
+            let group = &layout.groups[g];
+            for record in &self.morphs[group.children.start..=group.host] {
+                let mut record = record.clone();
+                record.order = starts[g];
+                morphs.push(record);
+            }
+        }
+        self.morphs = morphs;
+    }
+
+    /// A record's allomorph, application and how many earlier records share both, so each run of a circumfix has its own key.
+    fn run_key(&self, index: usize) -> (AllomorphId, u16, u16) {
+        let record = &self.morphs[index];
+        let run = self.morphs[..index]
+            .iter()
+            .filter(|r| {
+                r.allomorph == record.allomorph
+                    && r.observation_occurrence == record.observation_occurrence
+            })
+            .count();
+        (record.allomorph, record.observation_occurrence, run as u16)
+    }
+
+    /// Re-anchor morph records after a synthesis rewrite deleted or inserted nodes. `old_len` is the shape's length before the rewrite, and `keys` holds each kept node's `MutShape::anchor_keys` entry: twice its old shape index, or an odd key for an inserted node. C# keeps a deleted node in the shape, so its morph annotations keep their places; here each record starts at the first kept node at or after its old start, a positioned morph that kept no node becomes an empty singleton there, so it neither owns its neighbour's segments nor leaves the morph order, and a morph that lost its first node keeps that start through a later swap.
+    pub(crate) fn remap_morph_orders(&mut self, old_len: usize, keys: &[u32]) {
+        let bare_before = self.extras.bare_nodes().to_vec();
+        let layout = MorphLayout::decode(&self.morphs, old_len, &bare_before);
+        let new_start = |old: u32| keys.partition_point(|&key| key < 2 * (old + 1)) as u32;
+        let is_bare = |key: u32| key.is_multiple_of(2) && bare_before.contains(&(key / 2 - 1));
+        for group in &layout.groups {
+            let host = &self.morphs[group.host];
+            let emptied = host.status == MorphStatus::Real && {
+                let (start, end) = group.range;
+                // C# AnnotationList.cs:131-138 nests an inserted node only inside a morph's span, so an insertion past its last node or a bare node does not keep it.
+                let (low, high) = (2 * (start + 1), 2 * (end + 1));
+                !keys
+                    .iter()
+                    .any(|&key| (low..=high).contains(&key) && !is_bare(key))
+            };
+            if emptied {
+                self.morphs[group.host].status = MorphStatus::Floating;
+            } else if host.status == MorphStatus::Real && !keys.contains(&(2 * (group.range.0 + 1)))
+            {
+                let pinned = self.run_key(group.host);
+                self.extras.pin_start(pinned);
+            }
+        }
+        let interior_old = old_len.saturating_sub(2) as u32;
+        let mut gaps: Vec<u32> = self
+            .extras
+            .deleted_gaps()
+            .iter()
+            .map(|&gap| new_start(gap))
+            .collect();
+        for old in 0..interior_old {
+            // C# `NarrowSynthesisRewriteSubruleSpec.ApplyRhs` marks a node deleted but leaves it in the shape; an Optional one is walked over by `CollectSkippedOptionalNodes`, so only others block a fold.
+            if !keys.contains(&(2 * (old + 1))) && !self.shape.flags(old as usize + 1).is_optional()
+            {
+                gaps.push(new_start(old));
+            }
+        }
+        gaps.sort_unstable();
+        gaps.dedup();
+        let mut bare: Vec<u32> = bare_before
+            .iter()
+            .filter_map(|&b| keys.iter().position(|&key| key == 2 * (b + 1)))
+            .map(|index| index as u32)
+            .collect();
+        for (index, &key) in keys.iter().enumerate() {
+            // C# AnnotationList.cs:131-138 nests an inserted node only inside a range that contains it, so one on a morph's edge stays bare.
+            let inside = key % 2 == 1
+                && layout.groups.iter().any(|group| {
+                    let (start, end) = group.range;
+                    self.morphs[group.host].status == MorphStatus::Real
+                        && 2 * (start + 1) < key
+                        && key < 2 * (end + 1)
+                });
+            if key % 2 == 1 && !inside {
+                bare.push(index as u32);
+            }
+        }
+        bare.sort_unstable();
+        self.extras.set_shape_marks(gaps, bare);
+        for record in &mut self.morphs {
+            record.order = new_start(record.order);
+        }
+    }
+
     /// Compounding non-head children (C# `Word._nonHeadApps`; `CurrentNonHead` = the element at `Word::non_head_app_index`).
     pub fn non_heads(&self) -> &[Word] {
         self.extras.non_heads()
