@@ -413,6 +413,8 @@ impl PinnedConfirmation {
 ///
 /// Groups run in ascending order of their smallest root id (a group without roots sorts last, ties by position), so which groups ran before a cap never depends on hashing. Head roots must be disjoint across groups (asserted): the lexical-entry filter acts only at head lookup, so an analysis headed by root `r` comes from exactly the one reparse whose group holds `r`, with its full multiplicity, and the results are concatenated. Every analysis returned is one plain HC returns for `word`; recall rests on the caller's groups covering a derivation's head root and rules.
 ///
+/// Analyses from a group whose reparse stopped are kept, not dropped: when `incomplete()` they may be a prefix and the caller must discard them. An empty `groups` slice runs no reparse and returns no analyses and no stop; that is not a rejection unless the proposal that produced the groups was itself complete.
+///
 /// Additive to `confirm_batch`: nothing there changes behaviour.
 pub fn confirm_pin_groups(
     g: &Grammar,
@@ -420,6 +422,19 @@ pub fn confirm_pin_groups(
     word: &str,
     groups: &[PinGroup],
     budget: &pg_rules::stratum::WordBudget,
+) -> PinnedConfirmation {
+    let mut result = reparse_groups(g, morpher, word, groups, &mut |_| budget);
+    result.work_steps = budget.work_steps() as u64;
+    result
+}
+
+/// The group loop behind `confirm_pin_groups`; `budget_for(k)` names the allowance of the k-th reparse in run order, so a test can give groups separate allowances. `work_steps` is left 0 for the caller.
+fn reparse_groups<'b>(
+    g: &Grammar,
+    morpher: &Morpher,
+    word: &str,
+    groups: &[PinGroup],
+    budget_for: &mut dyn FnMut(usize) -> &'b pg_rules::stratum::WordBudget,
 ) -> PinnedConfirmation {
     let mut seen: HashSet<LexEntryId> = HashSet::default();
     for group in groups {
@@ -449,7 +464,7 @@ pub fn confirm_pin_groups(
         work_steps: 0,
         reparses: 0,
     };
-    for i in order {
+    for (k, i) in order.into_iter().enumerate() {
         let group = &groups[i];
         let lex_entry_filter = |le: LexEntryId| group.roots.contains(&le);
         let rule_filter = |r: RuleRef| rule_is_allowed(g, &group.rules, r);
@@ -458,7 +473,7 @@ pub fn confirm_pin_groups(
             word,
             Some(&lex_entry_filter),
             Some(&rule_filter),
-            budget,
+            budget_for(k),
         );
         result.reparses += 1;
         result.stop = result.stop.union(stopped);
@@ -470,7 +485,6 @@ pub fn confirm_pin_groups(
                 .map(|(wa, (join, surface))| (wa, join, surface)),
         );
     }
-    result.work_steps = budget.work_steps() as u64;
     result
 }
 
