@@ -48,7 +48,7 @@ const WORD_REASONS: [&str; 3] = [
     "unexpected_boundary",
 ];
 const STATUSES: [&str; 3] = ["ok", "unsegmentable", "incomplete"];
-const STOP_REASONS: [&str; 4] = ["match_cap", "total_match_cap", "work_cap", "deadline"];
+const STOP_REASONS: [&str; 4] = ["match_cap", "total_match_cap", "work_limit", "deadline"];
 /// Per-word matcher work units when the request names none; the server's own `--work-cap` is the ceiling.
 const DEFAULT_MAX_WORK: usize = 50_000_000;
 /// Per-word wall clock when neither the request nor `--word-timeout-ms` names one.
@@ -348,7 +348,7 @@ pub(crate) fn handle(
             let stop = if budget.timed_out() {
                 "deadline"
             } else {
-                "work_cap"
+                "work_limit"
             };
             stop_reason.get_or_insert(stop);
             out_words.push(json!({

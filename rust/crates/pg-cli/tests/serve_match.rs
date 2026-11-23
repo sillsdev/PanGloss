@@ -332,9 +332,9 @@ fn a_pathological_pattern_gets_a_typed_work_stop_and_the_other_words_still_run()
         "words": [long, "aba"], "maxWork": 100000}));
     assert_eq!(r["type"], "result", "{r}");
     assert_eq!(r["complete"], false, "{r}");
-    assert_eq!(r["stopReason"], "work_cap");
+    assert_eq!(r["stopReason"], "work_limit");
     assert_eq!(r["words"][0]["status"], "incomplete");
-    assert_eq!(r["words"][0]["stop"], "work_cap");
+    assert_eq!(r["words"][0]["stop"], "work_limit");
     assert_eq!(
         r["words"][0]["matches"],
         json!([]),
@@ -355,7 +355,7 @@ fn a_pathological_pattern_with_default_limits_returns_a_typed_stop() {
     assert_eq!(r["type"], "result", "{r}");
     assert_eq!(r["complete"], false, "{r}");
     assert!(
-        ["work_cap", "deadline"].contains(&r["stopReason"].as_str().unwrap()),
+        ["work_limit", "deadline"].contains(&r["stopReason"].as_str().unwrap()),
         "{r}"
     );
     assert!(
