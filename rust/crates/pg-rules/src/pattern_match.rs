@@ -6,7 +6,7 @@
 //! optional inside the matcher but are not segments, so they are not counted.
 
 use pg_grammar_model::chardef::CharDefTable;
-use pg_grammar_model::model::{Grammar, Pattern, TableId};
+use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId};
 use pg_shape::{NodeKind, Shape};
 
 use crate::rewrite::{try_compile_env, EnvFst};
@@ -15,6 +15,10 @@ use crate::rewrite::{try_compile_env, EnvFst};
 pub struct CompiledMatch {
     env: Option<EnvFst>,
     table: TableId,
+    /// Every non-anchor node is an optional group, so the empty string matches.
+    nullable: bool,
+    anchor_start: bool,
+    anchor_end: bool,
 }
 
 /// Why a pattern could not be compiled.
@@ -35,7 +39,22 @@ pub fn compile_match(
     pattern: &Pattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
     let env = try_compile_env(g, table, pattern).map_err(MatchCompileError)?;
-    Ok(CompiledMatch { env, table })
+    let anchor = |side| {
+        pattern
+            .nodes
+            .iter()
+            .any(|n| matches!(n, PatternNode::Anchor(s) if *s == side))
+    };
+    let nullable = pattern.nodes.iter().all(|n| {
+        matches!(n, PatternNode::Anchor(_)) || matches!(n, PatternNode::Quantifier { min: 0, .. })
+    });
+    Ok(CompiledMatch {
+        env,
+        table,
+        nullable,
+        anchor_start: anchor(AnchorSide::Left),
+        anchor_end: anchor(AnchorSide::Right),
+    })
 }
 
 impl CompiledMatch {
@@ -63,6 +82,14 @@ impl CompiledMatch {
                 end: before[b],
             })
             .collect();
+        // The FST registers no span for the empty string, so a pattern that can match it gets its empty matches here, at every segment position the anchors allow.
+        if self.nullable {
+            for p in 0..=n {
+                if (!self.anchor_start || p == 0) && (!self.anchor_end || p == n) {
+                    out.push(ShapeMatch { start: p, end: p });
+                }
+            }
+        }
         out.sort_unstable();
         out.dedup();
         out

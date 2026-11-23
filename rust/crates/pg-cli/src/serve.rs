@@ -354,7 +354,7 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
         }
         Some("match") => (
             catch_unwind(AssertUnwindSafe(|| {
-                crate::serve_match::handle(ctx.grammar, &id, object)
+                crate::serve_match::handle(ctx.grammar, ctx.morpher, &id, object)
             }))
             .unwrap_or_else(|_| error_response(&id, "internal", "matcher panicked; see stderr")),
             false,

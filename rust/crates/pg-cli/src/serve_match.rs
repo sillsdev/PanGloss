@@ -1,11 +1,14 @@
 //! `pangloss serve` op `match`: applies HermitCrab pattern text over a word list with Rust HC's own pattern matcher. Wire shape and limits: `docs/formats/serve-protocol.md`.
 
+use pg_fst::work::WorkBudget;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, TableId};
+use pg_parse::Morpher;
 use pg_rules::pattern_match::{compile_match, has_stray_boundary, segment_byte_spans};
 use pg_rules::pattern_text::{boundary_char_def, parse_pattern, PatternError};
-use pg_rules::shape_feat::segment_with_features;
+use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use serde_json::{json, Map, Value};
+use std::time::Duration;
 
 const VERSION: u32 = 1;
 const MAX_PATTERN_BYTES: usize = 4096;
@@ -38,8 +41,31 @@ const ERROR_CODES: [&str; 11] = [
     "pattern_compile_failed",
     "internal",
 ];
+/// Every `reason` an `unsegmentable` word can carry.
+const WORD_REASONS: [&str; 3] = [
+    "no_character_definition",
+    "boundary_in_unmarked_word",
+    "unexpected_boundary",
+];
 const STATUSES: [&str; 3] = ["ok", "unsegmentable", "incomplete"];
-const STOP_REASONS: [&str; 2] = ["match_cap", "total_match_cap"];
+const STOP_REASONS: [&str; 4] = ["match_cap", "total_match_cap", "work_cap", "deadline"];
+/// Per-word matcher work units when the request names none; the server's own `--work-cap` is the ceiling.
+const DEFAULT_MAX_WORK: usize = 50_000_000;
+/// Per-word wall clock when neither the request nor `--word-timeout-ms` names one.
+const DEFAULT_WORD_TIMEOUT_MS: u64 = 10_000;
+const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
+const KNOWN_FIELDS: [&str; 10] = [
+    "id",
+    "op",
+    "pattern",
+    "words",
+    "wordsFile",
+    "boundaryMarker",
+    "maxWords",
+    "maxMatchesPerWord",
+    "maxWork",
+    "wordTimeoutMs",
+];
 
 /// The `interfaces.serveOps.match` capability object; derived from the same constants the handler uses.
 pub(crate) fn describe() -> Value {
@@ -49,7 +75,9 @@ pub(crate) fn describe() -> Value {
         "errors": ERROR_CODES,
         "statuses": STATUSES,
         "stopReasons": STOP_REASONS,
-        "request": ["pattern", "words", "wordsFile", "boundaryMarker", "maxWords", "maxMatchesPerWord"],
+        "request": &KNOWN_FIELDS[2..],
+        "wordReasons": WORD_REASONS,
+        "zeroWidth": "reported: a pattern that can match the empty string reports an empty match at every position its anchors allow",
         "offsets": "utf8ByteOffsetsInNfdText",
         "limits": {
             "maxPatternBytes": MAX_PATTERN_BYTES,
@@ -58,6 +86,9 @@ pub(crate) fn describe() -> Value {
             "defaultMaxMatchesPerWord": DEFAULT_MAX_MATCHES_PER_WORD,
             "maxMatchesPerWord": HARD_MAX_MATCHES_PER_WORD,
             "maxMatchesTotal": MAX_MATCHES_TOTAL,
+            "defaultMaxWork": DEFAULT_MAX_WORK,
+            "defaultWordTimeoutMs": DEFAULT_WORD_TIMEOUT_MS,
+            "maxWordTimeoutMs": MAX_WORD_TIMEOUT_MS,
         },
     })
 }
@@ -123,7 +154,7 @@ fn opt_usize(
     match object.get(key) {
         None => Ok(default),
         Some(v) => match v.as_u64() {
-            Some(n) if n >= 1 && n as usize <= hard => Ok(n as usize),
+            Some(n) if n as usize <= hard && (n >= 1 || default == 0) => Ok(n as usize),
             _ => Err(error(
                 id,
                 "bad_request",
@@ -135,8 +166,16 @@ fn opt_usize(
 }
 
 /// Answers one `match` request (the request line is already known to be a JSON object with a string `id`).
-pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Value {
+pub(crate) fn handle(
+    g: &Grammar,
+    morpher: &Morpher<'_>,
+    id: &Value,
+    object: &Map<String, Value>,
+) -> Value {
     let bad = |m: &str| error(id, "bad_request", m.to_string(), json!({}));
+    if let Some(unknown) = object.keys().find(|k| !KNOWN_FIELDS.contains(&k.as_str())) {
+        return bad(&format!("unknown match field: {unknown}"));
+    }
     let Some(pattern_text) = object.get("pattern").and_then(Value::as_str) else {
         return bad("\"pattern\" must be a string");
     };
@@ -160,6 +199,25 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
         HARD_MAX_MATCHES_PER_WORD,
     ) {
         Ok(n) => n,
+        Err(e) => return e,
+    };
+    let server_cap = morpher.work_cap().max(1);
+    let max_work = match opt_usize(
+        id,
+        object,
+        "maxWork",
+        DEFAULT_MAX_WORK.min(server_cap),
+        server_cap,
+    ) {
+        Ok(n) => n,
+        Err(e) => return e,
+    };
+    let word_timeout = match opt_usize(id, object, "wordTimeoutMs", 0, MAX_WORD_TIMEOUT_MS as usize)
+    {
+        Ok(0) => morpher
+            .word_timeout()
+            .unwrap_or(Duration::from_millis(DEFAULT_WORD_TIMEOUT_MS)),
+        Ok(n) => Duration::from_millis(n as u64),
         Err(e) => return e,
     };
     let words: Vec<String> = match (object.get("words"), object.get("wordsFile")) {
@@ -281,7 +339,23 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
         };
         let n = seg_spans.len();
         let pos = |i: usize| seg_spans.get(i).map_or(nfd.len(), |s| s.0);
-        let mut matches = compiled.matches(g, &shape);
+        let budget = WorkBudget::new(max_work).with_timeout(Some(word_timeout));
+        let mut matches = {
+            let _scope = budget.enter();
+            compiled.matches(g, &shape)
+        };
+        if budget.stopped() || budget.retained_capped() {
+            let stop = if budget.timed_out() {
+                "deadline"
+            } else {
+                "work_cap"
+            };
+            stop_reason.get_or_insert(stop);
+            out_words.push(json!({
+                "word": word, "status": "incomplete", "stop": stop, "matches": []
+            }));
+            continue;
+        }
         let room = MAX_MATCHES_TOTAL - total;
         let all = matches.len();
         let stop = if all > room && room <= per_word {

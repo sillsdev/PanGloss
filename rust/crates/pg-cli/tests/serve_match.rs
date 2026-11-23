@@ -312,6 +312,114 @@ fn a_match_cap_makes_the_response_incomplete_never_silently_partial() {
     assert_eq!(r["words"][1]["status"], "ok");
 }
 
+const PATHOLOGICAL: &str = "([V])*([V])*([V])*([V])*([V])*[Stop][Stop]";
+
+fn long_word() -> String {
+    format!("{}b", "a".repeat(3000))
+}
+
+/// Long enough that a 200 ms deadline ends the word before the work cap would.
+fn very_long_word() -> String {
+    format!("{}b", "a".repeat(20000))
+}
+
+#[test]
+fn a_pathological_pattern_gets_a_typed_work_stop_and_the_other_words_still_run() {
+    let started = std::time::Instant::now();
+    let mut s = Server::start();
+    let long = long_word();
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": PATHOLOGICAL,
+        "words": [long, "aba"], "maxWork": 100000}));
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["complete"], false, "{r}");
+    assert_eq!(r["stopReason"], "work_cap");
+    assert_eq!(r["words"][0]["status"], "incomplete");
+    assert_eq!(r["words"][0]["stop"], "work_cap");
+    assert_eq!(
+        r["words"][0]["matches"],
+        json!([]),
+        "a stopped word reports no partial matches"
+    );
+    assert_eq!(
+        r["words"][1]["status"], "ok",
+        "the next word still runs: {r}"
+    );
+    assert!(started.elapsed().as_secs() < 60);
+}
+
+#[test]
+fn a_pathological_pattern_with_default_limits_returns_a_typed_stop() {
+    let started = std::time::Instant::now();
+    let mut s = Server::start();
+    let r = s.matching(PATHOLOGICAL, &[very_long_word().as_str()]);
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["complete"], false, "{r}");
+    assert!(
+        ["work_cap", "deadline"].contains(&r["stopReason"].as_str().unwrap()),
+        "{r}"
+    );
+    assert!(
+        started.elapsed().as_secs() < 60,
+        "the default budget must bound the word"
+    );
+}
+
+#[test]
+fn a_word_timeout_stops_the_word_with_a_deadline() {
+    let mut s = Server::start();
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": PATHOLOGICAL,
+        "words": [very_long_word()], "maxWork": 4_000_000_000u64, "wordTimeoutMs": 200}));
+    assert_eq!(r["stopReason"], "deadline", "{r}");
+    assert_eq!(r["words"][0]["stop"], "deadline");
+}
+
+#[test]
+fn zero_width_matches_are_reported_for_patterns_that_can_match_nothing() {
+    let mut s = Server::start();
+    let r = s.matching("#([V])*", &["baa"]);
+    assert_eq!(spans(&r["words"][0]), vec![(0, 0)], "{r}");
+    let r = s.matching("#", &["baa"]);
+    assert_eq!(spans(&r["words"][0]), vec![(0, 0)], "{r}");
+    let r = s.matching("([V])*", &["bab"]);
+    assert_eq!(
+        spans(&r["words"][0]),
+        vec![(0, 0), (1, 1), (1, 2), (2, 2), (3, 3)],
+        "{r}"
+    );
+    let r = s.matching("([V])*#", &["ba"]);
+    assert_eq!(spans(&r["words"][0]), vec![(1, 2), (2, 2)], "{r}");
+    assert_eq!(
+        r["words"][0]["matches"][1],
+        json!({"segments": [2, 2], "offsets": [2, 2], "left": [0, 2], "right": [2, 2]})
+    );
+}
+
+#[test]
+fn a_marked_word_may_hold_only_the_marker_as_a_boundary() {
+    let mut s = Server::start();
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V]", "boundaryMarker": "+",
+        "words": ["a=b"]}),
+    );
+    assert_eq!(r["words"][0]["status"], "unsegmentable", "{r}");
+    assert_eq!(r["words"][0]["reason"], "unexpected_boundary");
+}
+
+#[test]
+fn unknown_request_fields_are_refused() {
+    let mut s = Server::start();
+    let r =
+        s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a"], "scope": "word"}));
+    assert_eq!(r["code"], "bad_request", "{r}");
+    assert!(
+        r["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown match field: scope"),
+        "{r}"
+    );
+}
+
 #[test]
 fn the_same_request_gives_the_same_bytes() {
     let mut s = Server::start();
@@ -391,10 +499,23 @@ fn describe_declares_exactly_what_is_emitted() {
         }
     };
     note(&s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["aba", "axa", "b"], "maxMatchesPerWord": 1})));
-    assert_eq!(strings(&decl["statuses"]), statuses);
-    // `total_match_cap` needs a million matches; the unit test below drives it.
+    note(&s.ask(json!({"id": "m", "op": "match", "pattern": PATHOLOGICAL, "words": [long_word()], "maxWork": 100000})));
+    note(&s.ask(
+        json!({"id": "m", "op": "match", "pattern": PATHOLOGICAL, "words": [very_long_word()],
+        "maxWork": 4_000_000_000u64, "wordTimeoutMs": 300}),
+    ));
+    // `total_match_cap` needs a million matches, which a test cannot afford.
     stops.insert("total_match_cap".into());
+    assert_eq!(strings(&decl["statuses"]), statuses);
     assert_eq!(strings(&decl["stopReasons"]), stops);
+    let reasons: BTreeSet<String> = [
+        "no_character_definition",
+        "unexpected_boundary",
+        "boundary_in_unmarked_word",
+    ]
+    .map(String::from)
+    .into();
+    assert_eq!(strings(&decl["wordReasons"]), reasons);
 
     // Every declared error code is one the requests in this file elicit, and none is undeclared.
     for (pattern, words) in [
@@ -408,6 +529,7 @@ fn describe_declares_exactly_what_is_emitted() {
     }
     s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a", "b"], "maxWords": 1}));
     s.ask(json!({"id": "m", "op": "match"}));
+    s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a"], "bogus": 1}));
     s.ask(
         json!({"id": "m", "op": "match", "pattern": "[V]", "wordsFile": "/nonexistent/words.txt"}),
     );

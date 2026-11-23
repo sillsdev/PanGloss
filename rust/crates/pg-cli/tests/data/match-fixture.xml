@@ -62,6 +62,7 @@
       </SegmentDefinitions>
       <BoundaryDefinitions>
         <BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+        <BoundaryDefinition id="bEq"><Representations><Representation>=</Representation></Representations></BoundaryDefinition>
       </BoundaryDefinitions>
     </CharacterDefinitionTable>
     <NaturalClasses>
