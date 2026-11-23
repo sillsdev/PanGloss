@@ -2,6 +2,7 @@
 
 pub mod analyzer;
 pub mod candidate_filter;
+pub mod cascade;
 pub mod compose_budget;
 pub mod composite;
 pub mod confirm;
