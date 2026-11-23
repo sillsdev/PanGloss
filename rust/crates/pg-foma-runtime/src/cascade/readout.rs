@@ -18,13 +18,15 @@
 //!   language, which reads out as zero groups;
 //! - parallel arcs (same endpoints, different weight or edits) have their tags UNIONED: the
 //!   read-out takes the union over every arc that lies on an accepting walk, never one arc's;
-//! - tags are opaque [`Tag`] ids on arcs only (plan 2.0). The caller's [`TagKind`] decoder says
-//!   which are head root entries, which are rules and which are neither (non-head entries are
-//!   `Other`: root tags are head root entries only, plan 4.1);
-//! - with a weight ceiling `theta` the product keeps every arc that passes its own creation test,
-//!   so some arcs lie only on accepting walks above `theta`. The read-out keeps an arc only when
-//!   the least weight of an accepting walk through it is at most `theta`. A weight clamped by the
-//!   product only underestimates, so the result can only be wider than exact, never narrower.
+//! - tags are packed [`Tag`](super::layer::Tag) words on arcs only (plan 2.0), decoded by `Tag::kind`: head roots
+//!   and rules are pinned, non-head entries are explicitly not (root tags are head root entries
+//!   only, plan 4.1), and a word that is none of them makes the read-out return
+//!   [`Readout::BadTag`]; nothing is ever treated as "other";
+//! - with a weight ceiling the product keeps every arc that passes its own creation test, so some
+//!   arcs lie only on accepting walks above it. The graph records that ceiling
+//!   ([`TrimmedGraph::theta`]) and the read-out keeps an arc only when the least weight of an
+//!   accepting walk through it is at most the ceiling. A weight clamped by the product only
+//!   underestimates, so the result can only be wider than exact, never narrower.
 //!
 //! # What is computed
 //!
@@ -38,16 +40,22 @@
 //!
 //! # Budget
 //!
-//! Every set entry, queue entry, arc visit and collected id is charged to a [`ReadoutBudget`]
-//! before it is stored. An overrun returns [`Readout::Incomplete`] naming the dimension and no
-//! groups; it never returns a partial group.
+//! Every set entry, queue entry, arc visit, collected id and the [`ReadoutIndex`] itself is charged
+//! to a [`ReadoutBudget`] before it is stored. An overrun returns [`Readout::Incomplete`] naming
+//! the dimension and no groups; it never returns a partial group.
+//!
+//! The read-out has its own budget, not the word's product budget, because it runs afterwards:
+//! once per string, on the finished graph, when the product's meter and tables are gone. The
+//! graph it reads was already paid for by the product (states, arcs, tag sets and the trim), so
+//! this budget bounds only what the read-out adds, and a caller that wants one figure per word
+//! adds the two `used.bytes`.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 
 use pg_grammar::model::{LexEntryId, MRuleId};
 
-use super::layer::Tag;
+use super::layer::{BadTag, TagKind};
 use super::trim::{TrimmedGraph, KEY_PREFIX};
 
 /// Read-out mode. Only `Single` exists; the other variants are demoted (Appendix A).
@@ -64,16 +72,6 @@ pub struct PinGroup {
     /// Head root entries only.
     pub roots: HashSet<LexEntryId>,
     pub rules: HashSet<MRuleId>,
-}
-
-/// What one product [`Tag`] means to the caller.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TagKind {
-    /// A head root entry.
-    Root(LexEntryId),
-    Rule(MRuleId),
-    /// Not pinned (a non-head entry, for example).
-    Other,
 }
 
 /// The dimension that ended a read-out.
@@ -124,6 +122,8 @@ pub struct ReadoutUsed {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Readout {
+    /// A tag word that no tag was built as: the graph is corrupt, so there is no answer.
+    BadTag(BadTag),
     /// Zero groups (not accepted) or exactly one.
     Complete {
         groups: Vec<PinGroup>,
@@ -141,12 +141,24 @@ pub const QUEUE_ENTRY_BYTES: u64 = 24;
 /// One collected root or rule id.
 pub const ID_BYTES: u64 = 16;
 
-struct Meter {
+/// Running counters against a [`ReadoutBudget`].
+pub struct ReadoutMeter {
     limits: ReadoutBudget,
     used: ReadoutUsed,
 }
 
-impl Meter {
+impl ReadoutMeter {
+    pub fn new(limits: ReadoutBudget) -> Self {
+        ReadoutMeter {
+            limits,
+            used: ReadoutUsed::default(),
+        }
+    }
+
+    pub fn used(&self) -> ReadoutUsed {
+        self.used
+    }
+
     fn charge_node(&mut self) -> Result<(), ReadoutStop> {
         if self.used.nodes >= self.limits.nodes {
             return Err(ReadoutStop::ReadoutNodes);
@@ -173,6 +185,12 @@ impl Meter {
     }
 }
 
+/// Nominal bytes of the index of a graph with `states` states and `arcs` arcs: two list headers
+/// per state and two arc ids per arc.
+pub const fn index_bytes(states: usize, arcs: usize) -> u64 {
+    states as u64 * 48 + arcs as u64 * 8
+}
+
 /// Adjacency lists of a graph, built once and reused for every read-out of it.
 pub struct ReadoutIndex {
     states: usize,
@@ -182,10 +200,11 @@ pub struct ReadoutIndex {
 }
 
 impl ReadoutIndex {
-    /// Panics with a message naming the offending part when the graph is not one the product can
-    /// produce: the start or an arc end outside the states, a key table that does not match the
-    /// states, a tag set id outside the table, or an arc that does not move the position by 0 or 1.
-    pub fn new(graph: &TrimmedGraph) -> Self {
+    /// Charges [`index_bytes`] before building. Panics with a message naming the offending part
+    /// when the graph is not one the product can produce: the start or an arc end outside the
+    /// states, a key table that does not match the states, a tag set id outside the table, or an
+    /// arc that does not move the position by 0 or 1.
+    pub fn new(graph: &TrimmedGraph, meter: &mut ReadoutMeter) -> Result<Self, ReadoutStop> {
         let n = graph.state_count();
         let width = KEY_PREFIX + graph.layers;
         assert_eq!(
@@ -197,6 +216,7 @@ impl ReadoutIndex {
         if let Some(s) = graph.start {
             assert!((s as usize) < n, "TrimmedGraph start {s} is outside 0..{n}");
         }
+        meter.charge_bytes(index_bytes(n, graph.arcs.len()))?;
         let mut out_arcs: Vec<Vec<u32>> = vec![Vec::new(); n];
         let mut in_arcs: Vec<Vec<u32>> = vec![Vec::new(); n];
         for (k, a) in graph.arcs.iter().enumerate() {
@@ -222,41 +242,54 @@ impl ReadoutIndex {
             out_arcs[a.src as usize].push(k as u32);
             in_arcs[a.dst as usize].push(k as u32);
         }
-        Self {
+        Ok(Self {
             states: n,
             arcs: graph.arcs.len(),
             out_arcs,
             in_arcs,
-        }
+        })
     }
 }
 
-/// Pin groups of the word `graph` was built for (builds the index; use [`read_out_indexed`] to
-/// reuse it). `theta` is the ceiling the product ran under, if any.
-pub fn read_out(
-    graph: &TrimmedGraph,
-    decode: &dyn Fn(Tag) -> TagKind,
-    theta: Option<u32>,
-    budget: ReadoutBudget,
-    mode: ReadoutMode,
-) -> Readout {
-    read_out_indexed(
-        graph,
-        &ReadoutIndex::new(graph),
-        decode,
-        theta,
-        budget,
-        mode,
-    )
+/// Pin groups of the word `graph` was built for, under the weight ceiling it records. Builds the
+/// index (charged to `budget`); use [`read_out_indexed`] to reuse one.
+pub fn read_out(graph: &TrimmedGraph, budget: ReadoutBudget, mode: ReadoutMode) -> Readout {
+    let mut meter = ReadoutMeter::new(budget);
+    match ReadoutIndex::new(graph, &mut meter) {
+        Ok(index) => run(graph, &index, &mut meter, mode),
+        Err(stop) => Readout::Incomplete {
+            stop,
+            used: meter.used,
+        },
+    }
 }
 
-/// As [`read_out`], with a prebuilt [`ReadoutIndex`]; panics when the index is of another graph.
+/// As [`read_out`], with a prebuilt [`ReadoutIndex`] (whose cost its builder charged); panics when
+/// the index is of another graph.
 pub fn read_out_indexed(
     graph: &TrimmedGraph,
     index: &ReadoutIndex,
-    decode: &dyn Fn(Tag) -> TagKind,
-    theta: Option<u32>,
     budget: ReadoutBudget,
+    mode: ReadoutMode,
+) -> Readout {
+    run(graph, index, &mut ReadoutMeter::new(budget), mode)
+}
+
+enum Fail {
+    Stop(ReadoutStop),
+    Bad(BadTag),
+}
+
+impl From<ReadoutStop> for Fail {
+    fn from(s: ReadoutStop) -> Self {
+        Fail::Stop(s)
+    }
+}
+
+fn run(
+    graph: &TrimmedGraph,
+    index: &ReadoutIndex,
+    meter: &mut ReadoutMeter,
     mode: ReadoutMode,
 ) -> Readout {
     assert!(
@@ -267,22 +300,19 @@ pub fn read_out_indexed(
         graph.state_count(),
         graph.arcs.len()
     );
-    let mut meter = Meter {
-        limits: budget,
-        used: ReadoutUsed::default(),
-    };
     let r = match mode {
-        ReadoutMode::Single => read_out_single(graph, index, decode, theta, &mut meter),
+        ReadoutMode::Single => read_out_single(graph, index, meter),
     };
     match r {
         Ok(groups) => Readout::Complete {
             groups,
             used: meter.used,
         },
-        Err(stop) => Readout::Incomplete {
+        Err(Fail::Stop(stop)) => Readout::Incomplete {
             stop,
             used: meter.used,
         },
+        Err(Fail::Bad(b)) => Readout::BadTag(b),
     }
 }
 
@@ -292,7 +322,7 @@ fn sweep(
     index: &ReadoutIndex,
     forward: bool,
     seeds: impl Iterator<Item = u32>,
-    meter: &mut Meter,
+    meter: &mut ReadoutMeter,
 ) -> Result<HashMap<u32, u64>, ReadoutStop> {
     let mut dist: HashMap<u32, u64> = HashMap::new();
     let mut heap: BinaryHeap<Reverse<(u64, u32)>> = BinaryHeap::new();
@@ -340,10 +370,20 @@ fn sweep(
 fn read_out_single(
     graph: &TrimmedGraph,
     index: &ReadoutIndex,
-    decode: &dyn Fn(Tag) -> TagKind,
-    theta: Option<u32>,
-    meter: &mut Meter,
-) -> Result<Vec<PinGroup>, ReadoutStop> {
+    meter: &mut ReadoutMeter,
+) -> Result<Vec<PinGroup>, Fail> {
+    // every tag set is decoded up front: one bad word anywhere is a corrupt graph, not an answer
+    let mut decoded: Vec<Vec<TagKind>> = Vec::with_capacity(graph.tag_sets.len());
+    for set in &graph.tag_sets {
+        meter.charge_bytes(ID_BYTES * set.len() as u64)?;
+        decoded.push(
+            set.iter()
+                .map(|t| t.kind())
+                .collect::<Result<_, _>>()
+                .map_err(Fail::Bad)?,
+        );
+    }
+    let theta = graph.theta;
     let Some(start) = graph.start else {
         return Ok(Vec::new());
     };
@@ -363,17 +403,17 @@ fn read_out_single(
         if !within(g + a.weight as u64 + h) {
             continue;
         }
-        for &t in graph.arc_tags(a) {
-            match decode(t) {
-                TagKind::Root(r) if !group.roots.contains(&r) => {
+        for &k in &decoded[a.tags as usize] {
+            match k {
+                TagKind::Root(e) if !group.roots.contains(&LexEntryId(e)) => {
                     meter.charge_bytes(ID_BYTES)?;
-                    group.roots.insert(r);
+                    group.roots.insert(LexEntryId(e));
                 }
-                TagKind::Rule(r) if !group.rules.contains(&r) => {
+                TagKind::Rule(m) if !group.rules.contains(&MRuleId(m)) => {
                     meter.charge_bytes(ID_BYTES)?;
-                    group.rules.insert(r);
+                    group.rules.insert(MRuleId(m));
                 }
-                _ => {}
+                TagKind::Root(_) | TagKind::Rule(_) | TagKind::NonHead(_) => {}
             }
         }
     }
@@ -385,21 +425,10 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::super::budget::BuildMeter;
-    use super::super::layer::{Input, NfaBuilder, Output};
+    use super::super::layer::{Input, NfaBuilder, Output, Tag};
     use super::super::product::{Outcome, Product, ProductScratch, Request};
     use super::super::trim::{trim, GraphArc, RawGraph};
     use super::*;
-
-    /// Ids at or above this are `Other` (a non-head entry, say).
-    const OTHER: u32 = 1_000_000;
-
-    fn decode(t: Tag) -> TagKind {
-        match t.0 {
-            x if x >= OTHER => TagKind::Other,
-            x if x % 2 == 0 => TagKind::Root(LexEntryId(x / 2)),
-            x => TagKind::Rule(MRuleId(x / 2)),
-        }
-    }
 
     /// A state machine with written characters: the shape the product graph is unrolled from.
     #[derive(Clone, Debug, Default)]
@@ -417,6 +446,10 @@ mod tests {
         roots: Vec<u32>,
         rules: Vec<u32>,
         other: bool,
+    }
+
+    fn meter() -> ReadoutMeter {
+        ReadoutMeter::new(ReadoutBudget::UNLIMITED)
     }
 
     fn arc(src: u32, dst: u32, written: Option<char>, roots: &[u32], rules: &[u32]) -> AArc {
@@ -446,16 +479,16 @@ mod tests {
     }
 
     fn tag_ids(a: &AArc) -> BTreeSet<u32> {
-        let mut t: BTreeSet<u32> = a.roots.iter().map(|r| 2 * r).collect();
-        t.extend(a.rules.iter().map(|r| 2 * r + 1));
+        let mut t: BTreeSet<u32> = a.roots.iter().map(|&r| Tag::root(r).0).collect();
+        t.extend(a.rules.iter().map(|&r| Tag::rule(r).0));
         if a.other {
-            t.insert(OTHER);
+            t.insert(Tag::nonhead(9).0);
         }
         t
     }
 
     /// The product graph of `a` over `s`: keys `[position, 0, state]`, arcs merged per `(src, dst, weight)`.
-    fn unroll(a: &Auto, s: &str) -> RawGraph {
+    fn unroll(a: &Auto, s: &str, theta: Option<u32>) -> RawGraph {
         let chars: Vec<char> = s.chars().collect();
         let mut ids: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         let mut order: Vec<(u32, u32)> = vec![(0, 0)];
@@ -504,6 +537,7 @@ mod tests {
         RawGraph {
             layers: 1,
             word_len: chars.len(),
+            theta,
             keys: order.iter().flat_map(|&(i, q)| [i, 0, q]).collect(),
             accepting: order
                 .iter()
@@ -519,6 +553,7 @@ mod tests {
         TrimmedGraph {
             layers: raw.layers,
             word_len: raw.word_len,
+            theta: raw.theta,
             start: Some(0),
             keys: raw.keys,
             accepting: raw.accepting,
@@ -531,6 +566,7 @@ mod tests {
         RawGraph {
             layers: r.layers,
             word_len: r.word_len,
+            theta: r.theta,
             keys: r.keys.clone(),
             accepting: r.accepting.clone(),
             arcs: r.arcs.clone(),
@@ -538,24 +574,18 @@ mod tests {
         }
     }
 
-    fn groups(g: &TrimmedGraph, theta: Option<u32>) -> Vec<PinGroup> {
-        match read_out(
-            g,
-            &decode,
-            theta,
-            ReadoutBudget::UNLIMITED,
-            ReadoutMode::Single,
-        ) {
+    fn groups(g: &TrimmedGraph) -> Vec<PinGroup> {
+        match read_out(g, ReadoutBudget::UNLIMITED, ReadoutMode::Single) {
             Readout::Complete { groups, .. } => groups,
-            Readout::Incomplete { stop, .. } => panic!("incomplete: {stop:?}"),
+            o => panic!("{o:?}"),
         }
     }
 
     /// Read out `a` over `s` from the trimmed graph and from the untrimmed one; they must agree.
     fn ro(a: &Auto, s: &str, theta: Option<u32>) -> Vec<PinGroup> {
-        let raw = unroll(a, s);
-        let loose = groups(&untrimmed(clone_raw(&raw)), theta);
-        let tight = groups(&trim(raw), theta);
+        let raw = unroll(a, s, theta);
+        let loose = groups(&untrimmed(clone_raw(&raw)));
+        let tight = groups(&trim(raw));
         assert_eq!(loose, tight, "trimmed and untrimmed graphs disagree");
         tight
     }
@@ -645,9 +675,10 @@ mod tests {
         let mut g = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[], &[])]),
             "a",
+            None,
         ));
         g.start = Some(5);
-        let _ = ReadoutIndex::new(&g);
+        let _ = ReadoutIndex::new(&g, &mut meter());
     }
 
     #[test]
@@ -656,9 +687,10 @@ mod tests {
         let mut g = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[], &[])]),
             "a",
+            None,
         ));
         g.arcs[0].dst = 7;
-        let _ = ReadoutIndex::new(&g);
+        let _ = ReadoutIndex::new(&g, &mut meter());
     }
 
     #[test]
@@ -667,9 +699,10 @@ mod tests {
         let mut g = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[], &[])]),
             "a",
+            None,
         ));
         g.accepting.push(true);
-        let _ = ReadoutIndex::new(&g);
+        let _ = ReadoutIndex::new(&g, &mut meter());
     }
 
     #[test]
@@ -685,9 +718,10 @@ mod tests {
                 ],
             ),
             "ab",
+            None,
         ));
         g.arcs[0].dst = 2;
-        let _ = ReadoutIndex::new(&g);
+        let _ = ReadoutIndex::new(&g, &mut meter());
     }
 
     #[test]
@@ -696,9 +730,10 @@ mod tests {
         let mut g = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[], &[])]),
             "a",
+            None,
         ));
         g.arcs[0].tags = 9;
-        let _ = ReadoutIndex::new(&g);
+        let _ = ReadoutIndex::new(&g, &mut meter());
     }
 
     #[test]
@@ -707,6 +742,7 @@ mod tests {
         let a = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[])]),
             "a",
+            None,
         ));
         let b = trim(unroll(
             &auto(
@@ -718,12 +754,11 @@ mod tests {
                 ],
             ),
             "ab",
+            None,
         ));
         let _ = read_out_indexed(
             &b,
-            &ReadoutIndex::new(&a),
-            &decode,
-            None,
+            &ReadoutIndex::new(&a, &mut meter()).unwrap(),
             ReadoutBudget::UNLIMITED,
             ReadoutMode::Single,
         );
@@ -734,9 +769,10 @@ mod tests {
         let g = trim(unroll(
             &auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[])]),
             "b",
+            None,
         ));
         assert_eq!(g.start, None);
-        assert_eq!(groups(&g, None), Vec::<PinGroup>::new());
+        assert_eq!(groups(&g), Vec::<PinGroup>::new());
     }
 
     #[test]
@@ -988,8 +1024,8 @@ mod tests {
                 arc(2, 3, None, &[3], &[6]),
             ],
         );
-        let g = trim(unroll(&a, "abb"));
-        let run = |b: ReadoutBudget| read_out(&g, &decode, None, b, ReadoutMode::Single);
+        let g = trim(unroll(&a, "abb", None));
+        let run = |b: ReadoutBudget| read_out(&g, b, ReadoutMode::Single);
         let Readout::Complete { groups, used } = run(ReadoutBudget::UNLIMITED) else {
             panic!()
         };
@@ -1014,7 +1050,7 @@ mod tests {
                     assert_eq!(s, stop);
                     assert!(u.nodes < used.nodes || u.steps < used.steps || u.bytes < used.bytes);
                 }
-                Readout::Complete { .. } => panic!("{stop:?}: overrun returned Complete"),
+                o => panic!("{stop:?}: overrun did not stop: {o:?}"),
             }
             match run(with(n)) {
                 Readout::Complete { groups: g2, .. } => assert_eq!(g2, groups),
@@ -1023,24 +1059,20 @@ mod tests {
         }
     }
 
-    /// The sets are sparse: a graph of many unreachable states costs nothing for them.
+    /// The sweeps are sparse: unreachable states add nothing to the nodes they reach.
     #[test]
     fn unreached_states_cost_nothing() {
         let a = auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[])]);
-        let mut g = untrimmed(unroll(&a, "a"));
+        let mut g = untrimmed(unroll(&a, "a", None));
         let w = KEY_PREFIX + g.layers;
         for k in 0..10_000u32 {
             g.keys.extend_from_slice(&[0, 0, 100 + k]);
             g.accepting.push(false);
         }
         assert_eq!(g.keys.len(), g.state_count() * w);
-        let Readout::Complete { used, .. } = read_out(
-            &g,
-            &decode,
-            None,
-            ReadoutBudget::UNLIMITED,
-            ReadoutMode::Single,
-        ) else {
+        let Readout::Complete { used, .. } =
+            read_out(&g, ReadoutBudget::UNLIMITED, ReadoutMode::Single)
+        else {
             panic!()
         };
         assert_eq!(used.nodes, 4);
@@ -1054,8 +1086,8 @@ mod tests {
         for fin in [false, false, false, true] {
             b.add_state(fin).unwrap();
         }
-        let root = |r: u32| [Tag(2 * r)];
-        let rule = |r: u32| [Tag(2 * r + 1)];
+        let root = |r: u32| [Tag::root(r)];
+        let rule = |r: u32| [Tag::rule(r)];
         let eps = |b: &mut NfaBuilder, from, to, tags: &[Tag], w| {
             b.add_arc(from, Input::Eps, Output::Eps, to, tags, w, 0)
                 .unwrap()
@@ -1066,11 +1098,12 @@ mod tests {
         eps(&mut b, 2, 3, &rule(7), 600);
         let layer = b.finish();
         let refs: Vec<&dyn super::super::layer::Layer> = vec![&layer];
-        let prod = Product::new(&refs);
+        let prod = Product::new(&refs).unwrap();
         let word: [u32; 0] = [];
         let mut req = Request::new(&word, 0);
         req.theta = Some(1000);
-        let Outcome::Complete { graph, .. } = prod.run(&mut ProductScratch::new(1), &req) else {
+        let Outcome::Complete { mut graph, .. } = prod.run(&mut ProductScratch::new(1), &req)
+        else {
             panic!()
         };
         assert_eq!(
@@ -1079,10 +1112,65 @@ mod tests {
             "every arc passes its own creation test"
         );
         assert_eq!(
-            groups(&graph, Some(1000)),
+            groups(&graph),
             vec![group(&[1], &[7])],
             "root 2 lies only on a walk of weight 1200"
         );
-        assert_eq!(groups(&graph, None), vec![group(&[1, 2], &[7])]);
+        graph.theta = None;
+        assert_eq!(groups(&graph), vec![group(&[1, 2], &[7])]);
+    }
+
+    /// A tag word that no tag was built as is an error, never an ignored tag.
+    #[test]
+    fn unknown_tag_word_is_an_error_not_other() {
+        let a = auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[])]);
+        let mut raw = unroll(&a, "a", None);
+        raw.tag_sets.push(Box::new([Tag(3 << Tag::ID_BITS)]));
+        raw.arcs[0].tags = raw.tag_sets.len() as u32 - 1;
+        let g = trim(raw);
+        assert_eq!(
+            read_out(&g, ReadoutBudget::UNLIMITED, ReadoutMode::Single),
+            Readout::BadTag(BadTag(Tag(3 << Tag::ID_BITS)))
+        );
+    }
+
+    /// The index is charged to the read-out budget before it is built.
+    #[test]
+    fn index_bytes_are_charged_before_the_index_is_built() {
+        let a = auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[])]);
+        let g = trim(unroll(&a, "a", None));
+        let need = index_bytes(g.state_count(), g.arcs.len());
+        let mut tight = ReadoutMeter::new(ReadoutBudget {
+            bytes: need - 1,
+            ..ReadoutBudget::UNLIMITED
+        });
+        assert!(matches!(
+            ReadoutIndex::new(&g, &mut tight),
+            Err(ReadoutStop::ReadoutBytes)
+        ));
+        assert_eq!(tight.used().bytes, 0);
+        let b = ReadoutBudget {
+            bytes: need - 1,
+            ..ReadoutBudget::UNLIMITED
+        };
+        assert!(matches!(
+            read_out(&g, b, ReadoutMode::Single),
+            Readout::Incomplete {
+                stop: ReadoutStop::ReadoutBytes,
+                ..
+            }
+        ));
+    }
+
+    /// The ceiling is the graph's own: the same arcs read out differently under a different one.
+    #[test]
+    fn read_out_uses_the_ceiling_stored_in_the_graph() {
+        let mut dear = arc(0, 1, Some('a'), &[2], &[]);
+        dear.weight = 5;
+        let a = auto(2, &[1], vec![arc(0, 1, Some('a'), &[1], &[]), dear]);
+        let mut g = untrimmed(unroll(&a, "a", Some(1)));
+        assert_eq!(groups(&g), vec![group(&[1], &[])]);
+        g.theta = None;
+        assert_eq!(groups(&g), vec![group(&[1, 2], &[])]);
     }
 }
