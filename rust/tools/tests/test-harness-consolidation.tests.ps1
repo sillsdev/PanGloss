@@ -48,10 +48,10 @@ $crateSpecs = @(
     @{
         Name = 'pg-foma-backend'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma-backend'
-        MinTargets = 8
-        MaxTargets = 8
+        MinTargets = 9
+        MaxTargets = 9
         ExpectedSourceNames = @(
-            'free_fluctuation_containment.rs', 'permanent_variant_refusals.rs', 'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
+            'cascade_fuzz_gate.rs', 'free_fluctuation_containment.rs', 'permanent_variant_refusals.rs', 'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
             'apply_path_refusal_gate.rs', 'backend_accuracy_gate.rs', 'backend_capability_cards_contract.rs',
             'backend_mechanism_graph.rs',
             'backend_optimizer_calibration.rs', 'backend_promoted_fixtures.rs', 'backend_runtime_cache_gate.rs', 'backend_runtime_oracle_bound_gate.rs', 'backend_scoreboard_gate.rs',
