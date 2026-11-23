@@ -5,7 +5,8 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 
 ## Unreleased
 
-- Generating a derivation blocked by a stem-family relative returns the relative's word, as C# does, instead of nothing (#423); `Word.MorphologicalRuleApplied` steps the rule index only while a rule is pending. PanGloss reports the family-blocked `aat` once where hc.dll reports it twice (divergence 134).
+
+- v0.28.0 was tagged but never published: its release gate failed on rustdoc, because two doc comments in `pg-parse`'s `why_not.rs` linked to private items (`engine`, `Progress`). This release carries all of 0.28.0's changes plus that fix: the two links are plain code spans, and `cargo doc --no-deps --locked` with `-D warnings` is clean across the workspace.
 
 ## 0.28.0
 
