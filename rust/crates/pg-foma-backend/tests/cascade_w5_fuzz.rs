@@ -282,9 +282,16 @@ fn xml(segments: &[&[&str]], boundary: Option<&str>, strata: &[StratumSpec]) -> 
         for text in &s.entries {
             let id = format!("e{next_entry}");
             next_entry += 1;
+            let allomorphs: String = text
+                .split('|')
+                .enumerate()
+                .map(|(k, t)| {
+                    format!("<Allomorph id=\"{id}a{k}\"><PhoneticShape>{t}</PhoneticShape></Allomorph>")
+                })
+                .collect();
             x += &format!(
-                "<LexicalEntry id=\"{id}\" partOfSpeech=\"posV\"><Allomorphs><Allomorph id=\"{id}a\">\
-<PhoneticShape>{text}</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R{id}</MorphemeId></LexicalEntry>"
+                "<LexicalEntry id=\"{id}\" partOfSpeech=\"posV\"><Allomorphs>{allomorphs}</Allomorphs>\
+<MorphemeId>R{id}</MorphemeId></LexicalEntry>"
             );
         }
         x += "</LexicalEntries></Stratum>";
@@ -339,7 +346,7 @@ fn prefixes_suffixes_circumfixes_and_null_allomorphs_agree_with_hc() {
     let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
     let analysed = agree(
         &x,
-        &["ta", "taa", "tta", "ttaa", "kta", "ktaa", "skta", "ska", "sktak", "kka", "aka", "tak", "s", ""],
+        &["ta", "taa", "tta", "ttaa", "kta", "ktaa", "skta", "ska", "stak", "skak", "sktak", "kka", "aka", "tak", "s", ""],
     );
     assert!(analysed >= 8, "{analysed}");
 }
@@ -376,13 +383,13 @@ fn a_rule_repeats_exactly_max_apps_times_in_a_chain_and_an_unordered_pool() {
     for order in ["linear", "unordered"] {
         let strata = [StratumSpec {
             order,
-            rules: vec![rule(&[("", "s")], 3), rule(&[("", "k")], 2)],
+            rules: vec![rule(&[("", "s")], 3), rule(&[("", "k")], 2), rule(&[("s", "")], 2)],
             entries: vec!["ta"],
         }];
         let x = xml(&[&["a"], &["t"], &["k"], &["s"]], None, &strata);
         let analysed = agree(
             &x,
-            &["ta", "tas", "tass", "tasss", "tassss", "tak", "takk", "takkk", "taks", "tasks", "taskk"],
+            &["ta", "tas", "tass", "tasss", "tassss", "tak", "takk", "takkk", "taks", "tasks", "taskk", "sta", "ssta", "sssta", "stas"],
         );
         assert!(analysed >= 6, "{order}: {analysed}");
     }
@@ -456,4 +463,12 @@ fn confirmation_runs_under_the_reference_morphers_own_limits() {
         stopped.status
     );
     assert!(stopped.analyses.is_empty());
+}
+
+#[test]
+fn every_allomorph_of_a_root_and_an_unspellable_segment_are_modelled() {
+    let strata = [linear(vec![rule(&[("", "s")], 1)], &["ta|ka", "tsa"])];
+    let x = xml(&[&["a"], &["t"], &["k"], &["s"], &["ts"], &[]], None, &strata);
+    let analysed = agree(&x, &["ta", "ka", "tas", "kas", "tsa", "tsas", "a"]);
+    assert!(analysed >= 5, "{analysed}");
 }
