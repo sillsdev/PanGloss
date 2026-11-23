@@ -256,6 +256,7 @@ staging:edge-cases/compound-allomorph-identity-affix-reuse	TunedSurfaceProbed	or
 staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/do-not-use-for-parsing-flag-ignored	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/family-blocked-generation	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/feature-system-breadth	TunedSurfaceProbed	refused
 staging:edge-cases/featureless-modify-from-input	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/featureless-segment-class-rewrite	TunedSurfaceProbed	refused
