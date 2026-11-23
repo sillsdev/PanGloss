@@ -200,7 +200,7 @@ fn a_net_whose_reverse_is_small_is_minimized_within_a_budget_below_its_determini
         (theirs.statecount, theirs.arccount)
     );
     assert!(foma::constructions::fsm_equivalent(&opts, result, theirs));
-    // Without `minimal` the same budget refuses.
+    // A meter built without the minimal option refuses the same budget.
     let plain = Meter::within(budget);
     assert!(is_the_empty_net(&plain.minimize(&unminimal(), big)));
     assert!(plain.refused());
