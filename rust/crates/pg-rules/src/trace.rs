@@ -291,6 +291,8 @@ pub struct TraceNode {
     pub output: Option<Word>,
     pub failure_reason: Option<FailureReason>,
     pub failure_context: Option<FailureContext>,
+    /// The allomorph whose validity check failed; set only by the per-allomorph checks and only when failure context is captured.
+    pub failed_allomorph: Option<AllomorphId>,
     /// Present only when rich trace capture recorded the lookup's completed output.
     pub lookup_result: Option<LookupResult>,
     pub template_slots: Option<Vec<TemplateSlotOutcome>>,
@@ -310,6 +312,7 @@ impl TraceNode {
             output: None,
             failure_reason: None,
             failure_context: None,
+            failed_allomorph: None,
             lookup_result: None,
             template_slots: None,
             partial_parse_cause: None,
@@ -392,6 +395,11 @@ pub trait TraceSink {
 
     /// Called only after the owner has emitted the exact failed event.
     fn set_failure_context(&self, _event: TraceHandle, _context: FailureContext) {
+        panic!("this trace sink cannot capture failure context");
+    }
+
+    /// Name the allomorph whose validity check failed on a failed event.
+    fn set_failed_allomorph(&self, _event: TraceHandle, _allomorph: AllomorphId) {
         panic!("this trace sink cannot capture failure context");
     }
 
@@ -807,6 +815,14 @@ impl TraceSink for TreeTraceSink {
             "failure context requires a failed event"
         );
         node.failure_context = Some(context);
+    }
+
+    fn set_failed_allomorph(&self, event: TraceHandle, allomorph: AllomorphId) {
+        assert!(
+            self.capture_failure_context,
+            "failure context capture was not enabled"
+        );
+        self.nodes.borrow_mut()[event.0 as usize].failed_allomorph = Some(allomorph);
     }
     fn complete_lexical_lookup(&self, event: TraceHandle, result: LookupResult) {
         assert!(

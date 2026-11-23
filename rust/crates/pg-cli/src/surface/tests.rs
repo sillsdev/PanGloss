@@ -209,3 +209,17 @@ fn make_report_allow_unproven_flag_is_cfg_gated_the_same_way_as_the_parser() {
         "--allow-unproven must be declared in the spec exactly when developer-tools is enabled"
     );
 }
+
+#[test]
+fn describe_json_publishes_the_why_not_capability_and_its_answered_kinds() {
+    let v = serde_json::to_value(super::describe_doc()).unwrap();
+    let w = &v["interfaces"]["whyNot"];
+    assert_eq!(w["schema"], "pangloss.whynot.v1");
+    assert_eq!(w["ids"], "grammar-xml");
+    assert_eq!(w["suiteRows"], true);
+    assert_eq!(w["expectGuidChoices"], true);
+    assert_eq!(
+        w["kinds"],
+        serde_json::json!(["no_morph_match", "environment_unmet", "adhoc_prohibition"])
+    );
+}

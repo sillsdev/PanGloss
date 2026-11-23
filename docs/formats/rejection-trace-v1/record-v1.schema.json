@@ -307,7 +307,8 @@
             "tested_template",
             "selected_rule",
             "required_value",
-            "blocking_entry"
+            "blocking_entry",
+            "blocker"
           ]
         },
         "kind": {
@@ -2594,6 +2595,7 @@
         },
         "reason": {
           "enum": [
+            "allomorph_blocked",
             "allomorph_cooccurrence",
             "allomorph_not_applicable",
             "applicable_templates_not_applied",
@@ -4934,6 +4936,29 @@
                 },
                 "reason": {
                   "const": "disjunctive_allomorph"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "validity"
+                },
+                "reason": {
+                  "const": "allomorph_blocked"
                 },
                 "operands": {
                   "properties": {

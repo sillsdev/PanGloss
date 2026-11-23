@@ -99,6 +99,13 @@ const REMAINING_PARSE: Tuple = [
     "count",
 ];
 const BOUND_ROOT: Tuple = ["synthesis", "reject", "validity", "bound_root", "none"];
+const ALLOMORPH_BLOCKED: Tuple = [
+    "synthesis",
+    "reject",
+    "validity",
+    "allomorph_blocked",
+    "none",
+];
 const SURFACE: Tuple = [
     "synthesis",
     "reject",
@@ -236,6 +243,7 @@ pub(super) const TUPLES: &[Tuple] = &[
     REMAINING_STRATUM,
     REMAINING_PARSE,
     BOUND_ROOT,
+    ALLOMORPH_BLOCKED,
     SURFACE,
     TEMPLATE_INELIGIBLE,
     OPTIONAL_ANALYSIS,
@@ -1812,6 +1820,7 @@ fn decision_tuple(decision: &Decision<'_>) -> Tuple {
         Decision::RemainingRulesInStratum { .. } => REMAINING_STRATUM,
         Decision::RemainingAnalyzedRules { .. } => REMAINING_PARSE,
         Decision::BoundRoot { .. } => BOUND_ROOT,
+        Decision::AllomorphBlocked { .. } => ALLOMORPH_BLOCKED,
         Decision::SurfaceMismatch { .. } => SURFACE,
         Decision::TemplateIneligible { .. } => TEMPLATE_INELIGIBLE,
         Decision::OptionalSlotSkipped { analysis: true, .. } => OPTIONAL_ANALYSIS,
@@ -2084,6 +2093,11 @@ fn record_event(
         Decision::BoundRoot { allomorph } => (
             group.allomorph(id, allomorph),
             None,
+            json!({"status": "captured"}),
+        ),
+        Decision::AllomorphBlocked { blocked, blocker } => (
+            group.allomorph(id, blocked),
+            Some(subject(group.allomorph(id, blocker), "blocker")),
             json!({"status": "captured"}),
         ),
         Decision::SurfaceMismatch {

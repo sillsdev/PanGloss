@@ -84,10 +84,20 @@
                   "not_implemented",
                   "work_cap",
                   "deadline",
-                  "failure_not_expressible"
+                  "failure_not_expressible",
+                  "no_root",
+                  "compounding_unsupported",
+                  "word_not_segmentable",
+                  "unclassified_failure",
+                  "choices_capped",
+                  "unsupported_morpheme"
                 ]
               }
             ]
+          },
+          "stop_note": {
+            "type": "string",
+            "description": "One sentence saying what was reached when the answer is unknown."
           }
         },
         "oneOf": [
@@ -153,7 +163,6 @@
   "$defs": {
     "choice": {
       "type": "object",
-      "additionalProperties": false,
       "required": [
         "morpheme"
       ],
@@ -173,7 +182,6 @@
             },
             {
               "type": "object",
-              "additionalProperties": false,
               "properties": {
                 "entry_guid": {
                   "oneOf": [
@@ -265,6 +273,7 @@
           "type": "string"
         },
         "position": {
+          "description": "0-based position in the candidate of the morph whose check failed: for environment_unmet and adhoc_prohibition, the owner of the environment or rule (morphs[0]). Null for a whole-word failure or when the morph cannot be placed.",
           "type": [
             "integer",
             "null"

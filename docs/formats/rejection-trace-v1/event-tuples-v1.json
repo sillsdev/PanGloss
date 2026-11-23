@@ -705,6 +705,13 @@
       "synthesis",
       "reject",
       "validity",
+      "allomorph_blocked",
+      "none"
+    ],
+    [
+      "synthesis",
+      "reject",
+      "validity",
       "environment",
       "environment"
     ],

@@ -1,21 +1,25 @@
 //! Why-not (constrained parse), Motif #386: parse one word along GIVEN morph candidates and report
 //! the first failing constraint instead of searching every path.
 //!
-//! Slice 0 is the contract only. The types, input validation and wire shape (`pangloss.whynot.v1`,
-//! `docs/formats/why-not.md`) are final enough for a consumer to code against; [`why_not`] validates
-//! its input and then answers [`StopReason::NotImplemented`] for every candidate. Vocabulary is the
+//! The types, input validation and wire shape (`pangloss.whynot.v1`, `docs/formats/why-not.md`)
+//! are what a consumer codes against; [`why_not`] validates its input and answers each candidate
+//! with [`engine`]. Vocabulary is the
 //! rejection-diagnostics v1 vocabulary (`docs/formats/rejection-trace-v1.md`): `hc_reason` carries
 //! the C# `FailureReason` name, the grammar object carries `type`/`id`/`guid`, and `entry_guid` plus
 //! `msa_guid` are the same FieldWorks identities the v1 selector resolves. Morphemes and stem names
-//! are named by their grammar.xml id (`MorphemeInfo::xml_key`, `StemNameDef::xml_id`), as the shared
-//! conformance suite names them.
+//! are named by their grammar.xml id (`MorphemeInfo::xml_key`, `StemNameDef::xml_id`) and allomorphs
+//! by `Grammar::allomorph_xml_key`.
+
+mod engine;
 
 use std::fmt;
 
-use pg_grammar_model::model::{Grammar, MorphemeId};
+use pg_grammar_model::model::{AllomorphId, AllomorphOwner, Grammar, MorphRuleDef, MorphemeId};
 use serde::{Deserialize, Serialize};
 
-use crate::WordAnalysis;
+use pg_rules::trace::FailureReason;
+
+use crate::Morpher;
 
 /// The wire schema identifier written as `schema` in every report.
 pub const SCHEMA: &str = "pangloss.whynot.v1";
@@ -32,9 +36,9 @@ pub struct GuidRef {
     pub msa_guid: Option<String>,
 }
 
-/// One choice at a position: a morpheme named by its grammar.xml id. `allomorph` is reserved for
-/// allomorph XML ids, which the loader does not keep yet, so any value is an input error today.
-/// `guid` disambiguates a morpheme id that several morphemes share (a variant sharing an MSA).
+/// One choice at a position: a morpheme named by its grammar.xml id, and optionally one of its
+/// allomorphs by the allomorph's grammar.xml id. `guid` disambiguates a morpheme id that several
+/// morphemes share (a variant sharing an MSA) and, when given, must match the morpheme it names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExpectedMorph {
@@ -67,7 +71,7 @@ pub struct Candidate {
 pub struct WhyNotRequest<'a> {
     pub word: &'a str,
     pub candidates: Vec<Candidate>,
-    /// Position (within every candidate) of the root, when the caller knows it.
+    /// Position (within every candidate) of the root, when the caller knows it. Validated but not used by the search yet; the search finds the root itself.
     pub root_index: Option<usize>,
 }
 
@@ -75,12 +79,44 @@ pub struct WhyNotRequest<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
-    /// Slice 0: the search is not built yet.
+    /// Accepted when reading a report, so a report that carries it still parses.
     NotImplemented,
     WorkCap,
     Deadline,
     /// A failure was found that cannot fill a required failure field (the C# tool emits this).
     FailureNotExpressible,
+    /// No position names a lexical entry, so no root can be pinned.
+    NoRoot,
+    /// A pinned morpheme is neither a lexical entry nor an affix rule, so it cannot be pinned.
+    UnsupportedMorpheme,
+    /// Several positions name lexical entries; compounding is not pinned.
+    CompoundingUnsupported,
+    /// The word cannot be segmented with the grammar's character table.
+    WordNotSegmentable,
+    /// The furthest derivation fails a check the engine does not name yet.
+    UnclassifiedFailure,
+    /// The choices at the positions multiply past the number of sequences the engine will try.
+    ChoicesCapped,
+}
+
+fn stop_unclassified(note: &str) -> WhyNotOutcome {
+    WhyNotOutcome::Unknown(Stop {
+        reason: StopReason::UnclassifiedFailure,
+        note: Some(note.to_string()),
+    })
+}
+
+/// A stop with its reason and an optional sentence saying what was reached.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stop {
+    pub reason: StopReason,
+    pub note: Option<String>,
+}
+
+impl From<StopReason> for Stop {
+    fn from(reason: StopReason) -> Self {
+        Stop { reason, note: None }
+    }
 }
 
 /// The typed first failure.
@@ -100,6 +136,36 @@ pub enum FailureKind {
 }
 
 impl FailureKind {
+    /// Whether the engine can answer this kind today; every other kind comes back `unknown`. The match is exhaustive so a new kind must be classified here.
+    pub const fn is_answered(self) -> bool {
+        match self {
+            FailureKind::NoMorphMatch
+            | FailureKind::EnvironmentUnmet
+            | FailureKind::AdhocProhibition => true,
+            FailureKind::SlotOrder
+            | FailureKind::RequiredSlotEmpty
+            | FailureKind::FeatureClash
+            | FailureKind::StemName
+            | FailureKind::InflectionClass
+            | FailureKind::SurfaceMismatch
+            | FailureKind::OtherGate => false,
+        }
+    }
+
+    /// The kinds that are answered today, in `ALL` order, as their wire names.
+    pub fn answered() -> Vec<String> {
+        Self::ALL
+            .into_iter()
+            .filter(|k| k.is_answered())
+            .map(|k| {
+                serde_json::to_value(k)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .expect("a kind serializes as a string")
+            })
+            .collect()
+    }
+
     pub const ALL: [FailureKind; 10] = [
         FailureKind::NoMorphMatch,
         FailureKind::EnvironmentUnmet,
@@ -112,22 +178,61 @@ impl FailureKind {
         FailureKind::SurfaceMismatch,
         FailureKind::OtherGate,
     ];
+}
 
-    /// How many checks a derivation survives before failing this way, in the C# order: analysis
-    /// side (strata and templates unapplied outermost first), synthesis gates, `IsWordValid`,
-    /// per-allomorph checks (root, co-occurrence, environments), surface match. Larger is further.
-    pub fn check_rank(self) -> u8 {
-        match self {
-            FailureKind::NoMorphMatch => 1,
-            FailureKind::SlotOrder => 2,
-            FailureKind::RequiredSlotEmpty => 3,
-            FailureKind::FeatureClash => 4,
-            FailureKind::OtherGate => 5,
-            FailureKind::StemName | FailureKind::InflectionClass => 6,
-            FailureKind::AdhocProhibition => 7,
-            FailureKind::EnvironmentUnmet => 8,
-            FailureKind::SurfaceMismatch => 9,
-        }
+/// How far a derivation got before failing: the slot of the allomorph whose check failed (a
+/// word-level failure is slot 0, the surface match the last slot), then the check's place in
+/// `Allomorph.IsWordValid`'s order. The one key that ranks failures within a sequence, across
+/// sequences and across candidates; a larger key is further.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Progress {
+    slot: u32,
+    check: u8,
+}
+
+impl Progress {
+    /// `position` is the failing allomorph's index in morph order, when the evidence names one.
+    pub(crate) fn of_reason(position: Option<usize>, reason: FailureReason) -> Self {
+        let check = match reason {
+            FailureReason::PartialParse => 1,
+            FailureReason::ObligatorySyntacticFeatures => 2,
+            FailureReason::BoundRoot => 3,
+            FailureReason::RequiredStemName | FailureReason::ExcludedStemName => 4,
+            FailureReason::AllomorphCoOccurrenceRules => 5,
+            FailureReason::MorphemeCoOccurrenceRules => 6,
+            FailureReason::Environments => 7,
+            FailureReason::DisjunctiveAllomorph => 8,
+            FailureReason::SurfaceFormMismatch => 9,
+            _ => 0,
+        };
+        let slot = match reason {
+            FailureReason::PartialParse | FailureReason::ObligatorySyntacticFeatures => 0,
+            FailureReason::SurfaceFormMismatch => u32::MAX,
+            _ => position.map_or(0, |p| p as u32 + 1),
+        };
+        Progress { slot, check }
+    }
+
+    pub(crate) fn of_failure(f: &FirstFailure) -> Self {
+        let reason = match f.kind {
+            FailureKind::NoMorphMatch => {
+                return Progress { slot: 0, check: 0 };
+            }
+            FailureKind::EnvironmentUnmet => FailureReason::Environments,
+            FailureKind::AdhocProhibition
+                if f.hc_reason.as_deref() == Some("MorphemeCoOccurrenceRules") =>
+            {
+                FailureReason::MorphemeCoOccurrenceRules
+            }
+            FailureKind::AdhocProhibition => FailureReason::AllomorphCoOccurrenceRules,
+            FailureKind::StemName => FailureReason::RequiredStemName,
+            FailureKind::SurfaceMismatch => FailureReason::SurfaceFormMismatch,
+            FailureKind::SlotOrder | FailureKind::RequiredSlotEmpty => FailureReason::PartialParse,
+            FailureKind::FeatureClash | FailureKind::InflectionClass | FailureKind::OtherGate => {
+                FailureReason::ObligatorySyntacticFeatures
+            }
+        };
+        Progress::of_reason(f.position, reason)
     }
 }
 
@@ -170,6 +275,12 @@ pub struct FailureObject {
 #[serde(rename_all = "snake_case")]
 pub struct FailureEnvironment {
     pub allomorph_id: String,
+    /// The FieldWorks environment guid; only on a snapshot-route grammar (HC XML gives environments none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guid: Option<String>,
+    /// The environment as the author wrote it, such as "/ _ #"; only on a snapshot-route grammar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// Omitted when the engine does not know which alternative failed (HC does not name it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
@@ -182,6 +293,12 @@ pub struct MorphRef {
     pub morpheme: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allomorph: Option<String>,
+    /// The FieldWorks entry and MSA identities of the morpheme, when the grammar was built from a FieldWorks model; omitted for a hand-written grammar.xml, which has neither.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guid: Option<GuidRef>,
+    /// The FieldWorks `MoForm` guid of the allomorph (the first form of a circumfix or other two-form allomorph); only on a snapshot-route grammar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_guid: Option<String>,
 }
 
 /// Actual left and right context of an unmet environment. HC does not report it; the engine or
@@ -224,6 +341,12 @@ pub struct FirstFailure {
     pub provenance: Provenance,
     pub object: Option<FailureObject>,
     pub morphs: Vec<MorphRef>,
+    /// `adhoc_prohibition` only: every member of the prohibition, primary first (`morphs` holds just the pair that clashed).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<MorphRef>,
+    /// `environment_unmet` with several failed environments (the allomorph's any-of list): each one; omitted when one environment failed, which `environment` already describes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub environments: Vec<FailureEnvironment>,
     pub context: Option<EnvContext>,
     /// `environment_unmet` only: which environment.
     pub environment: Option<FailureEnvironment>,
@@ -235,11 +358,25 @@ pub struct FirstFailure {
     pub alternatives: Option<u32>,
 }
 
-/// An accepted candidate: the ordinary analysis and the choice used at each position.
+/// The accepted derivation named by authored ids only: the engine's dense morpheme, allomorph and
+/// part-of-speech ordinals shift whenever the grammar changes, so none of them is reported.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AuthoredAnalysis {
+    /// Every morph of the derivation in surface order, each allomorph once.
+    pub morphs: Vec<MorphRef>,
+    /// The root's index within `morphs`.
+    pub root_index: i32,
+    /// The part of speech's `grammar.xml` id; null when the analysis carries none.
+    pub category: Option<String>,
+    pub guessed: bool,
+}
+
+/// An accepted candidate: the derivation by authored ids and the choice used at each position.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcceptedAnalysis {
-    pub analysis: WordAnalysis,
+    pub analysis: AuthoredAnalysis,
     /// One entry per position: the choice that produced the analysis.
     pub used: Vec<MorphRef>,
 }
@@ -249,7 +386,7 @@ pub struct AcceptedAnalysis {
 pub enum WhyNotOutcome {
     Accepted(Box<AcceptedAnalysis>),
     Rejected(Box<FirstFailure>),
-    Unknown(StopReason),
+    Unknown(Stop),
 }
 
 /// One candidate with its verdict, in input order.
@@ -276,6 +413,8 @@ struct CandidateWire {
     analysis: Option<AcceptedAnalysis>,
     failure: Option<FirstFailure>,
     stop: Option<StopReason>,
+    #[serde(default, rename = "stop_note", skip_serializing_if = "Option::is_none")]
+    stop_note: Option<String>,
 }
 
 impl From<CandidateResult> for CandidateWire {
@@ -286,6 +425,7 @@ impl From<CandidateResult> for CandidateWire {
             analysis: None,
             failure: None,
             stop: None,
+            stop_note: None,
         };
         match r.outcome {
             WhyNotOutcome::Accepted(a) => {
@@ -296,7 +436,10 @@ impl From<CandidateResult> for CandidateWire {
                 wire.result = ResultTag::Rejected;
                 wire.failure = Some(*f);
             }
-            WhyNotOutcome::Unknown(s) => wire.stop = Some(s),
+            WhyNotOutcome::Unknown(s) => {
+                wire.stop = Some(s.reason);
+                wire.stop_note = s.note;
+            }
         }
         wire
     }
@@ -306,10 +449,13 @@ impl TryFrom<CandidateWire> for CandidateResult {
     type Error = String;
 
     fn try_from(w: CandidateWire) -> Result<Self, String> {
+        let note = w.stop_note;
         let outcome = match (w.result, w.analysis, w.failure, w.stop) {
             (ResultTag::Accepted, Some(a), None, None) => WhyNotOutcome::Accepted(Box::new(a)),
             (ResultTag::Rejected, None, Some(f), None) => WhyNotOutcome::Rejected(Box::new(f)),
-            (ResultTag::Unknown, None, None, Some(s)) => WhyNotOutcome::Unknown(s),
+            (ResultTag::Unknown, None, None, Some(reason)) => {
+                WhyNotOutcome::Unknown(Stop { reason, note })
+            }
             _ => return Err("result must carry exactly its own analysis, failure or stop".into()),
         };
         Ok(CandidateResult {
@@ -347,10 +493,31 @@ pub enum WhyNotError {
     AmbiguousMorpheme {
         morpheme: String,
     },
-    AllomorphSelectionUnavailable,
+    /// The choice's GUIDs do not match the morpheme its id names.
+    GuidMismatch {
+        morpheme: String,
+    },
+    UnknownAllomorph {
+        allomorph: String,
+    },
+    /// Several allomorphs carry this grammar.xml id.
+    AmbiguousAllomorph {
+        allomorph: String,
+    },
+    /// The allomorph exists but belongs to another morpheme.
+    AllomorphNotOfMorpheme {
+        allomorph: String,
+        morpheme: String,
+    },
     UnknownGuid {
         entry_guid: String,
         msa_guid: String,
+    },
+    /// A guid-only choice pins an allomorph but the guid names several morphemes.
+    AmbiguousGuidAllomorph {
+        entry_guid: String,
+        msa_guid: String,
+        morphemes: usize,
     },
     RootIndexOutOfRange {
         candidate: usize,
@@ -378,16 +545,32 @@ impl fmt::Display for WhyNotError {
             Self::UnknownMorpheme { morpheme } => write!(f, "unknown morpheme id {morpheme}"),
             Self::AmbiguousMorpheme { morpheme } => write!(
                 f,
-                "morpheme id {morpheme} is shared by several morphemes; name the one you mean with --expect-guid entryGuid:msaGuid"
+                "morpheme id {morpheme} is shared by several morphemes; name the one you mean with --expect-guid entry_guid:msa_guid"
             ),
-            Self::AllomorphSelectionUnavailable => write!(
+            Self::GuidMismatch { morpheme } => write!(
                 f,
-                "allomorph selection by id arrives with allomorph XML ids; give the morpheme only"
+                "the given guid does not belong to morpheme {morpheme}"
             ),
+            Self::UnknownAllomorph { allomorph } => write!(f, "unknown allomorph id {allomorph}"),
+            Self::AmbiguousAllomorph { allomorph } => {
+                write!(f, "allomorph id {allomorph} is shared by several allomorphs")
+            }
+            Self::AllomorphNotOfMorpheme {
+                allomorph,
+                morpheme,
+            } => write!(f, "allomorph {allomorph} does not belong to morpheme {morpheme}"),
             Self::UnknownGuid {
                 entry_guid,
                 msa_guid,
-            } => write!(f, "no morpheme for entryGuid {entry_guid} msaGuid {msa_guid}"),
+            } => write!(f, "no morpheme for entry_guid {entry_guid} msa_guid {msa_guid}"),
+            Self::AmbiguousGuidAllomorph {
+                entry_guid,
+                msa_guid,
+                morphemes,
+            } => write!(
+                f,
+                "entry_guid {entry_guid} msa_guid {msa_guid} names {morphemes} morphemes; give the `morpheme` id to pin an allomorph"
+            ),
             Self::RootIndexOutOfRange {
                 candidate,
                 root_index,
@@ -423,6 +606,39 @@ pub fn resolve_guid(g: &Grammar, entry_guid: &str, msa_guid: &str) -> Vec<String
         .collect()
 }
 
+/// The choices a guid names: one per morpheme sharing the entry and MSA (a variant sharing an MSA gives several), each carrying the guid. `allomorph` pins one allomorph and so needs the guid to name a single morpheme.
+pub fn expand_guid(
+    g: &Grammar,
+    guid: &GuidRef,
+    allomorph: Option<&str>,
+) -> Result<Vec<ExpectedMorph>, WhyNotError> {
+    let entry = guid.entry_guid.clone().unwrap_or_default();
+    let msa = guid.msa_guid.clone().unwrap_or_default();
+    let ids = resolve_guid(g, &entry, &msa);
+    if ids.is_empty() {
+        return Err(WhyNotError::UnknownGuid {
+            entry_guid: entry,
+            msa_guid: msa,
+        });
+    }
+    if allomorph.is_some() && ids.len() > 1 {
+        return Err(WhyNotError::AmbiguousGuidAllomorph {
+            entry_guid: entry,
+            msa_guid: msa,
+            morphemes: ids.len(),
+        });
+    }
+    Ok(ids
+        .into_iter()
+        .map(|m| {
+            let mut morph = ExpectedMorph::new(m);
+            morph.allomorph = allomorph.map(str::to_string);
+            morph.guid = Some(guid.clone());
+            morph
+        })
+        .collect())
+}
+
 fn matches_guid(m: &pg_grammar_model::model::MorphemeInfo, guid: &GuidRef) -> bool {
     let same = |a: Option<&str>, b: &Option<String>| match b {
         Some(b) => a.is_some_and(|a| a.eq_ignore_ascii_case(b)),
@@ -435,11 +651,9 @@ fn matches_guid(m: &pg_grammar_model::model::MorphemeInfo, guid: &GuidRef) -> bo
 }
 
 /// The morpheme a choice names: its grammar.xml id, narrowed by its GUIDs when several morphemes
-/// share that id. Unknown and still-ambiguous ids are input errors.
+/// share that id, and checked against them when only one does. Unknown, still-ambiguous and
+/// guid-contradicted ids are input errors.
 pub fn resolve_morpheme(g: &Grammar, choice: &ExpectedMorph) -> Result<MorphemeId, WhyNotError> {
-    if choice.allomorph.is_some() {
-        return Err(WhyNotError::AllomorphSelectionUnavailable);
-    }
     let mut hits: Vec<usize> = g
         .morphemes
         .iter()
@@ -447,13 +661,15 @@ pub fn resolve_morpheme(g: &Grammar, choice: &ExpectedMorph) -> Result<MorphemeI
         .filter(|(_, m)| m.xml_key == choice.morpheme)
         .map(|(i, _)| i)
         .collect();
-    if hits.len() > 1 {
-        if let Some(guid) = &choice.guid {
-            hits.retain(|&i| matches_guid(&g.morphemes[i], guid));
-        }
+    let named = hits.len();
+    if let Some(guid) = &choice.guid {
+        hits.retain(|&i| matches_guid(&g.morphemes[i], guid));
     }
     match hits[..] {
-        [] => Err(WhyNotError::UnknownMorpheme {
+        [] if named == 0 => Err(WhyNotError::UnknownMorpheme {
+            morpheme: choice.morpheme.clone(),
+        }),
+        [] => Err(WhyNotError::GuidMismatch {
             morpheme: choice.morpheme.clone(),
         }),
         [one] => Ok(MorphemeId(one as u32)),
@@ -463,9 +679,67 @@ pub fn resolve_morpheme(g: &Grammar, choice: &ExpectedMorph) -> Result<MorphemeI
     }
 }
 
-/// Reject what no search could answer: an empty word, no or empty candidates, an unknown or
-/// ambiguous morpheme id, an allomorph id (not selectable yet), a root position that is out of
-/// range or not an entry.
+/// The FieldWorks identities a morpheme was built from; `None` when the grammar carries neither (a hand-written grammar.xml).
+pub(crate) fn morpheme_guid(g: &Grammar, m: MorphemeId) -> Option<GuidRef> {
+    let info = g.morphemes.get(m.0 as usize)?;
+    let guid = GuidRef {
+        entry_guid: info.owner.as_ref().map(|o| o.entry_guid.clone()),
+        msa_guid: info.source_msa_guid.clone(),
+    };
+    (guid.entry_guid.is_some() || guid.msa_guid.is_some()).then_some(guid)
+}
+
+/// The morpheme an allomorph realizes; `None` when the id is out of range or its owner is a compounding rule.
+pub(crate) fn allomorph_morpheme(g: &Grammar, a: AllomorphId) -> Option<MorphemeId> {
+    match *g.allomorph_owners.get(a.0 as usize)? {
+        AllomorphOwner::Root(le, _) => Some(g.entries.get(le.0 as usize)?.morpheme),
+        AllomorphOwner::Affix(rule, _) => match g.mrules.get(rule.0 as usize)? {
+            MorphRuleDef::AffixProcess(def) => Some(def.morpheme),
+            MorphRuleDef::Realizational(def) => Some(def.morpheme),
+            MorphRuleDef::Compounding(_) => None,
+        },
+    }
+}
+
+/// A choice resolved against the grammar: the morpheme and, when named, its allomorph.
+pub(crate) fn resolve_choice(
+    g: &Grammar,
+    choice: &ExpectedMorph,
+) -> Result<engine::Pin, WhyNotError> {
+    let morpheme = resolve_morpheme(g, choice)?;
+    let allomorph = match &choice.allomorph {
+        None => None,
+        Some(key) => {
+            let id = g.allomorph_by_xml_key(key).map_err(|e| match e {
+                pg_grammar_model::model::AllomorphKeyError::Missing => {
+                    WhyNotError::UnknownAllomorph {
+                        allomorph: key.clone(),
+                    }
+                }
+                pg_grammar_model::model::AllomorphKeyError::Duplicate(_) => {
+                    WhyNotError::AmbiguousAllomorph {
+                        allomorph: key.clone(),
+                    }
+                }
+            })?;
+            if allomorph_morpheme(g, id) != Some(morpheme) {
+                return Err(WhyNotError::AllomorphNotOfMorpheme {
+                    allomorph: key.clone(),
+                    morpheme: choice.morpheme.clone(),
+                });
+            }
+            Some(id)
+        }
+    };
+    Ok(engine::Pin {
+        morpheme,
+        allomorph,
+    })
+}
+
+/// Reject what no search could answer: an empty word, no or empty candidates, an unknown,
+/// ambiguous or contradicted morpheme or allomorph id, a root position that is out of range or not
+/// an entry.
 pub fn validate(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<(), WhyNotError> {
     if req.word.is_empty() {
         return Err(WhyNotError::EmptyWord);
@@ -493,8 +767,10 @@ pub fn validate(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<(), WhyNotError>
                 });
             }
             for choice in position {
-                let morpheme = resolve_morpheme(g, choice)?;
-                if req.root_index == Some(pi) && !g.entries.iter().any(|e| e.morpheme == morpheme) {
+                let pin = resolve_choice(g, choice)?;
+                if req.root_index == Some(pi)
+                    && !g.entries.iter().any(|e| e.morpheme == pin.morpheme)
+                {
                     return Err(WhyNotError::RootNotLexEntry {
                         candidate: ci,
                         position: pi,
@@ -507,9 +783,8 @@ pub fn validate(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<(), WhyNotError>
     Ok(())
 }
 
-/// The best candidate: the first accepted one; else the rejected one that survived the most checks
-/// ([`FailureKind::check_rank`], then the later `position`), earliest in input order on a tie; else
-/// `None` (every candidate unknown).
+/// The best candidate: the first accepted one; else the rejected one with the furthest [`Progress`],
+/// earliest in input order on a tie; else `None` (every candidate unknown).
 pub fn select_best(results: &[CandidateResult]) -> Option<usize> {
     if let Some(i) = results
         .iter()
@@ -517,10 +792,10 @@ pub fn select_best(results: &[CandidateResult]) -> Option<usize> {
     {
         return Some(i);
     }
-    let mut best: Option<(usize, (u8, usize))> = None;
+    let mut best: Option<(usize, Progress)> = None;
     for (i, r) in results.iter().enumerate() {
         if let WhyNotOutcome::Rejected(f) = &r.outcome {
-            let key = (f.kind.check_rank(), f.position.unwrap_or(0));
+            let key = Progress::of_failure(f);
             if best.is_none_or(|(_, k)| key > k) {
                 best = Some((i, key));
             }
@@ -529,18 +804,89 @@ pub fn select_best(results: &[CandidateResult]) -> Option<usize> {
     best.map(|(i, _)| i)
 }
 
-/// Answer a why-not request. Slice 0: validates, then returns `Unknown(NotImplemented)` for every
-/// candidate (so `best` is null).
-pub fn why_not(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<WhyNotReport, WhyNotError> {
+/// Every concrete sequence a candidate expands to: one choice per position, in position order.
+fn expand(g: &Grammar, cand: &Candidate) -> Result<Vec<engine::ResolvedSequence>, WhyNotError> {
+    let mut out = vec![engine::ResolvedSequence {
+        pins: Vec::new(),
+        choices: Vec::new(),
+    }];
+    for position in &cand.positions {
+        let mut next = Vec::with_capacity(out.len() * position.len());
+        for prefix in &out {
+            for choice in position {
+                let mut seq = engine::ResolvedSequence {
+                    pins: prefix.pins.clone(),
+                    choices: prefix.choices.clone(),
+                };
+                seq.pins.push(resolve_choice(g, choice)?);
+                seq.choices.push(choice.clone());
+                next.push(seq);
+            }
+        }
+        out = next;
+        if out.len() > engine::MAX_SEQUENCES {
+            break;
+        }
+    }
+    Ok(out)
+}
+
+/// Accepted if any sequence is, else unknown if any is (it could hide one), else the furthest rejection.
+fn answer(
+    searcher: &engine::Searcher<'_>,
+    g: &Grammar,
+    word: &str,
+    cand: &Candidate,
+) -> Result<WhyNotOutcome, WhyNotError> {
+    let sequences = expand(g, cand)?;
+    if sequences.len() > engine::MAX_SEQUENCES {
+        return Ok(WhyNotOutcome::Unknown(Stop {
+            reason: StopReason::ChoicesCapped,
+            note: Some(format!(
+                "the choices multiply to more than {} sequences",
+                engine::MAX_SEQUENCES
+            )),
+        }));
+    }
+    let mut unknown: Option<Stop> = None;
+    let mut best: Option<(Box<FirstFailure>, Progress)> = None;
+    for seq in &sequences {
+        match searcher.search(word, seq) {
+            accepted @ WhyNotOutcome::Accepted(_) => return Ok(accepted),
+            WhyNotOutcome::Unknown(stop) => {
+                unknown.get_or_insert(stop);
+            }
+            WhyNotOutcome::Rejected(f) => {
+                let key = Progress::of_failure(&f);
+                if best.as_ref().is_none_or(|(_, k)| key > *k) {
+                    best = Some((f, key));
+                }
+            }
+        }
+    }
+    Ok(match (unknown, best) {
+        (Some(stop), _) => WhyNotOutcome::Unknown(stop),
+        (None, Some((f, _))) => WhyNotOutcome::Rejected(f),
+        (None, None) => stop_unclassified("the candidate expanded to no sequence"),
+    })
+}
+
+/// Answer a why-not request: validate it, then try each candidate against `morpher`, whose work
+/// cap and word timeout bound every reparse.
+pub fn why_not(
+    g: &Grammar,
+    morpher: &Morpher<'_>,
+    req: &WhyNotRequest<'_>,
+) -> Result<WhyNotReport, WhyNotError> {
     validate(g, req)?;
-    let results: Vec<CandidateResult> = req
-        .candidates
-        .iter()
-        .map(|c| CandidateResult {
-            expect: c.clone(),
-            outcome: WhyNotOutcome::Unknown(StopReason::NotImplemented),
-        })
-        .collect();
+    let searcher = engine::Searcher::new(g, morpher);
+    let mut results = Vec::with_capacity(req.candidates.len());
+    for cand in &req.candidates {
+        results.push(CandidateResult {
+            expect: cand.clone(),
+            outcome: answer(&searcher, g, req.word, cand)?,
+        });
+    }
     let best = select_best(&results);
     Ok(WhyNotReport {
         schema: SCHEMA.to_string(),
@@ -553,7 +899,6 @@ pub fn why_not(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<WhyNotReport, Why
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AnalysisProvenance, MorphOccurrence};
 
     fn cand() -> Candidate {
         Candidate {
@@ -564,24 +909,17 @@ mod tests {
         }
     }
 
-    fn analysis() -> WordAnalysis {
-        WordAnalysis {
-            morpheme_ids: vec![1, 4],
-            morph_occurrences: vec![MorphOccurrence {
-                allomorph_id: 2,
-                morpheme_id: 1,
-                order: 0,
+    fn analysis() -> AuthoredAnalysis {
+        AuthoredAnalysis {
+            morphs: vec![MorphRef {
+                morpheme: "m1".into(),
+                allomorph: Some("a2".into()),
+                guid: None,
+                form_guid: None,
             }],
-            root_morpheme_index: 0,
-            pos_id: None,
-            syn_fs: pg_featstruct::FeatureStruct::EMPTY,
-            mpr: Default::default(),
+            root_index: 0,
+            category: None,
             guessed: false,
-            guessed_string: None,
-            guessed_pattern: None,
-            provenance: AnalysisProvenance::Grammar,
-            supplied_root: None,
-            morpheme_roots: vec![None, None],
         }
     }
 
@@ -596,10 +934,16 @@ mod tests {
             morphs: vec![MorphRef {
                 morpheme: "m1".into(),
                 allomorph: Some("a2".into()),
+                guid: None,
+                form_guid: None,
             }],
+            members: vec![],
+            environments: vec![],
             context: Some(EnvContext::derived("ab", "c")),
             environment: Some(FailureEnvironment {
                 allomorph_id: "a2".into(),
+                guid: None,
+                text: None,
                 index: Some(0),
             }),
             stem_name: Some("sn6".into()),
@@ -677,6 +1021,8 @@ mod tests {
         let mut f = failure(FailureKind::EnvironmentUnmet, 1);
         f.environment = Some(FailureEnvironment {
             allomorph_id: "a2".into(),
+            guid: None,
+            text: None,
             index: None,
         });
         let mut json = serde_json::to_value(&f).unwrap();
@@ -711,19 +1057,25 @@ mod tests {
                 MorphRef {
                     morpheme: "m3".into(),
                     allomorph: None,
+                    guid: None,
+                    form_guid: None,
                 },
                 MorphRef {
                     morpheme: "m4".into(),
                     allomorph: None,
+                    guid: None,
+                    form_guid: None,
                 },
             ],
         })));
         for r in [
             accepted,
-            result(WhyNotOutcome::Unknown(StopReason::NotImplemented)),
-            result(WhyNotOutcome::Unknown(StopReason::WorkCap)),
-            result(WhyNotOutcome::Unknown(StopReason::Deadline)),
-            result(WhyNotOutcome::Unknown(StopReason::FailureNotExpressible)),
+            result(WhyNotOutcome::Unknown(StopReason::NotImplemented.into())),
+            result(WhyNotOutcome::Unknown(StopReason::WorkCap.into())),
+            result(WhyNotOutcome::Unknown(StopReason::Deadline.into())),
+            result(WhyNotOutcome::Unknown(
+                StopReason::FailureNotExpressible.into(),
+            )),
         ] {
             let text = serde_json::to_string(&r).unwrap();
             let back: CandidateResult = serde_json::from_str(&text).unwrap();
@@ -773,7 +1125,7 @@ mod tests {
             rej(FailureKind::NoMorphMatch, 3),
             rej(FailureKind::EnvironmentUnmet, 0),
             rej(FailureKind::EnvironmentUnmet, 0),
-            result(WhyNotOutcome::Unknown(StopReason::WorkCap)),
+            result(WhyNotOutcome::Unknown(StopReason::WorkCap.into())),
         ];
         assert_eq!(select_best(&rs), Some(1));
         let tie = vec![
@@ -786,20 +1138,31 @@ mod tests {
     #[test]
     fn best_is_null_when_every_candidate_is_unknown() {
         let rs = vec![
-            result(WhyNotOutcome::Unknown(StopReason::NotImplemented)),
-            result(WhyNotOutcome::Unknown(StopReason::Deadline)),
+            result(WhyNotOutcome::Unknown(StopReason::NotImplemented.into())),
+            result(WhyNotOutcome::Unknown(StopReason::Deadline.into())),
         ];
         assert_eq!(select_best(&rs), None);
         assert_eq!(select_best(&[]), None);
     }
 
     #[test]
-    fn check_ranks_are_distinct_enough_to_order_the_c_sharp_sequence() {
+    fn progress_orders_slot_before_check_and_ranks_no_match_lowest() {
+        let at = |slot: usize, reason| Progress::of_reason(Some(slot), reason);
+        assert!(at(1, FailureReason::DisjunctiveAllomorph) > at(1, FailureReason::Environments));
+        assert!(at(2, FailureReason::BoundRoot) > at(1, FailureReason::DisjunctiveAllomorph));
         assert!(
-            FailureKind::NoMorphMatch.check_rank() < FailureKind::EnvironmentUnmet.check_rank()
+            at(1, FailureReason::AllomorphCoOccurrenceRules) > at(0, FailureReason::Environments)
         );
         assert!(
-            FailureKind::EnvironmentUnmet.check_rank() < FailureKind::SurfaceMismatch.check_rank()
+            at(1, FailureReason::Environments) > at(1, FailureReason::MorphemeCoOccurrenceRules)
+        );
+        assert!(
+            Progress::of_reason(None, FailureReason::SurfaceFormMismatch)
+                > at(9, FailureReason::Environments)
+        );
+        assert!(
+            Progress::of_failure(&failure(FailureKind::EnvironmentUnmet, 0))
+                > Progress::of_failure(&failure(FailureKind::NoMorphMatch, 5))
         );
     }
 }

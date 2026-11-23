@@ -226,6 +226,20 @@ struct InterfacesDescribe {
     serve_protocol: u32,
     batch_tsv: u32,
     diagnostic: serde_json::Value,
+    why_not: WhyNotDescribe,
+}
+
+/// The why-not capability. A binary without the `whyNot` key (or without the `why-not` command row) cannot answer why-not and a host must refuse; `ids` says every id in a report is a `grammar.xml` id or a typed absence, which is a promise earlier why-not builds did not make.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WhyNotDescribe {
+    schema: &'static str,
+    ids: &'static str,
+    suite_rows: bool,
+    /// `--expect-json` accepts a choice that carries only a `guid`, so a host can refuse on a build that needs a morpheme id.
+    expect_guid_choices: bool,
+    /// The failure kinds answered today; any other kind is `unknown`.
+    kinds: Vec<String>,
 }
 
 fn interfaces() -> InterfacesDescribe {
@@ -233,6 +247,13 @@ fn interfaces() -> InterfacesDescribe {
         serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
         batch_tsv: crate::BATCH_TSV_VERSION,
         diagnostic: crate::diagnostic::describe(),
+        why_not: WhyNotDescribe {
+            schema: pg_parse::why_not::SCHEMA,
+            ids: "grammar-xml",
+            suite_rows: true,
+            expect_guid_choices: true,
+            kinds: pg_parse::why_not::FailureKind::answered(),
+        },
     }
 }
 
@@ -424,7 +445,7 @@ const WHY_NOT_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--allomorphs",
         takes_value: true,
-        summary: "refused in this release: allomorph selection by id arrives with allomorph XML ids",
+        summary: "pin allomorphs by grammar.xml allomorph id: `a1,,a3|a4` gives one id per choice of the preceding --expect, an empty token leaving that choice unpinned",
     },
     FlagSpec {
         name: "--expect-guid",
@@ -439,17 +460,17 @@ const WHY_NOT_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--json",
         takes_value: false,
-        summary: "write the pangloss.whynot.v1 report (docs/formats/why-not.md); slice 0 answers unknown for every candidate",
+        summary: "write the pangloss.whynot.v1 report (docs/formats/why-not.md)",
     },
     FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; validated, not yet applied (slice 0 stub)",
+        summary: "N|unbounded: bound the parser work spent on each concrete morph sequence; a hit answers unknown with stop work_cap",
     },
     FlagSpec {
         name: "--word-timeout-ms",
         takes_value: true,
-        summary: "validated, not yet applied (slice 0 stub)",
+        summary: "bound the time spent on each concrete morph sequence; a hit answers unknown with stop deadline",
     },
 ];
 
@@ -1014,9 +1035,9 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "why-not",
-        summary: "Explain why a word is not parsed along given morph candidates: the first failing constraint, typed (slice 0 stub: every candidate is unknown).",
+        summary: "Explain why a word is not parsed along given morph candidates: the first failing constraint, typed; or run a JSONL suite of such queries (`why-not <grammar> <queries.jsonl> <output.jsonl>`).",
         hidden: false,
-        positionals: &["grammar", "word"],
+        positionals: &["grammar", "word|queries.jsonl", "output.jsonl?"],
         flags: WHY_NOT_FLAGS,
         handler: dispatch_why_not,
     },

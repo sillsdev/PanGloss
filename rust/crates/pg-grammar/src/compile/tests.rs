@@ -2834,6 +2834,10 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
             Some("allo-circ-suffix".to_string())
         ]
     );
+    assert_eq!(
+        source.form_texts,
+        vec![Some("ka-".to_string()), Some("-ta".to_string())]
+    );
 }
 
 #[test]

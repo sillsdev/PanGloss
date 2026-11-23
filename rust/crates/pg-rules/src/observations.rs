@@ -141,6 +141,11 @@ pub enum Decision<'a> {
     BoundRoot {
         allomorph: AllomorphId,
     },
+    /// An earlier-indexed allomorph of the same morpheme was eligible at the used allomorph's span, so the used one may not stand.
+    AllomorphBlocked {
+        blocked: AllomorphId,
+        blocker: AllomorphId,
+    },
     SurfaceMismatch {
         table: TableId,
         requested: &'a str,

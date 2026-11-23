@@ -118,6 +118,15 @@ feasibility check evaluated. Environment evidence carries an end-exclusive span 
 evaluator's interior coordinates. A surface event includes the requested spelling and
 built pattern the owner compared.
 
+An `allomorph_blocked` rejection (synthesis, validity) records that an earlier-indexed
+allomorph of the same morpheme was eligible at the used allomorph's span, so HermitCrab's
+allomorph precedence refused the used one. The subject is the used (blocked) allomorph and
+the object with role `blocker` is the earlier allomorph that won; both carry the same grammar
+ids and, on a FieldWorks snapshot, form guids as every other allomorph reference. The tuple
+is advertised in `--describe` under `interfaces.diagnostic.eventTuples`; a parser that does
+not list it records no stop for such a path. The registry's reserved
+`disjunctive_allomorph` tuple is the same C# failure without a named blocker and is never emitted.
+
 Verified FieldWorks objects carry GUIDs. Compiled keys are scoped by the parser build
 and grammar identity. Mappings preserve subject bindings and related identities, such
 as an allomorph's owning entry or a slot's template. Authored occurrence references

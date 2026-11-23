@@ -416,6 +416,18 @@ pub(crate) fn build_affix_rule(
         }
         let source_guids_key = source_guids.join("+");
         acc.allomorph_sources.push(crate::model::AllomorphSource {
+            form_texts: source_guids
+                .iter()
+                .map(|guid| {
+                    entry
+                        .allomorphs
+                        .iter()
+                        .find(|a| a.guid == *guid)
+                        .and_then(|a| {
+                            super::source_form_text(a, ctx.default_vernacular_ws.as_deref())
+                        })
+                })
+                .collect(),
             form_guids: source_guids.into_iter().map(Some).collect(),
             omitted: false,
             placement,

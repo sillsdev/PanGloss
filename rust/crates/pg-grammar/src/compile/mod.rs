@@ -887,6 +887,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                             require: false,
                             others: others_ids.clone(),
                             adjacency: adjacency(*adj),
+                            source_guid: Some(guid.clone()),
                         };
                         match acc.allomorph_owners[primary_id.0 as usize] {
                             AllomorphOwner::Root(le, idx) => {
@@ -1011,6 +1012,7 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                                 require: false,
                                 others: others_ids.clone(),
                                 adjacency: adjacency(*adj),
+                                source_guid: Some(guid.clone()),
                             },
                         );
                     }
@@ -1474,6 +1476,23 @@ pub(crate) fn ws_forms<'a>(
         }
     }
     forms.iter().map(|f| f.form.as_str()).collect()
+}
+
+/// An allomorph's authored form for a human reader, marked as an affix by its morph type (`ta-`, `-ak`, `-x-`); `None` when blank.
+pub(crate) fn source_form_text(
+    allo: &pg_snapshot::lexicon::Allomorph,
+    preferred_ws: Option<&str>,
+) -> Option<String> {
+    let text = best_ws(&allo.forms, preferred_ws)?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(match affixes::shape_of(allo.morph_type) {
+        Some(affixes::Shape::Prefix) => format!("{text}-"),
+        Some(affixes::Shape::Suffix) => format!("-{text}"),
+        Some(affixes::Shape::Infix) => format!("-{text}-"),
+        None => text.to_string(),
+    })
 }
 
 /// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
