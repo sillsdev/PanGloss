@@ -47,7 +47,7 @@ impl Bucket {
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 172,
+        oracle_exact: 173,
         compiles_but_misses: 0,
         refused: 154,
         unmeasurable: 0,

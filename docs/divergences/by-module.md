@@ -27,6 +27,7 @@ See `README.md` for the full status table and the kind definitions.
 | `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
 | `TraversalMethodBase.Advance`; `AnalysisMetathesisRuleSpec.ApplyRhs` (zip of the switch captures) | 132 |
 | `SynthesisMetathesisRuleSpec.ApplyRhs` (`newMorphAnn`); `AnnotationList.FindDepthFirst` | 133 |
+| `Word.cs` (`CheckBlocking`, `ValueEquals`); `Morpher.cs` (`SynthesizeSequential`) | 134 |
 
 ## By Rust module
 
@@ -51,6 +52,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/morph/optional_runs.rs`; `pg-fst/src/traverse.rs` (`interchangeable_runs`) | 130 |
 | `pg-rules/src/metathesis.rs` (`analyze_with_pattern`) | 132 |
 | `pg-rules/src/metathesis.rs` (`synthesize_with_permutation`); `pg-rules/src/word.rs` (`reorder_morphs`) | 133 |
+| `pg-rules/src/word.rs` (`WordKey`); `pg-parse/src/morpher.rs` (`dedup_key`) | 134 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 

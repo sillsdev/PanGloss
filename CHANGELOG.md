@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- Generating a derivation blocked by a stem-family relative returns the relative's word, as C# does, instead of nothing (#423); `Word.MorphologicalRuleApplied` steps the rule index only while a rule is pending. PanGloss reports the family-blocked `aat` once where hc.dll reports it twice (divergence 134).
+
 ## 0.28.0
 
 Released 2026-11-23.

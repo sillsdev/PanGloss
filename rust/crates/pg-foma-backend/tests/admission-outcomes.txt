@@ -60,6 +60,7 @@ machine:edge-cases/epenthesis-then-swap-keeps-its-edge-before-suffix	TunedSurfac
 machine:edge-cases/epenthesis-then-swap-with-root-keeps-its-edge	TunedSurfaceProbed	refused
 machine:edge-cases/expansion-interposed-optional	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/expansion-overlapping-targets	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/family-blocked-generation	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/feature-gating-breadth	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/feature-rule-before-merge	TunedSurfaceProbed	refused
 machine:edge-cases/featureless-literal-target	TunedSurfaceProbed	refused
