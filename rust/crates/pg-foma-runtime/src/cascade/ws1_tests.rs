@@ -439,6 +439,16 @@ fn nine_marks_typed_exactly_is_a_word_with_no_edit_c130_c147() {
     let (g2, rep) = h.graph(0, &[1], false);
     assert!(g2.start.is_some());
     assert_eq!(rep.prepass, PrepassUsed::Suffix(1));
+    // A typed prefix of the stack is a different stack: one whole-stack edit, never the typed word.
+    let eight: String = nfd(&nine).chars().take(9).collect();
+    let s = h.strings(1, 8, &[]);
+    assert_eq!(
+        s[&eight],
+        Found {
+            dist: 1,
+            weight: 500
+        }
+    );
 }
 
 #[test]
