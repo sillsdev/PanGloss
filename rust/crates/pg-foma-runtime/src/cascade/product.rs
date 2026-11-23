@@ -167,7 +167,10 @@ struct Acc {
     i: usize,
 }
 
-type Steps<'c> = &'c mut dyn FnMut(u64) -> Result<(), CascadeStop>;
+/// Charges `(steps, bytes)` for one layer call; the bytes are what a lazy layer interned.
+type Steps<'c> = &'c mut dyn FnMut(u64, u64) -> Result<(), CascadeStop>;
+/// The product bytes still available, handed to a layer's scratch before each call.
+type Left<'c> = &'c dyn Fn() -> u64;
 type Emit<'c> = &'c mut dyn FnMut(&Acc) -> Result<(), CascadeStop>;
 
 struct Walk<'c, 'a> {
@@ -176,10 +179,25 @@ struct Walk<'c, 'a> {
     q: &'c [u32],
     word: &'c [Token],
     steps: Steps<'c>,
+    left: Left<'c>,
     emit: Emit<'c>,
 }
 
 impl<'a> Walk<'_, 'a> {
+    fn begin(&mut self, l: usize) {
+        let left = (self.left)();
+        self.lscr[l].begin(left);
+    }
+
+    /// Charge a layer call's steps and interned bytes; a refused intern ends the word on bytes.
+    fn end(&mut self, l: usize, st: u64) -> Result<(), CascadeStop> {
+        if self.lscr[l].refused() {
+            return Err(CascadeStop::ProductBytes);
+        }
+        let bytes = self.lscr[l].take_charged();
+        (self.steps)(st, bytes)
+    }
+
     fn follow(&mut self, l: usize, arc: Arc<'a>, acc: &mut Acc) -> Result<(), CascadeStop> {
         let saved = (
             acc.changed.len(),
@@ -205,10 +223,11 @@ impl<'a> Walk<'_, 'a> {
             Some(t) => {
                 let layer: &'a dyn Layer = self.layers[l + 1];
                 let mut next = Vec::new();
+                self.begin(l + 1);
                 let st = layer.arcs_from(&mut self.lscr[l + 1], self.q[l + 1], Some(t), &mut |a| {
                     next.push(a)
                 });
-                (self.steps)(st).and_then(|()| {
+                self.end(l + 1, st).and_then(|()| {
                     next.into_iter()
                         .try_for_each(|a| self.follow(l + 1, a, acc))
                 })
@@ -222,19 +241,18 @@ impl<'a> Walk<'_, 'a> {
         r
     }
 
-    /// Every move from the current tuple: a chain starting at ANY layer `l >= lo` with an
-    /// epsilon-input arc (for `lo` with a free tape, any arc), going down while an output token
-    /// is written, and ending at an epsilon output or at the word.
+    /// Every move from the tuple: a chain from any layer `>= lo`, down while a token is written, to an epsilon output or the word.
     fn all_moves(&mut self, lo: usize, free_top: bool, i: usize) -> Result<(), CascadeStop> {
         for l in lo..self.layers.len() {
             let layer: &'a dyn Layer = self.layers[l];
             let mut first = Vec::new();
+            self.begin(l);
             let st = if l == lo && free_top {
                 layer.arcs_free(&mut self.lscr[l], self.q[l], &mut |a| first.push(a))
             } else {
                 layer.arcs_from(&mut self.lscr[l], self.q[l], None, &mut |a| first.push(a))
             };
-            (self.steps)(st)?;
+            self.end(l, st)?;
             for a in first {
                 let mut acc = Acc {
                     changed: Vec::new(),
@@ -303,8 +321,7 @@ impl<'a> Product<'a> {
         self.layers.len()
     }
 
-    /// The suffix start actually used for a requested cut: pulled up so every edit-carrying layer
-    /// is inside it. `Err` says why there is no suffix: it would be empty or hold a lazy layer.
+    /// The suffix start used for a requested cut (pulled up over edit layers), or why there is none.
     fn effective_cut(&self, requested: usize) -> Result<usize, PrepassNote> {
         let l = self.layers.len();
         let first_edit = self.layers.iter().position(|x| x.has_edits()).unwrap_or(l);
@@ -359,8 +376,16 @@ impl<'a> Product<'a> {
             next += 1;
             let mut q = vec![0u32; l];
             q[cut..].copy_from_slice(&cur[KEY_PREFIX..]);
-            let mut steps = |s: u64| meter.charge_steps(s);
-            // `meter` is also needed by `emit`; steps and states are charged through a RefCell-free split.
+            let meter_cell = std::cell::RefCell::new(&mut *meter);
+            let mut steps = |s: u64, b: u64| {
+                let mut m = meter_cell.borrow_mut();
+                m.charge_steps(s)?;
+                m.charge_bytes(b)
+            };
+            let left = || {
+                let m = meter_cell.borrow();
+                m.limits().bytes.saturating_sub(m.bytes)
+            };
             let mut pending: Vec<(Vec<u32>, u32)> = Vec::new();
             let mut emit = |acc: &Acc| -> Result<(), CascadeStop> {
                 let u2 = cur[1] + acc.edits;
@@ -382,6 +407,7 @@ impl<'a> Product<'a> {
                 q: &q,
                 word: req.word,
                 steps: &mut steps,
+                left: &left,
                 emit: &mut emit,
             };
             walk.all_moves(cut, true, cur[0] as usize)?;
@@ -514,7 +540,14 @@ impl<'a> Product<'a> {
 
         let mut start_key = vec![0u32; width];
         for k in 0..l {
+            layer[k].begin(meter.limits().bytes.saturating_sub(meter.bytes));
             start_key[KEY_PREFIX + k] = self.layers[k].start(&mut layer[k]);
+            if layer[k].refused() {
+                finish_incomplete!(CascadeStop::ProductBytes)
+            }
+            if let Err(s) = meter.charge_bytes(layer[k].take_charged()) {
+                finish_incomplete!(s)
+            }
         }
         let h0 = h_of(&start_key);
         let theta_ok = |g: u64, h: u32| req.theta.is_none_or(|t| g + h as u64 <= t as u64);
@@ -568,7 +601,15 @@ impl<'a> Product<'a> {
                 let tables = &mut *tables;
                 let meter_cell = std::cell::RefCell::new(&mut meter);
                 let heap_cell = std::cell::RefCell::new(&mut heap);
-                let mut steps = |s: u64| meter_cell.borrow_mut().charge_steps(s);
+                let mut steps = |s: u64, b: u64| {
+                    let mut m = meter_cell.borrow_mut();
+                    m.charge_steps(s)?;
+                    m.charge_bytes(b)
+                };
+                let left = || {
+                    let m = meter_cell.borrow();
+                    m.limits().bytes.saturating_sub(m.bytes)
+                };
                 let mut emit = |acc: &Acc| -> Result<(), CascadeStop> {
                     let u2 = cur[1] + acc.edits;
                     if u2 > e_max {
@@ -646,6 +687,7 @@ impl<'a> Product<'a> {
                     q: &q,
                     word: req.word,
                     steps: &mut steps,
+                    left: &left,
                     emit: &mut emit,
                 };
                 walk.all_moves(0, false, cur[0] as usize)
