@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 
+use pg_foma::cascade_parts::CascadeParts;
 use pg_foma::lower::JointClosure;
 use pg_grammar::chardef::{CharDefId, CharDefKind};
 use pg_grammar::model::{
@@ -67,7 +68,12 @@ fn shape_of(g: &Grammar, focus: &[BlockNode]) -> Shape {
 }
 
 const EXHAUSTIVE: u64 = 1_000_000;
-const SAMPLE: u64 = 100_000;
+const SAMPLE_DEFAULT: u64 = 100_000;
+
+/// Sample size above the exhaustive limit; `PG_W2_SAMPLE` lowers it for development runs (the printed value is what ran).
+fn sample() -> u64 {
+    std::env::var("PG_W2_SAMPLE").ok().and_then(|v| v.parse().ok()).unwrap_or(SAMPLE_DEFAULT)
+}
 const SEED: u64 = 0x5eed_0002;
 /// Concrete completions tried per any-value lane combination of one row.
 const COMPLETIONS: usize = 24;
@@ -165,8 +171,13 @@ struct Tally {
     /// per matcher: (cases, matched, probes, sampled probes)
     kinds: std::collections::BTreeMap<String, (u64, u64, u64, u64)>,
     skipped_env: usize,
+    /// (matcher, strings tried, applied, no-token skips)
+    nets: std::collections::BTreeMap<String, (u64, u64, u64)>,
+    net_refused: usize,
+    net_misses: Vec<String>,
     spelling_cases: u64,
     spelling_capped: u64,
+    spelling_twins: u64,
     spelling_private_gaps: Vec<String>,
     spelling_private_count: u64,
     skipped_other: usize,
@@ -218,7 +229,7 @@ fn probe(
     let e = pool.len() as u64;
     let total = e.checked_pow(n as u32).unwrap_or(u64::MAX);
     let exhaustive = total <= EXHAUSTIVE;
-    let cases = if exhaustive { total } else { SAMPLE };
+    let cases = if exhaustive { total } else { sample() };
     let stat = tally.kinds.entry(what.split(' ').next().unwrap().to_owned()).or_default();
     stat.2 += 1;
     if !exhaustive {
@@ -285,16 +296,13 @@ fn strip_one(rule: &RewriteRuleDef, only: usize) -> RewriteRuleDef {
 fn spelling_differential(g: &Grammar, closure: &JointClosure, tally: &mut Tally, label: &str) {
     let table = &g.char_tables[0];
     let wide = g.phon_features.len() + 1;
-    let seg_classes: Vec<Vec<u32>> = g
-        .natural_classes
-        .iter()
-        .filter_map(|c| match &c.kind {
-            pg_grammar::model::NaturalClassKind::Segments(m) => Some(m.iter().map(|cd| cd.0).collect()),
-            _ => None,
-        })
-        .collect();
     for idx in 0..closure.rows().len() {
         let (id, row) = (&closure.rows()[idx].0, &closure.rows()[idx].1);
+        let kind = closure.row_kind(*id);
+        if kind == pg_foma::lower::RowKind::EmptyTwin {
+            tally.spelling_twins += 1;
+            continue;
+        }
         let (spelled, epsilon) = closure.spellings(g, idx);
         let cascade: HashSet<&str> = spelled.iter().flat_map(|cd| table.get(*cd).representations_nfd().iter().map(String::as_str)).collect();
         let Some(completions) = closure.completions(g, idx, 256) else {
@@ -314,8 +322,9 @@ fn spelling_differential(g: &Grammar, closure: &JointClosure, tally: &mut Tally,
             if attested && lanes == *row {
                 states.push(("own".into(), id.0, pg_shape::CdSet::Unrestricted, false));
             }
-            for (n, members) in seg_classes.iter().enumerate().filter(|_| !g.phon_features.is_empty()) {
-                states.push((format!("segment-class {n}"), NO_CHAR_DEF, pg_shape::CdSet::Members(pg_shape::CdBits::from_ids(members.iter().copied())), true));
+            if let pg_foma::lower::RowKind::Private(members) = &kind {
+                states.clear();
+                states.push(("private".into(), NO_CHAR_DEF, pg_shape::CdSet::Members(pg_shape::CdBits::from_ids(members.iter().map(|m| m.0))), false));
             }
             for (name, cd, set, private) in states {
                 tally.spelling_cases += 1;
@@ -339,7 +348,248 @@ fn spelling_differential(g: &Grammar, closure: &JointClosure, tally: &mut Tally,
     }
 }
 
-fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
+struct NetCtx<'a> {
+    label: &'a str,
+    g: &'a Grammar,
+    parts: &'a CascadeParts,
+}
+
+impl NetCtx<'_> {
+    fn width(&self) -> usize {
+        self.g.phon_features.len()
+    }
+
+    /// The tokens the net's own closure has for a node: its char-def when it keeps one, else every row whose lanes cover it (a zero lane covers any value).
+    fn tokens(&self, node: &BlockNode) -> Vec<char> {
+        let table = &self.g.char_tables[0];
+        match node {
+            BlockNode::Boundary(cd) => vec![self.parts.token(*cd)],
+            BlockNode::Segment { cd, .. } if (*cd as usize) < table.len() => vec![self.parts.token(CharDefId(*cd))],
+            BlockNode::Segment { lanes, .. } => {
+                let w = self.width();
+                let covering: Vec<(CharDefId, bool)> = self
+                    .parts
+                    .rows()
+                    .iter()
+                    .filter(|(_, row)| row.len() >= w && row.iter().zip(lanes).take(w).all(|(r, l)| *r == 0 || r == l))
+                    .map(|(id, row)| (*id, row.iter().zip(lanes).take(w).all(|(r, l)| r == l)))
+                    .collect();
+                let exact: Vec<char> = covering.iter().filter(|(_, e)| *e).map(|(id, _)| self.parts.token(*id)).collect();
+                if exact.is_empty() { covering.iter().map(|(id, _)| self.parts.token(*id)).collect() } else { exact }
+            }
+        }
+    }
+}
+
+/// Cases foma 0.4.2's apply-up could not check (it panics with an integer overflow at apply.rs:1135): UNCHECKED, never matched. Per grammar the first 5 are printed on `W2 foma-panic:` lines; the first one's net is dumped as AT&T text to `PG_W2_PANIC_NET` (default the temp dir).
+static APPLY_PANICS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PANIC_LOG: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+fn record_panic(label: &str, rule: &RewriteRuleDef, net: &foma::types::Fsm, up_input: &str, down_input: &str) {
+    APPLY_PANICS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut log = PANIC_LOG.lock().unwrap();
+    let first = log.is_empty();
+    let entry = match log.iter_mut().find(|(l, _)| l == label) {
+        Some(e) => e,
+        None => {
+            log.push((label.to_string(), 0));
+            log.last_mut().unwrap()
+        }
+    };
+    entry.1 += 1;
+    if entry.1 <= 5 {
+        println!("W2 foma-panic: {label} rule {} apply-up of {up_input:?} (case input {down_input:?}) UNCHECKED", rule.xml_id);
+    }
+    if first {
+        let path = std::env::var("PG_W2_PANIC_NET").unwrap_or_else(|_| format!("{}/w2-foma-panic.att", std::env::temp_dir().display()));
+        if let Ok(mut f) = std::fs::File::create(&path) {
+            let _ = foma::io::net_print_att(&foma::options::FomaOptions::default(), net, &mut f);
+            println!("W2 foma-panic-net: first panic net written to {path}");
+        }
+    }
+}
+
+/// Runs HC's single-rule synthesis and the rule's net on `string`; `Ok(applied)` when the net relates the input to HC's output, `Err` describing the miss otherwise. `None` when an input node has no token in the net's closure. The relation is tested by applying the net upward from HC's output (an epenthesis net has unboundedly many outputs for one input, but finitely many inputs for one output).
+fn net_check(ctx: &NetCtx, rule: &RewriteRuleDef, net: &foma::types::Fsm, handle: &mut foma::types::ApplyHandle, string: &[BlockNode]) -> Option<Result<bool, String>> {
+    let input: Vec<Vec<char>> = string.iter().map(|n| ctx.tokens(n)).collect();
+    if input.iter().any(|t| t.is_empty()) {
+        return None;
+    }
+    let texts: Vec<String> = {
+        // Every input token choice (cap 8): the net may know the node under any covering row.
+        let mut acc: Vec<String> = vec![String::new()];
+        for t in &input {
+            let mut next = Vec::new();
+            for a in &acc {
+                for c in t.iter().take(2) {
+                    let mut x = a.clone();
+                    x.push(*c);
+                    next.push(x);
+                }
+            }
+            acc = next;
+            if acc.len() > 8 {
+                acc.truncate(8);
+            }
+        }
+        acc
+    };
+    let shape = shape_of(ctx.g, string);
+    let result = synthesize(ctx.g, rule, &shape);
+    let applied = !result.is_empty();
+    let hc: Vec<Vec<char>> = match result.first() {
+        Some(out) => out
+            .interior()
+            .map(|(j, kind, cd, _)| {
+                let node = if kind == NodeKind::Boundary {
+                    BlockNode::Boundary(CharDefId(cd))
+                } else {
+                    BlockNode::Segment { lanes: out.node_lanes(j).to_vec(), cd }
+                };
+                ctx.tokens(&node)
+            })
+            .collect(),
+        None => input.iter().map(|t| t.iter().copied().take(2).collect()).collect(),
+    };
+    if hc.iter().any(|t| t.is_empty()) {
+        return Some(Err(format!("HC image of {:?} has no token in the net's closure", texts[0])));
+    }
+    // Every output spelling HC may be read as (cap 64).
+    let mut outs: Vec<String> = vec![String::new()];
+    for set in &hc {
+        let mut next = Vec::new();
+        for o in &outs {
+            for c in set.iter().take(4) {
+                let mut x = o.clone();
+                x.push(*c);
+                next.push(x);
+            }
+        }
+        outs = next;
+        if outs.len() > 64 {
+            outs.truncate(64);
+        }
+    }
+    for out in &outs {
+        let mut n = 0;
+        // foma 0.4.2's apply-up can overflow `ipos` on some nets; that is counted, not hidden.
+        let found = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for inp in handle.up(out) {
+                n += 1;
+                if texts.iter().any(|t| *t == inp) {
+                    return true;
+                }
+                if n > 20000 {
+                    break;
+                }
+            }
+            false
+        }));
+        match found {
+            Ok(true) => return Some(Ok(applied)),
+            Ok(false) => {}
+            Err(_) => {
+                record_panic(ctx.label, rule, net, out, &texts[0]);
+                return None;
+            }
+        }
+    }
+    Some(Err(format!("HC output {:?} for input {:?} (applied={applied}) is not related by the net", outs[0], texts[0])))
+}
+
+/// Rule-application differential (strings HC applied the rule to: foci with their environments) and whole-rule differential (strings of rows and boundaries up to length 4): HC's single-rule output must be among the reused net's outputs.
+fn net_differentials(whole: bool, g: &Grammar, label: &str, tally: &mut Tally, rules: &[&RewriteRuleDef], elems: &[Element], applying: &std::collections::HashMap<String, Vec<Vec<BlockNode>>>) {
+    let prules: Vec<&PhonRuleDef> = g.prules.iter().filter(|r| matches!(r, PhonRuleDef::Rewrite(_))).collect();
+    if prules.is_empty() {
+        return;
+    }
+    let opts = foma::options::FomaOptions::default();
+    let parts = match CascadeParts::build(&opts, g, &prules) {
+        Ok(p) => p,
+        Err(_) => {
+            tally.net_refused += 1;
+            return;
+        }
+    };
+    let ctx = NetCtx {
+        label, g, parts: &parts };
+    for rule in rules {
+        let Some(part) = parts.rules.iter().find(|p| p.rule == rule.xml_id) else { continue };
+        let mut handle = foma::apply::apply_init(&part.net);
+        for (kind, strings) in [("rule-application", if whole { Vec::new() } else { applying.get(&rule.xml_id).cloned().unwrap_or_default() })] {
+            let stat = tally.nets.entry(kind.to_owned()).or_default();
+            for s in &strings {
+                match net_check(&ctx, rule, &part.net, &mut handle, s) {
+                    None => stat.2 += 1,
+                    Some(Ok(a)) => {
+                        stat.0 += 1;
+                        stat.1 += u64::from(a);
+                    }
+                    Some(Err(e)) => {
+                        stat.0 += 1;
+                        tally.net_misses.push(format!("{label} {kind} rule {}: {e}", rule.xml_id));
+                    }
+                }
+            }
+        }
+        if !whole {
+            continue;
+        }
+        // Whole-rule: strings of length 1..=4.
+        let e = elems.len() as u64;
+        let total: u64 = (1..=4u32).map(|l| e.saturating_pow(l)).fold(0u64, |a, b| a.saturating_add(b));
+        let exhaustive = total <= EXHAUSTIVE;
+        let cases = if exhaustive { total } else { sample() };
+        if !exhaustive {
+            println!("W2 {label} whole-rule {}: sampled {cases} of {total} strings, seed {SEED:#x}", rule.xml_id);
+        }
+        let mut rng = Rng(SEED ^ (rule.xml_id.len() as u64) ^ 0xabcd);
+        let (mut ran, mut hit, mut skipped) = (0u64, 0u64, 0u64);
+        let mut misses = Vec::new();
+        for case in 0..cases {
+            let mut idxs: Vec<usize> = Vec::new();
+            if exhaustive {
+                let mut c = case;
+                let mut len = 1u32;
+                while c >= e.pow(len) {
+                    c -= e.pow(len);
+                    len += 1;
+                }
+                for _ in 0..len {
+                    idxs.push((c % e) as usize);
+                    c /= e;
+                }
+            } else {
+                let len = 1 + rng.next() % 4;
+                for _ in 0..len {
+                    idxs.push((rng.next() % e) as usize);
+                }
+            }
+            let string: Vec<BlockNode> = idxs.iter().map(|&i| elems[i].node.clone()).collect();
+            match net_check(&ctx, rule, &part.net, &mut handle, &string) {
+                None => skipped += 1,
+                Some(Ok(a)) => {
+                    ran += 1;
+                    hit += u64::from(a);
+                }
+                Some(Err(m)) => {
+                    ran += 1;
+                    misses.push(format!("{label} whole-rule rule {}: {m}", rule.xml_id));
+                    if misses.len() > 5 {
+                        break;
+                    }
+                }
+            }
+        }
+        let stat2 = tally.nets.entry("whole-rule".to_owned()).or_default();
+        stat2.0 += ran;
+        stat2.1 += hit;
+        stat2.2 += skipped;
+        tally.net_misses.extend(misses);
+    }
+}
+
+fn check_grammar(whole: bool, label: &str, g: &Grammar, tally: &mut Tally) {
     if g.char_tables.len() != 1 {
         tally.refused.push(format!("{label}: more than one character table"));
         return;
@@ -355,11 +605,15 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
     tally.grammars += 1;
     let report = closure.report(g);
     println!(
-        "W2 {label}: rows attested={} private={} total={}/{} epsilon={}",
-        report.attested_rows, report.private_rows, report.total_rows, report.token_cap, report.epsilon_rows
+        "W2 {label}: rows attested={} private={} total={}/{} epsilon={} modify_private={} empty_twins={}",
+        report.attested_rows, report.private_rows, report.total_rows, report.token_cap, report.epsilon_rows, report.private_modify_rows, report.empty_twin_rows
     );
     let table = &g.char_tables[0];
     let elems = elements(g, &closure);
+    if whole {
+        net_differentials(true, g, label, tally, &rules, &elems, &std::collections::HashMap::new());
+        return;
+    }
     // Image gate for Modify and InsertContext: every row a `Modify` can write is interned (or covered by an any-value row).
     let width = g.phon_features.len();
     let type_lane = g.phon_features.type_flat().0 as usize;
@@ -395,6 +649,7 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
             }
         }
     }
+    let mut applying: std::collections::HashMap<String, Vec<Vec<BlockNode>>> = std::collections::HashMap::new();
     for rule in &rules {
         tally.rules += 1;
         let n_all = rule.lhs.nodes.len();
@@ -430,13 +685,14 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
         let e = pool.len() as u64;
         let total = e.checked_pow(n as u32).unwrap_or(u64::MAX);
         let exhaustive = total <= EXHAUSTIVE;
-        let cases = if exhaustive { total } else { SAMPLE };
+        let cases = if exhaustive { total } else { sample() };
         if !exhaustive {
             tally.sampled_rules += 1;
             println!("W2 {label} rule {}: sampled {cases} of {total} tuples, seed {SEED:#x}", rule.xml_id);
         }
         let mut rng = Rng(SEED ^ (rule.xml_id.len() as u64));
         let mut foci: Vec<Vec<BlockNode>> = Vec::new();
+        let rule_id = rule.xml_id.clone();
         {
             let stripped = strip(rule);
             let mut idx = vec![0usize; n];
@@ -460,6 +716,10 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
                 tally.matched += 1;
                 if foci.len() < 6 {
                     foci.push(focus.clone());
+                }
+                let slot = applying.entry(rule_id.clone()).or_default();
+                if slot.len() < 300 {
+                    slot.push(focus.clone());
                 }
                 for (&k, &i) in probed.iter().zip(idx.iter()) {
                     let token = pool[i].token.unwrap();
@@ -512,12 +772,20 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
                     let mut nodes: Vec<BlockNode> = els[..left_n].iter().map(|e| e.node.clone()).collect();
                     nodes.extend(focus.iter().cloned());
                     nodes.extend(els[left_n..].iter().map(|e| e.node.clone()));
-                    !synthesize(g, &one, &shape_of(g, &nodes)).is_empty()
+                    let hit = !synthesize(g, &one, &shape_of(g, &nodes)).is_empty();
+                    if hit {
+                        let slot = applying.entry(rule.xml_id.clone()).or_default();
+                        if slot.len() < 600 {
+                            slot.push(nodes);
+                        }
+                    }
+                    hit
                 });
             }
         }
     }
     spelling_differential(g, &closure, tally, label);
+    net_differentials(false, g, label, tally, &rules, &elems, &applying);
     // Affix allomorph lhs through the matcher affix synthesis uses.
     let segs: Vec<&Element> = elems.iter().filter(|el| matches!(el.node, BlockNode::Segment { .. })).collect();
     for rule in &g.mrules {
@@ -563,8 +831,7 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
     }
 }
 
-#[test]
-fn class_membership_and_images_are_a_superset_of_synthesis() {
+fn run(whole: bool) {
     let scope = if std::env::var_os("HC_CONFORMANCE_SUITE").is_some()
         || pg_conformance_fixtures::suite_root().exists()
     {
@@ -572,12 +839,12 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
     } else {
         pg_conformance_fixtures::ConformanceScope::Local
     };
-    println!("W2 scope {} exhaustive<={EXHAUSTIVE} sample={SAMPLE} seed={SEED:#x}", scope.label());
+    println!("W2 scope {} exhaustive<={EXHAUSTIVE} sample={} seed={SEED:#x}", scope.label(), sample());
     let mut tally = Tally::default();
     for f in pg_conformance_fixtures::discover_scoped(scope) {
         let xml = f.load_grammar_xml();
         let Ok(g) = pg_grammar::load(&xml) else { continue };
-        check_grammar(&f.label(), &g, &mut tally);
+        check_grammar(whole, &f.label(), &g, &mut tally);
     }
     println!(
         "W2 summary: grammars={} refused={} rules={} skipped_lhs={} cases={} matched={} sampled_rules={} under={} missing_images={}",
@@ -587,15 +854,35 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
     for (k, (cases, hit, probes, sampled)) in &tally.kinds {
         println!("W2 matcher {k}: probes={probes} sampled={sampled} cases={cases} matched={hit}");
     }
-    println!("W2 spelling: cases={} capped_rows={} private_modify_token_gaps={}", tally.spelling_cases, tally.spelling_capped, tally.spelling_private_count);
+    println!("W2 spelling: cases={} capped_rows={} empty_twin_rows_skipped={} gaps={}", tally.spelling_cases, tally.spelling_capped, tally.spelling_twins, tally.spelling_private_count);
     for m in tally.spelling_private_gaps.iter().take(5) {
         println!("W2 private-gap {m}");
+    }
+    for (k, (ran, hit, skipped)) in &tally.nets {
+        println!("W2 net {k}: strings={ran} applied={hit} no_token_skipped={skipped}");
+    }
+    println!("W2 net: grammars_with_unbuildable_cascade={} misses={} unchecked_foma_apply_up_overflow={}", tally.net_refused, tally.net_misses.len(), APPLY_PANICS.load(std::sync::atomic::Ordering::Relaxed));
+    for m in tally.net_misses.iter().take(15) {
+        println!("W2 net-miss {m}");
     }
     println!("W2 skipped: env={} other={}", tally.skipped_env, tally.skipped_other);
     for r in &tally.refused {
         println!("W2 refused {r}");
     }
+    assert!(tally.net_misses.is_empty(), "net outputs miss synthesis: {:#?}", &tally.net_misses[..tally.net_misses.len().min(10)]);
     assert!(tally.grammars > 0, "no grammar reached the gate");
     assert!(tally.under.is_empty(), "under-inclusions: {:#?}", &tally.under[..tally.under.len().min(20)]);
     assert!(tally.missing_images.is_empty(), "missing images: {:#?}", &tally.missing_images[..tally.missing_images.len().min(20)]);
+}
+
+/// Membership (rewrite foci, environments, affix lhs, metathesis), images, spelling and rule-application differentials.
+#[test]
+fn class_membership_and_images_are_a_superset_of_synthesis() {
+    run(false);
+}
+
+/// Whole-rule differential: HC's single-rule synthesis output is related by the reused net, strings of closure rows and boundaries up to length 4 (exhaustive to 1,000,000 per rule, 100,000 sampled above). Slow (about 90 minutes over every grammar), so it is its own test.
+#[test]
+fn whole_rule_differential_nets_contain_synthesis() {
+    run(true);
 }
