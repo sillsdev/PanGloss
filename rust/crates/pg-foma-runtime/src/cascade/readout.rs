@@ -14,6 +14,14 @@
 //!   or `None` for an arc that writes nothing (an epsilon arc, for example the final
 //!   tagged `eps:eps` arc of an entry, plan 2.2). Several arcs may share endpoints
 //!   (parallel arcs: stacks, casings), and self-loops and cycles are allowed;
+//! - `written` is ONE `Option<char>`. A W3 product move that writes more than one
+//!   character must be split by W5 into intermediate states, with the move's tags on
+//!   exactly one of the resulting arcs. Emitting only the first character would make the
+//!   read-out reject or mis-read strings;
+//! - when W5 collapses parallel arcs (same `src`, `dst`, `written`; differing in weight
+//!   or case mark) their tags are UNIONED, never taken from the first arc;
+//! - every `src`, `dst`, `start` and accepting state must be below `num_states`; arcs
+//!   that are not make [`ReadoutIndex::new`] panic with a message naming the arc;
 //! - tags live on arcs only, never on states (plan 2.0). One arc may carry a root tag
 //!   and a rule tag at once (one product move can resolve a surface symbol through every
 //!   layer, review r3 R3-2);
@@ -78,14 +86,53 @@ pub struct TrimmedGraph {
     pub arcs: Vec<Arc>,
 }
 
-/// Pin groups of the exact string `s` under `mode`.
-pub fn read_out(graph: &TrimmedGraph, s: &str, mode: ReadoutMode) -> Vec<PinGroup> {
-    match mode {
-        ReadoutMode::Single => read_out_single(graph, s),
+/// Adjacency lists of a graph, built once and reused for every string (S.6 reads out
+/// once per variant).
+pub struct ReadoutIndex {
+    out_arcs: Vec<Vec<usize>>,
+    in_arcs: Vec<Vec<usize>>,
+}
+
+impl ReadoutIndex {
+    /// Panics with a clear message if an arc names a state `>= num_states`.
+    pub fn new(graph: &TrimmedGraph) -> Self {
+        let ns = graph.num_states as usize;
+        let mut out_arcs: Vec<Vec<usize>> = vec![Vec::new(); ns];
+        let mut in_arcs: Vec<Vec<usize>> = vec![Vec::new(); ns];
+        for (k, a) in graph.arcs.iter().enumerate() {
+            assert!(
+                a.src < graph.num_states && a.dst < graph.num_states,
+                "TrimmedGraph arc {k} ({} -> {}) names a state outside 0..{}",
+                a.src,
+                a.dst,
+                graph.num_states
+            );
+            out_arcs[a.src as usize].push(k);
+            in_arcs[a.dst as usize].push(k);
+        }
+        Self { out_arcs, in_arcs }
     }
 }
 
-fn read_out_single(graph: &TrimmedGraph, s: &str) -> Vec<PinGroup> {
+/// Pin groups of the exact string `s` under `mode` (builds the index; use
+/// [`read_out_indexed`] to reuse it across strings).
+pub fn read_out(graph: &TrimmedGraph, s: &str, mode: ReadoutMode) -> Vec<PinGroup> {
+    read_out_indexed(graph, &ReadoutIndex::new(graph), s, mode)
+}
+
+/// As [`read_out`], with a prebuilt [`ReadoutIndex`] of the same graph.
+pub fn read_out_indexed(
+    graph: &TrimmedGraph,
+    index: &ReadoutIndex,
+    s: &str,
+    mode: ReadoutMode,
+) -> Vec<PinGroup> {
+    match mode {
+        ReadoutMode::Single => read_out_single(graph, index, s),
+    }
+}
+
+fn read_out_single(graph: &TrimmedGraph, index: &ReadoutIndex, s: &str) -> Vec<PinGroup> {
     let chars: Vec<char> = s.chars().collect();
     let n = chars.len();
     let ns = graph.num_states as usize;
@@ -94,12 +141,7 @@ fn read_out_single(graph: &TrimmedGraph, s: &str) -> Vec<PinGroup> {
     }
     let node = |i: usize, st: u32| i * ns + st as usize;
 
-    let mut out_arcs: Vec<Vec<usize>> = vec![Vec::new(); ns];
-    let mut in_arcs: Vec<Vec<usize>> = vec![Vec::new(); ns];
-    for (k, a) in graph.arcs.iter().enumerate() {
-        out_arcs[a.src as usize].push(k);
-        in_arcs[a.dst as usize].push(k);
-    }
+    let (out_arcs, in_arcs) = (&index.out_arcs, &index.in_arcs);
 
     // Forward sets along `s`: node (i, state) = `i` characters consumed.
     let mut fwd = vec![false; (n + 1) * ns];
@@ -256,6 +298,13 @@ mod tests {
             accepting: accepting.to_vec(),
             arcs,
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "outside 0..2")]
+    fn arc_outside_num_states_panics_clearly() {
+        let g = graph(2, &[1], vec![arc(0, 5, Some('a'), ArcTags::default())]);
+        let _ = read_out(&g, "a", ReadoutMode::Single);
     }
 
     #[test]
