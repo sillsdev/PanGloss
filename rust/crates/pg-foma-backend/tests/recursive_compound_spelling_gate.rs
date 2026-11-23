@@ -331,7 +331,7 @@ fn singleton_compounds_refuse_deletion_across_the_junction() {
 }
 
 #[test]
-fn singleton_phonology_is_not_refused_when_no_stratum_applies_a_compounding_rule() {
+fn unstaged_compounding_rules_leave_only_the_deletion_refusal() {
     let xml = fixture("singleton-junction-deletion")
         .load_grammar_xml()
         .replace(

@@ -294,13 +294,16 @@ fn a_morph_a_deletion_empties_before_a_later_affix_is_refused_or_exact() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// The deletion runs before the change, so the changed prefix is never deleted: the FST compiles the grammar and matches Rust HC.
+/// The deletion runs before the change, so the changed prefix is never deleted, but any segment deletion beside affixes is refused until the refinement in #430.
 #[test]
-fn a_change_after_the_deletion_stays_admitted_and_exact() {
+fn a_change_after_the_deletion_is_refused_as_a_junction_deletion() {
     let xml = include_str!("fixtures/emptied-morph/a7-counterfeeding-control.xml");
-    let (_, _, differences) = fst_differences(xml, &short_words(&[]), &mut BTreeMap::new())
-        .expect("the FST compiles the counterfeeding control");
-    assert!(differences.is_empty(), "{differences:?}");
+    let mut refused = BTreeMap::new();
+    assert!(fst_differences(xml, &short_words(&[]), &mut refused).is_none());
+    assert!(refused.contains_key(&format!(
+        "{:?}",
+        CapabilityRefusal::ProposalRecall(ProposalRecallGap::JunctionDeletion)
+    )));
 }
 
 /// For each differing word, the analyses Rust HC gives that the FST does not, and those the FST gives that HC does not; a word whose HC run hit the work cap is counted, not compared. `None` when the FST will not compile the grammar.
@@ -448,7 +451,7 @@ fn every_admitted_random_metathesis_grammar_matches_rust_hc() {
     );
 }
 
-/// The same seeded grammars with their metathesis rules unlisted, so deletions, epenthesis, two strata and every affix shape remain: every one the FST admits must give Rust HC's analyses, except the 141 words `older-gaps-without-metathesis.txt` lists, whose FST rows are identical on v0.27.0 (older circumfix and boundary gaps). This is the sweep for a morph a deletion empties before a later stratum's affix, which needs no metathesis.
+/// The same seeded grammars with their metathesis rules unlisted, so deletions, epenthesis, two strata and every affix shape remain: every one the FST admits must give Rust HC's analyses, except the words `older-gaps-without-metathesis.txt` lists, whose FST rows are identical on v0.27.0 (older circumfix and boundary gaps). This is the sweep for a morph a deletion empties before a later stratum's affix, which needs no metathesis.
 #[test]
 fn every_admitted_random_grammar_without_metathesis_matches_rust_hc() {
     sweep(
@@ -519,7 +522,7 @@ mod fuzz {
     pub const SEED: u64 = 0x374_0005;
     pub const GRAMMARS: usize = 1500;
     pub const MIN_ADMITTED: usize = 120;
-    pub const MIN_ADMITTED_WITHOUT_METATHESIS: usize = 1000;
+    pub const MIN_ADMITTED_WITHOUT_METATHESIS: usize = 800;
     pub const MIN_ADMITTED_CHANGE_FEEDS_DELETION: usize = 100;
     /// Words excused as older FST gaps at `SEED`, each line as the gate prints it.
     pub const EXCUSED: &[&str] = &[];

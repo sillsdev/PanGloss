@@ -13,13 +13,14 @@ use pg_foma_backend::backend_runtime::{
 fn load() -> pg_grammar::model::Grammar {
     let path =
         pg_conformance_fixtures::suite_root().join("edge-cases/mpr-gated-exception/grammar.xml");
-    let xml = pg_conformance_fixtures::grammar_xml_with_context_free_deletions(
-        &fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display())),
-    );
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
     assert_eq!(xml.matches(wide_target).count(), 1);
     let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
-    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    let mut g =
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
+    g
 }
 
 #[test]

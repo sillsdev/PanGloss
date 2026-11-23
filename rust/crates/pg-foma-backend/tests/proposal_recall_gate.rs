@@ -770,6 +770,16 @@ fn refuses_gap(grammar: &pg_grammar::model::Grammar, gap: ProposalRecallGap) -> 
 // Minimal repros of #415 (`lipt`, `ktip`) and #416 (`loplopt`, `loplopkor`): each loses an analysis today.
 const JUNCTION_LIPT: &str = include_str!("fixtures/partial-rule-gap-probes/j1-lipt.xml");
 const JUNCTION_KTIP: &str = include_str!("fixtures/partial-rule-gap-probes/j2-ktip.xml");
+const JUNCTION_Q6: &str = include_str!("fixtures/partial-rule-gap-probes/q6-min-ctxfree.xml");
+const JUNCTION_Q1: &str = include_str!("fixtures/partial-rule-gap-probes/q1-narrow-noenv.xml");
+const JUNCTION_Q3: &str = include_str!("fixtures/partial-rule-gap-probes/q3-feed.xml");
+const JUNCTION_J2NOENV: &str = include_str!("fixtures/partial-rule-gap-probes/j2-ktip-noenv.xml");
+const JUNCTION_T1: &str = include_str!("fixtures/partial-rule-gap-probes/t1-cf-narrow.xml");
+const JUNCTION_T2: &str =
+    include_str!("fixtures/partial-rule-gap-probes/t2-change-feeds-cfdel.xml");
+const JUNCTION_T4: &str =
+    include_str!("fixtures/partial-rule-gap-probes/t4-bdel-feeds-cfnarrow.xml");
+const REDUP_WRAP_NP_NT: &str = include_str!("fixtures/partial-rule-gap-probes/r3-wrap-np-nt.xml");
 const REDUP_LOPLOPT: &str = include_str!("fixtures/partial-rule-gap-probes/r1-loplopt.xml");
 const REDUP_LOPLOPKOR: &str = include_str!("fixtures/partial-rule-gap-probes/r2-loplopkor.xml");
 
@@ -779,6 +789,13 @@ fn a_deletion_across_a_junction_is_refused() {
         ("lipt", JUNCTION_LIPT),
         ("ktip", JUNCTION_KTIP),
         ("slot-partial", SLOT_PARTIAL_PROBE),
+        ("q6-min-ctxfree", JUNCTION_Q6),
+        ("q1-narrow-noenv", JUNCTION_Q1),
+        ("q3-feed", JUNCTION_Q3),
+        ("j2-ktip-noenv", JUNCTION_J2NOENV),
+        ("t1-cf-narrow", JUNCTION_T1),
+        ("t2-change-feeds-cfdel", JUNCTION_T2),
+        ("t4-bdel-feeds-cfnarrow", JUNCTION_T4),
     ] {
         let grammar = pg_grammar::load(xml).expect("probe loads");
         assert!(
@@ -790,7 +807,11 @@ fn a_deletion_across_a_junction_is_refused() {
 
 #[test]
 fn a_reduplication_before_a_later_affix_is_refused() {
-    for (name, xml) in [("loplopt", REDUP_LOPLOPT), ("loplopkor", REDUP_LOPLOPKOR)] {
+    for (name, xml) in [
+        ("loplopt", REDUP_LOPLOPT),
+        ("loplopkor", REDUP_LOPLOPKOR),
+        ("wrap-np-nt", REDUP_WRAP_NP_NT),
+    ] {
         let grammar = pg_grammar::load(xml).expect("probe loads");
         assert!(
             refuses_gap(&grammar, ProposalRecallGap::ReduplicationBeforeLaterAffix),

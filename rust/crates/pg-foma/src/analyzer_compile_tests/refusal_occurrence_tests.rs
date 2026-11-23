@@ -86,6 +86,7 @@ fn all_proposal_causes_keep_independent_occurrences_in_first_witness_order() {
         (ProposalRecallGap::AmbiguousSegmentSpelling, 7),
         (ProposalRecallGap::TemplateReentry, 1),
         (ProposalRecallGap::EmptiedMorphReorder, 1),
+        (ProposalRecallGap::JunctionDeletion, 1),
         (ProposalRecallGap::ReduplicationBeforeLaterAffix, 1),
         (ProposalRecallGap::PhonologicalReduplication, 2),
         (ProposalRecallGap::TruncationComposition, 2),
@@ -93,7 +94,7 @@ fn all_proposal_causes_keep_independent_occurrences_in_first_witness_order() {
         (ProposalRecallGap::NarrowingClassOutput, 2),
     ];
     assert_eq!(counts.iter().map(|c| (c.cause, c.occurrences)).collect::<Vec<_>>(), expected.map(|(gap, n)| (CapabilityRefusal::ProposalRecall(gap), n)));
-    assert_eq!(diagnostics.iter().filter(|d| matches!(d.refusal, CapabilityRefusal::ProposalRecall(_))).count(), 8);
+    assert_eq!(diagnostics.iter().filter(|d| matches!(d.refusal, CapabilityRefusal::ProposalRecall(_))).count(), 9);
     assert!(counts.iter().all(|c| c.strategy == pg_health::strategy::EmissionStrategy::TunedSurfaceProbed));
     assert_eq!(profile.final_state_count, None);
     assert_eq!(profile.final_arc_count, None);

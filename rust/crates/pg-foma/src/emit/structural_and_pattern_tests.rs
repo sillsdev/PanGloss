@@ -256,7 +256,7 @@ fn structural_boundary_graph_is_used_by_the_production_emitter() {
     for stratum in &mut g.strata {
         stratum.prules.retain(|pid| !metathesis.contains(pid));
     }
-    pg_conformance_fixtures::drop_contextual_deletions(&mut g);
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
     let emitted = emit(&g);
     assert!(emitted.report.counts.composite_structural_entries > 0);
     assert!(
@@ -414,7 +414,7 @@ fn scalar_polysynthetic_control() -> Grammar {
     pg_grammar::load(&xml).expect("scalar vowel control must load")
 }
 
-/// The scalar control without its compounding rules, which the singleton route refuses beside deleting phonology.
+/// The scalar control's grammar text without its compounding rules.
 fn scalar_polysynthetic_control_xml() -> String {
     let fixture = pg_conformance_fixtures::require_fixture(
         "languages",
@@ -426,22 +426,12 @@ fn scalar_polysynthetic_control_xml() -> String {
     xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#)
 }
 
-/// The scalar control with its contextual deletions taken out, since the FST refuses a deletion that reaches across a morph junction.
+/// The scalar control with its deleting rewrites taken out, since the FST refuses any grammar with affixes and a segment deletion.
 fn scalar_polysynthetic_control_without_compounds() -> Grammar {
     let mut g = pg_grammar::load(&scalar_polysynthetic_control_xml())
         .expect("scalar vowel control must load");
-    pg_conformance_fixtures::drop_contextual_deletions(&mut g);
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
     g
-}
-
-/// The scalar control with each deletion made context-free, for a test whose subject is the deleting rules' POS scope.
-fn scalar_polysynthetic_control_with_context_free_deletions() -> Grammar {
-    pg_grammar::load(
-        &pg_conformance_fixtures::grammar_xml_with_context_free_deletions(
-            &scalar_polysynthetic_control_xml(),
-        ),
-    )
-    .expect("scalar vowel control must load")
 }
 
 /// The compiled TSP network accepts a NOVEL spelling through an unbounded (`[Any]*`) pattern root via its regex entry, and decodes to that pattern entry's own tag identity -- the point of a guesser pattern: representing a language, not a spelling list.
@@ -538,7 +528,8 @@ fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
 /// probe_surface is POS-blind, so a bare root in a grammar that scopes different phonological rules to different POS in the same stratum needs generate_words' genuinely POS-gated pipeline instead.
 #[test]
 fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
-    let g = scalar_polysynthetic_control_with_context_free_deletions();
+    let g = pg_grammar::load(&scalar_polysynthetic_control_xml())
+        .expect("scalar vowel control must load");
     let table = surface_table(&g);
     let cache = RuleCache::build(&g);
     let entry = &g.entries[entry_id_of(&g, "eBuiibuii").0 as usize];
@@ -549,14 +540,6 @@ fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
     assert_eq!(
         probe_surface(&g, table, &feat_shape, &cache),
         Some("bubu".to_string())
-    );
-
-    // This checks a proposal path despite the fixture's unrelated representation overflow.
-    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&g);
-    let mut proposer = proposer.expect("development-only partial proposer compiles");
-    assert!(
-        !proposer.propose("buuubuuu").is_empty(),
-        "\"buuubuuu\" must be proposable despite the probe's own wrong answer"
     );
 }
 

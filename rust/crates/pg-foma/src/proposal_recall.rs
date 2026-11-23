@@ -114,14 +114,14 @@ pub(crate) fn refusals_with_spelling(
             "partial morphological rule in a grammar that also has a deleting rewrite (from the first partial rule's stratum on) or a peelable reduplication",
             "stopgap refusal: the proposer loses analyses when a deletion removes affix material at a junction before a template-slot affix, or when a peelable reduplication precedes a later affix; neither needs a partial rule (#415, #416), but the two upstream partial-rule fixtures reach them and the predicate keys on a partial rule to keep every other admission unchanged"));
     }
-    if deletion_with_environment_beside_affixes(g) {
+    if segment_deletion_beside_affixes(g) {
         gaps.push((ProposalRecallGap::JunctionDeletion,
-            "deleting or narrowing rewrite with an environment in a grammar that has affix rules",
-            "a deletion whose left or right context reaches into the neighbouring morph removes material across a morph junction, and the proposer spells each morph on its own, so it misses the analysis (#415); a context-free deletion is not affected, but a rewrite with an environment is refused as a whole"));
+            "deleting or narrowing rewrite in a grammar that has affix rules",
+            "a deletion, with or without an environment, can remove a segment of one morph because of its neighbour (a narrowing and a change feeding a deletion do the same), and the proposer spells each morph on its own, so it misses the analysis (#415); every such rewrite is refused until the refinement in #430 narrows it to deletions that can reach across a junction"));
     }
     if reduplication_before_later_affix(g) {
         gaps.push((ProposalRecallGap::ReduplicationBeforeLaterAffix,
-            "peelable whole-stem reduplication in a grammar with an affix in a template slot or in a later stratum",
+            "peelable whole-stem reduplication in a grammar with an affix in a template slot or in its own or a later stratum",
             "the reduplication peeler does not follow the reduplicant through a template-slot or later-stratum affix, so an analysis such as root, reduplication, suffix is not proposed (#416)"));
     }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
@@ -256,8 +256,8 @@ fn partial_rule_deletion_or_reduplication(g: &Grammar) -> bool {
         })
 }
 
-/// A rewrite with an environment that writes fewer nodes than it matches, in a grammar with affix rules, unless it deletes only boundaries.
-fn deletion_with_environment_beside_affixes(g: &Grammar) -> bool {
+/// A rewrite that writes fewer nodes than it matches (a deletion or narrowing) in a grammar with affix rules, unless it deletes only boundaries; TODO narrow to deletions that can reach across a junction (#430).
+fn segment_deletion_beside_affixes(g: &Grammar) -> bool {
     let has_affix = g
         .mrules
         .iter()
@@ -271,10 +271,6 @@ fn deletion_with_environment_beside_affixes(g: &Grammar) -> bool {
                     && rule.subrules.iter().any(|sub| {
                         sub.rhs.nodes.len() < rule.lhs.nodes.len()
                             && !deletes_only_boundaries(table, &rule.lhs.nodes, &sub.rhs.nodes)
-                            && [&sub.left_env, &sub.right_env]
-                                .into_iter()
-                                .flatten()
-                                .any(|env| !env.nodes.is_empty())
                     }))
             })
         })
@@ -301,7 +297,7 @@ fn deletes_only_boundaries(
         && rhs.len() == lhs.iter().filter(|k| **k == CharDefKind::Segment).count()
 }
 
-/// Whether a peelable reduplication sits in a grammar with an affix in some template slot, or in a stratum after the reduplication's own (#416).
+/// Whether a peelable reduplication sits in a grammar with an affix in some template slot, or in its own or a later stratum (#416).
 fn reduplication_before_later_affix(g: &Grammar) -> bool {
     let is_affix = |mid: &pg_grammar::model::MRuleId| {
         g.mrules[mid.0 as usize].affix_allomorphs().is_some()
@@ -320,7 +316,7 @@ fn reduplication_before_later_affix(g: &Grammar) -> bool {
             .iter()
             .any(|&mid| reduplication_rule_is_peelable(g, mid))
             && (template_affix
-                || g.strata[index + 1..]
+                || g.strata[index..]
                     .iter()
                     .any(|later| later.mrules.iter().any(is_affix)))
     })

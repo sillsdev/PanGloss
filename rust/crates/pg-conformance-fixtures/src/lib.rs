@@ -201,53 +201,20 @@ pub fn grammar_xml_without_compounding_rules(xml: &str) -> String {
     xml
 }
 
-/// Removes the `<Environment>` of every phonological subrule with an empty output, so each deletion in a control grammar applies in every context.
-pub fn grammar_xml_with_context_free_deletions(xml: &str) -> String {
-    let mut out = String::with_capacity(xml.len());
-    let mut rest = xml;
-    while let Some(start) = rest.find("<PhonologicalSubrule") {
-        let end = rest[start..]
-            .find("</PhonologicalSubrule>")
-            .map_or(rest.len(), |at| start + at);
-        let block = &rest[start..end];
-        out.push_str(&rest[..start]);
-        let deletes = block.contains("<PhoneticOutput />")
-            || block.contains("<PhoneticOutput><PhoneticSequence /></PhoneticOutput>");
-        match (
-            deletes,
-            block.find("<Environment>"),
-            block.find("</Environment>"),
-        ) {
-            (true, Some(open), Some(close)) => {
-                out.push_str(&block[..open]);
-                out.push_str(&block[close + "</Environment>".len()..]);
-            }
-            _ => out.push_str(block),
-        }
-        rest = &rest[end..];
-    }
-    out.push_str(rest);
-    out
-}
-
-/// Takes every rewrite that deletes with an environment out of the strata's rule lists, for controls whose subject is not deletion.
-pub fn drop_contextual_deletions(grammar: &mut pg_grammar_model::model::Grammar) {
+/// Takes every rewrite that deletes or narrows a segment out of the strata's rule lists, for controls whose subject is not deletion.
+pub fn drop_segment_deletions(grammar: &mut pg_grammar_model::model::Grammar) {
     use pg_grammar_model::model::PhonRuleDef;
-    let contextual_deletion = |rule: &PhonRuleDef| match rule {
-        PhonRuleDef::Rewrite(rule) => rule.subrules.iter().any(|sub| {
-            sub.rhs.nodes.len() < rule.lhs.nodes.len()
-                && [&sub.left_env, &sub.right_env]
-                    .into_iter()
-                    .flatten()
-                    .any(|env| !env.nodes.is_empty())
-        }),
-        _ => false,
-    };
     let dropped: Vec<_> = grammar
         .prules
         .iter()
         .enumerate()
-        .filter(|(_, rule)| contextual_deletion(rule))
+        .filter(|(_, rule)| match rule {
+            PhonRuleDef::Rewrite(rule) => rule
+                .subrules
+                .iter()
+                .any(|sub| sub.rhs.nodes.len() < rule.lhs.nodes.len()),
+            _ => false,
+        })
         .map(|(index, _)| pg_grammar_model::model::PRuleId(index as u32))
         .collect();
     for stratum in &mut grammar.strata {
