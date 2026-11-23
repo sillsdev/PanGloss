@@ -2,7 +2,7 @@
 language: FamilyBlockedGeneration
 inspired_by: ["synthetic stem family whose relative blocks a derivation"]
 sources: ["sillsdev/PanGloss#423"]
-requires: [morphology]
+requires: []
 fieldworks_producible: true
 words:
   - word: aa

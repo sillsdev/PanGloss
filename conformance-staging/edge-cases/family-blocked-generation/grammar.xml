@@ -25,7 +25,7 @@
       <Family id="famF">F</Family>
     </Families>
     <Strata>
-      <Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="mT" phonologicalRules="">
+      <Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="mT">
         <Name>S</Name>
         <MorphologicalRuleDefinitions>
           <MorphologicalRule id="mT" requiredPartsOfSpeech="posN">
