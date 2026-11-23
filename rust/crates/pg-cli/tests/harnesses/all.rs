@@ -38,6 +38,8 @@ mod inferred_segment_engine_parity_gate;
 #[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;
+#[path = "../serve_generate.rs"]
+mod serve_generate;
 #[path = "../serve_protocol.rs"]
 mod serve_protocol;
 #[cfg(target_os = "linux")]

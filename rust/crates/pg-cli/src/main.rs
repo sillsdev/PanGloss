@@ -165,6 +165,7 @@ pub mod readiness_verdict;
 mod recipe_optimize;
 mod rich_trace;
 mod serve;
+mod serve_generate;
 mod stats_cmd;
 mod stats_manifest;
 mod stored_analysis_health;

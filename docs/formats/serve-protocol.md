@@ -92,10 +92,24 @@ The process keeps running after every `error`.
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
 | `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type; `id` is `null` when it could not be read |
-| `unknown_op` | `op` is a string other than `parse` or `shutdown` |
+| `unknown_op` | `op` is a string other than `parse`, `generate` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |
 | `internal` | the parser panicked on this word; the details are on stderr |
+
+## The `generate` op
+
+`generate` runs the `pangloss generate --request` v1 document inside the server and keeps one result per seed. It needs a project with authored FieldWorks identity (a snapshot or fwdata); an HC XML project gets `authored_identity_unavailable`. `--describe` declares it as `interfaces.serveOps.generate`, and a test checks that declaration against what the op emits.
+
+```json
+{"id":"g1","op":"generate","request":{"schemaVersion":1,"root":{"entryGuid":"..","msaGuid":"..","msaClass":"MoStemMsa"},"morphemes":[{"entryGuid":"..","msaGuid":"..","msaClass":"MoInflAffMsa"}]},"trace":true,"maxTraceSteps":50000}
+```
+
+Optional fields: `trace` (default `false`; `true` adds each surface's `steps`), `maxSeeds` (default 10000), `maxTraceSteps` (default 50000; counts trace nodes kept across every seed), `maxWork` (lowers the 50,000,000-unit generation cap for this request) and `timeoutMs` (a wall-clock deadline; without it the server's `--word-timeout-ms` applies). Unknown fields are `bad_request`. The parse `--work-cap` is never the generation cap.
+
+The response is a `result` with `complete`, `stopReason`, `workUnits`, `seedChoices`, `traceSteps`, the effective `limits`, and `seeds`. A seed is one choice of allomorphs: `seedKey` (`r<root allomorph>/p<selection>`), `allomorphs` (the root, then each requested morpheme in request order, with `role`, `entryGuid`, `msaGuid`, `allomorphId`, `formGuid`, `shape`), `surfaces` and `traceTruncated`. A surface is `{surface, derivations, steps}`; `steps` is the derivation in application order, each `{stratum, rule:{kind,id,name,guid}, input, output, subrule}` with `+` marking morpheme boundaries. Seeds come in visit order, surfaces are sorted, and a surface reached by two seeds appears under both. Everything is deterministic except a stop on `deadline`.
+
+`stopReason` is `seed_product_exceeds_budget`, `work_limit`, `deadline`, `trace_limit` or `seed_limit`, or `null` when `complete` is `true`. Any stop sets `complete: false` and still returns the seeds finished so far; they are not the full set. Request errors (`bad_request`, `request_too_large`, `unsupported_schema_version`, `unsupported_msa_class`, `unsupported_form_selection`, `authored_identity_unavailable`, `unknown_entry`, `unknown_msa`, `msa_not_owned_by_entry`, `ambiguous_identity`) are `error` responses; a cap is never an error.
 
 ## Closing stdin
 

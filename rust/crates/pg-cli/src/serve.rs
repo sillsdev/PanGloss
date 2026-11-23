@@ -336,6 +336,22 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             };
             (response, false)
         }
+        Some("generate") => {
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_generate::run(ctx.grammar, ctx.morpher, object)
+            }));
+            let response = match outcome {
+                Ok(Ok(mut result)) => {
+                    result["id"] = id;
+                    result["type"] = json!("result");
+                    result["op"] = json!("generate");
+                    result
+                }
+                Ok(Err((code, message))) => error_response(&id, code, &message),
+                Err(_) => error_response(&id, "internal", "generator panicked; see stderr"),
+            };
+            (response, false)
+        }
         Some(other) => (
             error_response(&id, "unknown_op", &format!("unknown op: {other}")),
             false,
