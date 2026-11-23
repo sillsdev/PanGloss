@@ -1057,6 +1057,16 @@ fn scratch_reset_between_words_c77() {
     let refs = f.refs();
     let prod = Product::new(&refs);
     let mut shared = ProductScratch::new(refs.len());
+    // an aborted word leaves its tables behind; the next word must not see them
+    let mut tight = Request::new(&[0, 1, 1, 0, 1], 0);
+    tight.budget = WordBudget {
+        states: 6,
+        ..WordBudget::UNLIMITED
+    };
+    assert!(matches!(
+        prod.run(&mut shared, &tight),
+        Outcome::Incomplete { .. }
+    ));
     let words: [&[u32]; 4] = [&[0, 1, 1, 0], &[1], &[], &[0, 0, 1, 1, 0, 1]];
     for w in words {
         let a = prod.run(&mut shared, &Request::new(w, 0));
