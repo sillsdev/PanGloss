@@ -4,10 +4,12 @@
 mod cascade_fuzz;
 
 use cascade_fuzz::features::{CharKind, Feature, Refusal};
-use cascade_fuzz::gate::{run, Admission, Candidate, GateConfig, PlainHc};
+use cascade_fuzz::gate::{
+    check_minimums, run, Admission, Candidate, GateConfig, PlainHc, Report, MIN_SEEDS_FOR_COVERAGE,
+};
 use cascade_fuzz::gen::{generate, AlphabetKind, Plan};
 use cascade_fuzz::hc;
-use cascade_fuzz::hc::{Outcome, ReadoutMode};
+use cascade_fuzz::hc::{Outcome, ReadoutMode, Status};
 use std::collections::BTreeSet;
 
 #[test]
@@ -64,10 +66,19 @@ fn every_refused_construct_is_generated_and_loads_in_plain_hc() {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Defect {
+    None,
+    DropAnalysis,
+    InBoundIncomplete,
+    RestrictedDropsAnalysis,
+    RestrictedInventsAnalysis,
+}
+
 /// Plain HC with a defect injected, to prove the gate can fail.
 struct Defective {
     inner: PlainHc,
-    drop_analysis: bool,
+    defect: Defect,
     refusal_text: Option<String>,
 }
 
@@ -83,8 +94,12 @@ impl Candidate for Defective {
     }
     fn analyze(&self, word: &str, mode: ReadoutMode) -> Outcome {
         let mut out = self.inner.analyze(word, mode);
-        if self.drop_analysis {
-            out.multiset.pop();
+        match self.defect {
+            Defect::DropAnalysis => {
+                out.multiset.pop();
+            }
+            Defect::InBoundIncomplete => out.status = Status::Incomplete("injected".into()),
+            _ => {}
         }
         out
     }
@@ -94,7 +109,19 @@ impl Candidate for Defective {
         roots: &BTreeSet<u32>,
         rules: &BTreeSet<u32>,
     ) -> Option<Outcome> {
-        self.inner.restricted(word, roots, rules)
+        let mut out = self.inner.restricted(word, roots, rules)?;
+        match self.defect {
+            Defect::RestrictedDropsAnalysis => out.multiset.clear(),
+            Defect::RestrictedInventsAnalysis => {
+                if let Some(first) = out.multiset.first().cloned() {
+                    let mut invented = first;
+                    invented.identity.morphemes.push(Some("invented".into()));
+                    out.multiset.push(invented);
+                }
+            }
+            _ => {}
+        }
+        Some(out)
     }
 }
 
@@ -106,24 +133,84 @@ fn small_config() -> GateConfig {
     }
 }
 
-#[test]
-fn a_candidate_that_loses_an_analysis_fails_the_gate() {
-    let cfg = small_config();
-    let report = run(&cfg, |g| {
+fn defective(defect: Defect) -> Vec<String> {
+    run(&small_config(), |g| {
         Ok(Defective {
             inner: PlainHc::build(g)?,
-            drop_analysis: true,
+            defect,
             refusal_text: None,
         })
-    });
+    })
+    .failures
+}
+
+#[test]
+fn a_candidate_that_loses_an_analysis_fails_the_gate() {
+    let failures = defective(Defect::DropAnalysis);
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("replay: CASCADE_FUZZ_REPLAY=") && f.contains("analyses")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn an_incomplete_in_bound_analysed_word_fails_the_gate() {
+    let failures = defective(Defect::InBoundIncomplete);
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.contains("in-bound word incomplete")),
+        "{failures:?}"
+    );
+}
+
+#[test]
+fn a_restricted_parse_that_loses_an_analysis_trips_l1() {
+    let failures = defective(Defect::RestrictedDropsAnalysis);
+    assert!(failures.iter().any(|f| f.contains("(L1)")), "{failures:?}");
+}
+
+#[test]
+fn a_restricted_parse_that_invents_an_analysis_trips_l2() {
+    let failures = defective(Defect::RestrictedInventsAnalysis);
+    assert!(failures.iter().any(|f| f.contains("(L2)")), "{failures:?}");
+}
+
+#[test]
+fn the_gate_without_a_defect_has_no_failures() {
+    assert_eq!(defective(Defect::None), Vec::<String>::new());
+}
+
+#[test]
+fn the_coverage_minimums_fail_when_a_switch_is_under_covered() {
+    let cfg = GateConfig {
+        seeds: MIN_SEEDS_FOR_COVERAGE,
+        ..GateConfig::from_env()
+    };
+    let mut report = Report::default();
+    check_minimums(&cfg, &mut report);
     assert!(
         report
             .failures
             .iter()
-            .any(|f| f.contains("replay: CASCADE_FUZZ_REPLAY=")),
-        "no replayable failure: {:?}",
-        report.failures
+            .any(|f| f.contains("RealizationalRule") && f.contains("applied")),
+        "no exemption may remain: {:?}",
+        report.failures.len()
     );
+    assert!(report
+        .failures
+        .iter()
+        .any(|f| f.contains("in-bound grammars")));
+    assert!(report
+        .failures
+        .iter()
+        .any(|f| f.contains("character kinds")));
+    let short = GateConfig { seeds: 12, ..cfg };
+    let mut report = Report::default();
+    check_minimums(&short, &mut report);
+    assert!(report.failures.is_empty(), "short runs skip the minimums");
 }
 
 #[test]
@@ -136,7 +223,7 @@ fn a_refusal_must_name_the_construct() {
     let unnamed = run(&cfg, |g| {
         Ok(Defective {
             inner: PlainHc::build(g)?,
-            drop_analysis: false,
+            defect: Defect::None,
             refusal_text: Some("unsupported".into()),
         })
     });
@@ -149,7 +236,7 @@ fn a_refusal_must_name_the_construct() {
             .to_string();
         Ok(Defective {
             inner: PlainHc::build(g)?,
-            drop_analysis: false,
+            defect: Defect::None,
             refusal_text: Some(text),
         })
     });

@@ -103,6 +103,8 @@ pub struct Generated {
     pub features: FeatureSet,
     pub refusal: Option<Refusal>,
     pub supplied_roots: bool,
+    /// The text each realizational rule inserts after the stem.
+    pub real_suffixes: Vec<String>,
     pub width: WidthClass,
     /// Rule and phonological-rule ids (and their morpheme ids) to the switches they realise.
     pub tags: BTreeMap<String, Vec<Feature>>,
@@ -163,6 +165,7 @@ struct Builder<'a> {
     need_head_feat: bool,
     need_family: bool,
     mpr_gate: Option<&'static str>,
+    real_texts: Vec<String>,
 }
 
 fn nc_id(role: Role, by_segments: bool) -> &'static str {
@@ -347,7 +350,7 @@ impl<'a> Builder<'a> {
 
     /// One affix-style rule of `shape`, placed in `stratum`'s rule list or returned unplaced.
     fn affix(&mut self, shape: Shape, stratum: usize, in_list: bool) -> (String, Vec<Feature>) {
-        let kind = if shape == Shape::Realizational {
+        let kind = if matches!(shape, Shape::Realizational | Shape::RealizationalList) {
             RuleKind::Realizational
         } else {
             RuleKind::Affix
@@ -359,13 +362,16 @@ impl<'a> Builder<'a> {
         let mut attrs = String::new();
         let mut interior = false;
         let sub = match shape {
-            Shape::Suffix | Shape::Realizational => {
-                feats.push(if shape == Shape::Suffix {
-                    Feature::Suffix
-                } else {
-                    Feature::RealizationalRule
+            Shape::Suffix | Shape::Realizational | Shape::RealizationalList => {
+                feats.push(match shape {
+                    Shape::Suffix => Feature::Suffix,
+                    Shape::Realizational => Feature::RealizationalRule,
+                    _ => Feature::RealizationalInRuleList,
                 });
                 let t = self.text(2);
+                if shape != Shape::Suffix {
+                    self.real_texts.push(t.clone());
+                }
                 self.sub(
                     &seq_any(&stem, 1),
                     &ia,
@@ -688,6 +694,7 @@ enum Shape {
     MprSuffix,
     MaxAppsSuffix,
     Realizational,
+    RealizationalList,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -726,6 +733,8 @@ struct PhonSpec {
     anchor: Option<bool>,
     alpha: AlphaUse,
     boundary_ctx: bool,
+    /// No default left context, so the rule fires on any matching focus.
+    free: bool,
 }
 
 fn template(nodes: &str, initial: bool, final_: bool) -> String {
@@ -857,7 +866,11 @@ impl Builder<'_> {
                     }
                     _ => (sc(&in_nc), sc(&out_nc)),
                 };
-                if left.is_empty() && spec.focus == Focus::Single && spec.alpha == AlphaUse::None {
+                if left.is_empty()
+                    && spec.focus == Focus::Single
+                    && spec.alpha == AlphaUse::None
+                    && !spec.free
+                {
                     let v = self.class(Role::Vowel, &mut feats);
                     left.push(sc(&v));
                     nodes += 1;
@@ -956,6 +969,7 @@ impl Builder<'_> {
             anchor: None,
             alpha: AlphaUse::None,
             boundary_ctx: false,
+            free: false,
         };
         for (f, kind) in [
             (Feature::RewriteSubstitute, Kind::Substitute),
@@ -1055,6 +1069,14 @@ impl Builder<'_> {
             }
         }
         let several = w(self, Feature::PhonologyInSeveralStrata) && self.strata.len() > 1;
+        if several {
+            while specs.len() + meta.len() < self.strata.len() + 1 {
+                specs.push(new_spec(Kind::Substitute));
+            }
+            for spec in specs.iter_mut().skip(1) {
+                spec.free = true;
+            }
+        }
         let total = specs.len() + meta.len();
         for i in 0..total {
             let stratum = if self.wants(Feature::CliticsLayout) {
@@ -1246,8 +1268,7 @@ impl Builder<'_> {
         }
         if self.wants(Feature::RealizationalInRuleList) {
             let s = pick(self);
-            let (_, _) = self.affix(Shape::Realizational, s, true);
-            self.tag_last_rule(Feature::RealizationalInRuleList);
+            self.affix(Shape::RealizationalList, s, true);
         }
         let optional = self.wants(Feature::TemplateOptionalSlot);
         let required = self.wants(Feature::TemplateRequiredSlot);
@@ -1413,6 +1434,7 @@ pub fn generate(plan: &Plan) -> Generated {
         need_head_feat: false,
         need_family: false,
         mpr_gate: None,
+        real_texts: Vec::new(),
     };
     for i in 0..n_strata {
         let order = match (
@@ -1484,6 +1506,7 @@ pub fn generate(plan: &Plan) -> Generated {
                 anchor: None,
                 alpha: AlphaUse::None,
                 boundary_ctx: false,
+                free: false,
             };
             b.phon_rule(&spec, 0);
         }
@@ -1641,6 +1664,7 @@ pub fn generate(plan: &Plan) -> Generated {
         features,
         refusal: plan.refusal,
         supplied_roots: plan.refusal == Some(Refusal::SuppliedRoots),
+        real_suffixes: b.real_texts,
         width: if inbound {
             WidthClass::InBound
         } else {

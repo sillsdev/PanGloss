@@ -195,6 +195,7 @@ pub fn generated_words(
     for (i, rule) in grammar.mrules.iter().enumerate() {
         match rule {
             MorphRuleDef::Compounding(_) => compounds = true,
+            MorphRuleDef::Realizational(_) => {}
             _ => rules.push(MRuleId(i as u32)),
         }
     }
@@ -232,6 +233,14 @@ pub fn generated_words(
         }
         if words.len() >= cap {
             break;
+        }
+    }
+    // Generation needs the realizational features of the request; parse unapplies the rule on
+    // the written form, so the grammar's recorded suffix is appended to the plain words.
+    let plain: Vec<String> = words.iter().take(60).cloned().collect();
+    for w in plain {
+        for t in &generated.real_suffixes {
+            words.insert(format!("{w}{t}"));
         }
     }
     words

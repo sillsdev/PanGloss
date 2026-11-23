@@ -101,7 +101,7 @@ impl GateConfig {
             word_cap: 160,
             t2_words_per_grammar: 6,
             min_inbound_grammars_per_feature: 2,
-            min_applied_words_per_feature: 2,
+            min_applied_words_per_feature: 3,
             verbose_seed: None,
         };
         if let Some(seed) = num("CASCADE_FUZZ_REPLAY") {
@@ -160,10 +160,6 @@ impl Report {
             self.t2_checked,
             self.t2_skipped,
             self.refusals_not_applicable
-        );
-        let _ = writeln!(
-            s,
-            "switches with no applied-word minimum (parse never runs them): {UNREACHED_BY_PARSE:?}"
         );
         let _ = writeln!(s, "refused constructs generated: {:?}", self.loaded_refused);
         let _ = writeln!(
@@ -459,12 +455,7 @@ fn check_t2<C: Candidate>(
 /// Shorter runs cannot meet the per-switch minimums, so they skip them.
 pub const MIN_SEEDS_FOR_COVERAGE: u64 = 250;
 
-/// Switches whose rules plain HC only runs when a generation request carries realizational
-/// features; the parse-side analysis never applies them, so no word can count as applied yet.
-pub const UNREACHED_BY_PARSE: [Feature; 2] =
-    [Feature::RealizationalRule, Feature::RealizationalInRuleList];
-
-fn check_minimums(cfg: &GateConfig, report: &mut Report) {
+pub fn check_minimums(cfg: &GateConfig, report: &mut Report) {
     if cfg.seeds < MIN_SEEDS_FOR_COVERAGE
         || (cfg.min_inbound_grammars_per_feature == 0 && cfg.min_applied_words_per_feature == 0)
     {
@@ -478,7 +469,7 @@ fn check_minimums(cfg: &GateConfig, report: &mut Report) {
                 c.inbound_grammars, cfg.min_inbound_grammars_per_feature
             ));
         }
-        if c.applied_words < cfg.min_applied_words_per_feature && !UNREACHED_BY_PARSE.contains(&f) {
+        if c.applied_words < cfg.min_applied_words_per_feature {
             report.failures.push(format!(
                 "feature {f:?}: only {} words on which HC applied it (minimum {})",
                 c.applied_words, cfg.min_applied_words_per_feature
