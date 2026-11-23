@@ -57,6 +57,14 @@ const RECALL_REGRESSIONS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
+        "machine:edge-cases/partial-rule-deleted-material",
+        ProposalRecallGap::PartialRuleDeletionOrReduplication,
+    ),
+    (
+        "machine:edge-cases/partial-rule-wrapped-material",
+        ProposalRecallGap::PartialRuleDeletionOrReduplication,
+    ),
+    (
         "machine:edge-cases/class-deletion-reinsertion-strrep",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
@@ -327,14 +335,6 @@ const COLLATERAL_REFUSALS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::TemplateReentry,
     ),
     (
-        "machine:edge-cases/partial-rule-deleted-material",
-        ProposalRecallGap::TruncationComposition,
-    ),
-    (
-        "machine:edge-cases/partial-rule-wrapped-material",
-        ProposalRecallGap::TruncationComposition,
-    ),
-    (
         "machine:edge-cases/truncate-morphotactic",
         ProposalRecallGap::TruncationComposition,
     ),
@@ -435,6 +435,13 @@ fn recall_refusals_follow_referenced_constructs_even_when_names_are_unchanged() 
             ProposalRecallGap::TruncationComposition => {
                 for stratum in &mut grammar.strata {
                     stratum.mrules.truncate(1);
+                }
+            }
+            ProposalRecallGap::PartialRuleDeletionOrReduplication => {
+                for rule in &mut grammar.mrules {
+                    if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
+                        def.partial_reason = None;
+                    }
                 }
             }
             _ => {
@@ -676,18 +683,25 @@ fn generated_inventory_admission_preserves_every_hc_proposal() {
     assert_eq!(admitted + refused, 522);
 }
 
-fn refuses_partial_material_composition(grammar: &pg_grammar::model::Grammar) -> bool {
+fn refuses_partial_rule_gap(grammar: &pg_grammar::model::Grammar) -> bool {
     use pg_foma::analyzer::{compile_proposer, FomaError};
     match compile_proposer(grammar) {
         Err(FomaError::CapabilityRefused(refusals)) => refusals.iter().any(|d| {
-            d.refusal == CapabilityRefusal::ProposalRecall(ProposalRecallGap::TruncationComposition)
+            d.refusal
+                == CapabilityRefusal::ProposalRecall(
+                    ProposalRecallGap::PartialRuleDeletionOrReduplication,
+                )
         }),
         _ => false,
     }
 }
 
+// Probes a narrowing rewrite `o t -> t` and a reduplication in a stratum before the partial rule.
+const NARROWING_PROBE: &str = include_str!("fixtures/partial-rule-gap-probes/p2-narrowing.xml");
+const EARLY_REDUP_PROBE: &str = include_str!("fixtures/partial-rule-gap-probes/p1-early-redup.xml");
+
 #[test]
-fn a_partial_rule_whose_material_a_deletion_or_reduplication_reaches_is_refused() {
+fn a_partial_rule_with_a_deletion_or_reduplication_is_refused() {
     let fixtures = discover();
     let load = |name: &str| {
         let label = format!("machine:edge-cases/{name}");
@@ -697,24 +711,41 @@ fn a_partial_rule_whose_material_a_deletion_or_reduplication_reaches_is_refused(
             .expect("fixture is pinned")
             .load_grammar()
     };
-    for name in [
-        "partial-rule-deleted-material",
-        "partial-rule-wrapped-material",
-    ] {
-        let mut grammar = load(name);
-        assert!(refuses_partial_material_composition(&grammar), "{name}");
+    let clear_partial = |grammar: &mut pg_grammar::model::Grammar| {
         for rule in &mut grammar.mrules {
             if let pg_grammar::model::MorphRuleDef::AffixProcess(def) = rule {
                 def.partial_reason = None;
             }
         }
+    };
+    let mut cases: Vec<(&str, pg_grammar::model::Grammar)> = vec![
+        (
+            "partial-rule-deleted-material",
+            load("partial-rule-deleted-material"),
+        ),
+        (
+            "partial-rule-wrapped-material",
+            load("partial-rule-wrapped-material"),
+        ),
+        (
+            "p2-narrowing",
+            pg_grammar::load(NARROWING_PROBE).expect("probe loads"),
+        ),
+        (
+            "p1-early-redup",
+            pg_grammar::load(EARLY_REDUP_PROBE).expect("probe loads"),
+        ),
+    ];
+    for (name, grammar) in &mut cases {
+        assert!(refuses_partial_rule_gap(grammar), "{name}");
+        clear_partial(grammar);
         assert!(
-            !refuses_partial_material_composition(&grammar),
+            !refuses_partial_rule_gap(grammar),
             "{name}: without a partial rule the refusal must not apply"
         );
     }
     assert!(
-        !refuses_partial_material_composition(&load("partial-rule-infixed-material")),
+        !refuses_partial_rule_gap(&load("partial-rule-infixed-material")),
         "a partial rule with neither a deletion nor a reduplication stays admitted"
     );
 }

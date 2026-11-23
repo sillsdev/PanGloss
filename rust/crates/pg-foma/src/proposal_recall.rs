@@ -109,10 +109,10 @@ pub(crate) fn refusals_with_spelling(
             "deletion or insertion that can change which morph a later stratum's affix orders first",
             "Rust HC, like C#, orders a morph that lost every node, or sits beside a deleted or inserted node, by the later affix's copy, and the surface skeleton tags morphs in their lexical order"));
     }
-    if partial_rule_material_can_be_reached(g) {
-        gaps.push((ProposalRecallGap::TruncationComposition,
-            "partial morphological rule whose material a later deletion or reduplication reaches",
-            "the proposer does not follow a partial rule's material through a rewrite that deletes it or a reduplication that copies it, so analyses of words built that way are lost"));
+    if partial_rule_deletion_or_reduplication(g) {
+        gaps.push((ProposalRecallGap::PartialRuleDeletionOrReduplication,
+            "partial morphological rule in a grammar that also has a deleting rewrite (from the first partial rule's stratum on) or a peelable reduplication",
+            "stopgap refusal: the proposer loses analyses when a deletion removes affix material at a junction before a template-slot affix, or when a peelable reduplication precedes a later affix; neither needs a partial rule (#415, #416), but the two upstream partial-rule fixtures reach them and the predicate keys on a partial rule to keep every other admission unchanged"));
     }
     for (stratum_index, stratum) in g.strata.iter().enumerate() {
         if stratum
@@ -217,8 +217,8 @@ pub(crate) fn refusals_with_spelling(
     }
 }
 
-/// Whether a stratum holds a partial affix rule and the same or a later stratum can delete segments or copy them by reduplication.
-fn partial_rule_material_can_be_reached(g: &Grammar) -> bool {
+/// Stopgap: a partial affix rule plus a peelable reduplication or a deleting rewrite; TODO replace with fixes for the junction-deletion and reduplication-before-later-affix holes, tracked in #415 (deletion across a morph junction) and #416 (whole-stem reduplication before a template-slot or later-stratum affix).
+fn partial_rule_deletion_or_reduplication(g: &Grammar) -> bool {
     let Some(first_partial) = g.strata.iter().position(|stratum| {
         stratum.mrules.iter().any(|&mid| {
             matches!(&g.mrules[mid.0 as usize], MorphRuleDef::AffixProcess(rule) if rule.is_partial())
@@ -226,15 +226,17 @@ fn partial_rule_material_can_be_reached(g: &Grammar) -> bool {
     }) else {
         return false;
     };
-    g.strata[first_partial..].iter().any(|stratum| {
+    let redup = g.strata.iter().any(|stratum| {
         stratum
             .mrules
             .iter()
             .any(|&mid| reduplication_rule_is_peelable(g, mid))
-            || stratum.prules.iter().any(|id| {
+    });
+    redup
+        || g.strata[first_partial..].iter().any(|stratum| {
+            stratum.prules.iter().any(|id| {
                 matches!(&g.prules[id.0 as usize], PhonRuleDef::Rewrite(rule)
-                    if !rule.lhs.nodes.is_empty()
-                        && rule.subrules.iter().any(|subrule| subrule.rhs.nodes.is_empty()))
+                    if crate::emptied_morph::rewrite_deletes(rule))
             })
-    })
+        })
 }
