@@ -5,11 +5,17 @@
 //! adapted to at W5.
 
 pub mod budget;
+pub mod casefold_table;
+pub mod error;
+pub mod fold;
 pub mod layer;
 pub mod product;
 pub mod trim;
+pub mod units;
 
 pub use budget::{BuildMeter, BuildRefused, BuildStop, CascadeStop, PrepassBudget, WordBudget};
+pub use error::{build_err_layer, kb_adjacent, parse_thousandths, ErrWeights, WeightRefused};
+pub use fold::{build_fold_layer, casefold_char, fold_base};
 pub use layer::{
     identity_layer, prepare_layer, Arc, BadTag, Input, Layer, LayerScratch, NfaBuilder, NfaLayer,
     Output, StateId, Tag, TagKind, Token, TokenSet,
@@ -19,6 +25,9 @@ pub use product::{
     Request,
 };
 pub use trim::{GraphArc, TrimmedGraph};
+pub use units::{build_units_layer, cut_units, nfd_string, Stack, UnitModel, UnitTok};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod ws1_tests;
