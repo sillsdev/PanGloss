@@ -162,6 +162,10 @@ struct Tally {
     sampled_rules: usize,
     under: Vec<String>,
     missing_images: Vec<String>,
+    /// per matcher: (cases, matched, probes, sampled probes)
+    kinds: std::collections::BTreeMap<String, (u64, u64, u64, u64)>,
+    skipped_env: usize,
+    skipped_other: usize,
 }
 
 fn rewrite_rules(g: &Grammar) -> Vec<&RewriteRuleDef> {
@@ -172,6 +176,105 @@ fn rewrite_rules(g: &Grammar) -> Vec<&RewriteRuleDef> {
             PhonRuleDef::Metathesis(_) => None,
         })
         .collect()
+}
+
+
+fn simple_node(g: &Grammar, node: &PatternNode) -> Option<bool> {
+    // Some(true) = probed segment/class node, Some(false) = boundary or anchor (not probed), None = not modelled by this probe.
+    let table = &g.char_tables[0];
+    match node {
+        PatternNode::Context(_) => Some(true),
+        PatternNode::CharDef(id) => Some(table.get(*id).kind() != CharDefKind::Boundary),
+        PatternNode::Anchor(_) => Some(false),
+        _ => None,
+    }
+}
+
+fn label_of(node: &BlockNode) -> String {
+    match node {
+        BlockNode::Segment { lanes, cd } => format!("{lanes:?} cd {cd}"),
+        BlockNode::Boundary(b) => format!("boundary {b:?}"),
+    }
+}
+
+/// Enumerates tuples of `pool` of length `members.len()` (exhaustive to `EXHAUSTIVE`, else `SAMPLE` seeded draws); for every tuple on which `applies` says the synthesis matcher accepted, each element's token must be in its node's cascade class.
+#[allow(clippy::too_many_arguments)]
+fn probe(
+    tally: &mut Tally,
+    label: &str,
+    what: &str,
+    pool: &[&Element],
+    members: &[&HashSet<CharDefId>],
+    mut applies: impl FnMut(&[&Element]) -> bool,
+) {
+    let n = members.len();
+    if n == 0 || pool.is_empty() {
+        return;
+    }
+    let e = pool.len() as u64;
+    let total = e.checked_pow(n as u32).unwrap_or(u64::MAX);
+    let exhaustive = total <= EXHAUSTIVE;
+    let cases = if exhaustive { total } else { SAMPLE };
+    let stat = tally.kinds.entry(what.split(' ').next().unwrap().to_owned()).or_default();
+    stat.2 += 1;
+    if !exhaustive {
+        stat.3 += 1;
+        println!("W2 {label} {what}: sampled {cases} of {total} tuples, seed {SEED:#x}");
+    }
+    let mut rng = Rng(SEED ^ (what.len() as u64));
+    let mut idx = vec![0usize; n];
+    let (mut ran, mut hit) = (0u64, 0u64);
+    let mut found = Vec::new();
+    for case in 0..cases {
+        if exhaustive {
+            let mut c = case;
+            for slot in idx.iter_mut().rev() {
+                *slot = (c % e) as usize;
+                c /= e;
+            }
+        } else {
+            for slot in idx.iter_mut() {
+                *slot = (rng.next() % e) as usize;
+            }
+        }
+        let els: Vec<&Element> = idx.iter().map(|&i| pool[i]).collect();
+        ran += 1;
+        if !applies(&els) {
+            continue;
+        }
+        hit += 1;
+        for (k, el) in els.iter().enumerate() {
+            let token = el.token.unwrap();
+            if !members[k].contains(&token) {
+                found.push(format!(
+                    "{label} {what} node {k}: synthesis matched element {} but the cascade class lacks token {token:?}",
+                    label_of(&el.node)
+                ));
+            }
+        }
+        if found.len() > 20 {
+            break;
+        }
+    }
+    let stat = tally.kinds.entry(what.split(' ').next().unwrap().to_owned()).or_default();
+    stat.0 += ran;
+    stat.1 += hit;
+    tally.under.extend(found);
+}
+
+fn strip_one(rule: &RewriteRuleDef, only: usize) -> RewriteRuleDef {
+    let mut r = strip(rule);
+    let keep = &rule.subrules[only];
+    r.subrules = vec![pg_grammar::model::RewriteSubruleDef {
+        required_pos: None,
+        required_mpr: Default::default(),
+        excluded_mpr: Default::default(),
+        rhs: keep.rhs.clone(),
+        left_env: keep.left_env.clone(),
+        right_env: keep.right_env.clone(),
+        self_opaquing: keep.self_opaquing,
+    }];
+    r
 }
 
 fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
@@ -271,6 +374,7 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
             println!("W2 {label} rule {}: sampled {cases} of {total} tuples, seed {SEED:#x}", rule.xml_id);
         }
         let mut rng = Rng(SEED ^ (rule.xml_id.len() as u64));
+        let mut foci: Vec<Vec<BlockNode>> = Vec::new();
         {
             let stripped = strip(rule);
             let mut idx = vec![0usize; n];
@@ -292,6 +396,9 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
                 let result = synthesize(g, &stripped, &shape);
                 let Some(out) = result.first() else { continue };
                 tally.matched += 1;
+                if foci.len() < 6 {
+                    foci.push(focus.clone());
+                }
                 for (&k, &i) in probed.iter().zip(idx.iter()) {
                     let token = pool[i].token.unwrap();
                     if !members[k].contains(&token) && table.get(token).kind() != CharDefKind::Boundary {
@@ -316,6 +423,80 @@ fn check_grammar(label: &str, g: &Grammar, tally: &mut Tally) {
                 }
             }
         }
+        // Environment nodes: the whole rule (one subrule, gates dropped) applied to left tuple + a focus synthesis matched + right tuple.
+        let segs: Vec<&Element> = elems.iter().filter(|el| matches!(el.node, BlockNode::Segment { .. })).collect();
+        for (si, sub) in rule.subrules.iter().enumerate() {
+            let sides: Vec<&pg_grammar::model::Pattern> = [&sub.left_env, &sub.right_env].into_iter().flatten().collect();
+            if sides.is_empty() {
+                continue;
+            }
+            let kinds: Vec<Vec<Option<bool>>> = sides.iter().map(|p| p.nodes.iter().map(|n| simple_node(g, n)).collect()).collect();
+            if kinds.iter().flatten().any(|k| k.is_none()) {
+                tally.skipped_env += 1;
+                continue;
+            }
+            let left_n = sub.left_env.as_ref().map_or(0, |p| p.nodes.iter().filter(|n| simple_node(g, n) == Some(true)).count());
+            let mut sets: Vec<HashSet<CharDefId>> = Vec::new();
+            for p in &sides {
+                for node in p.nodes.iter().filter(|n| simple_node(g, n) == Some(true)) {
+                    sets.push(closure.node_members(g, node).unwrap_or_default().into_iter().collect());
+                }
+            }
+            let refs: Vec<&HashSet<CharDefId>> = sets.iter().collect();
+            let one = strip_one(rule, si);
+            for (fi, focus) in foci.iter().enumerate() {
+                let what = format!("env {} sub{si} focus{fi}", rule.xml_id);
+                probe(tally, label, &what, &segs, &refs, |els| {
+                    let mut nodes: Vec<BlockNode> = els[..left_n].iter().map(|e| e.node.clone()).collect();
+                    nodes.extend(focus.iter().cloned());
+                    nodes.extend(els[left_n..].iter().map(|e| e.node.clone()));
+                    !synthesize(g, &one, &shape_of(g, &nodes)).is_empty()
+                });
+            }
+        }
+    }
+    // Affix allomorph lhs through the matcher affix synthesis uses.
+    let segs: Vec<&Element> = elems.iter().filter(|el| matches!(el.node, BlockNode::Segment { .. })).collect();
+    for rule in &g.mrules {
+        let Some(allos) = rule.affix_allomorphs() else { continue };
+        for allo in allos {
+            let nodes: Vec<&PatternNode> = allo.lhs.iter().flat_map(|p| p.nodes.iter()).collect();
+            if nodes.is_empty() || nodes.iter().any(|n| simple_node(g, n).is_none()) {
+                tally.skipped_other += 1;
+                continue;
+            }
+            let sets: Vec<HashSet<CharDefId>> = nodes
+                .iter()
+                .filter(|n| simple_node(g, n) == Some(true))
+                .map(|n| closure.node_members(g, n).unwrap_or_default().into_iter().collect())
+                .collect();
+            let refs: Vec<&HashSet<CharDefId>> = sets.iter().collect();
+            let what = format!("affix {:?}", allo.id);
+            probe(tally, label, &what, &segs, &refs, |els| {
+                let nodes: Vec<BlockNode> = els.iter().map(|e| e.node.clone()).collect();
+                pg_rules::morph::lhs_parts_match(g, TableId(0), &allo.lhs, &shape_of(g, &nodes))
+            });
+        }
+    }
+    // Metathesis switches and pattern nodes, by pattern position.
+    for pr in &g.prules {
+        let PhonRuleDef::Metathesis(rule) = pr else { continue };
+        let nodes: Vec<&PatternNode> = rule.pattern.nodes.iter().collect();
+        if nodes.iter().any(|n| simple_node(g, n).is_none()) {
+            tally.skipped_other += 1;
+            continue;
+        }
+        let sets: Vec<HashSet<CharDefId>> = nodes
+            .iter()
+            .filter(|n| simple_node(g, n) == Some(true))
+            .map(|n| closure.node_members(g, n).unwrap_or_default().into_iter().collect())
+            .collect();
+        let refs: Vec<&HashSet<CharDefId>> = sets.iter().collect();
+        let what = format!("meta {}", rule.xml_id);
+        probe(tally, label, &what, &segs, &refs, |els| {
+            let nodes: Vec<BlockNode> = els.iter().map(|e| e.node.clone()).collect();
+            !pg_rules::metathesis::synthesize(g, rule, &shape_of(g, &nodes)).is_empty()
+        });
     }
 }
 
@@ -340,6 +521,10 @@ fn class_membership_and_images_are_a_superset_of_synthesis() {
         tally.grammars, tally.refused.len(), tally.rules, tally.skipped_nodes, tally.cases, tally.matched,
         tally.sampled_rules, tally.under.len(), tally.missing_images.len()
     );
+    for (k, (cases, hit, probes, sampled)) in &tally.kinds {
+        println!("W2 matcher {k}: probes={probes} sampled={sampled} cases={cases} matched={hit}");
+    }
+    println!("W2 skipped: env={} other={}", tally.skipped_env, tally.skipped_other);
     for r in &tally.refused {
         println!("W2 refused {r}");
     }

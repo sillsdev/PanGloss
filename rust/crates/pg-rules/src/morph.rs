@@ -1232,6 +1232,20 @@ pub(crate) fn segs_of(
     (segs, node_of)
 }
 
+/// Whether the whole of `shape` matches the allomorph left-hand parts `parts` under the matcher affix synthesis uses (identity lanes, boundaries optional, anchored at both ends). A test seam for gates comparing another backend's class membership with this matcher; it applies no gate and builds nothing.
+pub fn lhs_parts_match(g: &Grammar, table: TableId, parts: &[Pattern], shape: &Shape) -> bool {
+    let Ok((fst, _names)) = compile_parts(g, table, parts, "p", true) else {
+        return false;
+    };
+    let (segs, _node_of) = segs_of(g, table, shape, true);
+    Transduce::new(&fst, &segs)
+        .anchored(true, true)
+        .all_matches()
+        .into_iter()
+        .next()
+        .is_some()
+}
+
 /// Provenance of an output node, used for morph attribution and span remapping.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Origin {
