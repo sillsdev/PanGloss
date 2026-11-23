@@ -58,7 +58,7 @@ pub(crate) fn describe() -> Value {
             "maxSeeds": "integer >= 1",
             "maxTraceSteps": "integer >= 1; counts retained trace nodes across every seed",
             "maxWork": "integer >= 1; lowers the generation cap for this request",
-            "timeoutMs": "integer >= 0; wall-clock deadline for this request",
+            "wordTimeoutMs": "integer >= 0; wall-clock deadline for this request",
         },
         "limits": {
             "generationCap": crate::DEFAULT_GENERATION_WORK_CAP,
@@ -121,7 +121,7 @@ fn parse_options(object: &Map<String, Value>) -> Result<Options, OpError> {
         "maxSeeds",
         "maxTraceSteps",
         "maxWork",
-        "timeoutMs",
+        "wordTimeoutMs",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
         return Err(bad(format!("unknown generate field: {unknown}")));
@@ -131,11 +131,11 @@ fn parse_options(object: &Map<String, Value>) -> Result<Options, OpError> {
         Some(Value::Bool(b)) => *b,
         Some(_) => return Err(bad("\"trace\" must be a boolean")),
     };
-    let timeout = match object.get("timeoutMs") {
+    let timeout = match object.get("wordTimeoutMs") {
         None => None,
         Some(value) => {
             Some(Duration::from_millis(value.as_u64().ok_or_else(|| {
-                bad("\"timeoutMs\" must be a non-negative integer")
+                bad("\"wordTimeoutMs\" must be a non-negative integer")
             })?))
         }
     };

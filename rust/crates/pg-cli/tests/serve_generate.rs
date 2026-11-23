@@ -402,7 +402,7 @@ fn work_limit_stops_with_the_partial_result() {
 fn deadline_stops_with_a_typed_reason() {
     let project = Project::new("kat.fwdata", FWDATA);
     let mut server = Server::start(&project);
-    let r = server.generate(&[AFFIX], json!({"timeoutMs": 0}));
+    let r = server.generate(&[AFFIX], json!({"wordTimeoutMs": 0}));
     assert_eq!(r["complete"], false, "{r}");
     assert_eq!(r["stopReason"], "deadline");
 }
@@ -505,7 +505,7 @@ fn describe_matches_what_the_op_emits() {
         server.generate(&[AFFIX], json!({"maxSeeds": 1})),
         server.generate(&[AFFIX], json!({"maxWork": 1})),
         server.generate(&[AFFIX], json!({"maxWork": 2})),
-        server.generate(&[AFFIX], json!({"timeoutMs": 0})),
+        server.generate(&[AFFIX], json!({"wordTimeoutMs": 0})),
         server.generate(&[AFFIX], json!({"trace": true, "maxTraceSteps": 2})),
     ];
     let mut seen: Vec<String> = emitted
