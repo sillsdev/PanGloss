@@ -780,6 +780,9 @@ const JUNCTION_T2: &str =
 const JUNCTION_T4: &str =
     include_str!("fixtures/partial-rule-gap-probes/t4-bdel-feeds-cfnarrow.xml");
 const REDUP_WRAP_NP_NT: &str = include_str!("fixtures/partial-rule-gap-probes/r3-wrap-np-nt.xml");
+const REDUP_U9: &str = include_str!("fixtures/partial-rule-gap-probes/u9-redup-compound.xml");
+const REDUP_U11: &str =
+    include_str!("fixtures/partial-rule-gap-probes/u11-redup-compound-same.xml");
 const REDUP_LOPLOPT: &str = include_str!("fixtures/partial-rule-gap-probes/r1-loplopt.xml");
 const REDUP_LOPLOPKOR: &str = include_str!("fixtures/partial-rule-gap-probes/r2-loplopkor.xml");
 
@@ -811,6 +814,8 @@ fn a_reduplication_before_a_later_affix_is_refused() {
         ("loplopt", REDUP_LOPLOPT),
         ("loplopkor", REDUP_LOPLOPKOR),
         ("wrap-np-nt", REDUP_WRAP_NP_NT),
+        ("u9-redup-compound", REDUP_U9),
+        ("u11-redup-compound-same", REDUP_U11),
     ] {
         let grammar = pg_grammar::load(xml).expect("probe loads");
         assert!(

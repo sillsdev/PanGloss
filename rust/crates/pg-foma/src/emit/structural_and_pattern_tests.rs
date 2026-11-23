@@ -541,6 +541,26 @@ fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
         probe_surface(&g, table, &feat_shape, &cache),
         Some("bubu".to_string())
     );
+
+    // A bare root needs no affix, which the proposer would refuse beside this deleting rewrite.
+    let mut bare = pg_grammar::load(&scalar_polysynthetic_control_xml())
+        .expect("scalar vowel control must load");
+    for stratum in &mut bare.strata {
+        stratum.mrules.clear();
+        stratum.templates.clear();
+    }
+    bare.mrules.clear();
+    for owner in &mut bare.allomorph_owners {
+        if matches!(owner, pg_grammar::model::AllomorphOwner::Affix(..)) {
+            *owner = pg_grammar::model::AllomorphOwner::Root(pg_grammar::model::LexEntryId(0), 0);
+        }
+    }
+    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&bare);
+    let mut proposer = proposer.expect("development-only partial proposer compiles");
+    assert!(
+        !proposer.propose("buuubuuu").is_empty(),
+        "\"buuubuuu\" must be proposable despite the probe's own wrong answer"
+    );
 }
 
 /// The full parser handles the harmony cascade while the FST backend refuses its alpha environment.

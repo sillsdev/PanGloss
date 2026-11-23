@@ -297,12 +297,9 @@ fn deletes_only_boundaries(
         && rhs.len() == lhs.iter().filter(|k| **k == CharDefKind::Segment).count()
 }
 
-/// Whether a peelable reduplication sits in a grammar with an affix in some template slot, or in its own or a later stratum (#416).
+/// Whether a peelable reduplication sits in a grammar with another morphological rule (affix or compounding) in some template slot, or in its own or a later stratum (#416).
 fn reduplication_before_later_affix(g: &Grammar) -> bool {
-    let is_affix = |mid: &pg_grammar::model::MRuleId| {
-        g.mrules[mid.0 as usize].affix_allomorphs().is_some()
-            && !reduplication_rule_is_peelable(g, *mid)
-    };
+    let is_affix = |mid: &pg_grammar::model::MRuleId| !reduplication_rule_is_peelable(g, *mid);
     let template_affix = g
         .strata
         .iter()
