@@ -15,10 +15,9 @@ use pg_parse::source_identity::{
 };
 use pg_parse::Morpher;
 use pg_rules::pattern_match::{
-    compile_match, compile_straddle, has_edge_marker, has_underspecified_segment,
+    compile_match_as_engine, compile_straddle, has_edge_marker, has_underspecified_segment,
     segment_byte_spans, segment_count, CompiledMatch, StraddleProbes,
 };
-use pg_rules::pattern_text::ParsedPattern;
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use pg_snapshot::FwClass;
 use serde_json::{json, Map, Value};
@@ -415,16 +414,7 @@ fn compile_lhs(g: &Grammar, table: TableId, pattern: &Pattern) -> Option<Compile
     };
     Some(CompiledLhs {
         table,
-        full: compile_match(
-            g,
-            table,
-            &ParsedPattern {
-                target: pattern.clone(),
-                environment: None,
-                synthetic_classes: Vec::new(),
-            },
-        )
-        .ok()?,
+        full: compile_match_as_engine(g, table, pattern).ok()?,
         straddle,
     })
 }
@@ -1001,11 +991,141 @@ mod tests {
         (whole.interior().count() == at - 1).then_some((word, ranges))
     }
 
+    /// Runs the engine sweep over one grammar, adding to the counts and the violations (one line each).
+    fn sweep_grammar(
+        label: &str,
+        g: &Grammar,
+        counts: &mut (usize, usize, usize),
+        violations: &mut Vec<String>,
+    ) {
+        let (applied, length_changes, checked) = (&mut counts.0, &mut counts.1, &mut counts.2);
+        let mut roots: Vec<String> = g
+            .entries
+            .iter()
+            .flat_map(|e| e.allomorphs.iter().map(|a| a.shape.text.clone()))
+            .filter(|t| !t.is_empty())
+            .collect();
+        roots.sort();
+        roots.dedup();
+        roots.truncate(25);
+        for (stratum_index, stratum) in g.strata.iter().enumerate() {
+            let chardefs = &g.char_tables[stratum.table.0 as usize];
+            let mut separators = vec![String::new()];
+            let mut segments: Vec<String> = Vec::new();
+            for (_, def) in chardefs.iter() {
+                let Some(first) = def.representations_nfd().first().filter(|r| !r.is_empty())
+                else {
+                    continue;
+                };
+                match def.kind() {
+                    CharDefKind::Boundary => separators.push(first.clone()),
+                    CharDefKind::Segment => segments.push(first.clone()),
+                }
+            }
+            separators.truncate(3);
+            segments.truncate(12);
+            let mut neighbours = vec![String::new()];
+            neighbours.extend(roots.iter().cloned());
+            neighbours.extend(segments.iter().cloned());
+            let mut foci = roots.clone();
+            foci.extend(segments.iter().cloned());
+            for PRuleId(rule_index) in &stratum.prules {
+                let Some(PhonRuleDef::Rewrite(rule)) = g.prules.get(*rule_index as usize) else {
+                    continue;
+                };
+                if rule.lhs.nodes.is_empty() {
+                    continue;
+                }
+                let Some(compiled) = compile_lhs(g, stratum.table, &rule.lhs) else {
+                    continue;
+                };
+                for focus in &foci {
+                    let Ok(focus_segments) = segments_of(g, stratum.table, focus) else {
+                        continue;
+                    };
+                    let form = AllomorphForm {
+                        id: AllomorphId(0),
+                        text: focus.clone(),
+                        segments: focus_segments,
+                        runs: vec![focus.clone()],
+                        partial: false,
+                        opaque: false,
+                    };
+                    let verdict = scan_form(
+                        g,
+                        &compiled,
+                        &form,
+                        Instant::now() + std::time::Duration::from_secs(60),
+                        MATCH_WORK_PER_UNIT,
+                    );
+                    if !matches!(verdict, LhsVerdict::NotOnForm) {
+                        continue;
+                    }
+                    *checked += 1;
+                    for separator in &separators {
+                        for left in &neighbours {
+                            for right in &neighbours {
+                                let parts =
+                                    [left, separator, focus, separator, right].map(String::as_str);
+                                let Some((word, ranges)) = word_ranges(g, stratum.table, &parts)
+                                else {
+                                    continue;
+                                };
+                                let (from, to) = ranges[2];
+                                let input = pg_rules::shape_feat::segment_with_features(
+                                    g,
+                                    &g.char_tables[stratum.table.0 as usize],
+                                    &word,
+                                )
+                                .expect("the parts segmented");
+                                let Ok(outputs) =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        pg_rules::rewrite::synthesize(g, rule, &input)
+                                    }))
+                                else {
+                                    continue;
+                                };
+                                let Some(out) = outputs.last() else { continue };
+                                let same = |i: usize, j: usize| {
+                                    input.char_def(i) == out.char_def(j)
+                                        && input.node_lanes(i) == out.node_lanes(j)
+                                };
+                                let hit = if out.len() != input.len() {
+                                    *length_changes += 1;
+                                    let common = input.len().min(out.len());
+                                    let prefix = (0..common).take_while(|&i| same(i, i)).count();
+                                    let suffix = (0..common)
+                                        .take_while(|&k| {
+                                            same(input.len() - 1 - k, out.len() - 1 - k)
+                                        })
+                                        .count();
+                                    let end = input.len().saturating_sub(suffix);
+                                    prefix < end && prefix < to && from < end && end - prefix <= 2
+                                } else {
+                                    let changed: Vec<usize> =
+                                        (0..input.len()).filter(|&i| !same(i, i)).collect();
+                                    *applied += usize::from(!changed.is_empty());
+                                    changed.iter().any(|p| (from..to).contains(p))
+                                };
+                                if hit {
+                                    violations.push(format!(
+                                        "{} s{stratum_index} {} focus `{focus}` word `{word}`",
+                                        label, rule.xml_id
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Soundness against the engine, over every edge-case fixture of the conformance suite: wherever `synthesize` changes a node of a focus form between any neighbours (empty, a root or a segment, joined with no separator or with each boundary character of the table), the rule's verdict for that focus is never `NotOnForm`. A length-changing result counts when the changed region overlaps the focus. Returns the number of violations; rules with an empty target and metathesis rules are not covered.
     #[test]
     fn a_rule_the_engine_applies_to_a_form_is_never_not_on_form() {
         let mut violations = Vec::new();
-        let (mut applied, mut length_changes, mut checked) = (0usize, 0usize, 0usize);
+        let mut counts = (0usize, 0usize, 0usize);
         for fixture in
             pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
         {
@@ -1015,133 +1135,9 @@ mod tests {
             let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
                 continue;
             };
-            let mut roots: Vec<String> = g
-                .entries
-                .iter()
-                .flat_map(|e| e.allomorphs.iter().map(|a| a.shape.text.clone()))
-                .filter(|t| !t.is_empty())
-                .collect();
-            roots.sort();
-            roots.dedup();
-            roots.truncate(25);
-            for (stratum_index, stratum) in g.strata.iter().enumerate() {
-                let chardefs = &g.char_tables[stratum.table.0 as usize];
-                let mut separators = vec![String::new()];
-                let mut segments: Vec<String> = Vec::new();
-                for (_, def) in chardefs.iter() {
-                    let Some(first) = def.representations_nfd().first().filter(|r| !r.is_empty())
-                    else {
-                        continue;
-                    };
-                    match def.kind() {
-                        CharDefKind::Boundary => separators.push(first.clone()),
-                        CharDefKind::Segment => segments.push(first.clone()),
-                    }
-                }
-                separators.truncate(3);
-                segments.truncate(12);
-                let mut neighbours = vec![String::new()];
-                neighbours.extend(roots.iter().cloned());
-                neighbours.extend(segments.iter().cloned());
-                let mut foci = roots.clone();
-                foci.extend(segments.iter().cloned());
-                for PRuleId(rule_index) in &stratum.prules {
-                    let Some(PhonRuleDef::Rewrite(rule)) = g.prules.get(*rule_index as usize)
-                    else {
-                        continue;
-                    };
-                    if rule.lhs.nodes.is_empty() {
-                        continue;
-                    }
-                    let Some(compiled) = compile_lhs(&g, stratum.table, &rule.lhs) else {
-                        continue;
-                    };
-                    for focus in &foci {
-                        let Ok(focus_segments) = segments_of(&g, stratum.table, focus) else {
-                            continue;
-                        };
-                        let form = AllomorphForm {
-                            id: AllomorphId(0),
-                            text: focus.clone(),
-                            segments: focus_segments,
-                            runs: vec![focus.clone()],
-                            partial: false,
-                            opaque: false,
-                        };
-                        let verdict = scan_form(
-                            &g,
-                            &compiled,
-                            &form,
-                            Instant::now() + std::time::Duration::from_secs(60),
-                            MATCH_WORK_PER_UNIT,
-                        );
-                        if !matches!(verdict, LhsVerdict::NotOnForm) {
-                            continue;
-                        }
-                        checked += 1;
-                        for separator in &separators {
-                            for left in &neighbours {
-                                for right in &neighbours {
-                                    let parts = [left, separator, focus, separator, right]
-                                        .map(String::as_str);
-                                    let Some((word, ranges)) =
-                                        word_ranges(&g, stratum.table, &parts)
-                                    else {
-                                        continue;
-                                    };
-                                    let (from, to) = ranges[2];
-                                    let input = pg_rules::shape_feat::segment_with_features(
-                                        &g,
-                                        &g.char_tables[stratum.table.0 as usize],
-                                        &word,
-                                    )
-                                    .expect("the parts segmented");
-                                    let Ok(outputs) =
-                                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                                            || pg_rules::rewrite::synthesize(&g, rule, &input),
-                                        ))
-                                    else {
-                                        continue;
-                                    };
-                                    let Some(out) = outputs.last() else { continue };
-                                    let same = |i: usize, j: usize| {
-                                        input.char_def(i) == out.char_def(j)
-                                            && input.node_lanes(i) == out.node_lanes(j)
-                                    };
-                                    let hit = if out.len() != input.len() {
-                                        length_changes += 1;
-                                        let common = input.len().min(out.len());
-                                        let prefix =
-                                            (0..common).take_while(|&i| same(i, i)).count();
-                                        let suffix = (0..common)
-                                            .take_while(|&k| {
-                                                same(input.len() - 1 - k, out.len() - 1 - k)
-                                            })
-                                            .count();
-                                        let end = input.len().saturating_sub(suffix);
-                                        prefix < end
-                                            && prefix < to
-                                            && from < end
-                                            && end - prefix <= 2
-                                    } else {
-                                        let changed: Vec<usize> =
-                                            (0..input.len()).filter(|&i| !same(i, i)).collect();
-                                        applied += usize::from(!changed.is_empty());
-                                        changed.iter().any(|p| (from..to).contains(p))
-                                    };
-                                    if hit {
-                                        violations.push(format!(
-                                            "{} s{stratum_index} {} focus `{focus}` word `{word}`",
-                                            fixture.name, rule.xml_id
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            sweep_grammar(&fixture.name, &g, &mut counts, &mut violations);
         }
+        let (applied, length_changes, checked) = counts;
         violations.sort();
         violations.dedup();
         eprintln!(
@@ -1239,5 +1235,130 @@ mod tests {
             }
         }
         assert!(seen > 0, "the fixture has an affix and a rule");
+    }
+
+    /// The engine tests a segment by its features: `{i, u}` accepts the union of their bundles, and `/i/` accepts any segment with the same bundle (here `e`). The grammar has two rules with no environment, `[{i,u}] -> a` and `i -> a`.
+    fn feature_segment_grammar() -> Grammar {
+        pg_grammar::load(include_str!(
+            "../tests/data/effects-feature-segment-test.xml"
+        ))
+        .expect("the attack grammar loads")
+    }
+
+    #[test]
+    fn a_target_the_engine_matches_by_features_is_not_on_form() {
+        let g = feature_segment_grammar();
+        let table = g.strata[0].table;
+        let verdict = |rule: &pg_grammar::model::RewriteRuleDef, focus: &str| {
+            let compiled = compile_lhs(&g, table, &rule.lhs).unwrap();
+            let form = AllomorphForm {
+                id: AllomorphId(0),
+                text: focus.into(),
+                segments: segments_of(&g, table, focus).unwrap(),
+                runs: vec![focus.into()],
+                partial: false,
+                opaque: false,
+            };
+            scan_form(
+                &g,
+                &compiled,
+                &form,
+                Instant::now() + std::time::Duration::from_secs(60),
+                MATCH_WORK_PER_UNIT,
+            )
+        };
+        let rules: Vec<_> = g.strata[0]
+            .prules
+            .iter()
+            .filter_map(|PRuleId(i)| match &g.prules[*i as usize] {
+                PhonRuleDef::Rewrite(rule) => Some(rule),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(rules.len(), 2, "the class rule and the literal rule");
+        let (class_rule, literal_rule) = (rules[0], rules[1]);
+        // The segment-list class `{i, u}` is the union of both features' values, so every vowel is in it.
+        for focus in ["y", "a", "e", "i", "u"] {
+            assert!(
+                !matches!(verdict(class_rule, focus), LhsVerdict::NotOnForm),
+                "class rule on `{focus}`: {}",
+                name(&verdict(class_rule, focus))
+            );
+        }
+        // `/i/` also accepts `e`, which has the same feature bundle, and still excludes the rest.
+        for focus in ["i", "e"] {
+            assert!(
+                !matches!(verdict(literal_rule, focus), LhsVerdict::NotOnForm),
+                "literal rule on `{focus}`: {}",
+                name(&verdict(literal_rule, focus))
+            );
+        }
+        for focus in ["y", "a", "u"] {
+            assert!(
+                matches!(verdict(literal_rule, focus), LhsVerdict::NotOnForm),
+                "literal rule on `{focus}` should stay notOnForm: {}",
+                name(&verdict(literal_rule, focus))
+            );
+        }
+    }
+
+    #[test]
+    fn the_engine_sweep_holds_on_a_grammar_with_feature_matched_segments() {
+        let g = feature_segment_grammar();
+        let mut counts = (0, 0, 0);
+        let mut violations = Vec::new();
+        sweep_grammar("feature-segment-test", &g, &mut counts, &mut violations);
+        violations.sort();
+        violations.dedup();
+        assert!(
+            counts.0 > 0,
+            "the rules change some form: the sweep is not vacuous"
+        );
+        assert!(
+            counts.2 > 0,
+            "some focus is notOnForm: the sweep checks something"
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// The exact matcher behind serve `match` tests segment identity, so it does not match `e` for `/i/` or `y` for `{i, u}`; rule application does. Effects must use the engine's test, `match` keeps identity.
+    #[test]
+    fn the_exact_matcher_differs_from_the_engine_on_feature_matched_segments() {
+        let g = feature_segment_grammar();
+        let table = g.strata[0].table;
+        let shape_of =
+            |text: &str| segment_with_features(&g, &g.char_tables[table.0 as usize], text).unwrap();
+        let mut differing = 0;
+        for PRuleId(i) in &g.strata[0].prules {
+            let PhonRuleDef::Rewrite(rule) = &g.prules[*i as usize] else {
+                continue;
+            };
+            let exact = pg_rules::pattern_match::compile_match(
+                &g,
+                table,
+                &pg_rules::pattern_text::ParsedPattern {
+                    target: rule.lhs.clone(),
+                    environment: None,
+                    synthetic_classes: Vec::new(),
+                },
+            )
+            .unwrap();
+            let engine = compile_match_as_engine(&g, table, &rule.lhs).unwrap();
+            for focus in ["i", "y", "a", "u", "e"] {
+                let (exact, engine) = (
+                    exact.matches(&g, &shape_of(focus)),
+                    engine.matches(&g, &shape_of(focus)),
+                );
+                assert!(
+                    exact.iter().all(|m| engine.contains(m)),
+                    "the engine's test accepts everything the exact one does"
+                );
+                differing += usize::from(exact != engine);
+            }
+        }
+        assert!(
+            differing > 0,
+            "serve `match` and rule application differ here"
+        );
     }
 }

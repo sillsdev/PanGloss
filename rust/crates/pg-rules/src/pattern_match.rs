@@ -20,7 +20,10 @@ use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId
 use crate::pattern_text::ParsedPattern;
 use pg_shape::{NodeKind, Shape};
 
-use crate::rewrite::{bind_exact_span, environment_holds, try_compile_env, Bindings, EnvFst};
+use crate::rewrite::{
+    bind_exact_span, environment_holds, try_compile_env, try_compile_env_as_engine, Bindings,
+    EnvFst,
+};
 
 /// A pattern compiled once and applied to many shapes.
 pub struct CompiledMatch {
@@ -32,6 +35,8 @@ pub struct CompiledMatch {
     nullable: bool,
     anchor_start: bool,
     anchor_end: bool,
+    /// Compiled with the engine's segment test, so it may match more than the exact matcher and skips the alpha-agreement filter.
+    engine: bool,
 }
 
 /// The compiled sides of an environment; a side with no items is `None` and always holds.
@@ -57,9 +62,37 @@ pub fn compile_match(
     table: TableId,
     parsed: &ParsedPattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
+    compile_match_with(g, table, parsed, false)
+}
+
+/// [`compile_match`] with the segment test rule application uses for a rule's left-hand side: a segment matches by features (a segment-list class by their union; a literal by its feature bundle), so it never under-matches what the engine rewrites. It over-approximates the engine and ignores alpha-variable agreement; the target only, with no environment.
+pub fn compile_match_as_engine(
+    g: &Grammar,
+    table: TableId,
+    pattern: &Pattern,
+) -> Result<CompiledMatch, MatchCompileError> {
+    let parsed = ParsedPattern {
+        target: pattern.clone(),
+        environment: None,
+        synthetic_classes: Vec::new(),
+    };
+    compile_match_with(g, table, &parsed, true)
+}
+
+fn compile_match_with(
+    g: &Grammar,
+    table: TableId,
+    parsed: &ParsedPattern,
+    engine: bool,
+) -> Result<CompiledMatch, MatchCompileError> {
     let pattern = &parsed.target;
     let extra = &parsed.synthetic_classes;
-    let env = try_compile_env(g, table, pattern, extra).map_err(MatchCompileError)?;
+    let env = if engine {
+        try_compile_env_as_engine(g, table, pattern)
+    } else {
+        try_compile_env(g, table, pattern, extra)
+    }
+    .map_err(MatchCompileError)?;
     let anchor = |side| {
         pattern
             .nodes
@@ -89,6 +122,7 @@ pub fn compile_match(
         nullable,
         anchor_start: anchor(AnchorSide::Left),
         anchor_end: anchor(AnchorSide::Right),
+        engine,
     })
 }
 
@@ -115,7 +149,9 @@ impl CompiledMatch {
         let mut out: Vec<ShapeMatch> = env
             .find_spans(&segs)
             .into_iter()
-            .filter(|&(a, b)| !env.uses_alpha() || bind_exact_span(g, env, &segs[a..b]).is_some())
+            .filter(|&(a, b)| {
+                self.engine || !env.uses_alpha() || bind_exact_span(g, env, &segs[a..b]).is_some()
+            })
             .map(|(a, b)| ShapeMatch {
                 start: before[a],
                 end: before[b],
@@ -298,6 +334,9 @@ fn flatten_for_straddle(
     pattern: &Pattern,
 ) -> Result<Vec<PatternNode>, MatchCompileError> {
     let refuse = |why: &str| Err(MatchCompileError(format!("straddle not modelled: {why}")));
+    if has_edge_marker(g, table, pattern) {
+        return refuse("a boundary or anchor sits on the edge itself");
+    }
     let chardefs = &g.char_tables[table.0 as usize];
     let is_boundary =
         |id: pg_grammar_model::chardef::CharDefId| chardefs.get(id).kind() == CharDefKind::Boundary;
@@ -403,15 +442,7 @@ pub fn compile_straddle(
                         nodes[last] = relaxed(&nodes[last]);
                     }
                     probes.push(Probe {
-                        matcher: compile_match(
-                            g,
-                            table,
-                            &ParsedPattern {
-                                target: Pattern { nodes },
-                                environment: None,
-                                synthetic_classes: Vec::new(),
-                            },
-                        )?,
+                        matcher: compile_match_as_engine(g, table, &Pattern { nodes })?,
                         at_left_edge: left_cut,
                         at_right_edge: right_cut,
                     });
