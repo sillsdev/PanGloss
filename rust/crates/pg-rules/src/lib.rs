@@ -22,6 +22,7 @@ pub mod pattern_match;
 pub mod pattern_text;
 pub mod required_slots;
 pub mod rewrite;
+pub mod rule_text;
 pub mod shape_feat;
 pub mod shared_values;
 pub mod stats;
