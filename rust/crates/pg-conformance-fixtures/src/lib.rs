@@ -201,6 +201,27 @@ pub fn grammar_xml_without_compounding_rules(xml: &str) -> String {
     xml
 }
 
+/// Takes every rewrite that deletes or narrows a segment out of the strata's rule lists, for controls whose subject is not deletion.
+pub fn drop_segment_deletions(grammar: &mut pg_grammar_model::model::Grammar) {
+    use pg_grammar_model::model::PhonRuleDef;
+    let dropped: Vec<_> = grammar
+        .prules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| match rule {
+            PhonRuleDef::Rewrite(rule) => rule
+                .subrules
+                .iter()
+                .any(|sub| sub.rhs.nodes.len() < rule.lhs.nodes.len()),
+            _ => false,
+        })
+        .map(|(index, _)| pg_grammar_model::model::PRuleId(index as u32))
+        .collect();
+    for stratum in &mut grammar.strata {
+        stratum.prules.retain(|id| !dropped.contains(id));
+    }
+}
+
 /// Panics with the exact command that fetches the suite when `suite_root()` is not a directory: a test run that needs the suite never passes without it.
 fn require_suite_present() {
     let root = suite_root();

@@ -14,7 +14,8 @@ fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
     assert_eq!(xml.matches(wide_target).count(), 1);
     let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
-    let grammar = pg_grammar::load(&xml).expect("scalar deletion control must load");
+    let mut grammar = pg_grammar::load(&xml).expect("scalar deletion control must load");
+    pg_conformance_fixtures::drop_segment_deletions(&mut grammar);
     let words = fixture
         .load_words_yaml()
         .words
@@ -260,13 +261,13 @@ fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct
 fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
     let (grammar, _) = fixture();
     let plans = plans(&grammar);
-    let prepared = vec!["tulik".to_string(), "menulik".to_string()];
+    let prepared = vec!["tulik".to_string(), "membalo".to_string()];
     let requested = vec!["tulik".to_string()];
     let mut cache = RunEvaluationCache::prepare(
         &grammar,
         &prepared,
         RuntimeBudget {
-            oracle_work_cap: Some(500),
+            oracle_work_cap: Some(250),
             ..RuntimeBudget::default()
         },
     )
@@ -284,7 +285,7 @@ fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
         &plans,
         &requested,
         RuntimeBudget {
-            oracle_work_cap: Some(500),
+            oracle_work_cap: Some(250),
             ..RuntimeBudget::default()
         },
         &mut cache,

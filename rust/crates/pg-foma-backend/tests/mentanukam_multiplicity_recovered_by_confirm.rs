@@ -17,7 +17,10 @@ fn load() -> pg_grammar::model::Grammar {
     let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
     assert_eq!(xml.matches(wide_target).count(), 1);
     let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
-    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    let mut g =
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
+    g
 }
 
 #[test]

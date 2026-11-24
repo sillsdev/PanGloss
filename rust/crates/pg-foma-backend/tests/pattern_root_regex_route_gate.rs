@@ -59,9 +59,10 @@ fn pattern_root_route_survives_when_wide_rewrite_targets_are_isolated() {
                 )),
             "{label}: expected the junction phonology refusal, got {refusals:?}"
         );
-        let grammar =
+        let mut grammar =
             pg_grammar::load(&pg_conformance_fixtures::grammar_xml_without_compounding_rules(&xml))
                 .expect("scalar vowel control must load");
+        pg_conformance_fixtures::drop_segment_deletions(&mut grammar);
         assert!(
             pg_foma::analyzer::compile_proposer(&grammar).is_ok(),
             "{label}: TunedSurfaceProbed still refuses to compile"

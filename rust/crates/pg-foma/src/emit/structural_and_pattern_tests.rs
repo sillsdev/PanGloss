@@ -256,6 +256,7 @@ fn structural_boundary_graph_is_used_by_the_production_emitter() {
     for stratum in &mut g.strata {
         stratum.prules.retain(|pid| !metathesis.contains(pid));
     }
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
     let emitted = emit(&g);
     assert!(emitted.report.counts.composite_structural_entries > 0);
     assert!(
@@ -413,8 +414,8 @@ fn scalar_polysynthetic_control() -> Grammar {
     pg_grammar::load(&xml).expect("scalar vowel control must load")
 }
 
-/// The scalar control without its compounding rules, which the singleton route refuses beside deleting phonology.
-fn scalar_polysynthetic_control_without_compounds() -> Grammar {
+/// The scalar control's grammar text without its compounding rules.
+fn scalar_polysynthetic_control_xml() -> String {
     let fixture = pg_conformance_fixtures::require_fixture(
         "languages",
         "polysynthetic-stratal-derivation-chain",
@@ -422,8 +423,15 @@ fn scalar_polysynthetic_control_without_compounds() -> Grammar {
     let xml =
         pg_conformance_fixtures::grammar_xml_without_compounding_rules(&fixture.load_grammar_xml());
     let target = r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHighVowel" /><SimpleContext naturalClass="ncHighVowel" /></PhoneticSequence></PhoneticInput>"#;
-    let xml = xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#);
-    pg_grammar::load(&xml).expect("scalar vowel control must load")
+    xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#)
+}
+
+/// The scalar control with its deleting rewrites taken out, since the FST refuses any grammar with affixes and a segment deletion.
+fn scalar_polysynthetic_control_without_compounds() -> Grammar {
+    let mut g = pg_grammar::load(&scalar_polysynthetic_control_xml())
+        .expect("scalar vowel control must load");
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
+    g
 }
 
 /// The compiled TSP network accepts a NOVEL spelling through an unbounded (`[Any]*`) pattern root via its regex entry, and decodes to that pattern entry's own tag identity -- the point of a guesser pattern: representing a language, not a spelling list.
@@ -520,7 +528,8 @@ fn bare_root_phonology_makes_post_nasal_voicing_proposable() {
 /// probe_surface is POS-blind, so a bare root in a grammar that scopes different phonological rules to different POS in the same stratum needs generate_words' genuinely POS-gated pipeline instead.
 #[test]
 fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
-    let g = scalar_polysynthetic_control_without_compounds();
+    let g = pg_grammar::load(&scalar_polysynthetic_control_xml())
+        .expect("scalar vowel control must load");
     let table = surface_table(&g);
     let cache = RuleCache::build(&g);
     let entry = &g.entries[entry_id_of(&g, "eBuiibuii").0 as usize];
@@ -533,8 +542,25 @@ fn bare_root_phonology_prefers_the_pos_correct_generate_words_surface() {
         Some("bubu".to_string())
     );
 
-    // This checks a proposal path despite the fixture's unrelated representation overflow.
-    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&g);
+    // A bare root needs no affix, which the proposer would refuse beside this deleting rewrite.
+    let mut bare = pg_grammar::load(&scalar_polysynthetic_control_xml())
+        .expect("scalar vowel control must load");
+    for stratum in &mut bare.strata {
+        stratum.mrules.clear();
+        stratum.templates.clear();
+    }
+    bare.mrules.clear();
+    for owner in &mut bare.allomorph_owners {
+        if matches!(owner, pg_grammar::model::AllomorphOwner::Affix(..)) {
+            *owner = pg_grammar::model::AllomorphOwner::Root(pg_grammar::model::LexEntryId(0), 0);
+        }
+    }
+    let bare_cache = RuleCache::build(&bare);
+    assert_eq!(
+        probe_surface(&bare, surface_table(&bare), &feat_shape, &bare_cache),
+        Some("bubu".to_string())
+    );
+    let (proposer, _) = crate::analyzer::compile_proposer_unproven_with_profile(&bare);
     let mut proposer = proposer.expect("development-only partial proposer compiles");
     assert!(
         !proposer.propose("buuubuuu").is_empty(),
