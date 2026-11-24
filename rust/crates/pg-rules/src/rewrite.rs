@@ -680,6 +680,7 @@ pub(crate) fn try_compile_env_as_engine(
         .map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_compile_env_impl(
     g: &Grammar,
     table_id: TableId,
