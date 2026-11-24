@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- `pangloss serve` `effects` rows carry `outputMatchPattern`: where the rule's output sits immediately after the rule applies, as `match` text (the environment with the target replaced by what the rule writes, built from the engine's rewrite: the right side's features overlaid on the target, or the right side alone for a deletion, insertion or length change; an alpha variable only when the environment binds it). Motif searches corpus outputs, and `matchPattern` finds input sites, so `/t/ / [V] _` finds `kat` but not `kad`; `/d/ / [V] _` finds `kad`. A row that cannot be exact has `outputMatchPattern: null` and an `outputUnprintable` entry (`part` `outputMatchPattern`, a typed `reason` such as `output_not_single_class`, `alpha_not_in_environment`, `metathesis`; never approximate text). `outputMayBeAltered` is true when the rule is `nonLocal` or a later rule in the same or a later stratum could rewrite a segment the pattern covers (conservative), with `outputMayBeAlteredReasons` `[{reason, rule}]`. Tests check, over the conformance grammars, that applying each local rule alone and matching its output pattern on the output word reports every place it rewrote (12,185 places, 0 misses; the input pattern as a mutation gives over 11,000), and that every pattern reads back as the features the rewrite leaves. Declared in `--describe` and `docs/formats/serve-protocol.md`.
+
 ## 0.34.0
 
 Released 2026-11-24.

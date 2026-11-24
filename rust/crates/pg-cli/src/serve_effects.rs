@@ -18,7 +18,7 @@ use pg_rules::pattern_match::{
     compile_match_as_engine, compile_straddle, has_edge_marker, has_underspecified_segment,
     segment_byte_spans, segment_count, CompiledMatch, StraddleProbes,
 };
-use pg_rules::rule_text::{rule_text, RuleText, NON_LOCAL_CRITERIA};
+use pg_rules::rule_text::{rule_text, RuleText, NON_LOCAL_CRITERIA, OUTPUT_ALTERED_REASONS};
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use pg_snapshot::FwClass;
 use serde_json::{json, Map, Value};
@@ -61,7 +61,7 @@ const RESULT_FIELDS: [&str; 7] = [
     "effects",
     "limits",
 ];
-const EFFECT_FIELDS: [&str; 15] = [
+const EFFECT_FIELDS: [&str; 19] = [
     "rule",
     "subrule",
     "allomorphId",
@@ -77,9 +77,20 @@ const EFFECT_FIELDS: [&str; 15] = [
     "unprintable",
     "nonLocal",
     "nonLocalReasons",
+    "outputMatchPattern",
+    "outputUnprintable",
+    "outputMayBeAltered",
+    "outputMayBeAlteredReasons",
 ];
 /// The `part` of an `unprintable` entry.
-const UNPRINTABLE_PARTS: [&str; 5] = ["lhs", "environment", "matchPattern", "rhs", "rule"];
+const UNPRINTABLE_PARTS: [&str; 6] = [
+    "lhs",
+    "environment",
+    "matchPattern",
+    "rhs",
+    "rule",
+    "outputMatchPattern",
+];
 /// Every `reason` an effect carries.
 const REASONS: [&str; 12] = [
     "environment_unchecked",
@@ -115,6 +126,8 @@ pub(crate) fn describe() -> Value {
             "maxWordTimeoutMs": MAX_WORD_TIMEOUT_MS,
         },
         "nonLocalCriteria": NON_LOCAL_CRITERIA,
+        "outputAlteredReasons": OUTPUT_ALTERED_REASONS,
+        "outputMatchPattern": "where the rule's output sits immediately after this rule applies: the environment with the target replaced by what the rule writes (lhs unified with rhs as the engine does), as match text; hand it to match with boundaryMarker when set. Null with an outputUnprintable entry (part outputMatchPattern, typed reason) when it cannot be exact; never approximate. Later rules can change those segments or their environment: outputMayBeAltered is true when the rule is nonLocal or a later rule in the same or a later stratum could rewrite a segment the pattern covers (conservative), with outputMayBeAlteredReasons [{reason, rule}]; null when there is no pattern",
         "request": &KNOWN_FIELDS[2..],
         "edges": EDGES,
         "errors": ERROR_CODES,
@@ -362,7 +375,11 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                     unlisted: None,
                     prule: *index as usize,
                     stratum: stratum_index,
-                    text: Some(rule_text(g, rule, sub_index, stratum.table)),
+                    text: Some({
+                        let mut text = rule_text(g, rule, sub_index, stratum.table);
+                        text.with_alteration(g, stratum_index, ordinal);
+                        text
+                    }),
                 });
             }
         }
@@ -397,6 +414,10 @@ fn add_rule_text(effect: &mut Value, text: Option<&RuleText>) {
         effect["rhs"] = Value::Null;
         effect["boundaryMarker"] = Value::Null;
         effect["unprintable"] = json!([{"part": "rule", "reason": "rule_not_printed"}]);
+        effect["outputMatchPattern"] = Value::Null;
+        effect["outputUnprintable"] = json!([{"part": "rule", "reason": "rule_not_printed"}]);
+        effect["outputMayBeAltered"] = Value::Null;
+        effect["outputMayBeAlteredReasons"] = json!([]);
         effect["nonLocal"] = Value::Null;
         effect["nonLocalReasons"] = json!([]);
         return;
@@ -413,6 +434,18 @@ fn add_rule_text(effect: &mut Value, text: Option<&RuleText>) {
         .collect::<Vec<_>>());
     effect["nonLocal"] = json!(!text.non_local.is_empty());
     effect["nonLocalReasons"] = json!(text.non_local);
+    effect["outputMatchPattern"] = json!(text.output_match_pattern);
+    effect["outputUnprintable"] = json!(text
+        .output_unprintable
+        .iter()
+        .map(|(part, reason)| json!({"part": part, "reason": reason}))
+        .collect::<Vec<_>>());
+    effect["outputMayBeAltered"] = json!(text.output_may_be_altered);
+    effect["outputMayBeAlteredReasons"] = json!(text
+        .output_altered_reasons
+        .iter()
+        .map(|(reason, rule)| json!({"reason": reason, "rule": rule}))
+        .collect::<Vec<_>>());
 }
 
 /// What the form of one allomorph says about one phonological rule's left-hand side.
@@ -798,6 +831,9 @@ pub(crate) fn handle(
         },
     })
 }
+
+#[cfg(test)]
+mod output_pattern_tests;
 
 #[cfg(test)]
 mod tests {

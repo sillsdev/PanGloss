@@ -101,10 +101,21 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
 
 /// `render_nodes` over a shape as it stands, no cascade: what `table` spells each SEGMENT node's bundle as, which is how a final table spells a root entered on an inner stratum (hc.dll `CharacterDefinitionTable.GetMatchingStrReps`).
 pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
-    let segs: Vec<ProbeSeg> = shape
-        .interior()
-        .filter(|&(_, kind, _, _)| kind == NodeKind::Segment)
-        .map(|(i, _, char_def, _)| ProbeSeg {
+    render_shape_marked(table, shape, "")
+}
+
+/// [`render_shape`] with each boundary node written as `boundary`, so a word that holds boundaries reads back as the text it was segmented from.
+pub fn render_shape_marked(table: &CharDefTable, shape: &Shape, boundary: &str) -> Option<String> {
+    let mut out = String::new();
+    for (i, kind, char_def, _) in shape.interior() {
+        if kind == NodeKind::Boundary {
+            out.push_str(boundary);
+            continue;
+        }
+        if kind != NodeKind::Segment {
+            continue;
+        }
+        let seg = ProbeSeg {
             char_def,
             cd_set: match shape.node_cd_set(i) {
                 EffectiveCdSet::Members(bits) => CdSet::Members(bits.clone()),
@@ -113,9 +124,10 @@ pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
             lanes: shape.node_lanes(i).to_vec(),
             deleted: false,
             from_input: true,
-        })
-        .collect();
-    render_nodes(table, &segs)
+        };
+        out.push_str(&render_nodes(table, std::slice::from_ref(&seg))?);
+    }
+    Some(out)
 }
 
 // Cross-table character indices are unrelated; feature bundles provide the correspondence.

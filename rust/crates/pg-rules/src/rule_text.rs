@@ -1,12 +1,16 @@
 //! A phonological rule as the text serve `match` reads: `lhs`, `environment`, the combined `target / left _ right` and `rhs`, each printed exactly or refused with a typed reason, plus the reasons a rule is not local.
 
+use pg_featstruct::SymbolBits;
 use pg_grammar_model::chardef::CharDefKind;
+use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
-    Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode, TableId,
+    AlphaVar, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode,
+    RewriteRuleDef, RewriteSubruleDef, TableId, VarId,
 };
 
 use crate::pattern_match::compile_match_as_engine;
 use crate::pattern_text::{PatternPrinter, Place, Unprintable};
+use crate::rewrite::node_pins;
 use crate::shape_feat::segment_with_features_load as segment_with_features;
 
 /// The `nonLocal` reasons, in the order they are reported.
@@ -34,7 +38,29 @@ pub struct RuleText {
     pub unprintable: Vec<(&'static str, &'static str)>,
     /// The criteria of [`NON_LOCAL_CRITERIA`] the rule meets; any one makes the rule non-local.
     pub non_local: Vec<&'static str>,
+    /// Where the rule's output sits right after this rule applies: the environment with the target replaced by what the rule writes, as `match` text; `None` when `output_unprintable` says why not.
+    pub output_match_pattern: Option<String>,
+    /// Why there is no `output_match_pattern`: `(part, reason)`.
+    pub output_unprintable: Vec<(&'static str, &'static str)>,
+    /// Whether a later rule, or the rule itself, can rewrite what the output pattern covers; `None` until [`RuleText::with_alteration`] runs or when there is no output pattern.
+    pub output_may_be_altered: Option<bool>,
+    /// Why `output_may_be_altered`: `(reason, rule id)`.
+    pub output_altered_reasons: Vec<(&'static str, Option<String>)>,
+    /// The match constraint of each node the output pattern covers (full lane vectors): the first `output_target_len` are the target's, the rest the environment's.
+    pub output_covered: Vec<Vec<u64>>,
+    /// How many of `output_covered` are the output target's nodes.
+    pub output_target_len: usize,
+    /// Whether the output pattern holds a word edge.
+    output_has_edge: bool,
 }
+
+/// The `outputMayBeAltered` reasons, as `(reason)` codes.
+pub const OUTPUT_ALTERED_REASONS: [&str; 4] = [
+    "nonLocal",
+    "laterRewrite",
+    "laterInsertion",
+    "wordEdgeLaterStratum",
+];
 
 /// The text of subrule `subrule` of `rule`, which runs in a stratum whose character table is `stratum_table`; the text is read against the last stratum's (surface) table.
 pub fn rule_text(
@@ -65,6 +91,7 @@ pub fn rule_text(
     let Some(mut printer) = printer else {
         let reason = "stratum_table_differs";
         out.unprintable.push(("lhs", reason));
+        out.output_unprintable.push(("outputMatchPattern", reason));
         if matches!(rule, PhonRuleDef::Rewrite(_)) {
             out.unprintable
                 .extend([("environment", reason), ("rhs", reason)]);
@@ -84,6 +111,8 @@ pub fn rule_text(
             out.match_pattern = out.lhs.clone();
             out.unprintable
                 .extend([("environment", "metathesis"), ("rhs", "metathesis")]);
+            out.output_unprintable
+                .push(("outputMatchPattern", "metathesis"));
         }
         out.boundary_marker = printer.boundary_marker().map(str::to_string);
         return out;
@@ -123,8 +152,245 @@ pub fn rule_text(
         (Some(_), Err(e)) => out.unprintable.push(("matchPattern", e.0)),
         (None, _) => {}
     }
+    if let PhonRuleDef::Rewrite(r) = rule {
+        match (
+            &out.environment,
+            output_target(g, &mut printer, stratum_table, r, sub),
+        ) {
+            (Some(env), Ok((target, covered))) => {
+                out.output_match_pattern = Some(if target.is_empty() {
+                    format!("/ {env}")
+                } else {
+                    format!("{target} / {env}")
+                });
+                out.output_target_len = covered.len();
+                out.output_covered = covered;
+                out.output_covered.extend(env_lanes(g, stratum_table, sub));
+                out.output_has_edge = [&r.lhs]
+                    .into_iter()
+                    .chain(sub.left_env.as_ref())
+                    .chain(sub.right_env.as_ref())
+                    .any(|p| p.nodes.iter().any(|n| matches!(n, PatternNode::Anchor(_))));
+            }
+            (None, _) => out
+                .output_unprintable
+                .push(("outputMatchPattern", "environment_not_printed")),
+            (_, Err(e)) => out.output_unprintable.push(("outputMatchPattern", e.0)),
+        }
+    }
     out.boundary_marker = printer.boundary_marker().map(str::to_string);
     out
+}
+
+impl RuleText {
+    /// Fills `output_may_be_altered`: the rule is non-local, or a rule that runs later (after it in its stratum, or in a later stratum) can rewrite or split what the output pattern covers. Conservative: a later rule counts when its target can match any covered node.
+    pub fn with_alteration(&mut self, g: &Grammar, stratum: usize, ordinal: usize) {
+        if self.output_match_pattern.is_none() {
+            return;
+        }
+        let mut reasons: Vec<(&'static str, Option<String>)> = Vec::new();
+        if !self.non_local.is_empty() {
+            reasons.push((OUTPUT_ALTERED_REASONS[0], None));
+        }
+        if self.output_has_edge && stratum + 1 < g.strata.len() {
+            reasons.push((OUTPUT_ALTERED_REASONS[3], None));
+        }
+        for (si, st) in g.strata.iter().enumerate().skip(stratum) {
+            for (oi, pid) in st.prules.iter().enumerate() {
+                let index = pid.0;
+                if si == stratum && oi <= ordinal {
+                    continue;
+                }
+                let Some(rule) = g.prules.get(index as usize) else {
+                    continue;
+                };
+                let (id, targets): (&str, &Pattern) = match rule {
+                    PhonRuleDef::Rewrite(r) => (&r.xml_id, &r.lhs),
+                    PhonRuleDef::Metathesis(r) => (&r.xml_id, &r.pattern),
+                };
+                let mut nodes = Vec::new();
+                flatten(&targets.nodes, &mut nodes);
+                if nodes.is_empty() {
+                    if self.output_covered.len() >= 2 || self.output_has_edge {
+                        reasons.push((OUTPUT_ALTERED_REASONS[2], Some(id.to_string())));
+                    }
+                    continue;
+                }
+                let hits = nodes.iter().any(|n| {
+                    let lanes =
+                        crate::rewrite::node_full_lanes(g, &g.char_tables[st.table.0 as usize], n);
+                    self.output_covered
+                        .iter()
+                        .any(|c| c.iter().zip(&lanes).all(|(a, b)| a & b != 0))
+                });
+                if hits {
+                    reasons.push((OUTPUT_ALTERED_REASONS[1], Some(id.to_string())));
+                }
+            }
+        }
+        reasons.dedup();
+        self.output_may_be_altered = Some(!reasons.is_empty());
+        self.output_altered_reasons = reasons;
+    }
+}
+
+/// A lane vector that constrains nothing.
+fn full_lanes(g: &Grammar) -> Vec<u64> {
+    (0..pg_grammar_model::membership::width(&g.phon_features))
+        .map(|f| pg_grammar_model::membership::mask(&g.phon_features, f))
+        .collect()
+}
+
+fn flatten<'a>(nodes: &'a [PatternNode], out: &mut Vec<&'a PatternNode>) {
+    for n in nodes {
+        match n {
+            PatternNode::Anchor(_) => {}
+            PatternNode::Quantifier { children, .. } => flatten(children, out),
+            n => out.push(n),
+        }
+    }
+}
+
+/// The match constraint of each environment node of `sub`.
+fn env_lanes(g: &Grammar, table: TableId, sub: &RewriteSubruleDef) -> Vec<Vec<u64>> {
+    let mut nodes = Vec::new();
+    for p in [sub.left_env.as_ref(), sub.right_env.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        flatten(&p.nodes, &mut nodes);
+    }
+    nodes
+        .into_iter()
+        .map(|n| crate::rewrite::node_full_lanes(g, &g.char_tables[table.0 as usize], n))
+        .collect()
+}
+
+/// The alpha variables the environment binds, with their features.
+fn env_vars(sub: &RewriteSubruleDef) -> Vec<(VarId, FlatIndex)> {
+    let mut nodes = Vec::new();
+    for p in [sub.left_env.as_ref(), sub.right_env.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        flatten(&p.nodes, &mut nodes);
+    }
+    nodes
+        .into_iter()
+        .flat_map(|n| match n {
+            PatternNode::Context(sc) => sc.vars.iter().map(|v| (v.var, v.feature)).collect(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// What the rule writes in place of its target, as match text, with the constraint of each node written; the text is the engine's own rewrite: a same-length rule overlays each right-hand node's features on the target node (an alpha variable takes the environment's binding), any other rule deletes the target and inserts the right-hand nodes.
+fn output_target(
+    g: &Grammar,
+    printer: &mut PatternPrinter,
+    table: TableId,
+    rule: &RewriteRuleDef,
+    sub: &RewriteSubruleDef,
+) -> Result<(String, Vec<Vec<u64>>), Unprintable> {
+    let chardefs = &g.char_tables[table.0 as usize];
+    let bound = env_vars(sub);
+    let bound_ok = |vars: &[AlphaVar]| {
+        vars.iter()
+            .all(|v| bound.iter().any(|(id, f)| *id == v.var && *f == v.feature))
+    };
+    let mut rhs_nodes = Vec::new();
+    for n in &sub.rhs.nodes {
+        match n {
+            PatternNode::CharDef(_) | PatternNode::Context(_) => rhs_nodes.push(n),
+            _ => return Err(Unprintable("rhs_node_kind")),
+        }
+    }
+    let vars_of = |n: &PatternNode| -> Vec<AlphaVar> {
+        match n {
+            PatternNode::Context(sc) => sc.vars.clone(),
+            _ => Vec::new(),
+        }
+    };
+    let nfeat = g.phon_features.len();
+    if rule.lhs.nodes.len() != sub.rhs.nodes.len() || rule.lhs.nodes.is_empty() {
+        for n in &rhs_nodes {
+            if !bound_ok(&vars_of(n)) {
+                return Err(Unprintable("alpha_not_in_environment"));
+            }
+        }
+        let text = printer.print(&sub.rhs, Place::Target)?;
+        let covered = rhs_nodes
+            .iter()
+            .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n))
+            .collect();
+        return Ok((text, covered));
+    }
+    let mut words = Vec::new();
+    let mut covered = Vec::new();
+    for (l, r) in rule.lhs.nodes.iter().zip(rhs_nodes) {
+        if !matches!(l, PatternNode::CharDef(_) | PatternNode::Context(_)) {
+            return Err(Unprintable("lhs_node_kind"));
+        }
+        if is_boundary(g, l, table) || is_boundary(g, r, table) {
+            return Err(Unprintable("boundary_rewrite"));
+        }
+        let features = |n: &PatternNode| -> Vec<(usize, u64)> {
+            node_pins(g, chardefs, n)
+                .into_iter()
+                .filter(|(f, _)| *f < nfeat)
+                .collect()
+        };
+        let (pins_l, pins_r) = (features(l), features(r));
+        let (vars_l, vars_r) = (vars_of(l), vars_of(r));
+        let mut result: Vec<(usize, u64)> = pins_l
+            .iter()
+            .filter(|(f, _)| {
+                !pins_r.iter().any(|(g, _)| g == f)
+                    && !vars_r.iter().any(|v| v.feature.0 as usize == *f)
+            })
+            .copied()
+            .collect();
+        result.extend(pins_r.iter().copied());
+        let mut vars: Vec<AlphaVar> = vars_l
+            .into_iter()
+            .filter(|v| {
+                !pins_r.iter().any(|(f, _)| *f == v.feature.0 as usize)
+                    && !vars_r.iter().any(|w| w.feature == v.feature)
+            })
+            .collect();
+        vars.extend(vars_r.iter().cloned());
+        if !bound_ok(&vars) {
+            return Err(Unprintable("alpha_not_in_environment"));
+        }
+        result.sort_unstable();
+        let mut sorted_r = pins_r.clone();
+        sorted_r.sort_unstable();
+        let same_as_r = result == sorted_r && vars == vars_r;
+        let word = if same_as_r {
+            printer.print(
+                &Pattern {
+                    nodes: vec![r.clone()],
+                },
+                Place::Target,
+            )?
+        } else {
+            let pairs: Vec<(FlatIndex, SymbolBits)> = result
+                .iter()
+                .map(|(f, b)| (FlatIndex(*f as u32), SymbolBits(*b)))
+                .collect();
+            printer.print_bundle(&pairs, &vars).map_err(|e| match e.0 {
+                "feature_value" | "class_not_writable" => Unprintable("output_not_single_class"),
+                _ => e,
+            })?
+        };
+        let mut lanes = full_lanes(g);
+        for (f, b) in &result {
+            lanes[*f] = *b;
+        }
+        words.push(word);
+        covered.push(lanes);
+    }
+    Ok((words.join(" "), covered))
 }
 
 fn any_node(nodes: &[PatternNode], test: &dyn Fn(&PatternNode) -> bool) -> bool {
