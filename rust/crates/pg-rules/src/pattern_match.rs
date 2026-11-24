@@ -8,6 +8,11 @@
 //! A pattern of the form `target / left _ right` compiles each of its three parts the same way and
 //! keeps the target spans whose sides hold, checked by the code a rewrite rule checks its own
 //! environment with, so the result agrees with where a rule applies.
+//!
+//! Alpha variables are bound by that same walk, in a rule's order: the target first, then the left
+//! side, then the right, so one variable agrees across every position of one match. A feature bundle
+//! such as `[+voice]` is a natural class the pattern text defines itself (see
+//! [`crate::pattern_text::ParsedPattern::synthetic_classes`]).
 
 use pg_grammar_model::chardef::CharDefTable;
 use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId};
@@ -15,7 +20,7 @@ use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId
 use crate::pattern_text::ParsedPattern;
 use pg_shape::{NodeKind, Shape};
 
-use crate::rewrite::{environment_holds, try_compile_env, EnvFst};
+use crate::rewrite::{bind_exact_span, environment_holds, try_compile_env, Bindings, EnvFst};
 
 /// A pattern compiled once and applied to many shapes.
 pub struct CompiledMatch {
@@ -53,7 +58,8 @@ pub fn compile_match(
     parsed: &ParsedPattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
     let pattern = &parsed.target;
-    let env = try_compile_env(g, table, pattern).map_err(MatchCompileError)?;
+    let extra = &parsed.synthetic_classes;
+    let env = try_compile_env(g, table, pattern, extra).map_err(MatchCompileError)?;
     let anchor = |side| {
         pattern
             .nodes
@@ -68,7 +74,7 @@ pub fn compile_match(
         Some(sides) => {
             let side = |p: &Option<Pattern>| match p {
                 None => Ok(None),
-                Some(p) => try_compile_env(g, table, p).map_err(MatchCompileError),
+                Some(p) => try_compile_env(g, table, p, extra).map_err(MatchCompileError),
             };
             Some(Sides {
                 left: side(&sides.left)?,
@@ -109,6 +115,7 @@ impl CompiledMatch {
         let mut out: Vec<ShapeMatch> = env
             .find_spans(&segs)
             .into_iter()
+            .filter(|&(a, b)| !env.uses_alpha() || bind_exact_span(g, env, &segs[a..b]).is_some())
             .map(|(a, b)| ShapeMatch {
                 start: before[a],
                 end: before[b],
@@ -144,7 +151,15 @@ impl CompiledMatch {
         }
         let mut out: Vec<ShapeMatch> = spans
             .into_iter()
-            .filter(|&(a, b)| environment_holds(g, segs, a, b, &sides.left, &sides.right))
+            .filter(|&(a, b)| {
+                let bound: Option<Bindings> = match &self.env {
+                    Some(env) if env.uses_alpha() => bind_exact_span(g, env, &segs[a..b]),
+                    _ => Some(Bindings::default()),
+                };
+                bound.is_some_and(|bound| {
+                    environment_holds(g, segs, a, b, &sides.left, &sides.right, bound)
+                })
+            })
             .map(|(a, b)| ShapeMatch {
                 start: before[a],
                 end: before[b],

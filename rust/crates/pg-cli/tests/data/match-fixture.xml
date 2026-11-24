@@ -15,6 +15,10 @@
         <Name>son</Name>
         <Symbols><Symbol id="sPos">+</Symbol><Symbol id="sNeg">-</Symbol></Symbols>
       </SymbolicFeature>
+      <SymbolicFeature id="featTone">
+        <Name>tone</Name>
+        <Symbols><Symbol id="tHi">hi</Symbol><Symbol id="tLo">lo</Symbol></Symbols>
+      </SymbolicFeature>
     </PhonologicalFeatureSystem>
     <CharacterDefinitionTable id="tbl">
       <Name>Main</Name>
@@ -22,46 +26,57 @@
         <SegmentDefinition id="c0">
           <Representations><Representation>p</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vNeg" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c1">
           <Representations><Representation>b</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c2">
           <Representations><Representation>t</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vNeg" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c3">
           <Representations><Representation>d</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c4">
           <Representations><Representation>k</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vNeg" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c5">
           <Representations><Representation>g</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sNeg" />
         </SegmentDefinition>
         <SegmentDefinition id="c6">
           <Representations><Representation>a</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sPos" />
         </SegmentDefinition>
         <SegmentDefinition id="c7">
           <Representations><Representation>i</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sPos" />
         </SegmentDefinition>
         <SegmentDefinition id="c8">
           <Representations><Representation>u</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sPos" />
         </SegmentDefinition>
         <SegmentDefinition id="c9">
           <Representations><Representation>n</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sPos" />
         </SegmentDefinition>
         <SegmentDefinition id="c10">
           <Representations><Representation>ŋ</Representation></Representations>
           <FeatureValue feature="featVoice" symbolValues="vPos" />
+          <FeatureValue feature="featSon" symbolValues="sPos" />
         </SegmentDefinition>
       </SegmentDefinitions>
       <BoundaryDefinitions>

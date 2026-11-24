@@ -21,8 +21,8 @@ use pg_fst::{
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
-    Grammar, MprSet, NaturalClassKind, PRuleId, Pattern, PatternNode, RewriteMode, RewriteRuleDef,
-    RewriteSubruleDef, StratumId, TableId,
+    Grammar, MprSet, NaturalClass, NaturalClassKind, PRuleId, Pattern, PatternNode, RewriteMode,
+    RewriteRuleDef, RewriteSubruleDef, StratumId, TableId,
 };
 use pg_shape::{CdBits, CdSet, EffectiveCdSet, NodeFlags, NodeKind, Shape, ShapeBuilder};
 
@@ -637,17 +637,19 @@ fn compile_env_impl(
     id_lane: bool,
     synthesis: bool,
 ) -> Option<EnvFst> {
-    try_compile_env_impl(g, table_id, env, strip_boundaries, id_lane, synthesis)
+    try_compile_env_impl(g, table_id, env, strip_boundaries, id_lane, synthesis, &[])
         .expect("environment compiles")
 }
 
-/// `compile_env` for an untrusted pattern (query text rather than a loaded grammar): a bridge failure comes back as `Err` instead of a panic.
+/// `compile_env` for an untrusted pattern (query text rather than a loaded grammar): a bridge failure comes back as `Err` instead of a panic. `extra_classes` are the classes the pattern defines itself, numbered after the grammar's own.
 pub(crate) fn try_compile_env(
     g: &Grammar,
     table_id: TableId,
     env: &Pattern,
+    extra_classes: &[NaturalClass],
 ) -> Result<Option<EnvFst>, String> {
-    try_compile_env_impl(g, table_id, Some(env), false, false, true).map_err(|e| e.to_string())
+    try_compile_env_impl(g, table_id, Some(env), false, false, true, extra_classes)
+        .map_err(|e| e.to_string())
 }
 
 fn try_compile_env_impl(
@@ -657,6 +659,7 @@ fn try_compile_env_impl(
     strip_boundaries: bool,
     id_lane: bool,
     synthesis: bool,
+    extra_classes: &[NaturalClass],
 ) -> Result<Option<EnvFst>, crate::bridge::BridgeError> {
     let Some(env) = env else { return Ok(None) };
     let stripped;
@@ -681,6 +684,7 @@ fn try_compile_env_impl(
     };
     let bridge = PatternBridge::new(g)
         .with_table(table_id)
+        .with_extra_classes(extra_classes)
         .id_lane(id_lane)
         .identity_lanes(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
     let mut compiled = bridge.compile_pattern(pat_ref)?;
@@ -916,7 +920,7 @@ fn right_env_match_for_binding(
 // Bind alpha variables in target, left-environment, then right-environment order.
 
 /// Bindings carry symbol bits, their feature index, and full-set matching provenance.
-type Bindings = HashMap<u16, (u64, usize, bool)>;
+pub(crate) type Bindings = HashMap<u16, (u64, usize, bool)>;
 
 /// Bind or check an alpha variable using synthesis subsumption or analysis unification.
 fn bind_or_check(
@@ -1082,7 +1086,7 @@ fn environment_bindings(
     Some(bindings)
 }
 
-/// Whether the target span `[start, end)` of `segs` has both environments, checked as a rule application checks them (a side that is `None` holds). The query seam of `crate::pattern_match` for `target / left _ right`.
+/// Whether the target span `[start, end)` of `segs` has both environments, checked as a rule application checks them, with `bindings` (the target's alpha variables, from [`bind_exact_span`]) already bound; a side that is `None` holds. The query seam of `crate::pattern_match` for `target / left _ right`.
 pub(crate) fn environment_holds(
     g: &Grammar,
     segs: &[Segment],
@@ -1090,8 +1094,39 @@ pub(crate) fn environment_holds(
     end: usize,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
+    bindings: Bindings,
 ) -> bool {
-    environment_bindings(g, segs, start, end, left, right, Bindings::default()).is_some()
+    environment_bindings(g, segs, start, end, left, right, bindings).is_some()
+}
+
+impl EnvFst {
+    /// Whether the pattern holds an alpha variable, which the compiled FST cannot bind, so its spans are a superset until [`bind_exact_span`] confirms them.
+    pub(crate) fn uses_alpha(&self) -> bool {
+        self.binding_nodes
+            .as_ref()
+            .is_some_and(|nodes| nodes.iter().any(AgreementNode::has_vars))
+    }
+}
+
+/// The alpha-variable bindings with which `env` matches all of `span` and nothing else, found by the walk a rule's environment runs; `None` when no assignment of the variables lets it. A pattern with no variables binds nothing and matches when its constraints hold. The span's own anchors are the caller's concern.
+pub(crate) fn bind_exact_span(g: &Grammar, env: &EnvFst, span: &[Segment]) -> Option<Bindings> {
+    let nodes = env.binding_nodes.as_ref()?;
+    let defaulted = env_input(env, span);
+    let input: Vec<&Segment> = defaulted.iter().collect();
+    let mut tasks = Vec::new();
+    push_binding_nodes(&mut tasks, nodes, false);
+    walk_binding_environment(
+        g,
+        &input,
+        false,
+        true,
+        input.len(),
+        env.synthesis,
+        tasks,
+        0,
+        Bindings::default(),
+    )
+    .map(|(_, bindings)| bindings)
 }
 
 fn apply_variable_bindings(

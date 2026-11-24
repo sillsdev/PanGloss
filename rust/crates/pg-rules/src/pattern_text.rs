@@ -19,12 +19,19 @@
 //! and needs the caller to name a boundary character definition. In an environment the `/` that
 //! separates the target from its sides is followed by whitespace or `_`, which tells it from the
 //! `/` that opens a literal; an empty target is allowed (an insertion point), and so is an empty side.
-//! Feature bundles (`[+voice -son]`) and alpha variables (`[αback]`) parse far enough to be named,
-//! and then come back as [`PatternError::Unsupported`] until conformance fixtures exist.
+//!
+//! A bundle `[+voice -son]` names features with a sign, `+` or `-`, which selects the feature's
+//! symbol of that name; `[αback]` and `[-αback]` bind a variable to the feature (agree, or disagree
+//! with the binding), and one Greek letter is one variable across the whole pattern, environment
+//! sides included. A bundle may mix both (`[+son αvoice]`) and names a feature at most once. A
+//! feature with no symbol named `+` or `-` for the sign given is [`PatternError::Unsupported`].
 
+use pg_featstruct::SymbolBits;
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
+use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
-    AnchorSide, Grammar, NatClassId, Pattern, PatternNode, SimpleContext,
+    AlphaVar, AnchorSide, Grammar, NatClassId, NaturalClass, NaturalClassKind, Pattern,
+    PatternNode, SimpleContext, VarId,
 };
 use pg_grammar_model::segment::segment_phonemes_only;
 
@@ -62,12 +69,14 @@ pub enum PatternError {
 }
 
 /// Pattern text parsed: the target pattern and, for `target / left _ right`, the two sides.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct ParsedPattern {
     /// The whole pattern for plain text; the part before `/` for an environment (possibly empty).
     pub target: Pattern,
     /// `Some` when the text has the `target / left _ right` form.
     pub environment: Option<EnvironmentPattern>,
+    /// The natural classes the text's feature bundles define, which no grammar class stands for. A bundle's `NatClassId` is the grammar's class count plus its index here.
+    pub synthetic_classes: Vec<NaturalClass>,
 }
 
 /// The two sides of `target / left _ right`; a side with no items is `None`.
@@ -95,6 +104,10 @@ struct Parser<'a> {
     boundary: Option<CharDefId>,
     /// Offset of the first `#` the parser accepted in the top-level section, so an environment can refuse it in the target.
     anchor_at: Option<usize>,
+    /// Classes made for the text's feature bundles; see [`ParsedPattern::synthetic_classes`].
+    synthetic: Vec<NaturalClass>,
+    /// The Greek letters seen so far; a letter's place here is its variable id.
+    letters: Vec<char>,
 }
 
 /// Parses `text` against the grammar and the character table the words will be segmented with. `boundary` is the character definition `+` stands for, when the caller marks boundaries in its words.
@@ -111,6 +124,8 @@ pub fn parse_pattern(
         pos: 0,
         boundary,
         anchor_at: None,
+        synthetic: Vec::new(),
+        letters: Vec::new(),
     };
     let mut target = Vec::new();
     p.items(&mut target, Section::Top)?;
@@ -122,6 +137,7 @@ pub fn parse_pattern(
             Ok(ParsedPattern {
                 target: Pattern { nodes: target },
                 environment: None,
+                synthetic_classes: p.synthetic,
             })
         }
         Some('/') => {
@@ -151,6 +167,7 @@ pub fn parse_pattern(
                     left: side(left),
                     right: side(right),
                 }),
+                synthetic_classes: p.synthetic,
             })
         }
         Some('_') => Err(p.unexpected(&["end of pattern", "'/'"])),
@@ -289,7 +306,6 @@ impl Parser<'_> {
     }
 
     fn class(&mut self) -> Result<PatternNode, PatternError> {
-        let open = self.pos;
         self.pos += 1; // '['
         let Some(len) = self.text[self.pos..].find(']') else {
             self.pos = self.text.len();
@@ -304,7 +320,7 @@ impl Parser<'_> {
             return Err(self.unexpected(&["natural class name", "feature bundle"]));
         }
         if is_bundle(trimmed) {
-            return Err(self.bundle(body, body_at, open));
+            return self.bundle(body, body_at).map(PatternNode::Context);
         }
         let name_at = body_at + (body.len() - body.trim_start().len());
         match find_class(self.g, trimmed) {
@@ -320,39 +336,88 @@ impl Parser<'_> {
         }
     }
 
-    /// Names a feature bundle's first problem: an unknown feature, else the gate.
-    fn bundle(&self, body: &str, body_at: usize, open: usize) -> PatternError {
-        let mut alpha = false;
+    /// A bundle's context: the class of its valued features, which no grammar class need equal, and the variables of its alpha features.
+    fn bundle(&mut self, body: &str, body_at: usize) -> Result<SimpleContext, PatternError> {
+        let phon = &self.g.phon_features;
+        let mut pairs: Vec<(FlatIndex, SymbolBits)> = Vec::new();
+        let mut vars: Vec<AlphaVar> = Vec::new();
         let mut idx = 0usize;
         for word in body.split_whitespace() {
             let at = body_at + body[idx..].find(word).map_or(idx, |i| idx + i);
             idx = at - body_at + word.len();
-            let name = word.trim_start_matches(['+', '-']);
-            let is_alpha = name.chars().next().is_some_and(is_greek);
-            if is_alpha {
-                alpha = true;
-            }
-            let feature = if is_alpha {
-                name.trim_start_matches(is_greek)
-            } else {
-                name
+            let sign = word.chars().next().filter(|c| matches!(c, '+' | '-'));
+            let unsigned = word.trim_start_matches(['+', '-']);
+            let letter = unsigned.chars().next().filter(|c| is_greek(*c));
+            let name = match letter {
+                Some(c) => &unsigned[c.len_utf8()..],
+                None => unsigned,
             };
-            if !feature.is_empty() && !feature_names(self.g).iter().any(|f| f == feature) {
-                return PatternError::UnknownFeature {
-                    name: feature.to_string(),
-                    offset: at + (word.len() - feature.len()),
-                    near: near(feature_names(self.g), feature),
+            let name_at = at + (word.len() - name.len());
+            if name.is_empty() {
+                return Err(PatternError::Parse {
+                    token: word.to_string(),
+                    offset: at,
+                    expected: vec!["feature name".to_string()],
+                });
+            }
+            let Some(flat) = find_feature(self.g, name) else {
+                return Err(PatternError::UnknownFeature {
+                    name: name.to_string(),
+                    offset: name_at,
+                    near: near(feature_names(self.g), name),
+                });
+            };
+            let again =
+                pairs.iter().any(|(f, _)| *f == flat) || vars.iter().any(|v| v.feature == flat);
+            if again || (sign.is_none() && letter.is_none()) {
+                let expected = if again {
+                    "each feature once per bundle"
+                } else {
+                    "'+' or '-' before a feature name"
                 };
+                return Err(PatternError::Parse {
+                    token: word.to_string(),
+                    offset: at,
+                    expected: vec![expected.to_string()],
+                });
+            }
+            match letter {
+                Some(c) => {
+                    let var = match self.letters.iter().position(|l| *l == c) {
+                        Some(i) => i,
+                        None => {
+                            self.letters.push(c);
+                            self.letters.len() - 1
+                        }
+                    };
+                    vars.push(AlphaVar {
+                        feature: flat,
+                        var: VarId(var as u16),
+                        plus: sign != Some('-'),
+                    });
+                }
+                None => {
+                    let wanted = sign.map_or("", |c| if c == '+' { "+" } else { "-" });
+                    let symbol = (0..phon.symbol_count(flat) as u32)
+                        .find(|&v| phon.symbol_name(flat, v) == wanted);
+                    let Some(symbol) = symbol else {
+                        return Err(PatternError::Unsupported {
+                            construct: "featureValue",
+                            offset: at,
+                        });
+                    };
+                    pairs.push((flat, SymbolBits(1u64 << symbol)));
+                }
             }
         }
-        PatternError::Unsupported {
-            construct: if alpha {
-                "alphaVariable"
-            } else {
-                "featureBundle"
-            },
-            offset: open,
-        }
+        pairs.sort_by_key(|(flat, _)| *flat);
+        let nat_class = NatClassId((self.g.natural_classes.len() + self.synthetic.len()) as u32);
+        self.synthetic.push(NaturalClass {
+            xml_id: format!("__bundle_{}__", self.synthetic.len()),
+            name: Some(body.trim().to_string()),
+            kind: NaturalClassKind::Feature(pairs),
+        });
+        Ok(SimpleContext { nat_class, vars })
     }
 }
 
@@ -375,11 +440,22 @@ fn class_names(g: &Grammar) -> Vec<String> {
         .collect()
 }
 
+/// The names of the features a bundle may use: every feature but the engine's own `Type`, which is always the last.
 fn feature_names(g: &Grammar) -> Vec<String> {
     g.phon_features
         .iter()
+        .filter(|(flat, _, _)| *flat != g.phon_features.type_flat())
         .map(|(_, name, _)| name.to_string())
         .collect()
+}
+
+/// The first feature named `name`, `Type` excluded.
+fn find_feature(g: &Grammar, name: &str) -> Option<FlatIndex> {
+    g.phon_features
+        .iter()
+        .map(|(flat, n, _)| (flat, n))
+        .find(|(flat, n)| *n == name && *flat != g.phon_features.type_flat())
+        .map(|(flat, _)| flat)
 }
 
 /// The natural class a `[token]` names: the first class whose name is `name`, else the first whose XML id is `name`. A name outranks an id when both exist, and the first of two equal names wins.

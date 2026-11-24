@@ -18,7 +18,7 @@ const DEFAULT_MAX_MATCHES_PER_WORD: usize = 1000;
 const HARD_MAX_MATCHES_PER_WORD: usize = 100_000;
 const MAX_MATCHES_TOTAL: usize = 1_000_000;
 
-const SUPPORTED_CONSTRUCTS: [&str; 7] = [
+const SUPPORTED_CONSTRUCTS: [&str; 9] = [
     "naturalClass",
     "literal",
     "optional",
@@ -26,8 +26,10 @@ const SUPPORTED_CONSTRUCTS: [&str; 7] = [
     "wordEdge",
     "morphemeBoundary",
     "environment",
+    "featureBundle",
+    "alphaVariable",
 ];
-const GATED_CONSTRUCTS: [&str; 2] = ["featureBundle", "alphaVariable"];
+const GATED_CONSTRUCTS: [&str; 1] = ["featureValue"];
 /// Every error code this op can emit.
 const ERROR_CODES: [&str; 11] = [
     "bad_request",

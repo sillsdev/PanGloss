@@ -39,6 +39,9 @@ const GRAMMAR: &str = r#"<?xml version="1.0" encoding="utf-8"?>
       </BoundaryDefinitions>
     </CharacterDefinitionTable>
     <NaturalClasses>
+      <FeatureNaturalClass id="ncVowelF"><Name>vowelish</Name><FeatureValue feature="featCons" symbolValues="cNeg" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncConsPlus"><Name>consonantal</Name><FeatureValue feature="featCons" symbolValues="cPos" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncAnyF"><Name>anything</Name></FeatureNaturalClass>
       <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cA" /><Segment segment="cI" /></SegmentNaturalClass>
       <SegmentNaturalClass id="ncStop"><Name>Stop</Name><Segment segment="cP" /><Segment segment="cB" /><Segment segment="cT" /><Segment segment="cD" /></SegmentNaturalClass>
     </NaturalClasses>
@@ -108,9 +111,51 @@ const GRAMMAR: &str = r#"<?xml version="1.0" encoding="utf-8"?>
           <Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncStop" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment>
         </PhonologicalSubrule></PhonologicalSubrules>
       </PhonologicalRule>
+      <PhonologicalRule id="rBundle" multipleApplicationOrder="simultaneous"><Name>voice p between vowel-like segments</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="cP" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="cB" /></PhoneticSequence></PhoneticOutput>
+          <Environment>
+            <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVowelF" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+            <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncVowelF" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+          </Environment>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="rAlphaTarget" multipleApplicationOrder="simultaneous"><Name>a consonant becomes h before a segment of its own voice</Name>
+        <VariableFeatures><VariableFeature id="varVoice" name="alpha" phonologicalFeature="featVoice" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncConsPlus"><AlphaVariables><AlphaVariable variableFeature="varVoice" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="cH" /></PhoneticSequence></PhoneticOutput>
+          <Environment>
+            <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAnyF"><AlphaVariables><AlphaVariable variableFeature="varVoice" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+          </Environment>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="rAlphaSides" multipleApplicationOrder="simultaneous"><Name>voice p between segments of one voice</Name>
+        <VariableFeatures><VariableFeature id="varVoice" name="alpha" phonologicalFeature="featVoice" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><Segment segment="cP" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="cB" /></PhoneticSequence></PhoneticOutput>
+          <Environment>
+            <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAnyF"><AlphaVariables><AlphaVariable variableFeature="varVoice" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+            <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAnyF"><AlphaVariables><AlphaVariable variableFeature="varVoice" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+          </Environment>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="rDisagree" multipleApplicationOrder="simultaneous"><Name>voice t between segments of opposite voice</Name>
+        <VariableFeatures><VariableFeature id="varVoice" name="alpha" phonologicalFeature="featVoice" /></VariableFeatures>
+        <PhoneticInput><PhoneticSequence><Segment segment="cT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule>
+          <PhoneticOutput><PhoneticSequence><Segment segment="cD" /></PhoneticSequence></PhoneticOutput>
+          <Environment>
+            <LeftEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAnyF"><AlphaVariables><AlphaVariable variableFeature="varVoice" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticTemplate></LeftEnvironment>
+            <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncAnyF"><AlphaVariables><AlphaVariable variableFeature="varVoice" polarity="minus" /></AlphaVariables></SimpleContext></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+          </Environment>
+        </PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
     </PhonologicalRuleDefinitions>
     <Strata>
-      <Stratum characterDefinitionTable="tbl" phonologicalRules="rVoice rDevoice rInitial rOptionalRight rKleene rPair rPlus rInsert">
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="rVoice rDevoice rInitial rOptionalRight rKleene rPair rPlus rInsert rBundle rAlphaTarget rAlphaSides rDisagree">
         <Name>Main</Name>
         <LexicalEntries>
           <LexicalEntry id="eRoot" partOfSpeech="posN">
@@ -123,10 +168,11 @@ const GRAMMAR: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   </Language>
 </HermitCrabInput>"#;
 
-const WORDS: [&str; 30] = [
+const WORDS: [&str; 41] = [
     "apa", "pap", "apap", "aapa", "pa", "ap", "papa", "ipai", "ab", "bab", "abb", "b", "tat",
     "tta", "ptat", "adai", "ad", "ada", "dai", "idd", "t", "ta", "ptai", "pta", "apta", "ptpta",
-    "ptt", "pt", "tpt", "ddt",
+    "ptt", "pt", "tpt", "ddt", "bpd", "tpd", "dpt", "apt", "tda", "tdt", "bta", "pdp", "ppb",
+    "iib", "tit",
 ];
 
 /// Words for the rule whose right context is a morpheme boundary, which segment as boundary nodes.
@@ -229,6 +275,11 @@ fn a_rules_own_environment_text_marks_exactly_where_the_rule_applies() {
             (6, "/b/ / _ +", &BOUNDARY_WORDS),
             // An insertion: the target is empty, and the match is the gap.
             (7, "/ [Stop] _ [Stop]", &WORDS),
+            // Feature bundles and alpha variables, which must agree with the rule's own alpha agreement.
+            (8, "/p/ / [-cons] _ [-cons]", &WORDS),
+            (9, "[+cons αvoice] / _ [αvoice]", &WORDS),
+            (10, "/p/ / [αvoice] _ [αvoice]", &WORDS),
+            (11, "/t/ / [αvoice] _ [-αvoice]", &WORDS),
         ],
     );
 }
