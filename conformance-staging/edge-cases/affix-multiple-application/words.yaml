@@ -1,0 +1,80 @@
+# oracle-provenance: pangloss (HC-Rust) transcription, then replayed on the C# founding oracle (hc-conformance self-check, pin cache 1ddef2bd): all words PASS.
+# What this pins: HC's per-rule multipleApplication (XmlLanguageLoader.cs:868-870, default 1 at
+# AffixProcessRule.cs:28) on a derivational affix. A Swahili-shaped verb takes CAUS (-ish) and APPL (-el)
+# up to twice each, in that rule order; CTL (-ox) keeps the default and applies once. The negative rows
+# pin the count as exactly 2, not unbounded.
+language: AffixMultipleApplication
+inspired_by: ["synthetic Bantu-style verb extensions (causative and applicative may repeat), invented lexemes"]
+sources:
+  - "machine XmlLanguageLoader.cs:868-870 and AffixProcessRule.cs:28 (multipleApplication); PanGloss#470, motif#436"
+requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: >-
+  Not yet producible: HCLoader.cs builds every affix rule with the default count of 1 and never sets
+  MaxApplicationCount for one. Becomes true when FieldWorks reads the ParserParameters key
+  HC/AffixRules/AffixRule[@guid][@maxApps] (motif#436 slice 3); until then PanGloss's fwdata loader
+  is the only FieldWorks-shaped path that sets it.
+words:
+  - word: kat
+    note: "bare root"
+    parses:
+      - signature: "KAT|kat"
+        rules: []
+  - word: katish
+    note: "CAUS once"
+    parses:
+      - signature: "KAT+CAUS|katish"
+        rules: [mrCaus]
+  - word: katishish
+    note: "CAUS twice: the pinned count of 2"
+    parses:
+      - signature: "KAT+CAUS|katishish"
+        rules: [mrCaus, mrCaus]
+  - word: katishishish
+    note: "CAUS a third time exceeds multipleApplication=2"
+    expect_fail: true
+  - word: katel
+    note: "APPL once"
+    parses:
+      - signature: "KAT+APPL|katel"
+        rules: [mrAppl]
+  - word: katelel
+    note: "APPL twice: the pinned count of 2"
+    parses:
+      - signature: "KAT+APPL|katelel"
+        rules: [mrAppl, mrAppl]
+  - word: katelelel
+    note: "APPL a third time exceeds multipleApplication=2"
+    expect_fail: true
+  - word: katishel
+    note: "CAUS then APPL, one each"
+    parses:
+      - signature: "KAT+CAUS+APPL|katishel"
+        rules: [mrCaus, mrAppl]
+  - word: katishishelel
+    note: "CAUS twice then APPL twice"
+    parses:
+      - signature: "KAT+CAUS+APPL|katishishelel"
+        rules: [mrCaus, mrCaus, mrAppl, mrAppl]
+  - word: katishishishel
+    note: "three CAUS then APPL exceeds the CAUS count"
+    expect_fail: true
+  - word: katishelelel
+    note: "CAUS then three APPL exceeds the APPL count"
+    expect_fail: true
+  - word: katox
+    note: "CTL once: the default count of 1 still applies once"
+    parses:
+      - signature: "KAT+CTL|katox"
+        rules: [mrCtl]
+  - word: katoxox
+    note: "CTL twice: default multipleApplication of 1 refuses repetition"
+    expect_fail: true
+  - word: katishishelelox
+    note: "both doubled extensions then the default-count CTL"
+    parses:
+      - signature: "KAT+CAUS+APPL+CTL|katishishelelox"
+        rules: [mrCaus, mrCaus, mrAppl, mrAppl, mrCtl]
+  - word: katelish
+    note: "APPL before CAUS violates the linear rule order"
+    expect_fail: true
