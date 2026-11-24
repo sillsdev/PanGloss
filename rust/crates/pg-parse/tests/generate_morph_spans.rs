@@ -425,6 +425,23 @@ fn a_full_reduplication_without_a_direction_hint_does_not_pick_a_copy() {
 }
 
 #[test]
+fn an_affix_inside_an_ambiguous_reduplication_is_null_too() {
+    let case = Case::of(
+        ("edge-cases", "partial-rule-wrapped-material"),
+        "loplopt",
+        "LOP+T+RD|loplopt",
+    );
+    for morpheme in ["LOP", "T", "RD"] {
+        assert_eq!(
+            case.got(morpheme),
+            Got::Null("span_ambiguous_copy", None),
+            "{morpheme}"
+        );
+    }
+    assert_eq!(case.unattributed(), [(0, 7, "span_ambiguous_copy", None)]);
+}
+
+#[test]
 fn an_in_place_mutation_is_nested_so_it_is_null_not_guessed() {
     let case = Case::of(
         ("edge-cases", "process-morphology-in-place-mutation"),

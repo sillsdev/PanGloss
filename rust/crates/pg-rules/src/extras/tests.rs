@@ -70,3 +70,11 @@ fn span_marks_follow_a_rebuilt_shape_and_a_node_copied_twice_poisons() {
     assert_eq!(kept.inserted, [(1, rule)]);
     assert_eq!(kept.poisoned, None);
 }
+
+#[test]
+fn a_lost_mark_covers_every_run_of_the_morph() {
+    let mut marks = SpanMarks::default();
+    marks.lose((AllomorphId(1), 2, 2), PRuleId(3));
+    marks.lose((AllomorphId(1), 2, 1), PRuleId(4));
+    assert_eq!(marks.lost, [((AllomorphId(1), 2, 0), PRuleId(3))]);
+}

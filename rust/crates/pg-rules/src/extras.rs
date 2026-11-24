@@ -26,7 +26,7 @@ struct Parts {
 pub struct SpanMarks {
     /// Interior node indices a rewrite inserted, with the rule that did.
     pub inserted: Vec<(u32, PRuleId)>,
-    /// Morph runs (allomorph, application, run) whose segments a rule made ambiguous, with the rule that did.
+    /// Morphs (allomorph, application, run 0) with a run whose segments a rule made ambiguous, with the rule that did; every run of the morph shares the mark, so renumbered runs cannot escape it.
     pub lost: Vec<((AllomorphId, u16, u16), PRuleId)>,
     /// Morphs (allomorph, application) an affix that inserts nothing left as a positional placeholder on a real segment.
     pub positional: Vec<(AllomorphId, u16)>,
@@ -45,6 +45,7 @@ impl SpanMarks {
     }
 
     pub(crate) fn lose(&mut self, run: (AllomorphId, u16, u16), rule: PRuleId) {
+        let run = (run.0, run.1, 0);
         if !self.lost.iter().any(|(existing, _)| *existing == run) {
             self.lost.push((run, rule));
         }

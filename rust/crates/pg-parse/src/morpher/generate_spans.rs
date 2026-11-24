@@ -94,6 +94,9 @@ impl Morpher<'_> {
         if let Some(rule) = attribution.poisoned {
             return all_null("span_lost_by_rule", Some(rule), segments.len());
         }
+        if attribution.records.iter().any(|r| r.ambiguous_copy) {
+            return all_null("span_ambiguous_copy", None, segments.len());
+        }
         if attribution.positional {
             return all_null("span_unknown_truncation", None, segments.len());
         }
@@ -139,18 +142,6 @@ impl Morpher<'_> {
                 .find_map(|&r| attribution.records[r].lost)
             {
                 reasons[index] = Some(("span_lost_by_rule", Some(rule)));
-            }
-        }
-
-        // Which copy is the base is arbitrary, so the reduplicating morph and the root each give no span.
-        if attribution.records.iter().any(|r| r.ambiguous_copy) {
-            for (index, item) in items.iter().enumerate() {
-                let touched = records_of[index]
-                    .iter()
-                    .any(|&r| attribution.records[r].ambiguous_copy);
-                if reasons[index].is_none() && (touched || item.role == SeedItemRole::Root) {
-                    reasons[index] = Some(("span_ambiguous_copy", None));
-                }
             }
         }
 

@@ -802,7 +802,11 @@ impl Word {
                 }
             }
             if self.morphs[group.host].status == MorphStatus::Real {
-                let run = self.run_key(group.host);
+                let run = (
+                    self.morphs[group.host].allomorph,
+                    self.morphs[group.host].observation_occurrence,
+                    0,
+                );
                 records[group.host].lost = marks
                     .lost
                     .iter()
