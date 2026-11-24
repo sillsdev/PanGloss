@@ -379,6 +379,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "write FieldWorks ParseAnalysis JSONL rows to this sidecar path",
     },
     FlagSpec {
+        name: "--morph-spans",
+        takes_value: false,
+        summary: "add per-morph surface spans (morphSpans) to each --analyses reading; requires --analyses, off the prefilter, stats and fst paths",
+    },
+    FlagSpec {
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",

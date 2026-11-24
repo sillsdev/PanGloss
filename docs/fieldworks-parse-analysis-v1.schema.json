@@ -53,6 +53,13 @@
             "items": {
               "$ref": "#/$defs/morph"
             }
+          },
+          "morphSpans": {
+            "description": "Present only with batch --morph-spans; see docs/parse-analysis-format.md.",
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/morphSpans" }
+            ]
           }
         }
       }
@@ -93,6 +100,69 @@
     }
   ],
   "$defs": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segments", "offsets", "text"],
+      "properties": {
+        "segments": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+        "offsets": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }] },
+        "text": { "type": ["string", "null"] }
+      }
+    },
+    "spanRule": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["kind", "id", "name", "guid"],
+          "properties": {
+            "kind": { "type": "string" },
+            "id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "guid": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "morphSpans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "segmentCount", "morphemes", "unattributed"],
+      "properties": {
+        "surface": { "type": "string" },
+        "segmentCount": { "type": "integer", "minimum": 0 },
+        "morphemes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item", "spans", "reason", "rule"],
+            "properties": {
+              "item": { "type": "integer", "minimum": 0 },
+              "spans": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/span" } }] },
+              "reason": { "type": ["string", "null"] },
+              "rule": { "$ref": "#/$defs/spanRule" }
+            }
+          }
+        },
+        "unattributed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["segments", "offsets", "text", "reason", "rule"],
+            "properties": {
+              "segments": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+              "offsets": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }] },
+              "text": { "type": ["string", "null"] },
+              "reason": { "type": "string" },
+              "rule": { "$ref": "#/$defs/spanRule" }
+            }
+          }
+        }
+      }
+    },
     "guid": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",

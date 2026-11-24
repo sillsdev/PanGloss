@@ -326,6 +326,163 @@ fn analyses_sidecar_projects_source_guids_from_fwdata() {
 }
 
 #[test]
+fn morph_spans_are_opt_in_and_place_each_morph_on_the_surface() {
+    let fixture = fwdata_fixture_with_k();
+    for (tag, threads) in [("spans-seq", "1"), ("spans-par", "2")] {
+        let plain = run_batch_sidecar_path(tag, &fixture, "kad\n", &["--threads", threads]);
+        assert!(plain[0]["analyses"][0].get("morphSpans").is_none());
+        let rows = run_batch_sidecar_path(
+            tag,
+            &fixture,
+            "kad\n",
+            &["--threads", threads, "--morph-spans"],
+        );
+        let spans = &rows[0]["analyses"][0]["morphSpans"];
+        assert_eq!(spans["surface"], "kad");
+        assert_eq!(spans["segmentCount"], 3);
+        assert_eq!(spans["morphemes"][0]["item"], 0);
+        assert_eq!(spans["morphemes"][0]["reason"], serde_json::Value::Null);
+        assert_eq!(
+            spans["morphemes"][0]["spans"],
+            serde_json::json!([{"segments": [0, 3], "offsets": [0, 3], "text": "kad"}])
+        );
+        assert_eq!(spans["unattributed"], serde_json::json!([]));
+        assert_eq!(
+            rows[0]["analyses"][0]["morphs"],
+            plain[0]["analyses"][0]["morphs"]
+        );
+    }
+}
+
+#[test]
+fn morph_spans_are_refused_where_they_cannot_run() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("spans-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let analyses = dir.join("a.jsonl");
+    let base = |extra: &[&str]| -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            dir.join("out.tsv").to_string_lossy().into_owned(),
+            "--morph-spans".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    let analyses_path = analyses.to_string_lossy().into_owned();
+    let with_analyses = ["--analyses", analyses_path.as_str()];
+    let cases: Vec<Vec<&str>> = vec![
+        vec![],
+        [&with_analyses[..], &["--stats"]].concat(),
+        [&with_analyses[..], &["--partials", "1"]].concat(),
+        [&with_analyses[..], &["--trace-rejections"]].concat(),
+        [&with_analyses[..], &["--prefilter", "on"]].concat(),
+        [&with_analyses[..], &["--engine", "fst"]].concat(),
+    ];
+    for extra in cases {
+        let error = run_batch(&base(&extra)).expect_err(&format!("{extra:?} is refused"));
+        assert!(!error.is_empty(), "{extra:?}");
+        // Only the no-sidecar case is the morph-spans check's own message; the others are refused by their flags' checks.
+        if extra.is_empty() {
+            assert!(
+                error.contains("--morph-spans requires --analyses"),
+                "{error}"
+            );
+        }
+    }
+}
+
+/// The raw bytes of a flag-less row, as v0.33 wrote them: the morph keys keep their declared order.
+#[test]
+fn analyses_rows_without_the_flag_keep_their_exact_bytes() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("analyses-bytes");
+    let words = dir.join("words.txt");
+    let analyses = dir.join("a.jsonl");
+    fs::write(&words, "kad\n").unwrap();
+    let args: Vec<String> = vec![
+        fixture.to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--analyses".to_string(),
+        analyses.to_string_lossy().into_owned(),
+    ];
+    run_batch(&args).unwrap();
+    let line = fs::read_to_string(&analyses).unwrap();
+    let (head, tail) = line.split_once("\"elapsedMs\":").expect("elapsedMs");
+    let tail = tail.split_once(',').expect("elapsedMs value").1;
+    assert_eq!(
+        head,
+        "{\"schema\":\"fieldworks-parse-analysis/v1\",\"index\":0,\"word\":\"kad\","
+    );
+    assert_eq!(
+        tail,
+        "\"capped\":false,\"timedOut\":false,\"invalidShape\":false,\"analyses\":[{\"morphs\":[{\"form\":\"00000000-0000-0000-0000-000000000031\",\"msa\":\"00000000-0000-0000-0000-000000000032\",\"inflType\":null,\"guessedString\":null}]}],\"unavailable\":[]}\n"
+    );
+}
+
+/// A FieldWorks circumfix reaches the CLI with each half placed, and the output accounts for the surface.
+#[test]
+fn morph_spans_place_each_circumfix_half_through_the_cli() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-circumfix-pairings",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let rows = run_batch_sidecar_path(
+        "spans-circumfix",
+        &project,
+        "tagaka\ntogaki\n",
+        &["--morph-spans"],
+    );
+    let mut readings = 0;
+    for row in &rows {
+        for reading in row["analyses"].as_array().unwrap() {
+            let spans = &reading["morphSpans"];
+            let surface = spans["surface"].as_str().unwrap();
+            let mut runs: Vec<(u64, u64, String)> = Vec::new();
+            let all = spans["morphemes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|m| {
+                    assert_eq!(m["spans"].is_null(), !m["reason"].is_null(), "{m}");
+                    m["spans"].as_array().cloned().unwrap_or_default()
+                })
+                .chain(spans["unattributed"].as_array().unwrap().iter().cloned());
+            for run in all {
+                runs.push((
+                    run["segments"][0].as_u64().unwrap(),
+                    run["segments"][1].as_u64().unwrap(),
+                    run["text"].as_str().unwrap().to_string(),
+                ));
+            }
+            runs.sort();
+            let mut next = 0;
+            for (start, end, _) in &runs {
+                assert_eq!(*start, next, "{spans}");
+                next = *end;
+            }
+            assert_eq!(next, spans["segmentCount"].as_u64().unwrap());
+            let text: String = runs.iter().map(|(_, _, t)| t.as_str()).collect();
+            assert_eq!(text, surface);
+            let word = row["word"].as_str().unwrap();
+            let halves: Vec<&str> = spans["morphemes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["spans"][0]["text"].as_str().unwrap())
+                .collect();
+            assert_eq!(halves, [&word[..2], "ga", &word[4..]]);
+            readings += 1;
+        }
+    }
+    assert!(readings >= 2, "both words parse");
+}
+
+#[test]
 fn analyses_sidecar_preserves_cap_and_timeout_flags() {
     let grammar_xml = homophonous_suffix_grammar_xml(7);
     let capped_rows = run_batch_sidecar_custom(

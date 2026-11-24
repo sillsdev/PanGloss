@@ -284,9 +284,14 @@ fn render_surface(options: &Options, surface: &SeedSurface) -> Value {
 }
 
 fn render_analysis(analysis: &SpanAnalysis) -> Value {
-    let spans = &analysis.spans;
+    let mut value = render_surface_spans(&analysis.spans);
+    value["derivations"] = json!(analysis.derivations);
+    value
+}
+
+/// One surface's spans as the wire object, without `derivations`.
+pub(crate) fn render_surface_spans(spans: &pg_parse::morpher::SurfaceSpans) -> Value {
     json!({
-        "derivations": analysis.derivations,
         "segmentCount": spans.segment_count,
         "morphemes": spans.morphemes.iter().map(|m| json!({
             "item": m.item,
@@ -304,7 +309,7 @@ fn render_analysis(analysis: &SpanAnalysis) -> Value {
     })
 }
 
-fn render_span(span: &SegmentSpan) -> Value {
+pub(crate) fn render_span(span: &SegmentSpan) -> Value {
     json!({
         "segments": [span.segments.0, span.segments.1],
         "offsets": span.offsets.map(|(start, end)| [start, end]),

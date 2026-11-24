@@ -492,6 +492,8 @@ pub struct ParseOptions {
     pub guess_only: bool,
     /// Maximum rejection summaries, zero (disabled) through three.
     pub partials: u8,
+    /// Track morph spans through synthesis so `Morpher::parse_word_morph_spans` can place each morph on the surface.
+    pub morph_spans: bool,
 }
 
 impl ParseOptions {
@@ -506,6 +508,11 @@ impl ParseOptions {
     /// the public construction path.
     pub fn with_guess_root(mut self, guess_root: bool) -> Self {
         self.guess_root = guess_root;
+        self
+    }
+
+    pub fn with_morph_spans(mut self, morph_spans: bool) -> Self {
+        self.morph_spans = morph_spans;
         self
     }
 
@@ -986,6 +993,15 @@ impl<'g> Morpher<'g> {
         )
     }
 
+    /// `Self::parse_word_opts` plus, when `opts.morph_spans`, each analysis's morph spans (parallel to `structured`; `None` where no sound span answer exists).
+    pub fn parse_word_morph_spans(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+    ) -> (ParseOutcome, Vec<Option<ParseSpans>>) {
+        self.parse_word_core_spans(word, opts, &NoopSink, (None, None), None, None)
+    }
+
     fn parse_word_core_budgeted(
         &self,
         word: &str,
@@ -995,12 +1011,26 @@ impl<'g> Morpher<'g> {
         stats: Option<&pg_rules::stats::StatsCollector>,
         budget: Option<&pg_rules::stratum::WordBudget>,
     ) -> ParseOutcome {
+        self.parse_word_core_spans(word, opts, trace, selection, stats, budget)
+            .0
+    }
+
+    fn parse_word_core_spans(
+        &self,
+        word: &str,
+        opts: &ParseOptions,
+        trace: &dyn TraceSink,
+        selection: ParseSelection<'_>,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+        budget: Option<&pg_rules::stratum::WordBudget>,
+    ) -> (ParseOutcome, Vec<Option<ParseSpans>>) {
         let meter = pg_cost::Meter::start();
         let fresh_budget = budget.is_none().then(|| self.word_budget());
         let budget = budget.or(fresh_budget.as_ref()).expect("word budget");
         let work_before = budget.work_steps();
         let partials = (opts.partials != 0).then(|| pg_rules::partials::enter(opts.partials));
-        let mut outcome = self.parse_word_unmetered(word, opts, trace, selection, stats, budget);
+        let (mut outcome, spans) =
+            self.parse_word_unmetered(word, opts, trace, selection, stats, budget);
         outcome.cost =
             meter.map(|meter| meter.finish(outcome.work_steps.saturating_sub(work_before)));
         if let Some(scope) = partials {
@@ -1012,7 +1042,7 @@ impl<'g> Morpher<'g> {
                     .collect();
             }
         }
-        outcome
+        (outcome, spans)
     }
 
     /// The shared implementation, run without the cost meter; `Self::parse_word_core_selected` wraps it with one.
@@ -1024,12 +1054,12 @@ impl<'g> Morpher<'g> {
         selection: ParseSelection<'_>,
         stats: Option<&pg_rules::stats::StatsCollector>,
         budget: &pg_rules::stratum::WordBudget,
-    ) -> ParseOutcome {
+    ) -> (ParseOutcome, Vec<Option<ParseSpans>>) {
         let (lex_entry_filter, rule_filter) = selection;
         let g = self.g;
         let n = g.strata.len();
         if n == 0 {
-            return empty_outcome(false);
+            return (empty_outcome(false), Vec::new());
         }
         let surface_stratum = StratumId((n - 1) as u8);
         let surface_table = &g.char_tables[g.strata[surface_stratum.0 as usize].table.0 as usize];
@@ -1044,7 +1074,7 @@ impl<'g> Morpher<'g> {
                 outcome.word_mem_capped = budget.word_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
-                return outcome;
+                return (outcome, Vec::new());
             }
         }
 
@@ -1067,11 +1097,12 @@ impl<'g> Morpher<'g> {
                 outcome.word_mem_capped = budget.word_capped();
                 outcome.timed_out = budget.timed_out();
                 outcome.work_steps = budget.work_steps();
-                return outcome;
+                return (outcome, Vec::new());
             }
         };
         let mut input = Word::new(shape, surface_stratum);
         input.set_collect_partials(opts.partials != 0);
+        input.set_track_spans(opts.morph_spans);
         let search_cache = Mutex::new(crate::root_search_cache::RootSearchCache::new(n));
 
         // `input.trace` carries the handle through every clone, so gates below find their ancestor via `w.trace`.
@@ -1481,9 +1512,18 @@ impl<'g> Morpher<'g> {
             analyses.push(analysis);
             structured.push(self.structured_analysis(w, guessed));
         }
+        let spans: Vec<Option<ParseSpans>> = if opts.morph_spans {
+            ordered_matches
+                .iter()
+                .zip(&structured)
+                .map(|(w, analysis)| self.parse_spans(w, analysis))
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         search_cache.lock().expect("root cache poisoned").finish();
-        ParseOutcome {
+        let outcome = ParseOutcome {
             partials: Vec::new(),
             analyses,
             structured,
@@ -1496,7 +1536,8 @@ impl<'g> Morpher<'g> {
             guessed,
             candidates_generated,
             cost: None,
-        }
+        };
+        (outcome, spans)
     }
 
     /// C# `Morpher.LexicalLookup` (machine#627): one clone per root allomorph the search matched, never its siblings; `lex_entry_filter` and the entry's syntactic-feature unification run per matched allomorph, in search order.
@@ -3016,6 +3057,7 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
 
 mod generate_spans;
 mod generate_trace;
+pub use generate_spans::ParseSpans;
 pub use generate_trace::*;
 
 #[cfg(test)]
