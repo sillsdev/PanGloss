@@ -1790,6 +1790,13 @@ fn blocked_allomorph_snapshot() -> std::path::PathBuf {
             allomorph.environments = vec!["00000000-0000-0000-0000-0000000000e1".into()];
         }
     }
+    // The import's own findings (a dangling environment, a provisional letter) are not part of this synthetic grammar.
+    snapshot.conversion_provenance = pg_snapshot::ConversionProvenance::synthetic();
+    for entry in &mut snapshot.lexicon.entries {
+        for allomorph in &mut entry.allomorphs {
+            allomorph.environments.retain(|e| !e.ends_with("00ff"));
+        }
+    }
     let path = scratch_dir("retire-blocked").join("blocked.json");
     fs::write(&path, snapshot.to_json()).unwrap();
     path
