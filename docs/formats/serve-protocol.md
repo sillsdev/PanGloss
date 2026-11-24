@@ -136,7 +136,7 @@ The request takes only `maxWork` and `wordTimeoutMs`, with the limits `match` ha
  "features":[{"name":"voice","id":"featVoice","values":["+","-"]}]}
 ```
 
-- `classes` is every natural class of the grammar in grammar order, including the synthetic `Any` class (`id` `__any__`) the loader adds. `kind` is `segment` (an explicit segment list) or `feature` (a feature structure).
+- `classes` is every natural class of the grammar in grammar order. `kind` is `segment` (an explicit segment list) or `feature` (a feature structure).
 - `token` is exactly the text `match` accepts between brackets: `[V]`. `match` resolves `[x]` by class `name` first and, failing that, by class `id` (the grammar.xml id, or the FieldWorks guid), so both spellings are accepted. When two classes share a name the first wins that name, and the later one is reached by its `id`; when a class's `id` equals another class's name, the name wins. `token` is the spelling that reaches the class: its name, else its `id`, else `null` (a name that is empty, or starts with `+`, `-` or a Greek letter, or holds `]`, cannot be written in brackets). Parsing `[token]` always gives back the class it came from, and a test pins this for every class.
 - `name` is the grammar's one label for the class (`null` when the grammar gave none). For a grammar compiled from a FieldWorks project that label is the natural class's Abbreviation, the text environment strings cite, and the Name FieldWorks shows is not kept. The op therefore lists no separate `abbreviation`.
 - `features` is every phonological feature the grammar defines, in grammar order, with `values`, the names of its symbols in order. The engine's own `Type` feature (segment or boundary) is not listed.

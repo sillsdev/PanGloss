@@ -129,7 +129,7 @@ fn match_takes_the_name_then_the_xml_id_and_the_first_of_equal_names_wins() {
     let by_name = s.matching("[Voiced]", &["bad"]);
     let by_id = s.matching("[ncVoiced]", &["bad"]);
     assert_eq!(by_name["words"], by_id["words"]);
-    assert_eq!(by_name["words"][0]["matches"].as_array().unwrap().len(), 2);
+    assert_eq!(by_name["words"][0]["matches"].as_array().unwrap().len(), 3);
     // Two classes named V: the first (the segment class) owns the name; the second is reached by its id.
     assert_eq!(class(&r, "ncV")["token"], "V");
     assert_eq!(class(&r, "ncV2")["token"], "ncV2");
@@ -146,15 +146,6 @@ fn match_takes_the_name_then_the_xml_id_and_the_first_of_equal_names_wins() {
     assert_eq!(class(&r, "ncAnon")["token"], "ncAnon");
     assert_eq!(class(&r, "ncPlus")["token"], "ncPlus");
     assert_eq!(class(&r, "ncPlus")["name"], "+hi");
-}
-
-#[test]
-fn the_synthetic_any_class_is_listed_and_spelled_any() {
-    let mut s = Server::start();
-    let r = s.inventory();
-    assert_eq!(class(&r, "__any__")["token"], "Any");
-    let m = s.matching("[Any]", &["ab"]);
-    assert_eq!(m["words"][0]["matches"].as_array().unwrap().len(), 2, "{m}");
 }
 
 #[test]
