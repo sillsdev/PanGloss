@@ -48,7 +48,7 @@ One JSON object per line. Blank lines are ignored.
 ```
 
 - `id` is required and must be a string; it is echoed in the response.
-- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`).
+- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`). `ruleTrace` is optional (default `false`) and only affects `traceDetails: false`: the JSON rule-trace tree is built and appended to `result` only when it is `true`; `traceDetails: true` ignores it.
 - `shutdown`: the process answers `bye`, then exits 0.
 - End of input on stdin exits 0 at once (see Closing stdin). Cancellation is the host killing the process.
 
@@ -67,7 +67,7 @@ A request that ran a parse always yields a `result`, including a parse that stop
 | `traceDetails` | cold argv | `result` | `exitCode` |
 |---|---|---|---|
 | `true` | `pangloss parse <project> <word> --trace --trace-format json --trace-details` | the JSON document the command prints (the trace-details envelope, see `trace-details-v2.md`), as a JSON value | always 0 (the command exits 0 even when capped or timed out; read `search.capped` / `search.timedOut` in the document) |
-| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess` or `--guess=true` (never because the project guesses), then the JSON trace tree (absent when no trace exists) | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
+| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess` or `--guess=true` (never because the project guesses), then, only when the request has `ruleTrace: true`, the JSON trace tree (absent when no trace exists); without `ruleTrace` the string ends after those lines and the tree is not built | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
 
 For `traceDetails: true`, every field is identical to the cold document except the wall-clock measurements: `elapsedNs`, `timedNs`, `timingOverrunNs`, `unattributedNs` and every `*ElapsedNs` field. For `traceDetails: false` the string is byte-identical.
 
@@ -76,7 +76,7 @@ Every `result` response, in both modes, also carries the word's search counts be
 - `status`: `ok`, `CAP` when the work cap stopped the parse, `MEMCAP` when the per-word parser-state ceiling (100 MiB by default) or the affix-matching capture-state ceiling (256 MiB by default) stopped it, `TIMEOUT` when the
   time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
   older servers.
-- `workSteps`: the word's work, meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.
+- `workSteps`: the word's work (with `traceDetails: false` and no `ruleTrace` the parse is untraced, so the count equals batch's `work_steps` and can be a few steps lower than the traced count), meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.
 
 This is the same count as the `work_steps` column that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat the field as optional: older servers omit it.
 

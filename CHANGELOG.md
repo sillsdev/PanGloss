@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- **Behaviour change:** `pangloss serve` `parse` with `traceDetails:false` (the default) no longer builds or sends the JSON rule-trace tree: `result` is now `<word>\t<signature>\n` (plus the `guessed:` line under `--guess`), `exitCode` and `status` unchanged, and `workSteps` is now the untraced count (equal to batch `work_steps`, a few steps below the traced count, which includes trace nodes; a word near `--work-cap` can now finish where the traced parse capped). It cost 0.1 to 4.5 MB per CEB word and about 0.2 s of the per-word time. Send `"ruleTrace":true` to get the old text byte for byte; `traceDetails:true` is unchanged and ignores it. Declared in `--describe` as `interfaces.serveOps.parse`. Motif only sends `traceDetails:true`. See `docs/formats/serve-protocol.md`.
+
 ## 0.33.0
 
 Released 2026-11-24.

@@ -256,6 +256,7 @@ fn interfaces() -> InterfacesDescribe {
             kinds: pg_parse::why_not::FailureKind::answered(),
         },
         serve_ops: serde_json::json!({
+            "parse": crate::serve::describe_parse(),
             "generate": crate::serve_generate::describe(),
             "effects": crate::serve_effects::describe(),
             "inventory": crate::serve_inventory::describe(),

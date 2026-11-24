@@ -313,7 +313,19 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                     )
                 }
             };
-            let outcome = catch_unwind(AssertUnwindSafe(|| parse_word(ctx, word, details)));
+            let rule_trace = match object.get("ruleTrace") {
+                None => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => {
+                    return (
+                        error_response(&id, "bad_request", "\"ruleTrace\" must be a boolean"),
+                        false,
+                    )
+                }
+            };
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                parse_word(ctx, word, details, rule_trace)
+            }));
             let response = match outcome {
                 Ok(Ok(served)) => {
                     let mut r = json!({
@@ -398,8 +410,25 @@ struct Served {
     render_ms: u64,
 }
 
-/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
-fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'static str, String)> {
+/// The `interfaces.serveOps.parse` capability object.
+pub(crate) fn describe_parse() -> Value {
+    json!({
+        "request": PARSE_REQUEST_FIELDS,
+        "defaultTraceDetails": false,
+        "defaultRuleTrace": false,
+        "ruleTrace": "with traceDetails false, the JSON rule-trace tree is appended to result only when ruleTrace is true; it is neither built nor sent otherwise. traceDetails true ignores ruleTrace",
+    })
+}
+
+const PARSE_REQUEST_FIELDS: &[&str] = &["id", "op", "word", "traceDetails", "ruleTrace"];
+
+/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`, minus the rule-trace tree unless `rule_trace`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
+fn parse_word(
+    ctx: &Context,
+    word: &str,
+    details: bool,
+    rule_trace: bool,
+) -> Result<Served, (&'static str, String)> {
     let render_err = |e: String| ("render_failed", e);
     if details {
         let sink = pg_rules::trace::TreeTraceSink::with_failure_context();
@@ -433,14 +462,19 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
     }
     let sink = pg_rules::trace::TreeTraceSink::new();
     let started = Instant::now();
-    let outcome = ctx.morpher.parse_word_traced(word, ctx.opts, &sink);
+    // The tree sink is the cost; without ruleTrace the parse runs on the no-op sink.
+    let outcome = if rule_trace {
+        ctx.morpher.parse_word_traced(word, ctx.opts, &sink)
+    } else {
+        ctx.morpher.parse_word_opts(word, ctx.opts)
+    };
     let parse_ms = started.elapsed().as_millis() as u64;
     let render_started = Instant::now();
     let mut stdout = format!("{}\t{}\n", word, outcome.signature());
     if ctx.guess {
         stdout.push_str(&format!("guessed:\t{}\n", outcome.guessed));
     }
-    if let Some(root) = sink.root() {
+    if let Some(root) = sink.root().filter(|_| rule_trace) {
         stdout.push_str(&crate::trace_render::render_json(ctx.grammar, &sink, root));
     }
     let exit_code = i32::from(crate::require_complete_parse(&outcome).is_err());
