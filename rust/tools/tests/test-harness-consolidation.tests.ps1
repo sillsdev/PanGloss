@@ -130,7 +130,7 @@ $crateSpecs = @(
             'guessed_root_validity_gate.rs', 'max_apps_gate.rs', 'metathesis_gate.rs',
             'morph_gate.rs', 'mpr_allocation.rs', 'non_head_root_filter_gate.rs', 'nonhead_resolution_gate.rs',
             'p7_segments_union_census.rs', 'part1_checkpoint.rs',
-            'redup_and_free_fluctuation_gate.rs', 'rewrite_gate.rs', 'stats_gate.rs',
+            'redup_and_free_fluctuation_gate.rs', 'rewrite_gate.rs', 'rule_text_gate.rs', 'stats_gate.rs',
             'stratum_gate.rs', 'synth_gate_order_gate.rs', 'template_partial_gate.rs', 'trail_cost.rs',
             'type_lane_gate.rs', 'unapplied_rule_counts_reader_gate.rs', 'validity_gate.rs'
         )

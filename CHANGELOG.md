@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- `pangloss serve` `effects` rows carry the rule as text `match` reads: `lhs`, `environment` (`left _ right`), `matchPattern` (`lhs / environment`), `rhs` and the `boundaryMarker` a `+` needs, each printed exactly or `null` with a typed `unprintable` reason (never loose text), plus `nonLocal` and `nonLocalReasons` (`unboundedQuantifier`, `alphaAgreement`, `iterativeSpreading`, `iterativeLengthChange`). A test checks, over the conformance grammars, that `match` of `matchPattern` reports every position an equal-length rewrite changes for rules not flagged `nonLocal` for iteration, and that such iterative rules give the same output as one simultaneous pass; a rule that is `nonLocal` may still be rewritten at positions `matchPattern` does not show. `serve-protocol.md` also lists every op in the `unknown_op` row, which named only `parse`, `generate` and `shutdown`.
+
 ## 0.32.0
 
 Released 2026-11-24.

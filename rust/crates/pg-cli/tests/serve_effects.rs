@@ -258,7 +258,8 @@ fn describe_declares_what_the_op_emits() {
         json!([
             "unboundedQuantifier",
             "alphaAgreement",
-            "iterativeSpreading"
+            "iterativeSpreading",
+            "iterativeLengthChange"
         ])
     );
     let mut s = Server::start();
@@ -647,4 +648,26 @@ fn no_rule_is_not_on_form_after_one_that_may_apply() {
         earlier_may_apply,
         "the first rule may apply, so the check is not vacuous: {r}"
     );
+}
+
+#[test]
+fn a_rule_row_carries_its_match_text_and_its_non_local_verdict() {
+    let mut s = Server::start();
+    let r = s.effects(kat(), json!({}));
+    let e = &r["effects"][0];
+    assert_eq!(e["lhs"], "/t/", "{e}");
+    assert_eq!(e["rhs"], "/d/", "{e}");
+    assert_eq!(e["environment"], "[V] _", "{e}");
+    assert_eq!(e["matchPattern"], "/t/ / [V] _", "{e}");
+    assert_eq!(e["boundaryMarker"], Value::Null);
+    assert_eq!(e["unprintable"], json!([]));
+    assert_eq!(e["nonLocal"], false);
+    assert_eq!(e["nonLocalReasons"], json!([]));
+    // The text is what `match` accepts, and finds the rule's target in the morpheme's own form.
+    let pattern = e["matchPattern"].as_str().unwrap();
+    let m = s.ask(json!({"id": "m1", "op": "match", "pattern": pattern, "words": ["kat", "kad"]}));
+    assert_eq!(m["type"], "result", "{m}");
+    let spans = |word: usize| m["words"][word]["matches"].as_array().unwrap().len();
+    // `kat` has a `t` after a vowel; `kad` has none.
+    assert_eq!((spans(0), spans(1)), (1, 0), "{m}");
 }

@@ -27,6 +27,8 @@ mod part1_checkpoint;
 mod redup_and_free_fluctuation_gate;
 #[path = "../rewrite_gate.rs"]
 mod rewrite_gate;
+#[path = "../rule_text_gate.rs"]
+mod rule_text_gate;
 #[path = "../stats_gate.rs"]
 mod stats_gate;
 #[path = "../synth_gate_order_gate.rs"]

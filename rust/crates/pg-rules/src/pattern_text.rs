@@ -31,7 +31,7 @@ use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
     AlphaVar, AnchorSide, Grammar, NatClassId, NaturalClass, NaturalClassKind, Pattern,
-    PatternNode, SimpleContext, VarId,
+    PatternNode, SimpleContext, TableId, VarId,
 };
 use pg_grammar_model::segment::segment_phonemes_only;
 
@@ -514,4 +514,284 @@ fn near(names: Vec<String>, wanted: &str) -> Vec<String> {
 pub fn boundary_char_def(table: &CharDefTable, marker: &str) -> Option<CharDefId> {
     let id = table.lookup_nfd(&pg_grammar_model::nfd::nfd(marker))?;
     (table.get(id).kind() == CharDefKind::Boundary).then_some(id)
+}
+
+/// Every `reason` a [`PatternPrinter`] refusal can carry.
+pub const UNPRINTABLE_REASONS: [&str; 16] = [
+    "stratum_table_differs",
+    "segment_not_writable",
+    "segment_not_in_surface_table",
+    "boundary_not_writable",
+    "multiple_boundaries",
+    "class_not_writable",
+    "feature_value",
+    "feature_name",
+    "alpha_across_features",
+    "too_many_variables",
+    "quantifier_bounds",
+    "segments_node",
+    "anchor_position",
+    "unknown_class",
+    "rule_not_printed",
+    "metathesis",
+];
+
+/// A pattern the match text cannot say exactly; the code is one of [`UNPRINTABLE_REASONS`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unprintable(pub &'static str);
+
+/// Which part of a `target / left _ right` text a pattern is printed as, which decides where `#` may stand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Place {
+    /// A whole plain pattern: `#` may open or close it.
+    Plain,
+    /// The target of an environment: no `#`.
+    Target,
+    /// A left side: `#` may open it.
+    Left,
+    /// A right side: `#` may close it.
+    Right,
+}
+
+const GREEK_LETTERS: [char; 24] = [
+    '\u{3b1}', '\u{3b2}', '\u{3b3}', '\u{3b4}', '\u{3b5}', '\u{3b6}', '\u{3b7}', '\u{3b8}',
+    '\u{3b9}', '\u{3ba}', '\u{3bb}', '\u{3bc}', '\u{3bd}', '\u{3be}', '\u{3bf}', '\u{3c0}',
+    '\u{3c1}', '\u{3c3}', '\u{3c4}', '\u{3c5}', '\u{3c6}', '\u{3c7}', '\u{3c8}', '\u{3c9}',
+];
+
+/// Prints model patterns as the text [`parse_pattern`] reads, so `parse(print(p))` is `p`; whatever the text cannot say exactly is refused with a typed [`Unprintable`], never printed loosely. One printer serves every part of one rule, so a Greek letter means one variable across them.
+pub struct PatternPrinter<'a> {
+    g: &'a Grammar,
+    source: &'a CharDefTable,
+    surface: &'a CharDefTable,
+    /// The boundary the text's `+` stands for: its `xml_id` in the pattern's table and its text in the surface table.
+    boundary: Option<(String, String)>,
+    /// Each variable's feature, `None` once it names two features; and the letter given to it.
+    vars: Vec<(VarId, Option<FlatIndex>)>,
+    letters: Vec<VarId>,
+}
+
+impl<'a> PatternPrinter<'a> {
+    /// A printer for patterns whose character definitions come from `source`, in text read against `surface`; `patterns` are every pattern of the rule, so variables that span features are known up front.
+    pub fn new(
+        g: &'a Grammar,
+        source: TableId,
+        surface: TableId,
+        patterns: &[&Pattern],
+    ) -> Option<Self> {
+        let mut vars: Vec<(VarId, Option<FlatIndex>)> = Vec::new();
+        fn scan(nodes: &[PatternNode], vars: &mut Vec<(VarId, Option<FlatIndex>)>) {
+            for node in nodes {
+                match node {
+                    PatternNode::Context(sc) => {
+                        for v in &sc.vars {
+                            match vars.iter_mut().find(|(id, _)| *id == v.var) {
+                                Some((_, f)) if *f != Some(v.feature) => *f = None,
+                                Some(_) => {}
+                                None => vars.push((v.var, Some(v.feature))),
+                            }
+                        }
+                    }
+                    PatternNode::Quantifier { children, .. } => scan(children, vars),
+                    _ => {}
+                }
+            }
+        }
+        for p in patterns {
+            scan(&p.nodes, &mut vars);
+        }
+        Some(Self {
+            g,
+            source: g.char_tables.get(source.0 as usize)?,
+            surface: g.char_tables.get(surface.0 as usize)?,
+            boundary: None,
+            vars,
+            letters: Vec::new(),
+        })
+    }
+
+    /// The text `+` stands for in the surface table, once a printed pattern holds a boundary; the caller passes it as `boundaryMarker`.
+    pub fn boundary_marker(&self) -> Option<&str> {
+        self.boundary.as_ref().map(|(_, text)| text.as_str())
+    }
+
+    /// Prints `pattern` as `place`; on refusal the printer is as it was before.
+    pub fn print(&mut self, pattern: &Pattern, place: Place) -> Result<String, Unprintable> {
+        let (boundary, letters) = (self.boundary.clone(), self.letters.clone());
+        let out = self.items(&pattern.nodes, place, true);
+        if out.is_err() {
+            self.boundary = boundary;
+            self.letters = letters;
+        }
+        out
+    }
+
+    fn items(
+        &mut self,
+        nodes: &[PatternNode],
+        place: Place,
+        top: bool,
+    ) -> Result<String, Unprintable> {
+        let mut words = Vec::with_capacity(nodes.len());
+        for (i, node) in nodes.iter().enumerate() {
+            words.push(match node {
+                PatternNode::Anchor(side) => {
+                    let last = i + 1 == nodes.len();
+                    let ok = top
+                        && match (place, side) {
+                            (Place::Plain, AnchorSide::Left) => i == 0,
+                            (Place::Plain, AnchorSide::Right) => last && i > 0,
+                            (Place::Left, AnchorSide::Left) => i == 0,
+                            (Place::Right, AnchorSide::Right) => last,
+                            _ => false,
+                        };
+                    if !ok {
+                        return Err(Unprintable("anchor_position"));
+                    }
+                    "#".to_string()
+                }
+                PatternNode::CharDef(cd) => self.chardef(*cd)?,
+                PatternNode::Context(sc) => self.context(sc)?,
+                PatternNode::Quantifier { min, max, children } => {
+                    if *min != 0 || !matches!(max, None | Some(1)) || children.is_empty() {
+                        return Err(Unprintable("quantifier_bounds"));
+                    }
+                    let inner = self.items(children, place, false)?;
+                    format!("({inner}){}", if max.is_none() { "*" } else { "" })
+                }
+                PatternNode::Segments { .. } => return Err(Unprintable("segments_node")),
+            });
+        }
+        Ok(words.join(" "))
+    }
+
+    fn chardef(&mut self, cd: CharDefId) -> Result<String, Unprintable> {
+        let def = self.source.get(cd);
+        let same = |id: CharDefId| self.surface.get(id).xml_id() == def.xml_id();
+        match def.kind() {
+            CharDefKind::Segment => {
+                let mut present = false;
+                for rep in def.representations_nfd() {
+                    if rep.is_empty()
+                        || rep.contains('/')
+                        || rep.starts_with('_')
+                        || rep.chars().any(char::is_whitespace)
+                    {
+                        continue;
+                    }
+                    let Ok(shape) = segment_phonemes_only(self.surface, rep) else {
+                        continue;
+                    };
+                    let ids: Vec<u32> = shape.interior().map(|(_, _, cd, _)| cd).collect();
+                    if let [one] = ids[..] {
+                        present = true;
+                        if same(CharDefId(one)) {
+                            return Ok(format!("/{rep}/"));
+                        }
+                    }
+                }
+                Err(Unprintable(if present {
+                    "segment_not_writable"
+                } else {
+                    "segment_not_in_surface_table"
+                }))
+            }
+            CharDefKind::Boundary => {
+                let text = def
+                    .representations_nfd()
+                    .iter()
+                    .find(|rep| boundary_char_def(self.surface, rep).is_some_and(same))
+                    .ok_or(Unprintable("boundary_not_writable"))?;
+                match &self.boundary {
+                    Some((id, _)) if id != def.xml_id() => {
+                        return Err(Unprintable("multiple_boundaries"))
+                    }
+                    Some(_) => {}
+                    None => self.boundary = Some((def.xml_id().to_string(), text.clone())),
+                }
+                Ok("+".to_string())
+            }
+        }
+    }
+
+    fn context(&mut self, sc: &SimpleContext) -> Result<String, Unprintable> {
+        let class = self
+            .g
+            .natural_classes
+            .get(sc.nat_class.0 as usize)
+            .ok_or(Unprintable("unknown_class"))?;
+        if sc.vars.is_empty() {
+            if let Some(token) = class_token(self.g, sc.nat_class) {
+                return Ok(format!("[{token}]"));
+            }
+        }
+        let NaturalClassKind::Feature(pairs) = &class.kind else {
+            return Err(Unprintable("class_not_writable"));
+        };
+        let phon = &self.g.phon_features;
+        let mut words = Vec::new();
+        for (flat, bits) in pairs {
+            let name = self.feature_name(*flat)?;
+            if bits.0.count_ones() != 1 {
+                return Err(Unprintable("feature_value"));
+            }
+            let symbol = bits.0.trailing_zeros();
+            match phon.symbol_name(*flat, symbol) {
+                sign @ ("+" | "-") => words.push(format!("{sign}{name}")),
+                _ => return Err(Unprintable("feature_value")),
+            }
+        }
+        for v in &sc.vars {
+            let name = self.feature_name(v.feature)?;
+            if pairs.iter().any(|(f, _)| *f == v.feature)
+                || sc.vars.iter().filter(|w| w.feature == v.feature).count() > 1
+            {
+                return Err(Unprintable("feature_value"));
+            }
+            let letter = self.letter(v)?;
+            words.push(format!("{}{letter}{name}", if v.plus { "" } else { "-" }));
+        }
+        if words.is_empty() {
+            return Err(Unprintable("class_not_writable"));
+        }
+        Ok(format!("[{}]", words.join(" ")))
+    }
+
+    /// The feature's name as a bundle writes it, when `[+name]` reads back as that feature.
+    fn feature_name(&self, flat: FlatIndex) -> Result<&'a str, Unprintable> {
+        let g = self.g;
+        let name = g.phon_features.feature_name(flat);
+        let fine = !name.is_empty()
+            && !name.contains(']')
+            && !name.chars().any(char::is_whitespace)
+            && !name.starts_with(['+', '-'])
+            && !name.chars().next().is_some_and(is_greek)
+            && find_feature(g, name) == Some(flat);
+        if fine {
+            Ok(name)
+        } else {
+            Err(Unprintable("feature_name"))
+        }
+    }
+
+    fn letter(&mut self, v: &AlphaVar) -> Result<char, Unprintable> {
+        if self
+            .vars
+            .iter()
+            .any(|(id, f)| *id == v.var && *f != Some(v.feature))
+        {
+            return Err(Unprintable("alpha_across_features"));
+        }
+        let at = match self.letters.iter().position(|id| *id == v.var) {
+            Some(at) => at,
+            None => {
+                self.letters.push(v.var);
+                self.letters.len() - 1
+            }
+        };
+        GREEK_LETTERS
+            .get(at)
+            .copied()
+            .ok_or(Unprintable("too_many_variables"))
+    }
 }
