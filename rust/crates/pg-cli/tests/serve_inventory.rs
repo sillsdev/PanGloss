@@ -57,8 +57,9 @@ impl Server {
         self.ask(json!({"id": "i", "op": "inventory"}))
     }
 
+    /// Tokens are checked against the members a class lists, so the exact test is asked for; the engine test also takes the segments a class's feature union admits.
     fn matching(&mut self, pattern: &str, words: &[&str]) -> Value {
-        self.ask(json!({"id": "m", "op": "match", "pattern": pattern, "words": words}))
+        self.ask(json!({"id": "m", "op": "match", "pattern": pattern, "words": words, "segmentTest": "identity"}))
     }
 }
 
