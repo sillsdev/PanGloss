@@ -97,7 +97,7 @@ along (replaces the `*-lexical.json` sidecar). Top-level sections:
   (allomorph and morpheme, with adjacency), lexEntryInflTypes (irregularly-inflected-form
   variant types with GlossPrepend/GlossAppend and slot lists), parser parameters (the
   `<ParserParameters><HC>` block: NotOnClitics, AcceptUnspecifiedGraphemes,
-  NoDefaultCompounding, Strata, per-rule maxApps).
+  NoDefaultCompounding, Strata, per-rule maxApps, and `<HC><AffixRules>` per-affix maxApps).
 - `lexicon`: entries — lexeme form, citation form, morph type, allomorphs (form per WS,
   morph type, environments, stem name, `IsAbstract`, bound-ness), MSAs (tagged union: stem /
   inflectional / derivational / unclassified — POS ref, inflection class, exception

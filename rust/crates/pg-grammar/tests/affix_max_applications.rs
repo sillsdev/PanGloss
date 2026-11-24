@@ -1,0 +1,175 @@
+//! `<HC><AffixRules>` maxApps loads into an affix rule's `multipleApplication` (C# `AffixProcessRule.MaxApplicationCount`, default 1).
+
+use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
+use pg_snapshot::morphology::{AffixRuleMaxApplications, MorphType, Morphology, PartOfSpeech};
+use pg_snapshot::phonology::{BoundaryMarker, Phoneme, Phonology};
+use pg_snapshot::project::Project;
+use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
+
+fn ws(form: &str) -> WsForm {
+    WsForm {
+        ws: "sen".to_string(),
+        form: form.to_string(),
+    }
+}
+
+fn entry(guid: &str, morph_type: MorphType, form: &str, msa: Msa) -> LexEntry {
+    let msa_guid = msa.guid().to_string();
+    LexEntry {
+        guid: guid.to_string(),
+        citation_form: vec![ws(form)],
+        lexeme_morph_type: morph_type,
+        allomorphs: vec![Allomorph {
+            guid: format!("allo-{guid}"),
+            morph_type,
+            is_abstract: false,
+            forms: vec![ws(form)],
+            environments: Vec::new(),
+            positions: Vec::new(),
+            stem_name: None,
+            inflection_classes: Vec::new(),
+            ms_env_features: None,
+            ms_env_part_of_speech: None,
+            process: None,
+        }],
+        msas: vec![msa],
+        senses: vec![Sense {
+            guid: format!("sense-{guid}"),
+            gloss: vec![WsForm {
+                ws: "en".to_string(),
+                form: guid.to_uppercase(),
+            }],
+            definition: Vec::new(),
+            msa: Some(msa_guid),
+        }],
+        entry_refs: Vec::new(),
+    }
+}
+
+fn deriv(guid: &str) -> Msa {
+    Msa::Derivational {
+        guid: guid.to_string(),
+        from_part_of_speech: Some("pos-v".to_string()),
+        to_part_of_speech: Some("pos-v".to_string()),
+        from_features: None,
+        to_features: None,
+        from_inflection_class: None,
+        to_inflection_class: None,
+        from_exception_features: Vec::new(),
+        to_exception_features: Vec::new(),
+        from_stem_name: None,
+    }
+}
+
+/// Verb root `kat` with derivational suffixes -ish (`msa-caus`) and -el (`msa-appl`); `counts` is the authored `<HC><AffixRules>` content.
+fn snapshot(counts: &[(&str, u32)]) -> Snapshot {
+    let verb = PartOfSpeech {
+        guid: "pos-v".to_string(),
+        name: "Verb".to_string(),
+        abbreviation: "v".to_string(),
+        children: Vec::new(),
+        inflection_classes: Vec::new(),
+        default_inflection_class: None,
+        inflectable_features: Vec::new(),
+        stem_names: Vec::new(),
+        affix_slots: Vec::new(),
+        affix_templates: Vec::new(),
+    };
+    let phonology = Phonology {
+        phonemes: ["k", "a", "t", "i", "s", "h", "e", "l"]
+            .iter()
+            .map(|p| Phoneme {
+                guid: format!("ph-{p}"),
+                name: p.to_string(),
+                representations: vec![ws(p)],
+                features: None,
+                basic_ipa_symbol: None,
+            })
+            .collect(),
+        boundary_markers: vec![BoundaryMarker {
+            guid: "bd-plus".to_string(),
+            name: "+".to_string(),
+            representations: vec![ws("+")],
+        }],
+        ..Phonology::default()
+    };
+    let mut morphology = Morphology {
+        parts_of_speech: vec![verb],
+        ..Morphology::default()
+    };
+    morphology.parser_parameters.affix_rule_max_applications = counts
+        .iter()
+        .map(|(msa, n)| AffixRuleMaxApplications {
+            msa: msa.to_string(),
+            max_applications: *n,
+        })
+        .collect();
+    let root = Msa::Stem {
+        guid: "msa-kat".to_string(),
+        part_of_speech: Some("pos-v".to_string()),
+        inflection_class: None,
+        features: None,
+        exception_features: Vec::new(),
+        from_parts_of_speech: Vec::new(),
+        slots: Vec::new(),
+    };
+    Snapshot::new(
+        Project {
+            name: "Test".to_string(),
+            vernacular_writing_systems: vec!["sen".to_string()],
+            analysis_writing_systems: vec!["en".to_string()],
+            exemplar_characters: Vec::new(),
+        },
+        FeatureSystems::default(),
+        phonology,
+        morphology,
+        Lexicon {
+            entries: vec![
+                entry("kat", MorphType::Root, "kat", root),
+                entry("caus", MorphType::Suffix, "ish", deriv("msa-caus")),
+                entry("appl", MorphType::Suffix, "el", deriv("msa-appl")),
+            ],
+            msa_equality: None,
+        },
+    )
+}
+
+fn parse_count(counts: &[(&str, u32)], word: &str) -> usize {
+    let grammar = pg_grammar::compile_project(&snapshot(counts))
+        .expect("must compile")
+        .0;
+    pg_parse::Morpher::new(&grammar, usize::MAX)
+        .parse_word(word)
+        .structured
+        .len()
+}
+
+#[test]
+fn an_authored_count_lets_the_affix_apply_that_many_times() {
+    let counts = [("msa-caus", 2), ("msa-appl", 2)];
+    assert_eq!(parse_count(&counts, "katish"), 1);
+    assert_eq!(parse_count(&counts, "katishish"), 1);
+    assert_eq!(parse_count(&counts, "katelel"), 1);
+    assert_eq!(parse_count(&counts, "katishishelel"), 1);
+}
+
+#[test]
+fn the_count_is_a_ceiling_not_unbounded() {
+    let counts = [("msa-caus", 2), ("msa-appl", 2)];
+    assert_eq!(parse_count(&counts, "katishishish"), 0);
+    assert_eq!(parse_count(&counts, "katelelel"), 0);
+}
+
+#[test]
+fn absent_count_means_one_application() {
+    assert_eq!(parse_count(&[], "katish"), 1);
+    assert_eq!(parse_count(&[], "katishish"), 0);
+    assert_eq!(parse_count(&[], "katelel"), 0);
+}
+
+#[test]
+fn a_count_applies_only_to_its_own_msa() {
+    let counts = [("msa-caus", 2)];
+    assert_eq!(parse_count(&counts, "katishish"), 1);
+    assert_eq!(parse_count(&counts, "katelel"), 0);
+}

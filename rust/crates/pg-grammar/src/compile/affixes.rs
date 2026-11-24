@@ -486,13 +486,21 @@ pub(crate) fn build_affix_rule(
         co_occurrence: Vec::new(),
     });
 
+    let max_apps = ctx
+        .snapshot
+        .morphology
+        .parser_parameters
+        .affix_rule_max_applications
+        .iter()
+        .find(|m| m.msa == msa_guid)
+        .map_or(1, |m| m.max_applications as u16);
     acc.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
             morpheme,
             name: entry.citation_form.first().map(|f| f.form.clone()),
             blockable: true,
             partial_reason,
-            max_apps: 1,
+            max_apps,
             required_syn_fs,
             out_syn_fs,
             obligatory_features: Vec::new(),

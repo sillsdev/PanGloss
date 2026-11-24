@@ -1,8 +1,8 @@
-//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way.
+//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way, and `<HC><AffixRules>` (per-affix `maxApps`, keyed by MSA guid) is nested inside `<HC>`.
 
 use pg_snapshot::{
-    ActiveParser, CompoundRuleMaxApplications, FwClass, FwObjectRef, ParserParameters, Warning,
-    XAmpleParameters,
+    ActiveParser, AffixRuleMaxApplications, CompoundRuleMaxApplications, FwClass, FwObjectRef,
+    ParserParameters, Warning, XAmpleParameters,
 };
 
 use crate::node::parse_full_document;
@@ -209,6 +209,8 @@ pub fn parse_with_issues(
         })
         .unwrap_or_default();
 
+    let affix_rule_max_applications = hc_affix_rule_max_applications(hc, &mut issues);
+
     Ok((
         ParserParameters {
             not_on_clitics,
@@ -222,6 +224,7 @@ pub fn parse_with_issues(
             guess_roots,
             strata,
             compound_rule_max_applications,
+            affix_rule_max_applications,
             active_parser,
             xample,
         },
@@ -232,6 +235,54 @@ pub fn parse_with_issues(
             xample_fields: xample_fields_present,
         },
     ))
+}
+
+/// `<HC><AffixRules><AffixRule guid maxApps>`: a count above 1 is kept; 1 or less means absent; a missing guid or a non-integer or out-of-range count warns and falls back to 1.
+fn hc_affix_rule_max_applications(
+    hc: Option<&crate::node::Node>,
+    issues: &mut Vec<Warning>,
+) -> Vec<AffixRuleMaxApplications> {
+    let Some(rules) = hc.and_then(|hc| hc.child("AffixRules")) else {
+        return Vec::new();
+    };
+    let mut out: Vec<AffixRuleMaxApplications> = Vec::new();
+    for rule in rules.children_named("AffixRule") {
+        let guid = rule.attr("guid").map(str::trim).unwrap_or("");
+        let raw = rule.attr("maxApps").map(str::trim).unwrap_or("");
+        let invalid = |what: &str, issues: &mut Vec<Warning>| {
+            issues.push(
+                Warning::new(
+                    codes::INVALID_PARSER_PARAMETER,
+                    format!(
+                        "Parser parameter 'HC.AffixRules' entry {guid:?} has {what} (maxApps {raw:?}); the affix applies at most once."
+                    ),
+                )
+                .with_subject(
+                    FwObjectRef::new(FwClass::Project)
+                        .project_settings()
+                        .field("HC.AffixRules"),
+                ),
+            );
+        };
+        if guid.is_empty() {
+            invalid("no guid", issues);
+            continue;
+        }
+        match raw.parse::<i64>() {
+            Ok(n) if n <= 1 => {}
+            Ok(n) if n <= i64::from(u16::MAX) => {
+                // A repeated guid is a no-op for C# (the first match wins), so the first entry wins here too.
+                if !out.iter().any(|e| e.msa == guid) {
+                    out.push(AffixRuleMaxApplications {
+                        msa: guid.to_string(),
+                        max_applications: n as u32,
+                    });
+                }
+            }
+            _ => invalid("an invalid count", issues),
+        }
+    }
+    out
 }
 
 /// `HCParser.LoadParser` reads `<HC><DelReapps>` as `(int) element` with default 0; a negative value stops the C# loop after one pass exactly like 0, so it is stored as 0.

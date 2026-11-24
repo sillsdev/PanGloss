@@ -420,3 +420,42 @@ fn malformed_hc_max_roots_is_fatal_and_names_the_field_and_value() {
         assert!(message.contains(&format!("{bad:?}")), "{message}");
     }
 }
+
+#[test]
+fn affix_rule_max_apps_loads_counts_above_one_and_ignores_one() {
+    let (p, issues, _) = parse_with_issues(Some(
+        "<ParserParameters><HC><AffixRules>\
+         <AffixRule guid=\"a1\" maxApps=\"2\"/><AffixRule guid=\"a2\" maxApps=\"1\"/>\
+         <AffixRule guid=\"a3\" maxApps=\"0\"/><AffixRule guid=\"a1\" maxApps=\"5\"/>\
+         </AffixRules></HC></ParserParameters>",
+    ))
+    .unwrap();
+    assert!(issues.is_empty(), "{issues:?}");
+    assert_eq!(
+        p.affix_rule_max_applications,
+        vec![AffixRuleMaxApplications {
+            msa: "a1".into(),
+            max_applications: 2
+        }]
+    );
+}
+
+#[test]
+fn affix_rule_max_apps_invalid_values_warn_and_fall_back_to_one() {
+    let (p, issues, _) = parse_with_issues(Some(
+        "<ParserParameters><HC><AffixRules>\
+         <AffixRule guid=\"a1\" maxApps=\"two\"/><AffixRule guid=\"a2\" maxApps=\"70000\"/>\
+         <AffixRule maxApps=\"2\"/><AffixRule guid=\"a4\"/>\
+         </AffixRules></HC></ParserParameters>",
+    ))
+    .unwrap();
+    assert!(p.affix_rule_max_applications.is_empty());
+    assert_eq!(issues.len(), 4, "{issues:?}");
+}
+
+#[test]
+fn absent_affix_rules_means_no_counts() {
+    let (p, issues, _) =
+        parse_with_issues(Some("<ParserParameters><HC/></ParserParameters>")).unwrap();
+    assert!(p.affix_rule_max_applications.is_empty() && issues.is_empty());
+}
