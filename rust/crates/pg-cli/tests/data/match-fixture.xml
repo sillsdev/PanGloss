@@ -9,7 +9,11 @@
     <PhonologicalFeatureSystem>
       <SymbolicFeature id="featVoice">
         <Name>voice</Name>
-        <Symbols><Symbol id="vPos">+voi</Symbol><Symbol id="vNeg">-voi</Symbol></Symbols>
+        <Symbols><Symbol id="vPos">+</Symbol><Symbol id="vNeg">-</Symbol></Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featSon">
+        <Name>son</Name>
+        <Symbols><Symbol id="sPos">+</Symbol><Symbol id="sNeg">-</Symbol></Symbols>
       </SymbolicFeature>
     </PhonologicalFeatureSystem>
     <CharacterDefinitionTable id="tbl">
@@ -82,6 +86,39 @@
       <FeatureNaturalClass id="ncVoiced"><Name>Voiced</Name>
         <FeatureValue feature="featVoice" symbolValues="vPos" />
       </FeatureNaturalClass>
+      <!-- Spelling collisions for the inventory op: a second class named V, a class whose id is another class's name, an unnamed class, and a name no bracket can hold. -->
+      <FeatureNaturalClass id="ncV2"><Name>V</Name>
+        <FeatureValue feature="featVoice" symbolValues="vNeg" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncW"><Name>W</Name>
+        <FeatureValue feature="featVoice" symbolValues="vNeg" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="W"><Name>Other</Name>
+        <FeatureValue feature="featVoice" symbolValues="vPos" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncAnon"><Name></Name>
+        <FeatureValue feature="featVoice" symbolValues="vNeg" />
+      </FeatureNaturalClass>
+      <FeatureNaturalClass id="ncPlus"><Name>+hi</Name>
+        <FeatureValue feature="featVoice" symbolValues="vNeg" />
+      </FeatureNaturalClass>
+      <!-- Names the token rules treat specially: an inner space and non-ASCII are fine, a name holding ] falls back to its id, an unnamed class whose id holds ] has no spelling at all. -->
+      <SegmentNaturalClass id="ncNas"><Name>Nasal Stop</Name>
+        <Segment segment="c9" />
+        <Segment segment="c10" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncEng"><Name>Ŋ-class</Name>
+        <Segment segment="c10" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncBr"><Name>A]B</Name>
+        <Segment segment="c0" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncOpen"><Name>[Open</Name>
+        <Segment segment="c5" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="no]way"><Name></Name>
+        <Segment segment="c4" />
+      </SegmentNaturalClass>
     </NaturalClasses>
     <Strata>
       <Stratum characterDefinitionTable="tbl">

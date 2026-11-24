@@ -93,7 +93,7 @@ pub(crate) fn describe() -> Value {
     })
 }
 
-fn error(id: &Value, code: &str, message: String, extra: Value) -> Value {
+pub(crate) fn error(id: &Value, code: &str, message: String, extra: Value) -> Value {
     debug_assert!(ERROR_CODES.contains(&code), "undeclared error code {code}");
     let mut v = json!({"id": id, "type": "error", "code": code, "message": message});
     if let (Some(map), Some(more)) = (v.as_object_mut(), extra.as_object()) {
@@ -165,6 +165,30 @@ fn opt_usize(
     }
 }
 
+/// The per-word work units and wall clock a request names with `maxWork` and `wordTimeoutMs`, bounded by the server's own `--work-cap` and `--word-timeout-ms`. Shared by every op that reports `work_limit` and `deadline`.
+pub(crate) fn request_budget(
+    id: &Value,
+    object: &Map<String, Value>,
+    morpher: &Morpher<'_>,
+) -> Result<(usize, Duration), Value> {
+    let server_cap = morpher.work_cap().max(1);
+    let max_work = opt_usize(
+        id,
+        object,
+        "maxWork",
+        DEFAULT_MAX_WORK.min(server_cap),
+        server_cap,
+    )?;
+    let word_timeout =
+        match opt_usize(id, object, "wordTimeoutMs", 0, MAX_WORD_TIMEOUT_MS as usize)? {
+            0 => morpher
+                .word_timeout()
+                .unwrap_or(Duration::from_millis(DEFAULT_WORD_TIMEOUT_MS)),
+            n => Duration::from_millis(n as u64),
+        };
+    Ok((max_work, word_timeout))
+}
+
 /// Answers one `match` request (the request line is already known to be a JSON object with a string `id`).
 pub(crate) fn handle(
     g: &Grammar,
@@ -201,23 +225,8 @@ pub(crate) fn handle(
         Ok(n) => n,
         Err(e) => return e,
     };
-    let server_cap = morpher.work_cap().max(1);
-    let max_work = match opt_usize(
-        id,
-        object,
-        "maxWork",
-        DEFAULT_MAX_WORK.min(server_cap),
-        server_cap,
-    ) {
-        Ok(n) => n,
-        Err(e) => return e,
-    };
-    let word_timeout = match opt_usize(id, object, "wordTimeoutMs", 0, MAX_WORD_TIMEOUT_MS as usize)
-    {
-        Ok(0) => morpher
-            .word_timeout()
-            .unwrap_or(Duration::from_millis(DEFAULT_WORD_TIMEOUT_MS)),
-        Ok(n) => Duration::from_millis(n as u64),
+    let (max_work, word_timeout) = match request_budget(id, object, morpher) {
+        Ok(b) => b,
         Err(e) => return e,
     };
     let words: Vec<String> = match (object.get("words"), object.get("wordsFile")) {

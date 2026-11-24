@@ -311,6 +311,7 @@ fn feature_names(g: &Grammar) -> Vec<String> {
         .collect()
 }
 
+/// The natural class a `[token]` names: the first class whose name is `name`, else the first whose XML id is `name`. A name outranks an id when both exist, and the first of two equal names wins.
 fn find_class(g: &Grammar, name: &str) -> Option<NatClassId> {
     let by = |f: &dyn Fn(&pg_grammar_model::model::NaturalClass) -> bool| {
         g.natural_classes.iter().position(f)
@@ -318,6 +319,25 @@ fn find_class(g: &Grammar, name: &str) -> Option<NatClassId> {
     by(&|c| c.name.as_deref() == Some(name))
         .or_else(|| by(&|c| c.xml_id == name))
         .map(|i| NatClassId(i as u32))
+}
+
+/// The text that selects class `id` as `[token]` in pattern text: its name, or its XML id when the name is empty, repeated by an earlier class, or not writable inside brackets; `None` when no spelling reaches it. The token round-trips: parsing `[token]` gives back `id`.
+pub fn class_token(g: &Grammar, id: NatClassId) -> Option<String> {
+    let class = g.natural_classes.get(id.0 as usize)?;
+    let reaches = |text: &str| {
+        let t = text.trim();
+        t == text
+            && !t.is_empty()
+            && !t.contains(']')
+            && !is_bundle(t)
+            && find_class(g, t) == Some(id)
+    };
+    class
+        .name
+        .iter()
+        .chain(std::iter::once(&class.xml_id))
+        .find(|text| reaches(text))
+        .cloned()
 }
 
 /// Up to five names equal to `wanted` ignoring case, or containing it or contained by it, sorted.
