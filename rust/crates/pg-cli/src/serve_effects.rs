@@ -1,7 +1,7 @@
 //! `pangloss serve` op `effects`: which phonological rules can change one morpheme, never claiming "cannot change" without proof; feeding and bleeding are out of scope.
 //! Wire shape and limits: `docs/formats/serve-protocol.md`.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use pg_grammar::model::{
     AffixAllomorphDef, AllomorphId, Grammar, LexEntryId, MRuleId, OutputAction, PRuleId,
@@ -19,11 +19,7 @@ use serde_json::{json, Map, Value};
 const VERSION: u32 = 1;
 const ROOTS_PER_ENVIRONMENT_MAX: usize = 50;
 const DEFAULT_ROOTS_PER_ENVIRONMENT: usize = 3;
-/// Scan units (one allomorph against one rule subrule) when the request names no `maxWork`.
-const DEFAULT_MAX_WORK: usize = 1_000_000;
-const HARD_MAX_WORK: usize = 100_000_000;
-const DEFAULT_WORD_TIMEOUT_MS: u64 = 10_000;
-const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
+use crate::serve_match::{DEFAULT_MAX_WORK, DEFAULT_WORD_TIMEOUT_MS, MAX_WORD_TIMEOUT_MS};
 
 const KNOWN_FIELDS: [&str; 7] = [
     "id",
@@ -34,8 +30,9 @@ const KNOWN_FIELDS: [&str; 7] = [
     "maxWork",
     "wordTimeoutMs",
 ];
-const ERROR_CODES: [&str; 5] = [
+const ERROR_CODES: [&str; 6] = [
     "bad_request",
+    "form_not_segmentable",
     "unknown_morpheme",
     "ambiguous_identity",
     "authored_identity_unavailable",
@@ -82,7 +79,6 @@ pub(crate) fn describe() -> Value {
             "rootsPerEnvironmentMax": ROOTS_PER_ENVIRONMENT_MAX,
             "defaultRootsPerEnvironment": DEFAULT_ROOTS_PER_ENVIRONMENT,
             "defaultMaxWork": DEFAULT_MAX_WORK,
-            "maxWork": HARD_MAX_WORK,
             "defaultWordTimeoutMs": DEFAULT_WORD_TIMEOUT_MS,
             "maxWordTimeoutMs": MAX_WORD_TIMEOUT_MS,
         },
@@ -180,68 +176,71 @@ struct AllomorphForm {
     partial: bool,
 }
 
-fn segments_of(g: &Grammar, table: TableId, text: &str) -> Vec<String> {
+/// The form's segments, or the reason it cannot be segmented; never an empty list standing for failure.
+fn segments_of(g: &Grammar, table: TableId, text: &str) -> Result<Vec<String>, String> {
     let table_ref = &g.char_tables[table.0 as usize];
-    let Ok(shape) = segment_with_features(g, table_ref, text) else {
-        return Vec::new();
-    };
+    let shape = segment_with_features(g, table_ref, text)
+        .map_err(|e| format!("form {text:?} does not segment against its stratum table: {e}"))?;
     let nfd = pg_grammar::nfd::nfd(text);
-    match segment_byte_spans(table_ref, &shape, &nfd) {
-        Some(spans) => spans.iter().map(|(s, e)| nfd[*s..*e].to_string()).collect(),
-        None => Vec::new(),
-    }
+    segment_byte_spans(table_ref, &shape, &nfd)
+        .map(|spans| spans.iter().map(|(s, e)| nfd[*s..*e].to_string()).collect())
+        .ok_or_else(|| format!("form {text:?} has no segment spans"))
 }
 
-fn root_forms(g: &Grammar, entry: LexEntryId) -> Vec<AllomorphForm> {
+fn root_forms(g: &Grammar, entry: LexEntryId) -> Result<Vec<AllomorphForm>, String> {
     let def = &g.entries[entry.0 as usize];
     let stratum = g.morphemes[def.morpheme.0 as usize].stratum;
     let table = g.strata[stratum.0 as usize].table;
     def.allomorphs
         .iter()
-        .map(|a| AllomorphForm {
-            id: a.id,
-            text: a.shape.text.clone(),
-            segments: segments_of(g, table, &a.shape.text),
-            partial: false,
+        .map(|a| {
+            Ok(AllomorphForm {
+                id: a.id,
+                text: a.shape.text.clone(),
+                segments: segments_of(g, table, &a.shape.text)?,
+                partial: false,
+            })
         })
         .collect()
 }
 
-fn affix_forms(g: &Grammar, rule: MRuleId) -> Vec<AllomorphForm> {
+fn affix_forms(g: &Grammar, rule: MRuleId) -> Result<Vec<AllomorphForm>, String> {
     let Some(allomorphs) = g.mrules[rule.0 as usize].affix_allomorphs() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     allomorphs.iter().map(|a| affix_form(g, a)).collect()
 }
 
-fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> AllomorphForm {
+/// Each inserted fragment is segmented against its own table, so a process mixing tables is read correctly.
+fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, String> {
     let mut text = String::new();
-    let mut table = None;
+    let mut segments = Vec::new();
     let mut partial = false;
     for action in &a.rhs {
         match action {
-            OutputAction::InsertSegments { table: t, shape } => {
-                table.get_or_insert(*t);
+            OutputAction::InsertSegments { table, shape } => {
                 text.push_str(&shape.text);
+                segments.extend(segments_of(g, *table, &shape.text)?);
             }
             OutputAction::Copy(_) | OutputAction::Modify(..) | OutputAction::InsertContext(_) => {
                 partial = true
             }
         }
     }
-    let table = table.unwrap_or(TableId(0));
-    AllomorphForm {
+    Ok(AllomorphForm {
         id: a.id,
-        segments: segments_of(g, table, &text),
+        segments,
         text,
         partial,
-    }
+    })
 }
 
 /// One subrule (or a metathesis rule's whole pattern) of one phonological rule, in application order.
 struct RuleItem {
     rule: Value,
     subrule: Value,
+    /// A rule that is not in the compiled grammar is listed with this reason and no analysis.
+    unlisted: Option<String>,
 }
 
 fn rule_items(g: &Grammar) -> Vec<RuleItem> {
@@ -253,6 +252,14 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
             .unwrap_or_else(|| format!("stratum#{stratum_index}"));
         for (ordinal, PRuleId(index)) in stratum.prules.iter().enumerate() {
             let Some(rule) = g.prules.get(*index as usize) else {
+                items.push(RuleItem {
+                    rule: json!({
+                        "kind": null, "id": null, "guid": null, "name": null,
+                        "stratum": stratum_name, "ordinal": ordinal, "status": "not_compiled",
+                    }),
+                    subrule: Value::Null,
+                    unlisted: Some(format!("stratum lists missing rule index {index}")),
+                });
                 continue;
             };
             let (kind, xml_id, name, subrules) = match rule {
@@ -273,11 +280,28 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                         "name": name,
                         "stratum": stratum_name,
                         "ordinal": ordinal,
+                        "status": "compiled",
                     }),
                     subrule,
+                    unlisted: None,
                 });
             }
         }
+    }
+    for skipped in &g.skipped_prules {
+        items.push(RuleItem {
+            rule: json!({
+                "kind": skipped.kind,
+                "id": skipped.guid,
+                "guid": Some(skipped.guid.clone()).filter(|text| looks_like_guid(text)),
+                "name": skipped.name,
+                "stratum": null,
+                "ordinal": null,
+                "status": skipped.status,
+            }),
+            subrule: Value::Null,
+            unlisted: Some(skipped.reason.clone()),
+        });
     }
     items
 }
@@ -348,15 +372,8 @@ pub(crate) fn handle(
         Ok(n) => n,
         Err(e) => return e,
     };
-    let max_work = match bounded(id, object, "maxWork", DEFAULT_MAX_WORK, HARD_MAX_WORK) {
-        Ok(n) => n,
-        Err(e) => return e,
-    };
-    let timeout = match bounded(id, object, "wordTimeoutMs", 0, MAX_WORD_TIMEOUT_MS as usize) {
-        Ok(0) => morpher
-            .word_timeout()
-            .unwrap_or(Duration::from_millis(DEFAULT_WORD_TIMEOUT_MS)),
-        Ok(n) => Duration::from_millis(n as u64),
+    let (max_work, timeout) = match crate::serve_match::request_budget(id, object, morpher) {
+        Ok(budget) => budget,
         Err(e) => return e,
     };
 
@@ -364,9 +381,13 @@ pub(crate) fn handle(
         Ok(m) => m,
         Err((code, message)) => return error(id, code, message),
     };
-    let mut forms = match resolved.owner {
+    let forms = match resolved.owner {
         ResolvedMorphemeOwner::LexicalEntry(entry) => root_forms(g, entry),
         ResolvedMorphemeOwner::MorphologicalRule(rule) => affix_forms(g, rule),
+    };
+    let mut forms = match forms {
+        Ok(forms) => forms,
+        Err(message) => return error(id, "form_not_segmentable", message),
     };
     if let Some(wanted) = allomorph_filter {
         forms.retain(|f| f.id.0 == wanted);
@@ -402,7 +423,7 @@ pub(crate) fn handle(
                     "allomorphId": form.id.0,
                     "edge": edge,
                     "mayApply": "unknown",
-                    "reason": "not_analysed",
+                    "reason": item.unlisted.as_deref().unwrap_or("not_analysed"),
                 }));
             }
         }

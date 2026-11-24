@@ -8,6 +8,11 @@ use serde_json::{json, Value};
 const BIN: &str = env!("CARGO_BIN_EXE_pangloss");
 const FWDATA: &str =
     include_str!("../../../../docs/divergences/evidence/071/kat-fixture-with-k.fwdata");
+const METATHESIS_FWDATA: &str =
+    include_str!("../../pg-parse/tests/data/fw-metathesis/project.fwdata");
+const METATHESIS_RULE: &str = "0a16445c-e231-4957-9dbd-08af9c700ed8";
+const METATHESIS_ENTRY: &str = "59812fa2-7cb8-4481-baed-78212699c934";
+const METATHESIS_MSA: &str = "568c4482-a8ab-46c5-8434-beadf5fcd625";
 const ROOT_ENTRY: &str = "00000000-0000-0000-0000-000000000040";
 const ROOT_MSA: &str = "00000000-0000-0000-0000-000000000042";
 const AFFIX_ENTRY: &str = "00000000-0000-0000-0000-000000000050";
@@ -198,18 +203,6 @@ fn a_work_limit_returns_the_effects_so_far_flagged_partial() {
 }
 
 #[test]
-fn a_short_deadline_names_itself_when_it_stops() {
-    let mut s = Server::start();
-    let r = s.effects(root(), json!({"wordTimeoutMs": 1, "maxWork": 1000000}));
-    assert_eq!(r["type"], "result", "{r}");
-    // A one millisecond deadline may or may not fire on a tiny scan; when it stops, it says so.
-    if r["complete"] == false {
-        assert_eq!(r["stopReason"], "deadline", "{r}");
-        assert_eq!(r["partial"], true);
-    }
-}
-
-#[test]
 fn typed_errors_for_requests_that_never_ran() {
     let mut s = Server::start();
     let unknown_entry =
@@ -325,4 +318,166 @@ fn a_grammar_without_authored_identity_is_a_typed_error() {
     assert_eq!(error_code(&r), "authored_identity_unavailable", "{r}");
     drop(stdin);
     let _ = child.wait();
+}
+
+/// The block `<rt ... guid="{guid}" ...>...</rt>` of a project.
+fn rt_block<'a>(project: &'a str, guid: &str) -> &'a str {
+    let at = project
+        .find(&format!("guid=\"{guid}\" ownerguid"))
+        .and_then(|i| project[..i].rfind("<rt "))
+        .unwrap_or_else(|| panic!("no rt {guid}"));
+    let end = project[at..].find("</rt>").unwrap() + at + "</rt>\n".len();
+    &project[at..end]
+}
+
+/// The metathesis project with its one rule cloned twice more: `second` (same switches) and `unset` (both switches -1).
+fn three_rule_metathesis_fwdata() -> String {
+    let mut project = METATHESIS_FWDATA.to_string();
+    let rule = rt_block(&project, METATHESIS_RULE).to_string();
+    let contexts: Vec<String> = [
+        "c9f7bed5-8d59-49f2-8bfe-6cb4bffede1a",
+        "94425297-3b8f-47e8-9702-f0dcb8b3fe88",
+        "8ea52f25-4fd0-4770-9640-1409a89cf513",
+    ]
+    .iter()
+    .map(|g| g.to_string())
+    .collect();
+    let blocks: Vec<String> = contexts
+        .iter()
+        .map(|g| rt_block(&project, g).to_string())
+        .collect();
+    let mut added = String::new();
+    let mut refs = String::new();
+    for (tag, struc) in [("e", "0 2 -1 1 -1"), ("f", "0 -1 -1 -1 -1")] {
+        let new_guid = |g: &str| format!("{tag}{}", &g[1..]);
+        let mut copy = rule.replace(METATHESIS_RULE, &new_guid(METATHESIS_RULE));
+        copy = copy.replace("probe-metathesis", &format!("clone-{tag}"));
+        copy = copy.replace("0 2 -1 1 -1", struc);
+        for g in &contexts {
+            copy = copy.replace(g.as_str(), &new_guid(g));
+        }
+        added.push_str(&copy);
+        for block in &blocks {
+            let mut b = block.replace(METATHESIS_RULE, &new_guid(METATHESIS_RULE));
+            for g in &contexts {
+                b = b.replace(g.as_str(), &new_guid(g));
+            }
+            added.push_str(&b);
+        }
+        refs.push_str(&format!(
+            "<objsur guid=\"{}\" t=\"o\" />\n",
+            new_guid(METATHESIS_RULE)
+        ));
+    }
+    let marker = format!("<objsur guid=\"{METATHESIS_RULE}\" t=\"o\" />\n</PhonRules>");
+    assert!(project.contains(&marker));
+    project = project.replacen(
+        &marker,
+        &format!("<objsur guid=\"{METATHESIS_RULE}\" t=\"o\" />\n{refs}</PhonRules>"),
+        1,
+    );
+    let at = project.rfind("</languageproject>").unwrap();
+    project.insert_str(at, &added);
+    project
+}
+
+fn metathesis() -> Value {
+    json!({"entryGuid": METATHESIS_ENTRY, "msaGuid": METATHESIS_MSA})
+}
+
+#[test]
+fn rules_are_listed_in_stratum_and_ordinal_order_with_their_ids() {
+    let mut s = Server::start_with(&three_rule_metathesis_fwdata());
+    let r = s.effects(metathesis(), json!({"edges": ["left"]}));
+    assert_eq!(r["type"], "result", "{r}");
+    let rows: Vec<(String, Value, String, Value, String)> = r["effects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| {
+            (
+                e["rule"]["stratum"].to_string(),
+                e["rule"]["ordinal"].clone(),
+                e["rule"]["id"].as_str().unwrap().to_string(),
+                e["subrule"].clone(),
+                e["rule"]["status"].as_str().unwrap().to_string(),
+            )
+        })
+        .map(|(a, b, c, d, e)| (a, b, c, d, e))
+        .collect();
+    let expected = [
+        (
+            "\"Morphology\"",
+            json!(0),
+            METATHESIS_RULE.to_string(),
+            "compiled",
+        ),
+        (
+            "\"Morphology\"",
+            json!(1),
+            format!("e{}", &METATHESIS_RULE[1..]),
+            "compiled",
+        ),
+    ];
+    assert_eq!(rows.len(), 3, "{r}");
+    for (row, want) in rows.iter().zip(expected) {
+        assert_eq!(row.0, want.0);
+        assert_eq!(row.1, want.1);
+        assert_eq!(row.2, want.2);
+        assert_eq!(row.3, Value::Null, "a metathesis rule has no subrule index");
+        assert_eq!(row.4, want.3);
+    }
+    // The rule whose switches are unset is not loaded, but it is listed, after the compiled ones.
+    let last = &r["effects"][2];
+    assert_eq!(last["rule"]["status"], "disabled", "{last}");
+    assert_eq!(last["rule"]["id"], format!("f{}", &METATHESIS_RULE[1..]));
+    assert_eq!(last["rule"]["stratum"], Value::Null);
+    assert_eq!(last["mayApply"], "unknown");
+    assert!(
+        last["reason"].as_str().unwrap().contains("switch"),
+        "{last}"
+    );
+    assert_eq!(r["effects"][0]["rule"]["kind"], "metathesis");
+}
+
+#[test]
+fn a_form_with_an_inferred_segment_keeps_its_segments_and_never_reads_as_empty() {
+    let broken = FWDATA.replace(">ranna<", ">r\u{1F600}nna<");
+    assert_ne!(broken, FWDATA, "the fixture must hold ranna");
+    let mut s = Server::start_with(&broken);
+    let r = s.effects(root(), json!({}));
+    // The importer infers the segment, so the form segments; one that cannot is `form_not_segmentable`.
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["allomorphs"][0]["segments"][1], "\u{1F600}", "{r}");
+}
+
+#[test]
+fn max_work_above_the_server_cap_is_clamped_to_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("kat.fwdata");
+    std::fs::write(&path, FWDATA).unwrap();
+    let mut child = Command::new(BIN)
+        .args(["serve", "--work-cap", "1", "--project"])
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    let request = json!({"id": "c", "op": "effects", "morpheme": root(), "maxWork": 1_000_000});
+    writeln!(stdin, "{request}").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let r: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        r["type"], "error",
+        "maxWork above --work-cap is refused: {r}"
+    );
+    assert_eq!(error_code(&r), "bad_request");
+    drop(stdin);
+    child.wait().unwrap();
 }

@@ -578,7 +578,7 @@ pub(crate) fn compile_project_recording_with(
     templates::record_unconsidered_slots(snapshot, &ctx);
 
     // --- phonological rules ----------------------------------------------------------------------
-    let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx)?;
+    let (prules, morphology_prules, clitic_prules, skipped_prules) = rules::build(snapshot, &ctx)?;
     rules::record_unreferenced_feature_constraints(snapshot, &ctx);
 
     // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated. A morpheme is registered under the MSA it was built from (`source_msa_guid`), so a variant entry's copy sits beside its main entry's, as HCLoader's `m_morphemes[msa]`; synthetic morphemes with no MSA fall back to their `xml_key`.
@@ -686,6 +686,7 @@ pub(crate) fn compile_project_recording_with(
         allomorph_owners: acc.allomorph_owners,
         allomorph_sources: acc.allomorph_sources,
         prules,
+        skipped_prules,
         mrules: acc.mrules,
         templates: acc.templates,
         entries: acc.entries,

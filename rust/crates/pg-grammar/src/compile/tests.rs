@@ -2706,6 +2706,13 @@ fn metathesis_rule_with_unset_switch_is_skipped_like_hcloader() {
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
     assert!(grammar.prules.is_empty());
+    assert_eq!(
+        grammar.skipped_prules.len(),
+        1,
+        "the skipped rule stays visible"
+    );
+    assert_eq!(grammar.skipped_prules[0].status, "disabled");
+    assert_eq!(grammar.skipped_prules[0].kind, "metathesis");
 }
 
 /// A switch naming no element (or both switches naming one) has no HC meaning; it refuses rather than guessing.

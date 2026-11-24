@@ -53,10 +53,10 @@ const WORD_REASONS: [&str; 3] = [
 const STATUSES: [&str; 3] = ["ok", "unsegmentable", "incomplete"];
 const STOP_REASONS: [&str; 4] = ["match_cap", "total_match_cap", "work_limit", "deadline"];
 /// Per-word matcher work units when the request names none; the server's own `--work-cap` is the ceiling.
-const DEFAULT_MAX_WORK: usize = 50_000_000;
+pub(crate) const DEFAULT_MAX_WORK: usize = 50_000_000;
 /// Per-word wall clock when neither the request nor `--word-timeout-ms` names one.
-const DEFAULT_WORD_TIMEOUT_MS: u64 = 10_000;
-const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
+pub(crate) const DEFAULT_WORD_TIMEOUT_MS: u64 = 10_000;
+pub(crate) const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
 const KNOWN_FIELDS: [&str; 10] = [
     "id",
     "op",
