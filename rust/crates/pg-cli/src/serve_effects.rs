@@ -18,6 +18,7 @@ use pg_rules::pattern_match::{
     compile_match_as_engine, compile_straddle, has_edge_marker, has_underspecified_segment,
     segment_byte_spans, segment_count, CompiledMatch, StraddleProbes,
 };
+use pg_rules::rule_text::{rule_text, RuleText, NON_LOCAL_CRITERIA};
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use pg_snapshot::FwClass;
 use serde_json::{json, Map, Value};
@@ -50,11 +51,6 @@ const MAY_APPLY: [&str; 2] = ["unknown", "notOnForm"];
 const NO_LHS_MATCH: &str = "no_lhs_match";
 /// Matcher work units one allomorph-against-subrule scan may use before its answer is `unknown`.
 const MATCH_WORK_PER_UNIT: usize = 5_000_000;
-const NON_LOCAL_CRITERIA: [&str; 3] = [
-    "unboundedQuantifier",
-    "alphaAgreement",
-    "iterativeSpreading",
-];
 const EDGES: [&str; 2] = ["left", "right"];
 const RESULT_FIELDS: [&str; 7] = [
     "complete",
@@ -65,7 +61,7 @@ const RESULT_FIELDS: [&str; 7] = [
     "effects",
     "limits",
 ];
-const EFFECT_FIELDS: [&str; 7] = [
+const EFFECT_FIELDS: [&str; 15] = [
     "rule",
     "subrule",
     "allomorphId",
@@ -73,7 +69,17 @@ const EFFECT_FIELDS: [&str; 7] = [
     "mayApply",
     "reason",
     "lhsSpans",
+    "lhs",
+    "environment",
+    "matchPattern",
+    "rhs",
+    "boundaryMarker",
+    "unprintable",
+    "nonLocal",
+    "nonLocalReasons",
 ];
+/// The `part` of an `unprintable` entry.
+const UNPRINTABLE_PARTS: [&str; 5] = ["lhs", "environment", "matchPattern", "rhs", "rule"];
 /// Every `reason` an effect carries.
 const REASONS: [&str; 12] = [
     "environment_unchecked",
@@ -119,6 +125,9 @@ pub(crate) fn describe() -> Value {
         "resultFields": RESULT_FIELDS,
         "allomorphFields": ALLOMORPH_FIELDS,
         "effectFields": EFFECT_FIELDS,
+        "unprintableParts": UNPRINTABLE_PARTS,
+        "unprintableReasons": pg_rules::pattern_text::UNPRINTABLE_REASONS,
+        "ruleText": "lhs, environment (left _ right) and rhs are pattern text in the syntax serve match reads, printed exactly or null with an unprintable entry; matchPattern is lhs / environment, to hand match with boundaryMarker when set. A subrule is one rhs alternative; nonLocal is null for a rule that is not compiled",
         "contract": "conservative: a rule is never claimed unable to change a form without proof; unproven is unknown with a reason. notOnForm (reason no_lhs_match) means the rule's target has no match on the allomorph's own form, including across its morpheme edges, and nothing earlier can change the form: no earlier rule in application order is anything but notOnForm on it (else may_be_fed), and no affix modifies stem material. It is not 'cannot change': bleeding is not considered",
     })
 }
@@ -303,6 +312,8 @@ struct RuleItem {
     /// Index into `Grammar::prules` and the stratum the rule runs in; meaningless when `unlisted`.
     prule: usize,
     stratum: usize,
+    /// The rule row as match text; `None` for a rule that is not in the compiled grammar.
+    text: Option<RuleText>,
 }
 
 fn rule_items(g: &Grammar) -> Vec<RuleItem> {
@@ -323,6 +334,7 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                     unlisted: Some(format!("stratum lists missing rule index {index}")),
                     prule: 0,
                     stratum: 0,
+                    text: None,
                 });
                 continue;
             };
@@ -331,9 +343,9 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                 PhonRuleDef::Metathesis(r) => ("metathesis", &r.xml_id, &r.name, 1),
             };
             let guid = Some(xml_id.clone()).filter(|text| looks_like_guid(text));
-            for subrule in 0..subrules {
+            for sub_index in 0..subrules {
                 let subrule = match rule {
-                    PhonRuleDef::Rewrite(r) if !r.subrules.is_empty() => json!(subrule),
+                    PhonRuleDef::Rewrite(r) if !r.subrules.is_empty() => json!(sub_index),
                     _ => Value::Null,
                 };
                 items.push(RuleItem {
@@ -350,6 +362,7 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                     unlisted: None,
                     prule: *index as usize,
                     stratum: stratum_index,
+                    text: Some(rule_text(g, rule, sub_index, stratum.table)),
                 });
             }
         }
@@ -369,9 +382,37 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
             unlisted: Some(skipped.reason.clone()),
             prule: 0,
             stratum: 0,
+            text: None,
         });
     }
     items
+}
+
+/// Adds the rule's match text and its `nonLocal` verdict to one effect row; a rule that is not compiled has no text and an unknown `nonLocal`.
+fn add_rule_text(effect: &mut Value, text: Option<&RuleText>) {
+    let Some(text) = text else {
+        effect["lhs"] = Value::Null;
+        effect["environment"] = Value::Null;
+        effect["matchPattern"] = Value::Null;
+        effect["rhs"] = Value::Null;
+        effect["boundaryMarker"] = Value::Null;
+        effect["unprintable"] = json!([{"part": "rule", "reason": "rule_not_printed"}]);
+        effect["nonLocal"] = Value::Null;
+        effect["nonLocalReasons"] = json!([]);
+        return;
+    };
+    effect["lhs"] = json!(text.lhs);
+    effect["environment"] = json!(text.environment);
+    effect["matchPattern"] = json!(text.match_pattern);
+    effect["rhs"] = json!(text.rhs);
+    effect["boundaryMarker"] = json!(text.boundary_marker);
+    effect["unprintable"] = json!(text
+        .unprintable
+        .iter()
+        .map(|(part, reason)| json!({"part": part, "reason": reason}))
+        .collect::<Vec<_>>());
+    effect["nonLocal"] = json!(!text.non_local.is_empty());
+    effect["nonLocalReasons"] = json!(text.non_local);
 }
 
 /// What the form of one allomorph says about one phonological rule's left-hand side.
@@ -721,6 +762,7 @@ pub(crate) fn handle(
                     effect["lhsSpans"] =
                         json!(spans.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>());
                 }
+                add_rule_text(&mut effect, item.text.as_ref());
                 effects.push(effect);
             }
         }
@@ -1153,6 +1195,233 @@ mod tests {
             "{} violations, first: {:?}",
             violations.len(),
             &violations[..violations.len().min(10)]
+        );
+    }
+
+    /// Soundness of the printed rule text: wherever `synthesize` rewrites a segment (equal-length results; iterative spreading is flagged `nonLocal` and left out), serve `match` on the rule's printed `lhs / environment`, with the words' own boundaries, reports a span holding that segment. Rules the text refuses, and strata that read another table than the surface one, are counted and left out.
+    #[test]
+    fn match_on_the_printed_rule_text_reports_every_position_rule_application_rewrites() {
+        let mut tally = std::collections::BTreeMap::<&str, usize>::new();
+        let mut misses = Vec::new();
+        for fixture in
+            pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
+        {
+            let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
+                continue;
+            };
+            let Some(last) = g.strata.last().map(|s| s.table) else {
+                continue;
+            };
+            let morpher = Morpher::new(&g, 50_000_000);
+            let table = &g.char_tables[last.0 as usize];
+            let mut roots: Vec<String> = g
+                .entries
+                .iter()
+                .flat_map(|e| e.allomorphs.iter().map(|a| a.shape.text.clone()))
+                .filter(|t| !t.is_empty())
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let mut segments = Vec::new();
+            let mut separators = vec![String::new()];
+            for (_, def) in table.iter() {
+                let Some(first) = def.representations_nfd().first().filter(|r| !r.is_empty())
+                else {
+                    continue;
+                };
+                match def.kind() {
+                    CharDefKind::Boundary => separators.push(first.clone()),
+                    CharDefKind::Segment => segments.push(first.clone()),
+                }
+            }
+            let boundary_marker = separators.get(1).cloned();
+            separators.truncate(2);
+            let mut sides = vec![String::new()];
+            sides.extend(segments.iter().take(6).cloned());
+            sides.extend(roots.iter().take(4).cloned());
+            let foci: Vec<&String> = roots
+                .iter()
+                .take(6)
+                .chain(segments.iter().take(8))
+                .collect();
+            for stratum in &g.strata {
+                for PRuleId(index) in &stratum.prules {
+                    let Some(def @ PhonRuleDef::Rewrite(rule)) = g.prules.get(*index as usize)
+                    else {
+                        continue;
+                    };
+                    if stratum.table != last {
+                        *tally.entry("rules of another stratum table").or_default() += 1;
+                        continue;
+                    }
+                    let texts: Vec<_> = (0..rule.subrules.len())
+                        .map(|i| pg_rules::rule_text::rule_text(&g, def, i, stratum.table))
+                        .collect();
+                    if texts.is_empty() || texts.iter().any(|t| t.match_pattern.is_none()) {
+                        *tally.entry("rules the text refuses").or_default() += 1;
+                        continue;
+                    }
+                    if texts
+                        .iter()
+                        .any(|t| t.non_local.contains(&"iterativeSpreading"))
+                    {
+                        *tally.entry("rules flagged iterativeSpreading").or_default() += 1;
+                        continue;
+                    }
+                    let markers: Vec<&str> = texts
+                        .iter()
+                        .filter_map(|t| t.boundary_marker.as_deref())
+                        .collect();
+                    if markers.windows(2).any(|w| w[0] != w[1]) {
+                        *tally.entry("rules with two boundary markers").or_default() += 1;
+                        continue;
+                    }
+                    *tally.entry("rules checked").or_default() += 1;
+                    // Per word: the segment indices the engine rewrites.
+                    let mut rewritten: Vec<(String, String, Vec<usize>)> = Vec::new();
+                    for separator in &separators {
+                        if markers
+                            .first()
+                            .is_some_and(|m| !separator.is_empty() && separator != m)
+                        {
+                            continue;
+                        }
+                        for left in &sides {
+                            for focus in &foci {
+                                for right in &sides {
+                                    let word =
+                                        format!("{left}{separator}{focus}{separator}{right}");
+                                    let Ok(input) = segment_with_features(&g, table, &word) else {
+                                        continue;
+                                    };
+                                    let Ok(outputs) =
+                                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                            || pg_rules::rewrite::synthesize(&g, rule, &input),
+                                        ))
+                                    else {
+                                        continue;
+                                    };
+                                    let Some(out) = outputs.last() else { continue };
+                                    if out.len() != input.len() {
+                                        *tally
+                                            .entry("length-changing results left out")
+                                            .or_default() += 1;
+                                        continue;
+                                    }
+                                    let mut at = 0usize;
+                                    let mut changed = Vec::new();
+                                    for (node, _, cd, _) in input.interior() {
+                                        let same = input.char_def(node) == out.char_def(node)
+                                            && input.node_lanes(node) == out.node_lanes(node);
+                                        if table.get(pg_grammar::chardef::CharDefId(cd)).kind()
+                                            == CharDefKind::Segment
+                                        {
+                                            if !same {
+                                                changed.push(at);
+                                            }
+                                            at += 1;
+                                        }
+                                    }
+                                    if !changed.is_empty() {
+                                        rewritten.push((word, separator.clone(), changed));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    *tally.entry("words the engine rewrites").or_default() += rewritten.len();
+                    for (_separator, group) in rewritten
+                        .iter()
+                        .fold(std::collections::BTreeMap::<&String, Vec<&(String, String, Vec<usize>)>>::new(), |mut acc, w| {
+                            acc.entry(&w.1).or_default().push(w);
+                            acc
+                        })
+                    {
+                        let mut covered: Vec<Vec<(usize, usize)>> = vec![Vec::new(); group.len()];
+                        let mut unfinished: Vec<Option<String>> = vec![None; group.len()];
+                        let mut skipped = vec![false; group.len()];
+                        for text in &texts {
+                            let mut request = json!({
+                                "pattern": text.match_pattern,
+                                "words": group.iter().map(|w| w.0.as_str()).collect::<Vec<_>>(),
+                            });
+                            // Words may hold a boundary of their own (a root's shape can), so any table with one marks it.
+                            if let Some(marker) = markers.first().copied().or(boundary_marker.as_deref()) {
+                                request["boundaryMarker"] = json!(marker);
+                            }
+                            let r = crate::serve_match::handle(
+                                &g,
+                                &morpher,
+                                &json!("m"),
+                                request.as_object().unwrap(),
+                            );
+                            if r["type"] != "result" {
+                                misses.push(format!("{} {}: match refused `{:?}`: {r}", fixture.label(), rule.xml_id, text.match_pattern));
+                                continue;
+                            }
+                            for (i, word) in r["words"].as_array().unwrap().iter().enumerate() {
+                                if word["status"] == "unsegmentable" {
+                                    // A boundary other than the marker the request names: `match` cannot read this word.
+                                    skipped[i] = true;
+                                } else if word["status"] != "ok" {
+                                    unfinished[i] = Some(format!("{} {} {}", word["status"], word["stop"], word["reason"]));
+                                }
+                                for m in word["matches"].as_array().unwrap() {
+                                    let seg = &m["segments"];
+                                    covered[i].push((
+                                        seg[0].as_u64().unwrap() as usize,
+                                        seg[1].as_u64().unwrap() as usize,
+                                    ));
+                                }
+                            }
+                        }
+                        for (((w, spans), unfinished), skipped) in
+                            group.iter().zip(&covered).zip(&unfinished).zip(&skipped)
+                        {
+                            if *skipped {
+                                *tally.entry("words with a boundary match cannot read").or_default() += 1;
+                                continue;
+                            }
+                            if let Some(why) = unfinished {
+                                misses.push(format!("{} {} word `{}`: match did not finish: {why}", fixture.label(), rule.xml_id, w.0));
+                                continue;
+                            }
+                            for position in &w.2 {
+                                *tally.entry("rewritten positions checked").or_default() += 1;
+                                if !spans.iter().any(|(a, b)| a <= position && position < b) {
+                                    misses.push(format!(
+                                        "{} {} word `{}` position {position}: texts {:?}, spans {spans:?}",
+                                        fixture.label(),
+                                        rule.xml_id,
+                                        w.0,
+                                        texts.iter().map(|t| &t.match_pattern).collect::<Vec<_>>()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "printed rule text vs rule application: {tally:?}, {} misses",
+            misses.len()
+        );
+        assert!(
+            tally
+                .get("rewritten positions checked")
+                .copied()
+                .unwrap_or(0)
+                > 0,
+            "no rewritten position was checked: the test is vacuous"
+        );
+        misses.sort();
+        misses.dedup();
+        assert!(
+            misses.is_empty(),
+            "{} misses, first: {:#?}",
+            misses.len(),
+            &misses[..misses.len().min(8)]
         );
     }
 
