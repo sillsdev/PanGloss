@@ -245,6 +245,7 @@ machine:languages/suffixing-extension-slot-ordering	TunedSurfaceProbed	refused
 machine:languages/suffixing-vowel-harmony	TunedSurfaceProbed	refused
 machine:languages/templatic-root-modification	TunedSurfaceProbed	refused
 staging:edge-cases/adjacent-nullable-copies	TunedSurfaceProbed	refused
+staging:edge-cases/affix-multiple-application	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/backend-gated-generic	TunedSurfaceProbed	refused
 staging:edge-cases/backend-ordered-generic	TunedSurfaceProbed	refused
 staging:edge-cases/backend-strata-generic	TunedSurfaceProbed	refused
