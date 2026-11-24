@@ -35,7 +35,10 @@ pub mod word;
 pub mod word_set;
 pub mod word_stats;
 
-pub use word::{FinalTemplateState, MorphRecord, Word, WordFlags, WordKey};
+pub use word::{
+    FinalTemplateState, MorphRecord, SegmentOwner, SpanAttribution, SpanRecord, Word, WordFlags,
+    WordKey,
+};
 
 /// Flat index of a rule in the grammar's rule tables.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]

@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use pg_featstruct::FeatureStruct;
 use pg_grammar_model::model::{
-    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, PRuleId, PhonRuleDef,
-    StratumId, TemplateId,
+    AllomorphId, AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef, MorphemeId, PRuleId,
+    PhonRuleDef, StratumId, TemplateId,
 };
 use pg_rules::trace::{NoopSink, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink};
 use pg_rules::word::Word;
+use unicode_normalization::UnicodeNormalization;
 
 use super::{
     generation_seed_product, visit_permute_rules, FinalTemplateSynthesisPolicy, GenMorpheme,
@@ -89,6 +90,8 @@ pub struct SeedItem {
     pub shape: Option<String>,
     /// The rule's compiled name; `None` for an entry.
     pub rule_name: Option<String>,
+    /// The compiled morpheme the engine records on the word; `None` when the rule has none.
+    pub morpheme: Option<MorphemeId>,
 }
 
 /// The rule behind one trace step.
@@ -128,6 +131,61 @@ pub struct SeedSurface {
     pub steps_unresolved: bool,
     /// Each distinct derivation, sorted and capped, when more than one reached the surface; `steps` is then empty.
     pub alternatives: Vec<Vec<GenerateStep>>,
+    /// Which segments each morpheme occupies, one entry per distinct answer the surface's derivations gave; empty when no trace was requested.
+    pub morph_spans: Vec<SpanAnalysis>,
+    /// The surface in NFD, when it is not NFD already; `segment` offsets index this form.
+    pub normalized: Option<String>,
+}
+
+/// A half-open run of a surface's segments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SegmentSpan {
+    /// `[start, end)` over the surface's segments, boundaries not counted.
+    pub segments: (usize, usize),
+    /// `[start, end)` UTF-8 byte offsets into the NFD surface; `None` when the segments' own NFD forms do not concatenate to it.
+    pub offsets: Option<(usize, usize)>,
+}
+
+/// Why a morpheme or segment has no sound span.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SpanReason {
+    /// `span_lost_by_rule`, `nested_morph`, `compound_unsupported`, `repeated_morpheme`, `morph_not_recorded`, `segments_not_aligned`, `inserted_by_rule`, `no_morph_owner` or `unrequested_morpheme`.
+    pub code: &'static str,
+    /// The phonological rule behind the reason, when one is.
+    pub rule: Option<StepRule>,
+}
+
+/// One requested morpheme's spans, or why it has none.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ItemSpans {
+    /// Index into the seed's `items`.
+    pub item: usize,
+    /// Every run the morpheme occupies (an infix splits its root into two); empty when the morpheme has no segment left; `None` when no sound span exists.
+    pub spans: Option<Vec<SegmentSpan>>,
+    /// Set exactly when `spans` is `None`.
+    pub reason: Option<SpanReason>,
+}
+
+/// A run of segments no requested morpheme claims.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnattributedSpan {
+    pub span: SegmentSpan,
+    pub reason: SpanReason,
+}
+
+/// Where every segment of one derivation's surface came from: each belongs to one morpheme's spans or to one unattributed run.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SurfaceSpans {
+    pub segment_count: usize,
+    pub morphemes: Vec<ItemSpans>,
+    pub unattributed: Vec<UnattributedSpan>,
+}
+
+/// A span answer and how many derivations of the surface gave it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpanAnalysis {
+    pub derivations: usize,
+    pub spans: SurfaceSpans,
 }
 
 /// One seed (a root allomorph plus one selection of the others) and what it generated.
@@ -210,7 +268,8 @@ impl<'g> Morpher<'g> {
                 outcome.seed_choices = outcome.seed_choices.saturating_add(1);
                 let seed_key = format!("r{allo_idx}/p{permutation_index}");
                 permutation_index += 1;
-                let seed = self.build_generation_seed(root, allo_idx, perm, real_fs.clone());
+                let mut seed = self.build_generation_seed(root, allo_idx, perm, real_fs.clone());
+                seed.set_track_spans(limits.max_trace_nodes.is_some());
                 let seed_shape = seed.shape.clone();
                 let items = self.seed_items(root, allo_idx, perm);
                 let policy = FinalTemplateSynthesisPolicy {
@@ -243,6 +302,8 @@ impl<'g> Morpher<'g> {
                                 derivations,
                                 steps_unresolved: false,
                                 alternatives: Vec::new(),
+                                morph_spans: Vec::new(),
+                                normalized: None,
                             })
                             .collect();
                         (surfaces, false)
@@ -260,7 +321,8 @@ impl<'g> Morpher<'g> {
                             policy,
                             None,
                         );
-                        let surfaces = self.traced_seed_surfaces(generated, &sink, &seed_shape);
+                        let surfaces =
+                            self.traced_seed_surfaces(generated, &sink, &seed_shape, &items);
                         trace_left = Some(left.saturating_sub(sink.len()));
                         outcome.trace_nodes = outcome.trace_nodes.saturating_add(sink.len());
                         (surfaces, sink.truncated())
@@ -346,6 +408,7 @@ impl<'g> Morpher<'g> {
                 .and_then(|source| source.form_guids.first().cloned().flatten()),
             shape: def.allomorphs.get(index).map(|a| a.shape.text.clone()),
             rule_name: None,
+            morpheme: Some(def.morpheme),
         }
     }
 
@@ -365,6 +428,7 @@ impl<'g> Morpher<'g> {
             form_guid: None,
             shape: None,
             rule_name: mrule_display(rule),
+            morpheme: rule.morpheme(),
         }
     }
 
@@ -374,6 +438,7 @@ impl<'g> Morpher<'g> {
         generated: Vec<Word>,
         sink: &TreeTraceSink,
         seed_shape: &pg_shape::Shape,
+        items: &[SeedItem],
     ) -> Vec<SeedSurface> {
         let parents = sink.parent_index();
         let log = if sink.truncated() {
@@ -389,8 +454,12 @@ impl<'g> Morpher<'g> {
             let attributed = log
                 .as_ref()
                 .and_then(|log| self.attribute(log, sink, &parents, &word, seed_shape));
-            let tally = found.entry(self.generated_surface_of(&word)).or_default();
+            let surface = self.generated_surface_of(&word);
+            // Equal WordKeys share their whole history, so a merged word's marks equal the survivor's.
+            let spans = self.word_spans(&word, &surface, items);
+            let tally = found.entry(surface).or_default();
             tally.derivations += 1;
+            *tally.spans.entry(spans).or_default() += 1;
             match attributed {
                 Some(steps) => {
                     tally.sequences.insert(steps);
@@ -446,6 +515,7 @@ struct SurfaceTally {
     derivations: usize,
     unresolved: bool,
     sequences: BTreeSet<Vec<GenerateStep>>,
+    spans: BTreeMap<SurfaceSpans, usize>,
 }
 
 impl SurfaceTally {
@@ -454,12 +524,19 @@ impl SurfaceTally {
 
     fn finish(self, surface: String) -> SeedSurface {
         let derivations = self.derivations;
+        let normalized = Some(surface.nfd().collect::<String>()).filter(|nfd| *nfd != surface);
         let mut result = SeedSurface {
             surface,
             derivations,
             steps: Vec::new(),
             steps_unresolved: self.unresolved,
             alternatives: Vec::new(),
+            morph_spans: self
+                .spans
+                .into_iter()
+                .map(|(spans, derivations)| SpanAnalysis { derivations, spans })
+                .collect(),
+            normalized,
         };
         if self.unresolved {
             return result;
@@ -643,13 +720,13 @@ fn event_log(sink: &TreeTraceSink, parents: &[Option<u32>]) -> Option<SeedLog> {
 }
 
 #[derive(Clone, Copy)]
-enum StepKind {
+pub(super) enum StepKind {
     Phon(PRuleId),
     Morph(MRuleId),
     Template(TemplateId),
 }
 
-fn step_rule(g: &Grammar, kind: StepKind) -> StepRule {
+pub(super) fn step_rule(g: &Grammar, kind: StepKind) -> StepRule {
     match kind {
         StepKind::Phon(id) => {
             let (rule_id, name) = match g.prules.get(id.0 as usize) {

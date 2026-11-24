@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use pg_grammar::model::Grammar;
 use pg_parse::morpher::{
-    GenerateStep, GeneratedSeed, Morpher, SeedItem, SeedSurface, StepRule, TracedGenerateLimits,
-    TracedGenerateOutcome, TracedStopReason,
+    GenerateStep, GeneratedSeed, Morpher, SeedItem, SeedSurface, SegmentSpan, SpanAnalysis,
+    SpanReason, StepRule, TracedGenerateLimits, TracedGenerateOutcome, TracedStopReason,
 };
 use serde_json::{json, Map, Value};
 
@@ -29,6 +29,21 @@ pub(crate) const STOP_REASONS: [&str; 5] = [
     "deadline",
     "trace_limit",
     "seed_limit",
+];
+
+/// Every `reason` a morpheme's null spans or an unattributed run can carry, in the order `--describe` lists them.
+pub(crate) const SPAN_REASONS: [&str; 11] = [
+    "span_unknown_truncation",
+    "span_ambiguous_copy",
+    "span_lost_by_rule",
+    "nested_morph",
+    "compound_unsupported",
+    "repeated_morpheme",
+    "morph_not_recorded",
+    "segments_not_aligned",
+    "inserted_by_rule",
+    "no_morph_owner",
+    "unrequested_morpheme",
 ];
 
 /// Every error code the op can emit for a request that never ran.
@@ -69,7 +84,12 @@ pub(crate) fn describe() -> Value {
         "errorCodes": ERROR_CODES,
         "resultFields": ["complete", "stopReason", "workUnits", "seedChoices", "traceSteps", "limits", "seeds"],
         "seedFields": ["seedKey", "allomorphs", "surfaces", "traceTruncated"],
-        "surfaceFields": ["surface", "derivations", "steps", "stepsUnresolved", "alternatives"],
+        "surfaceFields": ["surface", "derivations", "steps", "stepsUnresolved", "alternatives", "normalized", "morphSpans"],
+        "morphSpanFields": ["derivations", "segmentCount", "morphemes", "unattributed"],
+        "morphemeSpanFields": ["item", "spans", "reason", "rule"],
+        "spanFields": ["segments", "offsets"],
+        "unattributedFields": ["segments", "offsets", "reason", "rule"],
+        "spanReasons": SPAN_REASONS,
         "allomorphFields": ["role", "entryGuid", "msaGuid", "allomorphId", "formGuid", "shape", "ruleName"],
         "ruleFields": ["kind", "id", "name", "guid"],
         "stepFields": ["stratum", "rule", "input", "output", "subrule"],
@@ -256,8 +276,39 @@ fn render_surface(options: &Options, surface: &SeedSurface) -> Value {
                 .map(|steps| render_steps(steps))
                 .collect(),
         );
+        value["normalized"] = json!(surface.normalized);
+        value["morphSpans"] =
+            Value::Array(surface.morph_spans.iter().map(render_analysis).collect());
     }
     value
+}
+
+fn render_analysis(analysis: &SpanAnalysis) -> Value {
+    let spans = &analysis.spans;
+    json!({
+        "derivations": analysis.derivations,
+        "segmentCount": spans.segment_count,
+        "morphemes": spans.morphemes.iter().map(|m| json!({
+            "item": m.item,
+            "spans": m.spans.as_ref().map(|list| list.iter().map(render_span).collect::<Vec<_>>()),
+            "reason": m.reason.as_ref().map(|r| r.code),
+            "rule": m.reason.as_ref().and_then(|r| r.rule.as_ref()).map(render_rule),
+        })).collect::<Vec<_>>(),
+        "unattributed": spans.unattributed.iter().map(|u| {
+            let mut value = render_span(&u.span);
+            let SpanReason { code, rule } = &u.reason;
+            value["reason"] = json!(code);
+            value["rule"] = json!(rule.as_ref().map(render_rule));
+            value
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn render_span(span: &SegmentSpan) -> Value {
+    json!({
+        "segments": [span.segments.0, span.segments.1],
+        "offsets": span.offsets.map(|(start, end)| [start, end]),
+    })
 }
 
 fn render_steps(steps: &[GenerateStep]) -> Value {
@@ -275,4 +326,79 @@ fn render_steps(steps: &[GenerateStep]) -> Value {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_parse::morpher::{ItemSpans, SurfaceSpans, UnattributedSpan};
+
+    fn keys(value: &Value) -> Vec<String> {
+        let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    fn declared(field: &str) -> Vec<String> {
+        let mut names: Vec<String> = describe()[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn unattributed_runs_and_null_morphemes_carry_exactly_the_declared_fields() {
+        let rule = StepRule {
+            kind: "phon",
+            id: "p".into(),
+            name: Some("Epenthesis".into()),
+            guid: None,
+        };
+        let span = SegmentSpan {
+            segments: (1, 2),
+            offsets: Some((1, 2)),
+        };
+        let analysis = SpanAnalysis {
+            derivations: 1,
+            spans: SurfaceSpans {
+                segment_count: 3,
+                morphemes: vec![ItemSpans {
+                    item: 0,
+                    spans: None,
+                    reason: Some(SpanReason {
+                        code: "span_lost_by_rule",
+                        rule: Some(rule.clone()),
+                    }),
+                }],
+                unattributed: vec![UnattributedSpan {
+                    span,
+                    reason: SpanReason {
+                        code: "inserted_by_rule",
+                        rule: Some(rule),
+                    },
+                }],
+            },
+        };
+        let value = render_analysis(&analysis);
+        assert_eq!(keys(&value), declared("morphSpanFields"));
+        assert_eq!(keys(&value["morphemes"][0]), declared("morphemeSpanFields"));
+        assert_eq!(value["morphemes"][0]["spans"], Value::Null);
+        assert_eq!(value["morphemes"][0]["rule"]["name"], "Epenthesis");
+        assert_eq!(
+            keys(&value["unattributed"][0]),
+            declared("unattributedFields")
+        );
+        assert_eq!(
+            keys(&render_span(&span)),
+            declared("spanFields"),
+            "a run's own fields"
+        );
+        for code in ["span_lost_by_rule", "inserted_by_rule"] {
+            assert!(SPAN_REASONS.contains(&code));
+        }
+    }
 }

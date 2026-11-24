@@ -3014,6 +3014,7 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
     })
 }
 
+mod generate_spans;
 mod generate_trace;
 pub use generate_trace::*;
 

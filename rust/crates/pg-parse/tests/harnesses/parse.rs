@@ -60,6 +60,8 @@ mod final_template_pruning_gate;
 mod free_fluctuation_gate;
 #[path = "../fw_metathesis.rs"]
 mod fw_metathesis;
+#[path = "../generate_morph_spans.rs"]
+mod generate_morph_spans;
 #[path = "../guess_only_orchestration_gate.rs"]
 mod guess_only_orchestration_gate;
 #[path = "../guesser_gate.rs"]
