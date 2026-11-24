@@ -2668,6 +2668,24 @@ fn has_repeated_part_action_group(rhs: &[OutputAction]) -> bool {
     })
 }
 
+/// Whether an `Implicit` reduplication gives the engine no way to tell which copy is the base: no single whole-input echo run.
+fn redup_copy_is_ambiguous(lhs_len: u16, rhs: &[OutputAction], hint: ReduplicationHint) -> bool {
+    if hint != ReduplicationHint::Implicit || !has_repeated_part_action_group(rhs) {
+        return false;
+    }
+    let width = lhs_len as usize;
+    let echoes = rhs
+        .windows(width.max(1))
+        .filter(|window| {
+            window
+                .iter()
+                .enumerate()
+                .all(|(part, action)| redup_part_ref(action) == Some(part as u16))
+        })
+        .count();
+    echoes != 1
+}
+
 /// For every RHS index inside a reduplication group (an `Input` part referenced 2+ times), reports whether that occurrence is the existing echo or new affix material; indices outside any group are absent, keeping default attribution.
 fn classify_redup(
     lhs_len: u16,
@@ -2850,6 +2868,30 @@ fn synth_process_allomorph(
             })
             .collect();
         w.extras.span_marks_mut().follow(&origins);
+        if redup_copy_is_ambiguous(allo.lhs.len() as u16, &allo.rhs, allo.redup_hint) {
+            let latest = morphs
+                .iter()
+                .filter(|r| r.allomorph == allo.id)
+                .map(|r| r.observation_occurrence)
+                .max();
+            if let Some(occurrence) = latest {
+                let marks = w.extras.span_marks_mut();
+                if !marks.ambiguous_copy.contains(&(allo.id, occurrence)) {
+                    marks.ambiguous_copy.push((allo.id, occurrence));
+                }
+            }
+        }
+        // A singleton claim is a position, not a span, so the morph is remembered by identity.
+        for record in morphs
+            .iter()
+            .filter(|r| r.status == MorphStatus::SubsumedFirst)
+        {
+            let key = (record.allomorph, record.observation_occurrence);
+            let marks = w.extras.span_marks_mut();
+            if !marks.positional.contains(&key) {
+                marks.positional.push(key);
+            }
+        }
     }
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);

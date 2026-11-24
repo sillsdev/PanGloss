@@ -74,6 +74,7 @@ impl Case {
         for seed in &outcome.seeds {
             for surface in seed.surfaces.iter().filter(|s| s.surface == word) {
                 check_tiling(surface, &surface.morph_spans[0].spans);
+                check_cuts(&g, &surface.surface, &surface.morph_spans[0].spans);
                 assert_eq!(surface.morph_spans.len(), 1, "{word}: one answer expected");
                 let morph_ids = seed
                     .items
@@ -91,7 +92,16 @@ impl Case {
                 });
             }
         }
-        assert_eq!(found.len(), 1, "{signature} must reach {word} exactly once");
+        assert_eq!(
+            found.len(),
+            1,
+            "{signature} must reach {word} exactly once, got {:?}",
+            outcome
+                .seeds
+                .iter()
+                .flat_map(|s| s.surfaces.iter().map(|x| x.surface.clone()))
+                .collect::<Vec<_>>()
+        );
         found.pop().unwrap()
     }
 
@@ -125,7 +135,43 @@ impl Case {
     }
 }
 
-/// Asserts every segment of the surface is in exactly one morpheme's spans or one unattributed run, and the byte offsets tile the NFD surface.
+/// The NFD byte offset where each segment starts under the greedy segmenter `match` uses, plus the end.
+fn match_cut(g: &Grammar, surface: &str) -> Option<Vec<usize>> {
+    use unicode_normalization::UnicodeNormalization;
+    let table = &g.char_tables[g.strata.last()?.table.0 as usize];
+    let cut = pg_rules::shape_feat::segment_with_features_load(g, table, surface).ok()?;
+    let mut starts = vec![0];
+    for i in (0..cut.len()).filter(|&i| cut.kind(i) == pg_shape::NodeKind::Segment) {
+        let text = pg_parse::surface::to_plain_string_range(table, &cut, false, i..i + 1);
+        starts.push(starts.last().unwrap() + text.nfd().collect::<String>().len());
+    }
+    Some(starts)
+}
+
+/// Every span edge is a cut `match` makes: its segment index and its offset name the same place.
+fn check_cuts(g: &Grammar, surface: &str, spans: &SurfaceSpans) {
+    let Some(cut) = match_cut(g, surface) else {
+        return;
+    };
+    assert_eq!(
+        cut.len() - 1,
+        spans.segment_count,
+        "{surface}: segment count"
+    );
+    let all = spans
+        .morphemes
+        .iter()
+        .flat_map(|m| m.spans.iter().flatten())
+        .chain(spans.unattributed.iter().map(|u| &u.span));
+    for span in all {
+        if let Some((start, end)) = span.offsets {
+            assert_eq!(cut[span.segments.0], start, "{surface}: {span:?}");
+            assert_eq!(cut[span.segments.1], end, "{surface}: {span:?}");
+        }
+    }
+}
+
+/// Every segment is in one morpheme's spans or one unattributed run, and the offsets tile the NFD surface.
 fn check_tiling(surface: &SeedSurface, spans: &SurfaceSpans) {
     use unicode_normalization::UnicodeNormalization;
     let mut covered: Vec<SegmentSpan> = Vec::new();
@@ -325,6 +371,60 @@ fn a_metathesis_across_an_edge_nulls_both_morphemes_and_only_those() {
 }
 
 #[test]
+fn a_truncation_leaves_a_typed_null_not_a_span_on_the_roots_segment() {
+    let fixture = ("edge-cases", "truncate-morphotactic-identity");
+    for (word, signature, morphemes) in [
+        ("a", "ROOT+B+A|a", &["ROOT", "B", "A"][..]),
+        ("a", "ROOT+A+B|a", &["ROOT", "A", "B"][..]),
+        ("ga", "ROOT+C+A|ga", &["ROOT", "C", "A"][..]),
+        ("ga", "ROOT+A+C+B|ga", &["ROOT", "A", "C", "B"][..]),
+        ("ga", "C+ROOT+A|ga", &["C", "ROOT", "A"][..]),
+    ] {
+        let case = Case::of(fixture, word, signature);
+        for morpheme in morphemes {
+            assert_eq!(
+                case.got(morpheme),
+                Got::Null("span_unknown_truncation", None),
+                "{signature} {morpheme}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_digraph_segment_is_one_index_and_cuts_where_match_cuts() {
+    let case = Case::of(
+        ("languages", "suffixing-evidential-adjacency-chain"),
+        "walakchikni",
+        "WALAK+1SG+PL|walaknichik",
+    );
+    assert_eq!(case.spans.segment_count, 10);
+    assert_eq!(case.got("WALAK"), runs(&[(0, 5)]));
+    assert_eq!(case.got("PL"), runs(&[(5, 8)]));
+    assert_eq!(case.got("1SG"), runs(&[(8, 10)]));
+    let offsets: Vec<_> = case
+        .spans
+        .morphemes
+        .iter()
+        .flat_map(|m| m.spans.iter().flatten())
+        .map(|s| s.offsets)
+        .collect();
+    assert_eq!(offsets, [Some((0, 5)), Some((9, 11)), Some((5, 9))]);
+}
+
+#[test]
+fn a_full_reduplication_without_a_direction_hint_does_not_pick_a_copy() {
+    let case = Case::of(
+        ("edge-cases", "syncope-redup-optional-vowel-lattice"),
+        "kaakaa",
+        "kaa+REDA|kaakaa",
+    );
+    assert_eq!(case.got("kaa"), Got::Null("span_ambiguous_copy", None));
+    assert_eq!(case.got("REDA"), Got::Null("span_ambiguous_copy", None));
+    assert_eq!(case.unattributed(), [(0, 6, "span_ambiguous_copy", None)]);
+}
+
+#[test]
 fn an_in_place_mutation_is_nested_so_it_is_null_not_guessed() {
     let case = Case::of(
         ("edge-cases", "process-morphology-in-place-mutation"),
@@ -369,7 +469,16 @@ fn spans_tile_the_surface_on_every_fixture_with_expected_surfaces() {
                         );
                         for analysis in &surface.morph_spans {
                             analyses += 1;
+                            let root = &analysis.spans.morphemes[0];
+                            assert!(
+                                root.spans.as_ref().is_none_or(|runs| !runs.is_empty())
+                                    || surface.surface.is_empty(),
+                                "{}: {}: a root with material on the surface reported empty spans",
+                                fixture.label(),
+                                entry.word
+                            );
                             check_tiling(surface, &analysis.spans);
+                            check_cuts(&g, &surface.surface, &analysis.spans);
                         }
                     }
                 }

@@ -119,6 +119,8 @@ pub struct SpanRecord {
     pub nested: bool,
     /// A phonological rule made this run's segments ambiguous.
     pub lost: Option<PRuleId>,
+    /// A reduplication made which copy is the base arbitrary.
+    pub ambiguous_copy: bool,
 }
 
 /// Who owns one interior node of a word's shape.
@@ -141,6 +143,8 @@ pub struct SpanAttribution {
     pub owners: Vec<SegmentOwner>,
     /// Every attribution is unreliable; the rule is the first one that left a mark.
     pub poisoned: Option<PRuleId>,
+    /// An affix that inserts nothing left a positional mark on a real segment, so no morph's spans hold.
+    pub positional: bool,
     /// The word has compounding non-heads, whose segments are folded into one root morph.
     pub compound: bool,
 }
@@ -786,6 +790,9 @@ impl Word {
                 occurrence: record.observation_occurrence,
                 nested: false,
                 lost: None,
+                ambiguous_copy: marks
+                    .ambiguous_copy
+                    .contains(&(record.allomorph, record.observation_occurrence)),
             })
             .collect();
         for group in &layout.groups {
@@ -823,6 +830,7 @@ impl Word {
             records,
             owners,
             poisoned: marks.poisoned,
+            positional: !marks.positional.is_empty(),
             compound: !self.non_heads().is_empty(),
         }
     }

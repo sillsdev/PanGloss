@@ -40,12 +40,24 @@ impl Morpher<'_> {
                 segments.push((node, text));
             }
         }
+        // The indexes only agree with `match` when its greedy segmenter cuts the same places.
         let aligned = segments.iter().all(|(_, text)| !text.is_empty())
             && segments
                 .iter()
                 .map(|(_, text)| text.as_str())
                 .collect::<String>()
-                == surface;
+                == surface
+            && pg_rules::shape_feat::segment_with_features_load(g, table, surface).is_ok_and(
+                |cut| {
+                    let cut: Vec<String> = (0..cut.len())
+                        .filter(|&i| cut.kind(i) == pg_shape::NodeKind::Segment)
+                        .map(|i| surface::to_plain_string_range(table, &cut, false, i..i + 1))
+                        .collect();
+                    cut.iter()
+                        .map(String::as_str)
+                        .eq(segments.iter().map(|(_, t)| t.as_str()))
+                },
+            );
         let rule_reason = |code: &'static str, rule: Option<PRuleId>| SpanReason {
             code,
             rule: rule.map(|id| step_rule(g, StepKind::Phon(id))),
@@ -82,16 +94,19 @@ impl Morpher<'_> {
         if let Some(rule) = attribution.poisoned {
             return all_null("span_lost_by_rule", Some(rule), segments.len());
         }
+        if attribution.positional {
+            return all_null("span_unknown_truncation", None, segments.len());
+        }
         if attribution.owners.len() != interior {
             return all_null("segments_not_aligned", None, segments.len());
         }
 
         // Match each requested morpheme to the records the engine kept for it.
-        let mut reasons: Vec<Option<SpanReason>> = vec![None; items.len()];
+        let mut reasons: Vec<Option<(&'static str, Option<PRuleId>)>> = vec![None; items.len()];
         let mut records_of: Vec<Vec<usize>> = vec![Vec::new(); items.len()];
         for (index, item) in items.iter().enumerate() {
             let Some(morpheme) = item.morpheme else {
-                reasons[index] = Some(rule_reason("morph_not_recorded", None));
+                reasons[index] = Some(("morph_not_recorded", None));
                 continue;
             };
             if items
@@ -100,8 +115,7 @@ impl Morpher<'_> {
                 .count()
                 > 1
             {
-                reasons[index] = Some(rule_reason("repeated_morpheme", None));
-                continue;
+                reasons[index] = Some(("repeated_morpheme", None));
             }
             records_of[index] = attribution
                 .records
@@ -110,18 +124,33 @@ impl Morpher<'_> {
                 .filter(|(_, record)| record.morpheme == morpheme)
                 .map(|(record, _)| record)
                 .collect();
+            if reasons[index].is_some() {
+                continue;
+            }
             if records_of[index].is_empty() {
-                reasons[index] = Some(rule_reason("morph_not_recorded", None));
+                reasons[index] = Some(("morph_not_recorded", None));
             } else if records_of[index]
                 .iter()
                 .any(|&r| attribution.records[r].nested)
             {
-                reasons[index] = Some(rule_reason("nested_morph", None));
+                reasons[index] = Some(("nested_morph", None));
             } else if let Some(rule) = records_of[index]
                 .iter()
                 .find_map(|&r| attribution.records[r].lost)
             {
-                reasons[index] = Some(rule_reason("span_lost_by_rule", Some(rule)));
+                reasons[index] = Some(("span_lost_by_rule", Some(rule)));
+            }
+        }
+
+        // Which copy is the base is arbitrary, so the reduplicating morph and the root each give no span.
+        if attribution.records.iter().any(|r| r.ambiguous_copy) {
+            for (index, item) in items.iter().enumerate() {
+                let touched = records_of[index]
+                    .iter()
+                    .any(|&r| attribution.records[r].ambiguous_copy);
+                if reasons[index].is_none() && (touched || item.role == SeedItemRole::Root) {
+                    reasons[index] = Some(("span_ambiguous_copy", None));
+                }
             }
         }
 
@@ -138,9 +167,7 @@ impl Morpher<'_> {
                     {
                         Some(item) => match &reasons[item] {
                             None => Claim::Item(item),
-                            Some(reason) => {
-                                Claim::Reason(reason.code, attribution.records[record].lost)
-                            }
+                            Some((code, rule)) => Claim::Reason(code, *rule),
                         },
                         None => Claim::Reason("unrequested_morpheme", None),
                     }
@@ -174,10 +201,10 @@ impl Morpher<'_> {
         }
         let morphemes = (0..items.len())
             .map(|item| match &reasons[item] {
-                Some(reason) => ItemSpans {
+                Some((code, rule)) => ItemSpans {
                     item,
                     spans: None,
-                    reason: Some(reason.clone()),
+                    reason: Some(rule_reason(code, *rule)),
                 },
                 None => ItemSpans {
                     item,

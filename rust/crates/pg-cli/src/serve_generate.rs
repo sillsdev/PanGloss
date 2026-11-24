@@ -32,7 +32,9 @@ pub(crate) const STOP_REASONS: [&str; 5] = [
 ];
 
 /// Every `reason` a morpheme's null spans or an unattributed run can carry, in the order `--describe` lists them.
-pub(crate) const SPAN_REASONS: [&str; 9] = [
+pub(crate) const SPAN_REASONS: [&str; 11] = [
+    "span_unknown_truncation",
+    "span_ambiguous_copy",
     "span_lost_by_rule",
     "nested_morph",
     "compound_unsupported",

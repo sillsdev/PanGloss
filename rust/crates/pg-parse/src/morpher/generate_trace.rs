@@ -455,6 +455,7 @@ impl<'g> Morpher<'g> {
                 .as_ref()
                 .and_then(|log| self.attribute(log, sink, &parents, &word, seed_shape));
             let surface = self.generated_surface_of(&word);
+            // Equal WordKeys share their whole history, so a merged word's marks equal the survivor's.
             let spans = self.word_spans(&word, &surface, items);
             let tally = found.entry(surface).or_default();
             tally.derivations += 1;

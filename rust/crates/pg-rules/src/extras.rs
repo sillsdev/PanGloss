@@ -28,13 +28,20 @@ pub struct SpanMarks {
     pub inserted: Vec<(u32, PRuleId)>,
     /// Morph runs (allomorph, application, run) whose segments a rule made ambiguous, with the rule that did.
     pub lost: Vec<((AllomorphId, u16, u16), PRuleId)>,
+    /// Morphs (allomorph, application) an affix that inserts nothing left as a positional placeholder on a real segment.
+    pub positional: Vec<(AllomorphId, u16)>,
+    /// Morphs (allomorph, application) whose reduplication left the engine free to call either copy the base.
+    pub ambiguous_copy: Vec<(AllomorphId, u16)>,
     /// A later rule rebuilt the shape where the marks could not follow, so no attribution holds; the rule is the first one that left a mark.
     pub poisoned: Option<PRuleId>,
 }
 
 impl SpanMarks {
     pub fn is_empty(&self) -> bool {
-        self.inserted.is_empty() && self.lost.is_empty() && self.poisoned.is_none()
+        self.inserted.is_empty()
+            && self.lost.is_empty()
+            && self.positional.is_empty()
+            && self.poisoned.is_none()
     }
 
     pub(crate) fn lose(&mut self, run: (AllomorphId, u16, u16), rule: PRuleId) {
