@@ -241,17 +241,33 @@ fn unknown_names_are_typed_with_near_matches() {
 }
 
 #[test]
-fn gated_constructs_are_typed_unsupported() {
+fn a_feature_value_a_sign_cannot_name_is_typed_unsupported() {
     let mut s = Server::start();
-    for (pattern, construct) in [
-        ("[+voice]", "featureBundle"),
-        ("[-voice]", "featureBundle"),
-        ("[αvoice]", "alphaVariable"),
+    let r = s.matching("[+tone]", &["aba"]);
+    assert_eq!(r["code"], "unsupported_construct", "{r}");
+    assert_eq!(r["construct"], "featureValue", "{r}");
+    assert_eq!(r["offset"], 1);
+    let r = s.matching("[+voice -tone]", &["aba"]);
+    assert_eq!(r["construct"], "featureValue", "{r}");
+    assert_eq!(r["offset"], 8);
+}
+
+#[test]
+fn one_greek_letter_on_two_features_is_typed_unsupported() {
+    let mut s = Server::start();
+    for (pattern, offset) in [
+        ("[αvoice] [αson]", 11),
+        ("[αvoice αson]", 9),
+        ("/b/ / [αvoice] _ [αson]", 19),
     ] {
-        let r = s.matching(pattern, &["aba"]);
+        let r = s.matching(pattern, &["bab"]);
         assert_eq!(r["code"], "unsupported_construct", "{pattern}: {r}");
-        assert_eq!(r["construct"], construct, "{pattern}: {r}");
+        assert_eq!(r["construct"], "alphaAcrossFeatures", "{pattern}: {r}");
+        assert_eq!(r["offset"], offset, "{pattern}: {r}");
     }
+    // The same letter on the same feature, and different letters on different features, still match.
+    assert_eq!(s.matching("[αvoice][αvoice]", &["bab"])["type"], "result");
+    assert_eq!(s.matching("[αvoice βson]", &["bab"])["type"], "result");
 }
 
 fn first_spans(r: &Value) -> Vec<Vec<(u64, u64)>> {
@@ -415,6 +431,142 @@ fn a_side_alone_exhausts_the_work_budget_where_the_plain_target_does_not() {
         assert_eq!(r["words"][0]["stop"], "work_limit", "{pattern}: {r}");
         assert_eq!(r["words"][1]["status"], "ok", "{pattern}: {r}");
     }
+}
+
+#[test]
+fn a_feature_bundle_selects_the_segments_with_those_values() {
+    let mut s = Server::start();
+    let r = s.matching("[+voice]", &["pabi"]);
+    assert_eq!(first_spans(&r), vec![vec![(1, 2), (2, 3), (3, 4)]], "{r}");
+    let r = s.matching("[-voice]", &["pabi"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)]], "{r}");
+    let r = s.matching("[+voice -son]", &["pabi", "adk"]);
+    assert_eq!(first_spans(&r), vec![vec![(2, 3)], vec![(1, 2)]], "{r}");
+    // A bundle is the same class a grammar class with those values is.
+    let bundle = s.matching("[+voice]", &["pabinŋk"]);
+    let class = s.matching("[Voiced]", &["pabinŋk"]);
+    assert_eq!(bundle["words"], class["words"]);
+    // It composes with sequences, groups and environments.
+    let r = s.matching("[-voice][+voice -son]", &["pb", "bp", "pa"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 2)], vec![], vec![]], "{r}");
+    let r = s.matching("([-son])*[+son]", &["pba"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 3), (1, 3), (2, 3)]], "{r}");
+    let r = s.matching("[-son] / [+son] _ [+son]", &["abab", "aba", "bab"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(1, 2)], vec![(1, 2)], vec![]],
+        "{r}"
+    );
+}
+
+#[test]
+fn bundle_text_errors_are_typed() {
+    let mut s = Server::start();
+    for (pattern, token, offset) in [
+        ("[+voice +voice]", "+voice", 8),
+        ("[+voice -voice]", "-voice", 8),
+        ("[+voice αvoice]", "αvoice", 8),
+        ("[+voice son]", "son", 8),
+        ("[+]", "+", 1),
+    ] {
+        let r = s.matching(pattern, &["aba"]);
+        assert_eq!(r["code"], "pattern_parse", "{pattern:?}: {r}");
+        assert_eq!(r["token"], token, "{pattern:?}: {r}");
+        assert_eq!(r["offset"], offset, "{pattern:?}: {r}");
+    }
+    let r = s.matching("[αnope]", &["aba"]);
+    assert_eq!(r["code"], "unknown_feature", "{r}");
+    assert_eq!(r["name"], "nope");
+    assert_eq!(r["offset"], 3, "after the two-byte letter");
+}
+
+#[test]
+fn an_alpha_variable_agrees_across_every_position_of_one_match() {
+    let mut s = Server::start();
+    let r = s.matching("[αvoice][αvoice]", &["pbta", "bda", "ptk"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![], vec![(0, 2), (1, 3)], vec![(0, 2), (1, 3)]],
+        "{r}"
+    );
+    let r = s.matching("[αvoice][-αvoice]", &["pbta"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 2), (1, 3), (2, 4)]], "{r}");
+    let r = s.matching("[αvoice][αvoice][αvoice]", &["bdap", "bdab"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 3)], vec![(0, 3), (1, 4)]],
+        "{r}"
+    );
+    // A variable alone binds and always agrees.
+    let alone = s.matching("[αvoice]", &["pbta"]);
+    assert_eq!(
+        first_spans(&alone),
+        vec![vec![(0, 1), (1, 2), (2, 3), (3, 4)]]
+    );
+}
+
+#[test]
+fn two_different_alphas_agree_independently() {
+    let mut s = Server::start();
+    // Voice and son must both agree: ba agrees in voice only, pb in neither son-wise nor voice-wise.
+    let r = s.matching(
+        "[αvoice βson][αvoice βson]",
+        &["bd", "ba", "pt", "an", "pb", "ab"],
+    );
+    assert_eq!(
+        first_spans(&r),
+        vec![
+            vec![(0, 2)],
+            vec![],
+            vec![(0, 2)],
+            vec![(0, 2)],
+            vec![],
+            vec![]
+        ],
+        "{r}"
+    );
+    // The two variables sit at different positions: voice at the ends, son in the middle.
+    let r = s.matching("[αvoice βson][βson][αvoice]", &["bdb", "bab", "pdp", "pdb"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 3)], vec![], vec![(0, 3)], vec![]],
+        "{r}"
+    );
+}
+
+#[test]
+fn an_alpha_variable_binds_across_the_target_and_both_sides() {
+    let mut s = Server::start();
+    let r = s.matching(
+        "[+son] / [αvoice] _ [αvoice]",
+        &["bab", "pab", "tat", "bai"],
+    );
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(1, 2)], vec![], vec![(1, 2)], vec![(1, 2)]],
+        "{r}"
+    );
+    let r = s.matching("[+son αvoice] / _ [αvoice]", &["ab", "ap", "an"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 1)], vec![], vec![(0, 1)]],
+        "{r}"
+    );
+    let r = s.matching("[+son αvoice] / _ [-αvoice]", &["ab", "ap"]);
+    assert_eq!(first_spans(&r), vec![vec![], vec![(0, 1)]], "{r}");
+}
+
+#[test]
+fn an_alpha_pattern_runs_under_the_work_budget() {
+    let mut s = Server::start();
+    let long = long_word();
+    let r = s.ask(json!({"id": "m", "op": "match",
+        "pattern": "([αvoice])*([αvoice])*([αvoice])*([αvoice])*[Stop][Stop]",
+        "words": [long, "aba"], "maxWork": 100000}));
+    assert_eq!(r["complete"], false, "{r}");
+    assert_eq!(r["stopReason"], "work_limit", "{r}");
+    assert_eq!(r["words"][0]["matches"], json!([]));
+    assert_eq!(r["words"][1]["status"], "ok", "{r}");
 }
 
 #[test]
@@ -624,6 +776,8 @@ fn describe_declares_exactly_what_is_emitted() {
         ("repeat", "([V])*[V]"),
         ("wordEdge", "#[V]"),
         ("environment", "[V] / [Stop] _ [Stop]"),
+        ("featureBundle", "[+voice]"),
+        ("alphaVariable", "[αvoice]"),
     ];
     let mut covered: BTreeSet<String> = BTreeSet::new();
     for (name, pattern) in supported {
@@ -636,7 +790,10 @@ fn describe_declares_exactly_what_is_emitted() {
     covered.insert("morphemeBoundary".into());
     assert_eq!(strings(&decl["constructs"]["supported"]), covered);
 
-    let gated = [("featureBundle", "[+voice]"), ("alphaVariable", "[αvoice]")];
+    let gated = [
+        ("featureValue", "[+tone]"),
+        ("alphaAcrossFeatures", "[αvoice] [αson]"),
+    ];
     let mut gated_seen: BTreeSet<String> = BTreeSet::new();
     for (name, pattern) in gated {
         let r = s.matching(pattern, &["aba"]);

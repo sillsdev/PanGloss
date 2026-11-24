@@ -99,6 +99,7 @@ fn lists_every_class_with_token_name_id_and_kind_and_every_feature_with_its_valu
         json!([
             {"name": "voice", "id": "featVoice", "values": ["+", "-"]},
             {"name": "son", "id": "featSon", "values": ["+", "-"]},
+            {"name": "tone", "id": "featTone", "values": ["hi", "lo"]},
         ]),
         "the engine's own Type feature is not listed"
     );

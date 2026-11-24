@@ -3,7 +3,8 @@
 use pg_fst::{CompileInput, CompileNode, Fst};
 use pg_grammar_model::chardef::{CharDefId, CharDefTable};
 use pg_grammar_model::model::{
-    AnchorSide, Grammar, NatClassId, NaturalClassKind, Pattern, PatternNode, SimpleContext, TableId,
+    AnchorSide, Grammar, NatClassId, NaturalClass, NaturalClassKind, Pattern, PatternNode,
+    SimpleContext, TableId,
 };
 
 /// An unconstrained lane (all symbols allowed), matching `pg_fst::lanes::UNCONSTRAINED` and
@@ -162,6 +163,8 @@ pub struct PatternBridge<'g> {
     // Allomorph identity inputs: docs/research/pg-rules-p10-identity-lane-design-notes.md.
     id_lane: bool,
     strrep: Option<StrRepMatcher>,
+    /// Classes the pattern defines itself, numbered after the grammar's own: a `NatClassId` at or past `grammar.natural_classes.len()` indexes here. Query patterns such as `[+voice]` have no class in the grammar.
+    extra_classes: &'g [NaturalClass],
 }
 
 /// Exact literal membership for featureless segments, with 63 character ids per FST lane.
@@ -286,6 +289,22 @@ impl<'g> PatternBridge<'g> {
             deterministic: true,
             id_lane: false,
             strrep: None,
+            extra_classes: &[],
+        }
+    }
+
+    /// Resolve class ids past the grammar's own against `classes`.
+    pub(crate) fn with_extra_classes(mut self, classes: &'g [NaturalClass]) -> Self {
+        self.extra_classes = classes;
+        self
+    }
+
+    fn class(&self, id: NatClassId) -> Option<&'g NaturalClass> {
+        let at = id.0 as usize;
+        let own = self.grammar.natural_classes.len();
+        match at.checked_sub(own) {
+            None => self.grammar.natural_classes.get(at),
+            Some(extra) => self.extra_classes.get(extra),
         }
     }
 
@@ -335,11 +354,7 @@ impl<'g> PatternBridge<'g> {
 
     // Feature-lane unions overapproximate member correlation; identity constraints preserve exact membership.
     fn nat_class_lanes(&self, id: NatClassId) -> Result<Vec<u64>, BridgeError> {
-        let nc = self
-            .grammar
-            .natural_classes
-            .get(id.0 as usize)
-            .ok_or(BridgeError::BadNatClass(id))?;
+        let nc = self.class(id).ok_or(BridgeError::BadNatClass(id))?;
         let w = self.feature_width();
         match &nc.kind {
             NaturalClassKind::Feature(pairs) => {
@@ -428,10 +443,12 @@ impl<'g> PatternBridge<'g> {
                 PatternNode::Context(sc) => {
                     let (lanes, had_vars) = self.simple_context_lanes(sc)?;
                     *uses_vars |= had_vars;
-                    if let (Some(strrep), NaturalClassKind::Segments(members)) = (
-                        self.strrep,
-                        &self.grammar.natural_classes[sc.nat_class.0 as usize].kind,
-                    ) {
+                    let class = self
+                        .class(sc.nat_class)
+                        .ok_or(BridgeError::BadNatClass(sc.nat_class))?;
+                    if let (Some(strrep), NaturalClassKind::Segments(members)) =
+                        (self.strrep, &class.kind)
+                    {
                         // One alternative per chunk the members touch: within a chunk the member bits union exactly.
                         out.push(AgreementNode::Alternation(
                             strrep
