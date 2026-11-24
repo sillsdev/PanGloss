@@ -794,6 +794,7 @@ fn opposing_alpha_environment(g: &mut Grammar, focus: &mut Pattern) -> Pattern {
     g.natural_classes.push(NaturalClass {
         xml_id: "testOnlyA".into(),
         name: None,
+        full_name: None,
         kind: NaturalClassKind::Segments(vec![a]),
     });
     focus.nodes[0] = PatternNode::Context(context);

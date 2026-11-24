@@ -374,6 +374,7 @@ fn provisional_letter_has_no_membership_in_feature_or_segment_classes() {
     let listed = crate::model::NaturalClass {
         xml_id: "listed-q".into(),
         name: Some("Listed q".into()),
+        full_name: None,
         kind: crate::model::NaturalClassKind::Segments(vec![q]),
     };
     for class in [feature, &listed] {
@@ -405,6 +406,7 @@ fn featureless_authored_phoneme_keeps_list_membership_but_no_feature_class_membe
     let listed = crate::model::NaturalClass {
         xml_id: "listed-q".into(),
         name: Some("Listed q".into()),
+        full_name: None,
         kind: crate::model::NaturalClassKind::Segments(vec![q]),
     };
     let pg_shape::CdSet::Members(bits) = crate::segment::nat_class_cd_set(table, &listed) else {

@@ -113,6 +113,7 @@ fn strrep_rewrite_preserves_provisional_named_class_exclusion() {
     grammar.natural_classes.push(NaturalClass {
         xml_id: "named-x".into(),
         name: Some("Named x".into()),
+        full_name: None,
         kind: NaturalClassKind::Segments(vec![x]),
     });
     let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {

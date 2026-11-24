@@ -421,6 +421,7 @@ impl Parser<'_> {
         self.synthetic.push(NaturalClass {
             xml_id: format!("__bundle_{}__", self.synthetic.len()),
             name: Some(body.trim().to_string()),
+            full_name: None,
             kind: NaturalClassKind::Feature(pairs),
         });
         Ok(SimpleContext { nat_class, vars })

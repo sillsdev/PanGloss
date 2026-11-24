@@ -131,14 +131,15 @@ The request takes only `maxWork` and `wordTimeoutMs`, with the limits `match` ha
 
 ```json
 {"id":"i1","type":"result","op":"inventory","complete":true,"stopReason":null,
- "classes":[{"token":"V","name":"V","id":"ncV","kind":"segment"},
-            {"token":"Voiced","name":"Voiced","id":"ncVoiced","kind":"feature"}],
+ "classes":[{"token":"V","name":"V","fullName":null,"id":"ncV","kind":"segment"},
+            {"token":"Voiced","name":"Voiced","fullName":null,"id":"ncVoiced","kind":"feature"}],
  "features":[{"name":"voice","id":"featVoice","values":["+","-"]}]}
 ```
 
 - `classes` is every natural class of the grammar in grammar order. `kind` is `segment` (an explicit segment list) or `feature` (a feature structure).
 - `token` is exactly the text `match` accepts between brackets: `[V]`. `match` resolves `[x]` by class `name` first and, failing that, by class `id` (the grammar.xml id, or the FieldWorks guid), so both spellings are accepted. When two classes share a name the first wins that name, and the later one is reached by its `id`; when a class's `id` equals another class's name, the name wins. `token` is the spelling that reaches the class: its name, else its `id`, else `null` (a name that is empty, or starts with `+`, `-` or a Greek letter, or holds `]`, cannot be written in brackets). Parsing `[token]` gives back the class it came from. What `[token]` then selects depends on `match`'s `segmentTest`: with `"identity"` it selects exactly the class's members; under the default `"engine"` a `segment` class selects what rule application's test admits, the union of its members' features, which can include segments the class does not list (in the inventory fixture `[V]`, a class of `a i u`, selects `aiunŋ`). Send `segmentTest:"identity"` to see exactly the listed members. A test matches `[token]` against a word holding every segment, with `"identity"`, and checks, for every class of a fixture that includes names with spaces, brackets and non-ASCII letters, that the selected segments are that class's, a second test pins the default's superset, and that the one class with `token: null` is selected by neither its name nor its `id`. Matching is case-sensitive, so `[voiced]` is an `unknown_natural_class` (a host that lowercases for completion must send the token as listed).
-- `name` is the grammar's one label for the class (`null` when the grammar gave none). For a grammar compiled from a FieldWorks project that label is the natural class's Abbreviation, the text environment strings cite, and the Name FieldWorks shows is not kept. The op therefore lists no separate `abbreviation`.
+- `name` is the grammar's one label for the class, the one `match` resolves (`null` when the grammar gave none). For a grammar compiled from a FieldWorks project that label is the natural class's Abbreviation, the text environment strings cite.
+- `fullName` is the class's Name in the analysis writing system, as FieldWorks shows it (`Vowels` for the Abbreviation `V`), or `null` when the class has no Name, or when the grammar was loaded from HermitCrab XML, which has one label and so no separate Name. It is always present. `match` does not accept it: a host resolves a `fullName` to the class's `token` itself.
 - `features` is every phonological feature the grammar defines, in grammar order, with `values`, the names of its symbols in order. The engine's own `Type` feature (segment or boundary) is not listed.
 
 ## Op `match`: pattern text over a word list

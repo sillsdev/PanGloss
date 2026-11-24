@@ -38,6 +38,7 @@ fn segments_class(
     NaturalClass {
         xml_id: xml_id.to_string(),
         name: Some(name.to_string()),
+        full_name: None,
         kind: NaturalClassKind::Segments(members),
     }
 }
@@ -132,6 +133,7 @@ fn natural_class_member_ids_respects_feature_eligibility_and_wildcards() {
     let nc = NaturalClass {
         xml_id: "nc".into(),
         name: Some("Voiced".into()),
+        full_name: None,
         kind: NaturalClassKind::Feature(vec![(phon.flat_index("voice").unwrap(), SymbolBits(1))]),
     };
 

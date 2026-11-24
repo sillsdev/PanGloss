@@ -89,11 +89,11 @@ fn lists_every_class_with_token_name_id_and_kind_and_every_feature_with_its_valu
     assert!(r["stopReason"].is_null());
     assert_eq!(
         class(&r, "ncV"),
-        &json!({"token": "V", "name": "V", "id": "ncV", "kind": "segment"})
+        &json!({"token": "V", "name": "V", "fullName": null, "id": "ncV", "kind": "segment"})
     );
     assert_eq!(
         class(&r, "ncVoiced"),
-        &json!({"token": "Voiced", "name": "Voiced", "id": "ncVoiced", "kind": "feature"})
+        &json!({"token": "Voiced", "name": "Voiced", "fullName": null, "id": "ncVoiced", "kind": "feature"})
     );
     assert_eq!(
         r["features"],
@@ -332,4 +332,85 @@ fn under_the_default_segment_test_a_token_selects_the_features_union_of_its_clas
     assert_eq!(got, "aiunŋ", "{r}");
     let exact = s.matching("[V]", &[WORD]);
     assert_ne!(exact, r);
+}
+
+const KAT_FWDATA: &str =
+    include_str!("../../../../docs/divergences/evidence/071/kat-fixture-with-k.fwdata");
+const KAT_NAME_BLOCK: &str = "<Name>\n<AUni ws=\"en\">Vowels</AUni>\n</Name>\n<Segments>";
+
+/// Serves `project` (a path to an XML or fwdata file) and returns its `inventory` answer.
+fn inventory_of(project: &std::path::Path) -> Value {
+    let mut child = Command::new(BIN)
+        .args(["serve", "--project"])
+        .arg(project)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("pangloss serve must start");
+    let mut server = Server {
+        stdin: child.stdin.take(),
+        stdout: BufReader::new(child.stdout.take().unwrap()),
+        child,
+    };
+    assert_eq!(server.read_line()["type"], "ready");
+    server.inventory()
+}
+
+fn fwdata_inventory(project: &str) -> Value {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("kat.fwdata");
+    std::fs::write(&path, project).unwrap();
+    inventory_of(&path)
+}
+
+fn v_class(r: &Value) -> &Value {
+    r["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "00000000-0000-0000-0000-000000000016")
+        .unwrap_or_else(|| panic!("no class V: {r}"))
+}
+
+#[test]
+fn a_fieldworks_class_lists_its_name_beside_the_abbreviation_label() {
+    let r = fwdata_inventory(KAT_FWDATA);
+    let c = v_class(&r);
+    assert_eq!(
+        c["name"], "V",
+        "the existing label stays the Abbreviation: {c}"
+    );
+    assert_eq!(c["fullName"], "Vowels", "{c}");
+    assert_eq!(c["token"], "V", "{c}");
+}
+
+#[test]
+fn a_fieldworks_class_without_a_name_has_a_null_full_name() {
+    assert!(
+        KAT_FWDATA.contains(KAT_NAME_BLOCK),
+        "the fixture no longer has the Name block"
+    );
+    let r = fwdata_inventory(&KAT_FWDATA.replace(KAT_NAME_BLOCK, "<Segments>"));
+    let c = v_class(&r);
+    assert_eq!(c["name"], "V", "{c}");
+    assert!(c["fullName"].is_null(), "{c}");
+    assert!(
+        c.as_object().unwrap().contains_key("fullName"),
+        "the key is always present: {c}"
+    );
+}
+
+#[test]
+fn an_xml_loaded_grammar_has_only_its_one_label_so_full_name_is_null() {
+    let project = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/match-fixture.xml");
+    let r = inventory_of(&project);
+    let classes = r["classes"].as_array().unwrap();
+    assert!(!classes.is_empty());
+    for c in classes {
+        assert!(
+            c["fullName"].is_null() && c.as_object().unwrap().contains_key("fullName"),
+            "{c}"
+        );
+    }
 }

@@ -49,7 +49,7 @@ pub(crate) fn build(
             SnapNaturalClass::Segments {
                 guid,
                 name,
-                display_name: _,
+                display_name,
                 phonemes,
             } => {
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
@@ -90,6 +90,7 @@ pub(crate) fn build(
                 defs.push(NaturalClass {
                     xml_id: guid.clone(),
                     name: Some(name.clone()),
+                    full_name: display_name.clone(),
                     kind: NaturalClassKind::Segments(resolved),
                 });
                 inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(id.0), key);
@@ -97,7 +98,7 @@ pub(crate) fn build(
             SnapNaturalClass::Features {
                 guid,
                 name,
-                display_name: _,
+                display_name,
                 features,
             } => {
                 let key = InventoryKey::object(InventoryKind::NaturalClass, guid.clone());
@@ -113,6 +114,7 @@ pub(crate) fn build(
                 defs.push(NaturalClass {
                     xml_id: guid.clone(),
                     name: Some(name.clone()),
+                    full_name: display_name.clone(),
                     kind: NaturalClassKind::Feature(pairs),
                 });
                 inventory::represent_via(recorder, lineage, LineageTarget::NaturalClass(id.0), key);
@@ -134,6 +136,7 @@ pub(crate) fn build(
     defs.push(NaturalClass {
         xml_id: "__any__".to_string(),
         name: Some("Any".to_string()),
+        full_name: None,
         kind: NaturalClassKind::Feature(vec![(
             phon.type_flat(),
             SymbolBits(1u64 << TYPE_SEGMENT_SYMBOL),
