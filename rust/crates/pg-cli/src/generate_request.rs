@@ -305,7 +305,7 @@ fn is_canonical_guid(value: &str) -> bool {
         })
 }
 
-fn format_msa_class(class: FwClass) -> String {
+pub(crate) fn format_msa_class(class: FwClass) -> String {
     match class {
         FwClass::MoStemMsa => "MoStemMsa",
         FwClass::MoInflAffMsa => "MoInflAffMsa",

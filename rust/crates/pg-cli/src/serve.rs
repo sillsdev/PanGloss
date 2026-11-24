@@ -366,6 +366,15 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             .unwrap_or_else(|_| error_response(&id, "internal", "matcher panicked; see stderr")),
             false,
         ),
+        Some("effects") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_effects::handle(ctx.grammar, ctx.morpher, &id, object)
+            }))
+            .unwrap_or_else(|_| {
+                error_response(&id, "internal", "effects scan panicked; see stderr")
+            }),
+            false,
+        ),
         Some(other) => (
             error_response(&id, "unknown_op", &format!("unknown op: {other}")),
             false,
