@@ -258,7 +258,8 @@ fn describe_declares_what_the_op_emits() {
         json!([
             "unboundedQuantifier",
             "alphaAgreement",
-            "iterativeSpreading"
+            "iterativeSpreading",
+            "iterativeLengthChange"
         ])
     );
     let mut s = Server::start();

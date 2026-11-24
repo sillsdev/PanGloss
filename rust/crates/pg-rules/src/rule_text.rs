@@ -10,10 +10,11 @@ use crate::pattern_text::{PatternPrinter, Place, Unprintable};
 use crate::shape_feat::segment_with_features_load as segment_with_features;
 
 /// The `nonLocal` reasons, in the order they are reported.
-pub const NON_LOCAL_CRITERIA: [&str; 3] = [
+pub const NON_LOCAL_CRITERIA: [&str; 4] = [
     "unboundedQuantifier",
     "alphaAgreement",
     "iterativeSpreading",
+    "iterativeLengthChange",
 ];
 
 /// One rule row (a rewrite subrule, or a whole metathesis rule) as match text.
@@ -157,7 +158,7 @@ fn is_boundary(g: &Grammar, node: &PatternNode, table: TableId) -> bool {
         if g.char_tables[table.0 as usize].get(*cd).kind() == CharDefKind::Boundary)
 }
 
-/// The criteria of [`NON_LOCAL_CRITERIA`] that rule row `subrule` meets: a group that repeats without bound, an alpha variable, or an iterative rewrite whose environment can see the segments the rule rewrites.
+/// The criteria of [`NON_LOCAL_CRITERIA`] that rule row `subrule` meets: a group that repeats without bound, an alpha variable, an iterative rewrite whose environment can see the segments the rule rewrites, or an iterative rewrite that changes length.
 pub fn non_local(
     g: &Grammar,
     rule: &PhonRuleDef,
@@ -190,7 +191,17 @@ pub fn non_local(
     if iterative_spreading(g, rule, table) {
         out.push(NON_LOCAL_CRITERIA[2]);
     }
+    if iterative_length_change(rule) {
+        out.push(NON_LOCAL_CRITERIA[3]);
+    }
     out
+}
+
+/// Whether an iterative rewrite has a subrule whose replacement and left side differ in length (deletion, expansion, insertion), so later sites see shifted material.
+fn iterative_length_change(rule: &PhonRuleDef) -> bool {
+    matches!(rule, PhonRuleDef::Rewrite(r)
+        if r.mode == RewriteMode::Iterative
+            && r.subrules.iter().any(|s| s.rhs.nodes.len() != r.lhs.nodes.len()))
 }
 
 /// Whether an iterative rewrite spreads: the rule is iterative, a subrule's left side and replacement have as many nodes, and an environment node of any subrule (one subrule feeds the next at the same site) can match a segment a replacement writes. A literal segment is tested with the engine's own matcher, a feature change by the features it writes.

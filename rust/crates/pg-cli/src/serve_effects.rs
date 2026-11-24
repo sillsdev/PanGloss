@@ -1212,6 +1212,13 @@ mod tests {
             let Some(last) = g.strata.last().map(|s| s.table) else {
                 continue;
             };
+            // The same grammar with every rewrite rule made simultaneous, for the iterative-versus-simultaneous oracle.
+            let mut sim_g = fixture.load_grammar();
+            for rule in &mut sim_g.prules {
+                if let PhonRuleDef::Rewrite(r) = rule {
+                    r.mode = pg_grammar::model::RewriteMode::Simultaneous;
+                }
+            }
             let morpher = Morpher::new(&g, 50_000_000);
             let table = &g.char_tables[last.0 as usize];
             let mut roots: Vec<String> = g
@@ -1261,13 +1268,22 @@ mod tests {
                         *tally.entry("rules the text refuses").or_default() += 1;
                         continue;
                     }
-                    if texts
-                        .iter()
-                        .any(|t| t.non_local.contains(&"iterativeSpreading"))
-                    {
-                        *tally.entry("rules flagged iterativeSpreading").or_default() += 1;
+                    let iterative_flag = texts.iter().any(|t| {
+                        t.non_local.contains(&"iterativeSpreading")
+                            || t.non_local.contains(&"iterativeLengthChange")
+                    });
+                    if iterative_flag {
+                        *tally
+                            .entry("rules flagged non-local (iterative)")
+                            .or_default() += 1;
                         continue;
                     }
+                    let simultaneous = (rule.mode == pg_grammar::model::RewriteMode::Iterative)
+                        .then(|| match sim_g.prules.get(*index as usize) {
+                            Some(PhonRuleDef::Rewrite(r)) => Some(r),
+                            _ => None,
+                        })
+                        .flatten();
                     let markers: Vec<&str> = texts
                         .iter()
                         .filter_map(|t| t.boundary_marker.as_deref())
@@ -1301,6 +1317,39 @@ mod tests {
                                     else {
                                         continue;
                                     };
+                                    // Oracle: an iterative rule not flagged must give what one simultaneous pass gives, length changes included.
+                                    if let Some(sim) = &simultaneous {
+                                        macro_rules! print {
+                                            ($shapes:expr) => {
+                                                $shapes
+                                                    .iter()
+                                                    .map(|s| {
+                                                        s.interior()
+                                                            .map(|(n, _, cd, _)| {
+                                                                format!("{cd}{:?}", s.node_lanes(n))
+                                                            })
+                                                            .collect::<Vec<_>>()
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                            };
+                                        }
+                                        if let Ok(other) =
+                                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                                || pg_rules::rewrite::synthesize(&g, sim, &input),
+                                            ))
+                                        {
+                                            *tally
+                                                .entry("words checked iterative vs simultaneous")
+                                                .or_default() += 1;
+                                            if print!(other) != print!(outputs) {
+                                                misses.push(format!(
+                                                    "{} {} word `{word}`: iterative output differs from simultaneous, so the rule feeds itself and is not flagged",
+                                                    fixture.label(),
+                                                    rule.xml_id
+                                                ));
+                                            }
+                                        }
+                                    }
                                     let Some(out) = outputs.last() else { continue };
                                     if out.len() != input.len() {
                                         *tally
@@ -1504,6 +1553,45 @@ mod tests {
             }
         }
         assert!(seen > 0, "the fixture has an affix and a rule");
+    }
+
+    /// Each grammar has one iterative rule that changes length on root `auuu`; the engine feeds each site's output to the next, so a one-pass `match` of the text misses later positions.
+    #[test]
+    fn an_iterative_rule_that_changes_length_is_non_local() {
+        for (xml, flagged) in [
+            (
+                include_str!("../tests/data/effects-length-change-itdel.xml"),
+                true,
+            ),
+            (
+                include_str!("../tests/data/effects-length-change-itexp.xml"),
+                true,
+            ),
+            (
+                include_str!("../tests/data/effects-length-change-itins2.xml"),
+                true,
+            ),
+            (
+                include_str!("../tests/data/effects-length-change-itdel-sim.xml"),
+                false,
+            ),
+        ] {
+            let g = pg_grammar::load(xml).expect("the grammar loads");
+            let table = g.strata.last().unwrap().table;
+            let def = g
+                .prules
+                .iter()
+                .find(|r| matches!(r, PhonRuleDef::Rewrite(r) if r.xml_id == "prBoundary"))
+                .expect("rule prBoundary");
+            let text = pg_rules::rule_text::rule_text(&g, def, 0, table);
+            assert_eq!(
+                text.non_local.contains(&"iterativeLengthChange"),
+                flagged,
+                "{:?} {:?}",
+                text.match_pattern,
+                text.non_local
+            );
+        }
     }
 
     /// The engine tests a segment by its features: `{i, u}` accepts the union of their bundles, and `/i/` accepts any segment with the same bundle (here `e`). The grammar has two rules with no environment, `[{i,u}] -> a` and `i -> a`.
