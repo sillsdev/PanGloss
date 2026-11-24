@@ -681,6 +681,7 @@ pub(crate) fn synthesize_cached_traced(
         synthesize_with_permutation(&cache.syn, pattern_len, &input.shape, table, cache.strrep)
             .map(|(shape, origin)| {
                 let mut out = input.clone();
+                out.note_metathesis_spans(&origin, pid);
                 out.reorder_morphs(&origin);
                 out.shape = shape;
                 out

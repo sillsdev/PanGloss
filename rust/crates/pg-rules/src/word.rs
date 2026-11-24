@@ -18,10 +18,10 @@ use pg_featstruct::{FeatId, FeatureStruct};
 use pg_grammar_model::model::{
     AllomorphId, LexEntryId, MRuleId, MorphemeId, MprSet, PRuleId, StratumId,
 };
-use pg_shape::Shape;
+use pg_shape::{NodeKind, Shape};
 
 use crate::alternative::{Alternative, Alternatives};
-use crate::extras::Extras;
+use crate::extras::{Extras, SpanMarks};
 use crate::trail::{SlotView, Trail};
 
 /// `size_of::<Word>()` when the byte estimates were calibrated.
@@ -106,6 +106,43 @@ pub enum MorphStatus {
     SubsumedChild,
     /// Top-level singleton that currently owns the node at `order`.
     SubsumedFirst,
+}
+
+/// One morph record as `Word::span_attribution` reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpanRecord {
+    pub morpheme: MorphemeId,
+    pub allomorph: AllomorphId,
+    /// The application identity runs of one rule application share.
+    pub occurrence: u16,
+    /// The record shares its range with another record, so no segment is its alone.
+    pub nested: bool,
+    /// A phonological rule made this run's segments ambiguous.
+    pub lost: Option<PRuleId>,
+}
+
+/// Who owns one interior node of a word's shape.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SegmentOwner {
+    /// The index into `Word::morphs` of the record owning the node.
+    Record(usize),
+    /// A phonological rewrite inserted the node.
+    Inserted(PRuleId),
+    /// No morph range holds the node.
+    Unowned,
+}
+
+/// The engine's own answer to which morph owns each segment of the final shape.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpanAttribution {
+    /// Parallel to `Word::morphs`.
+    pub records: Vec<SpanRecord>,
+    /// One per interior node of the shape (anchors excluded).
+    pub owners: Vec<SegmentOwner>,
+    /// Every attribution is unreliable; the rule is the first one that left a mark.
+    pub poisoned: Option<PRuleId>,
+    /// The word has compounding non-heads, whose segments are folded into one root morph.
+    pub compound: bool,
 }
 
 /// A top-level annotation and its contiguous postorder child block.
@@ -606,6 +643,188 @@ impl Word {
             }
         }
         self.morphs = morphs;
+    }
+
+    /// Whether this word records what phonological rules do to morph identity, for `Word::span_attribution`.
+    #[inline]
+    pub fn track_spans(&self) -> bool {
+        self.flags.partial & 4 != 0
+    }
+
+    #[inline]
+    pub fn set_track_spans(&mut self, enabled: bool) {
+        self.flags.partial = (self.flags.partial & !4) | (u8::from(enabled) << 2);
+    }
+
+    /// The run key of the morph owning old interior node `old`, unless a rule inserted that node.
+    fn node_run(
+        &self,
+        layout: &MorphLayout,
+        marks: &SpanMarks,
+        old: usize,
+    ) -> Option<(AllomorphId, u16, u16)> {
+        if marks.inserted.iter().any(|&(node, _)| node as usize == old) {
+            return None;
+        }
+        let group = layout.node_owners.get(old).copied().flatten()?;
+        Some(self.run_key(layout.groups[group].host))
+    }
+
+    /// Before a synthesis rewrite replaces the shape (`self` still holds the old one and its morphs): records the nodes it inserts and the morphs whose segments it merges across an edge.
+    pub(crate) fn note_rewrite_spans(&mut self, new_shape: &Shape, keys: &[u32], rule: PRuleId) {
+        if !self.track_spans() {
+            return;
+        }
+        let old_len = self.shape.len();
+        let interior = old_len.saturating_sub(2);
+        let layout = MorphLayout::decode(&self.morphs, old_len, self.extras.bare_nodes());
+        let mut marks = self.extras.span_marks().cloned().unwrap_or_default();
+        let kept = |old: usize| keys.iter().position(|&key| key == 2 * (old as u32 + 1));
+        let mut inserted: Vec<(u32, PRuleId)> = marks
+            .inserted
+            .iter()
+            .filter_map(|&(old, by)| kept(old as usize).map(|new| (new as u32, by)))
+            .collect();
+        inserted.extend(
+            keys.iter()
+                .enumerate()
+                .filter(|(_, key)| *key % 2 == 1)
+                .map(|(new, _)| (new as u32, rule)),
+        );
+        inserted.sort_unstable();
+        let old_marks = marks.clone();
+        marks.inserted = inserted;
+        let is_boundary = |old: usize| self.shape.kind(old + 1) == NodeKind::Boundary;
+        let differs = |old: usize, new: usize| {
+            let (a, b) = (old + 1, new + 1);
+            self.shape.kind(a) != new_shape.kind(b)
+                || self.shape.char_def(a) != new_shape.char_def(b)
+                || self.shape.node_lanes(a) != new_shape.node_lanes(b)
+        };
+        for old in 0..interior {
+            if kept(old).is_some() || self.shape.flags(old + 1).is_optional() || is_boundary(old) {
+                continue;
+            }
+            let Some(deleted) = self.node_run(&layout, &old_marks, old) else {
+                continue;
+            };
+            // The nearest kept segment on each side, past boundaries and other deleted nodes.
+            let left = (0..old)
+                .rev()
+                .find(|&i| kept(i).is_some() && !is_boundary(i));
+            let right = (old + 1..interior).find(|&i| kept(i).is_some() && !is_boundary(i));
+            for neighbour in left.into_iter().chain(right) {
+                let (Some(new), Some(owner)) = (
+                    kept(neighbour),
+                    self.node_run(&layout, &old_marks, neighbour),
+                ) else {
+                    continue;
+                };
+                if owner != deleted && differs(neighbour, new) {
+                    marks.lose(deleted, rule);
+                    marks.lose(owner, rule);
+                }
+            }
+        }
+        *self.extras.span_marks_mut() = marks;
+    }
+
+    /// Before a metathesis re-orders the shape (`origin[i]` is the old index of the node now at `i`): records the morphs whose segments it moved across an edge.
+    pub(crate) fn note_metathesis_spans(&mut self, origin: &[usize], rule: PRuleId) {
+        let shape_len = self.shape.len();
+        if !self.track_spans() || origin.len() != shape_len {
+            return;
+        }
+        let interior = shape_len.saturating_sub(2);
+        let layout = MorphLayout::decode(&self.morphs, shape_len, self.extras.bare_nodes());
+        let mut marks = self.extras.span_marks().cloned().unwrap_or_default();
+        let mut new_of_old = vec![0u32; interior];
+        for new in 0..interior {
+            new_of_old[origin[new + 1] - 1] = new as u32;
+        }
+        let mut owners: Vec<(AllomorphId, u16, u16)> = Vec::new();
+        let mut unowned_moved = false;
+        for new in 0..interior {
+            let old = origin[new + 1] - 1;
+            if old == new {
+                continue;
+            }
+            match self.node_run(&layout, &marks, old) {
+                Some(run) => {
+                    if !owners.contains(&run) {
+                        owners.push(run);
+                    }
+                }
+                None => {
+                    unowned_moved |= !marks.inserted.iter().any(|&(node, _)| node as usize == old);
+                }
+            }
+        }
+        if owners.len() > 1 || (unowned_moved && !owners.is_empty()) {
+            for run in owners {
+                marks.lose(run, rule);
+            }
+        }
+        for (node, _) in &mut marks.inserted {
+            *node = new_of_old[*node as usize];
+        }
+        marks.inserted.sort_unstable();
+        *self.extras.span_marks_mut() = marks;
+    }
+
+    /// Which morph record owns each interior node, as the engine's own morph ranges say, with the doubts phonological rules left behind (see `SpanMarks`).
+    pub fn span_attribution(&self) -> SpanAttribution {
+        let layout = MorphLayout::decode(&self.morphs, self.shape.len(), self.extras.bare_nodes());
+        let empty = SpanMarks::default();
+        let marks = self.extras.span_marks().unwrap_or(&empty);
+        let mut records: Vec<SpanRecord> = self
+            .morphs
+            .iter()
+            .map(|record| SpanRecord {
+                morpheme: record.morpheme,
+                allomorph: record.allomorph,
+                occurrence: record.observation_occurrence,
+                nested: false,
+                lost: None,
+            })
+            .collect();
+        for group in &layout.groups {
+            if !group.children.is_empty() {
+                for record in &mut records[group.children.start..=group.host] {
+                    record.nested = true;
+                }
+            }
+            if self.morphs[group.host].status == MorphStatus::Real {
+                let run = self.run_key(group.host);
+                records[group.host].lost = marks
+                    .lost
+                    .iter()
+                    .find(|(lost, _)| *lost == run)
+                    .map(|(_, rule)| *rule);
+            }
+        }
+        let owners = layout
+            .node_owners
+            .iter()
+            .enumerate()
+            .map(|(node, owner)| {
+                if let Some(&(_, rule)) = marks.inserted.iter().find(|&&(n, _)| n as usize == node)
+                {
+                    SegmentOwner::Inserted(rule)
+                } else {
+                    match owner {
+                        Some(group) => SegmentOwner::Record(layout.groups[*group].host),
+                        None => SegmentOwner::Unowned,
+                    }
+                }
+            })
+            .collect();
+        SpanAttribution {
+            records,
+            owners,
+            poisoned: marks.poisoned,
+            compound: !self.non_heads().is_empty(),
+        }
     }
 
     /// A record's allomorph, application and how many earlier records share both, so each run of a circumfix has its own key.

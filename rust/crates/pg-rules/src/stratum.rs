@@ -2619,6 +2619,7 @@ pub fn synthesize_phonological_stratum_traced(
         if let Some(shape) = result.into_iter().next() {
             applied_prule_ids.push(pid);
             if let Some(keys) = anchor_keys {
+                input.note_rewrite_spans(&shape, &keys, pid);
                 input.remap_morph_orders(input.shape.len(), &keys);
             }
             input.shape = shape;
@@ -2628,6 +2629,9 @@ pub fn synthesize_phonological_stratum_traced(
                 input
                     .extras
                     .set_shape_marks(extras.deleted_gaps().to_vec(), extras.bare_nodes().to_vec());
+                if let Some(marks) = extras.span_marks() {
+                    *input.extras.span_marks_mut() = marks.clone();
+                }
             }
             if let Some(recorder) = trace.mode().recorder() {
                 input.trace = recorder.advance(input.trace);

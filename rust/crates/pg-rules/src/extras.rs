@@ -18,6 +18,49 @@ struct Parts {
     pinned_starts: Vec<(AllomorphId, u16, u16)>,
     deleted_gaps: Vec<u32>,
     bare_nodes: Vec<u32>,
+    span_marks: SpanMarks,
+}
+
+/// What phonological rules did to morph identity in a word that asked for span tracking; empty on every other word.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SpanMarks {
+    /// Interior node indices a rewrite inserted, with the rule that did.
+    pub inserted: Vec<(u32, PRuleId)>,
+    /// Morph runs (allomorph, application, run) whose segments a rule made ambiguous, with the rule that did.
+    pub lost: Vec<((AllomorphId, u16, u16), PRuleId)>,
+    /// A later rule rebuilt the shape where the marks could not follow, so no attribution holds; the rule is the first one that left a mark.
+    pub poisoned: Option<PRuleId>,
+}
+
+impl SpanMarks {
+    pub fn is_empty(&self) -> bool {
+        self.inserted.is_empty() && self.lost.is_empty() && self.poisoned.is_none()
+    }
+
+    pub(crate) fn lose(&mut self, run: (AllomorphId, u16, u16), rule: PRuleId) {
+        if !self.lost.iter().any(|(existing, _)| *existing == run) {
+            self.lost.push((run, rule));
+        }
+    }
+
+    /// Follows the marks onto a rebuilt shape: `origins[new]` is the old interior index of the node now at `new`, `None` for new material; a marked node copied more than once poisons the word.
+    pub(crate) fn follow(&mut self, origins: &[Option<u32>]) {
+        let mut inserted = Vec::with_capacity(self.inserted.len());
+        for &(old, rule) in &self.inserted {
+            let mut targets = origins
+                .iter()
+                .enumerate()
+                .filter(|(_, origin)| **origin == Some(old))
+                .map(|(new, _)| new as u32);
+            match (targets.next(), targets.next()) {
+                (Some(new), None) => inserted.push((new, rule)),
+                (None, _) => {}
+                (Some(_), Some(_)) => self.poisoned = self.poisoned.or(Some(rule)),
+            }
+        }
+        inserted.sort_unstable();
+        self.inserted = inserted;
+    }
 }
 
 impl Extras {
@@ -87,6 +130,14 @@ impl Extras {
         parts.bare_nodes = bare_nodes;
     }
 
+    pub(crate) fn span_marks(&self) -> Option<&SpanMarks> {
+        self.0.as_ref().map(|p| &p.span_marks)
+    }
+
+    pub(crate) fn span_marks_mut(&mut self) -> &mut SpanMarks {
+        &mut self.parts_mut().span_marks
+    }
+
     /// Forgets everything that describes the old shape, for a rule that rebuilds the shape from its copied nodes.
     pub(crate) fn clear_shape_marks(&mut self) {
         if let Some(parts) = self.0.as_mut() {
@@ -120,6 +171,7 @@ impl std::fmt::Debug for Extras {
             .field("pinned_starts", &self.pinned_starts())
             .field("deleted_gaps", &self.deleted_gaps())
             .field("bare_nodes", &self.bare_nodes())
+            .field("span_marks", &self.span_marks().filter(|m| !m.is_empty()))
             .finish()
     }
 }

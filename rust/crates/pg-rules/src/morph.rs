@@ -2841,6 +2841,16 @@ fn synth_process_allomorph(
         .collect();
     w.extras.clear_shape_marks();
     w.extras.set_shape_marks(Vec::new(), bare);
+    if w.track_spans() {
+        let origins: Vec<Option<u32>> = out
+            .iter()
+            .map(|node| match node.origin {
+                Origin::Head(old) => Some(old as u32),
+                _ => None,
+            })
+            .collect();
+        w.extras.span_marks_mut().follow(&origins);
+    }
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);
     if let Some(is_partial_rule) = partial {

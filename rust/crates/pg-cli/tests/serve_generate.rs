@@ -448,6 +448,35 @@ fn bad_requests_never_run() {
 }
 
 #[test]
+fn trace_gives_each_morpheme_its_surface_spans() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let mut server = Server::start(&project);
+    let r = server.generate(&[AFFIX], json!({"trace": true}));
+    let surface = &r["seeds"][0]["surfaces"][0];
+    assert_eq!(surface["surface"], "rannas", "{r}");
+    assert_eq!(surface["normalized"], Value::Null);
+    let analyses = surface["morphSpans"].as_array().unwrap();
+    assert_eq!(analyses.len(), 1, "{r}");
+    assert_eq!(analyses[0]["derivations"], 1);
+    assert_eq!(analyses[0]["segmentCount"], 6);
+    assert_eq!(analyses[0]["unattributed"], json!([]));
+    assert_eq!(
+        analyses[0]["morphemes"],
+        json!([
+            {"item": 0, "spans": [{"segments": [0, 5], "offsets": [0, 5]}], "reason": null, "rule": null},
+            {"item": 1, "spans": [{"segments": [5, 6], "offsets": [5, 6]}], "reason": null, "rule": null},
+        ]),
+        "{r}"
+    );
+    let r = server.generate(&[AFFIX], json!({}));
+    let plain = &r["seeds"][0]["surfaces"][0];
+    assert!(
+        plain.get("morphSpans").is_none(),
+        "spans are a trace field: {r}"
+    );
+}
+
+#[test]
 fn describe_matches_what_the_op_emits() {
     let output = Command::new(BIN).arg("--describe").output().unwrap();
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -487,6 +516,14 @@ fn describe_matches_what_the_op_emits() {
     let surface = &seed["surfaces"][0];
     assert_eq!(keys(surface), declared("surfaceFields"));
     assert_eq!(keys(&surface["steps"][0]), declared("stepFields"));
+    let analysis = &surface["morphSpans"][0];
+    assert_eq!(keys(analysis), declared("morphSpanFields"));
+    for morpheme in analysis["morphemes"].as_array().unwrap() {
+        assert_eq!(keys(morpheme), declared("morphemeSpanFields"));
+        for span in morpheme["spans"].as_array().unwrap() {
+            assert_eq!(keys(span), declared("spanFields"));
+        }
+    }
     assert_eq!(keys(&surface["steps"][0]["rule"]), declared("ruleFields"));
     for allomorph in seed["allomorphs"].as_array().unwrap() {
         assert_eq!(keys(allomorph), declared("allomorphFields"));

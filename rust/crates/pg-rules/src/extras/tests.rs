@@ -50,3 +50,23 @@ fn clones_copy_every_part() {
     assert_eq!(w.root_runtime_id(), Some("r"));
     assert_ne!(w.dedup_key(), copy.dedup_key());
 }
+
+#[test]
+fn span_marks_follow_a_rebuilt_shape_and_a_node_copied_twice_poisons() {
+    let rule = PRuleId(7);
+    let mut marks = SpanMarks {
+        inserted: vec![(1, rule), (3, rule)],
+        ..SpanMarks::default()
+    };
+    // Old node 1 now sits at 2, old node 3 was copied to 0 and 4.
+    marks.follow(&[Some(3), None, Some(1), None, Some(3)]);
+    assert_eq!(marks.inserted, [(2, rule)]);
+    assert_eq!(marks.poisoned, Some(rule));
+    let mut kept = SpanMarks {
+        inserted: vec![(0, rule)],
+        ..SpanMarks::default()
+    };
+    kept.follow(&[None, Some(0)]);
+    assert_eq!(kept.inserted, [(1, rule)]);
+    assert_eq!(kept.poisoned, None);
+}
