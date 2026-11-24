@@ -106,6 +106,13 @@ const ALLOMORPH_BLOCKED: Tuple = [
     "allomorph_blocked",
     "none",
 ];
+const ALLOMORPH_BLOCKED_SYNTHESIS: Tuple = [
+    "synthesis",
+    "reject",
+    "morphology",
+    "allomorph_blocked",
+    "none",
+];
 const SURFACE: Tuple = [
     "synthesis",
     "reject",
@@ -244,6 +251,7 @@ pub(super) const TUPLES: &[Tuple] = &[
     REMAINING_PARSE,
     BOUND_ROOT,
     ALLOMORPH_BLOCKED,
+    ALLOMORPH_BLOCKED_SYNTHESIS,
     SURFACE,
     TEMPLATE_INELIGIBLE,
     OPTIONAL_ANALYSIS,
@@ -1821,6 +1829,7 @@ fn decision_tuple(decision: &Decision<'_>) -> Tuple {
         Decision::RemainingAnalyzedRules { .. } => REMAINING_PARSE,
         Decision::BoundRoot { .. } => BOUND_ROOT,
         Decision::AllomorphBlocked { .. } => ALLOMORPH_BLOCKED,
+        Decision::AllomorphBlockedAtSynthesis { .. } => ALLOMORPH_BLOCKED_SYNTHESIS,
         Decision::SurfaceMismatch { .. } => SURFACE,
         Decision::TemplateIneligible { .. } => TEMPLATE_INELIGIBLE,
         Decision::OptionalSlotSkipped { analysis: true, .. } => OPTIONAL_ANALYSIS,
@@ -2095,7 +2104,8 @@ fn record_event(
             None,
             json!({"status": "captured"}),
         ),
-        Decision::AllomorphBlocked { blocked, blocker } => (
+        Decision::AllomorphBlocked { blocked, blocker }
+        | Decision::AllomorphBlockedAtSynthesis { blocked, blocker } => (
             group.allomorph(id, blocked),
             Some(subject(group.allomorph(id, blocker), "blocker")),
             json!({"status": "captured"}),

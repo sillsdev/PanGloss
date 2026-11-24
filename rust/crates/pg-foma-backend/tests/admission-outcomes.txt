@@ -52,6 +52,7 @@ machine:edge-cases/deletion-reduplication-exception-composite	TunedSurfaceProbed
 machine:edge-cases/deletion-reinserted-feature-unapply	TunedSurfaceProbed	refused
 machine:edge-cases/diacritic-segments	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/discontinuous-morph-environment	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/disjunctive-folded-env-blocks	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/disjunctive-recheck	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/empty-required-template-slot	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/epenthesis-beside-prefix-then-prefix-deletion	TunedSurfaceProbed	refused

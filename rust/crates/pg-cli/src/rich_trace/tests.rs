@@ -782,6 +782,45 @@ fn morpheme_co_occurrence_rejection_preserves_the_ordered_partner_list() {
     }
 }
 
+#[test]
+fn a_blocked_allomorph_names_both_allomorphs_in_the_evidence() {
+    for (xml, word) in [
+        (
+            include_str!("../../tests/data/trace-allomorph-blocked.xml"),
+            "wakta",
+        ),
+        (
+            std::fs::read_to_string(
+                pg_conformance_fixtures::suite_root()
+                    .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml"),
+            )
+            .expect("conformance suite fixture")
+            .as_str(),
+            "banku",
+        ),
+    ] {
+        let details = trace_details_for(xml, word);
+        let mut failed = Vec::new();
+        nodes_of_type(&details["trace"], "Failed", &mut failed);
+        let nodes: Vec<_> = failed
+            .into_iter()
+            .filter(|node| node["failureReason"] == "DisjunctiveAllomorph")
+            .collect();
+        assert!(!nodes.is_empty(), "{word}");
+        for node in nodes {
+            assert_eq!(node["failureContext"]["status"], "captured", "{word}");
+            let evidence = &node["failureContext"]["evidence"];
+            assert_eq!(evidence["kind"], "allomorphBlocked", "{word}");
+            assert_eq!(evidence["failedObject"]["kind"], "allomorph", "{word}");
+            assert_eq!(evidence["blocker"]["kind"], "allomorph", "{word}");
+            assert_ne!(
+                evidence["failedObject"]["id"], evidence["blocker"]["id"],
+                "{word}: an allomorph cannot block itself"
+            );
+        }
+    }
+}
+
 #[path = "tests/prerelease_evidence_tests.rs"]
 mod prerelease_evidence_tests;
 

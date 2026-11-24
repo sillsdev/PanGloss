@@ -914,6 +914,10 @@ fn rejection_evidence(grammar: &Grammar, evidence: &RejectionEvidence) -> Value 
             "others": others.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
             "actual": actual.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
         }),
+        RejectionEvidence::AllomorphBlocked { blocked, blocker } => json!({
+            "kind": "allomorphBlocked", "failedObject": trace_object_identity(grammar, TraceObject::Allomorph(*blocked)),
+            "blocker": trace_object_identity(grammar, TraceObject::Allomorph(*blocker)),
+        }),
         RejectionEvidence::Environments {
             object,
             constraint_owner,

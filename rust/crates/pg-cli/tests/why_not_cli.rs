@@ -265,6 +265,15 @@ fn data(name: &str) -> PathBuf {
         .join(name)
 }
 
+fn disjunctive_fixture() -> String {
+    // The suite fixture sillsdev/fieldworks-parser-conformance edge-cases/disjunctive-folded-env-blocks.
+    pg_conformance_fixtures::suite_root()
+        .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml")
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
 fn answer_on(grammar: &str, word: &str, args: &[&str]) -> Value {
     let o = Command::new(BIN)
         .arg("why-not")
@@ -679,7 +688,8 @@ fn an_unknown_sequence_beats_a_rejected_one() {
 }
 
 #[test]
-fn a_furthest_derivation_failing_an_unplaced_kind_is_not_hidden_by_an_earlier_rejection() {
+fn a_furthest_derivation_failing_the_disjunctive_check_is_named_not_hidden_by_an_earlier_rejection()
+{
     let r = answer_on(
         "why-not-disjunctive-suffix.xml",
         "monkt",
@@ -689,8 +699,10 @@ fn a_furthest_derivation_failing_an_unplaced_kind_is_not_hidden_by_an_earlier_re
         r["failure"]["kind"], "environment_unmet",
         "the root allomorph failing its environment is not the furthest derivation: {r}"
     );
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure", "{r}");
+    assert_eq!(failure_kind(&r), "other_gate", "{r}");
+    assert_eq!(r["failure"]["hc_reason"], "DisjunctiveAllomorph", "{r}");
+    assert_eq!(r["failure"]["gate"], "disjunctive_allomorph", "{r}");
+    assert_eq!(r["failure"]["provenance"], "hc_reported", "{r}");
 }
 
 #[test]
@@ -743,7 +755,12 @@ fn describe_declares_the_why_not_capability() {
         .collect();
     assert_eq!(
         kinds,
-        ["no_morph_match", "environment_unmet", "adhoc_prohibition"]
+        [
+            "no_morph_match",
+            "environment_unmet",
+            "adhoc_prohibition",
+            "other_gate"
+        ]
     );
 }
 
@@ -769,6 +786,7 @@ fn every_declared_kind_is_really_answered_and_the_rest_are_unknown() {
             "kibuton",
             &["--expect", "eKib,mrPast2,mrPl"],
         ),
+        answer_on(&disjunctive_fixture(), "banku", &["--expect", "eBan,mrDat"]),
     ];
     for r in &seen {
         let k = failure_kind(r).to_string();
@@ -1015,5 +1033,36 @@ fn a_json_choice_with_neither_id_nor_guid_or_half_a_guid_is_an_error() {
         let o = fw_why_not("da", &bad);
         assert!(!o.status.success(), "{bad}");
         assert!(stderr(&o).contains(want), "{bad}: {}", stderr(&o));
+    }
+}
+
+#[test]
+fn a_disjunctive_break_before_the_analysed_allomorph_is_a_named_other_gate() {
+    let r = answer_on(&disjunctive_fixture(), "banku", &["--expect", "eBan,mrDat"]);
+    assert_eq!(failure_kind(&r), "other_gate", "{r}");
+    assert!(
+        r["failure"]["hc_reason"].is_null(),
+        "C# raises no reason here: {r}"
+    );
+    assert_eq!(r["failure"]["gate"], "disjunctive_allomorph", "{r}");
+    assert_eq!(r["failure"]["provenance"], "derived", "{r}");
+    assert_eq!(r["failure"]["object"]["type"], "allomorph", "{r}");
+    assert_eq!(r["failure"]["object"]["id"], "subKu", "{r}");
+    assert_eq!(r["failure"]["position"], 1, "{r}");
+    let morphs = r["failure"]["morphs"].as_array().unwrap();
+    assert_eq!(morphs.len(), 2, "{r}");
+    assert_eq!(morphs[0]["allomorph"], "subKu", "blocked first: {r}");
+    assert_eq!(morphs[1]["allomorph"], "subKa", "blocker second: {r}");
+}
+
+#[test]
+fn the_parses_beside_a_disjunctive_break_are_still_accepted() {
+    for (word, expect) in [
+        ("basku", "eBas,mrDat"),
+        ("banka", "eBan,mrDat"),
+        ("ban", "eBan"),
+    ] {
+        let r = answer_on(&disjunctive_fixture(), word, &["--expect", expect]);
+        assert_eq!(r["result"], "accepted", "{word}: {r}");
     }
 }

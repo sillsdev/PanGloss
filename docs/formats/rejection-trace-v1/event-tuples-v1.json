@@ -711,6 +711,13 @@
     [
       "synthesis",
       "reject",
+      "morphology",
+      "allomorph_blocked",
+      "none"
+    ],
+    [
+      "synthesis",
+      "reject",
       "validity",
       "environment",
       "environment"

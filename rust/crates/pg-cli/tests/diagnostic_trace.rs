@@ -23,6 +23,14 @@ mod trace_off;
 const BIN: &str = env!("CARGO_BIN_EXE_pangloss");
 const GRAMMAR: &str = include_str!("data/trace-family.xml");
 const ALLOMORPH_BLOCKED: &str = include_str!("data/trace-allomorph-blocked.xml");
+fn disjunctive_synthesis() -> String {
+    // The suite fixture sillsdev/fieldworks-parser-conformance edge-cases/disjunctive-folded-env-blocks.
+    std::fs::read_to_string(
+        pg_conformance_fixtures::suite_root()
+            .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml"),
+    )
+    .expect("conformance suite fixture")
+}
 
 fn run(args: &[&str]) -> Output {
     let binary = std::env::var_os("PANGLOSS_DIAGNOSTIC_TEST_BIN").unwrap_or_else(|| BIN.into());
@@ -318,9 +326,13 @@ fn owner_decisions_are_typed_and_their_controls_survive() {
 
 /// The blocked and the blocking allomorph of the one `allomorph_blocked` event, as `(blocked key, blocker key)`.
 fn blocked_pair(data: &[Value]) -> (String, String) {
+    blocked_pair_at(data, "validity")
+}
+
+fn blocked_pair_at(data: &[Value], stage: &str) -> (String, String) {
     let blocked = event(data, "allomorph_blocked", "synthesis");
     assert_eq!(blocked["kind"], "reject");
-    assert_eq!(blocked["stage"], "validity");
+    assert_eq!(blocked["stage"], stage);
     let refs = blocked["objectRefs"].as_array().unwrap();
     let key = |role: &str| {
         let matching: Vec<_> = refs.iter().filter(|r| r["role"] == role).collect();
@@ -386,6 +398,45 @@ fn the_blocked_stop_names_the_later_allomorph_as_blocked_and_the_earlier_as_bloc
             got_blocker.ends_with(&allomorph_index(ALLOMORPH_BLOCKED, blocker)),
             "{word}: blocker {got_blocker} is not {blocker}"
         );
+    }
+}
+
+#[test]
+fn a_disjunctive_break_before_the_analysed_allomorph_is_a_typed_stop() {
+    let data = parse(&disjunctive_synthesis(), "banku", &[]);
+    let (blocked, blocker) = blocked_pair_at(&data, "morphology");
+    assert!(
+        blocked.ends_with(&allomorph_index(&disjunctive_synthesis(), "subKu")),
+        "blocked {blocked}"
+    );
+    assert!(
+        blocker.ends_with(&allomorph_index(&disjunctive_synthesis(), "subKa")),
+        "blocker {blocker}"
+    );
+    assert_eq!(data[data.len() - 2]["search"]["outputCount"], 0);
+    for word in ["basku", "banka", "ban"] {
+        let data = parse(&disjunctive_synthesis(), word, &[]);
+        assert!(
+            data.iter().all(|row| row["reason"] != "allomorph_blocked"),
+            "{word}"
+        );
+    }
+}
+
+#[test]
+fn the_disjunctive_break_changes_no_parse() {
+    let temp = tempfile::tempdir().unwrap();
+    let grammar = temp.path().join("grammar.xml");
+    fs::write(&grammar, disjunctive_synthesis()).unwrap();
+    for (word, line) in [
+        ("banku", "banku\t-"),
+        ("basku", "basku\tBAS+DAT|basku"),
+        ("banka", "banka\tBAN+DAT|banka"),
+        ("ban", "ban\tBAN|ban"),
+    ] {
+        let out = run(&["parse", grammar.to_str().unwrap(), word]);
+        success(&out);
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim_end(), line);
     }
 }
 
@@ -932,6 +983,7 @@ fn describe_advertises_exactly_the_tuples_emitted_by_the_cli() {
         parse(&early_root_grammar(), AMBIGUOUS_ROOTLESS_WORD, &[]),
         parse(&nonblocking_grammar(), "kibes", &[]),
         parse(ALLOMORPH_BLOCKED, "wakta", &[]),
+        parse(&disjunctive_synthesis(), "banku", &[]),
     ];
     let alternatives = lookup_alternative_grammars().map(|xml| parse(&xml, "kibes", &[]));
     let emitted: BTreeSet<_> = fixtures

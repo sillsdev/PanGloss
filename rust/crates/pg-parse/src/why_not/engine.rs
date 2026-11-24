@@ -299,6 +299,9 @@ impl<'a> Searcher<'a> {
         if let Some(outcome) = self.classify_pinned(word, &pinned, &seq.pins, root_index) {
             return outcome;
         }
+        if let Some(outcome) = self.classify_synthesis_block(&failures, &seq.pins) {
+            return outcome;
+        }
         let parses_otherwise = same_order_other_allomorphs || same_morphemes_other_order;
         if let Some(what) = other_stop(&sink).filter(|_| !parses_otherwise) {
             return stop(
@@ -332,6 +335,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         }))
     }
 
@@ -353,6 +357,83 @@ impl<'a> Searcher<'a> {
         }
         let best = self.best_failure(pinned, pins, root_index)?;
         Some(self.classify(word, best, pins, pinned.len() - 1))
+    }
+
+    /// A blocked-allomorph stop from the synthesis loop, whose word lacks the pinned suffix and so is not among the pinned failures.
+    fn classify_synthesis_block(
+        &self,
+        failures: &[TraceNode],
+        pins: &[Pin],
+    ) -> Option<WhyNotOutcome> {
+        failures.iter().find_map(|n| {
+            if n.failure_reason != Some(FailureReason::DisjunctiveAllomorph) {
+                return None;
+            }
+            let Some(RejectionEvidence::AllomorphBlocked { blocked, blocker }) =
+                n.failure_context.as_ref()?.evidence.as_ref()
+            else {
+                return None;
+            };
+            let morpheme = self.morpheme_of_allomorph(*blocked)?;
+            pins.iter()
+                .any(|p| p.morpheme == morpheme && p.allomorph.is_none_or(|a| a == *blocked))
+                .then(|| {
+                    match self.allomorph_blocked_failure(
+                        *blocked,
+                        *blocker,
+                        pins,
+                        Provenance::Derived,
+                    ) {
+                        Some(f) => WhyNotOutcome::Rejected(Box::new(f)),
+                        None => stop(
+                            StopReason::FailureNotExpressible,
+                            "the failure names a morph or allomorph without a grammar id",
+                        ),
+                    }
+                })
+        })
+    }
+
+    /// The `other_gate` answer for an earlier allomorph that blocks the one the analysis recorded.
+    fn allomorph_blocked_failure(
+        &self,
+        blocked: AllomorphId,
+        blocker: AllomorphId,
+        pins: &[Pin],
+        provenance: Provenance,
+    ) -> Option<FirstFailure> {
+        let morpheme = self.morpheme_of_allomorph(blocked)?;
+        let blocked_id = self.g.allomorph_xml_key(blocked)?.to_string();
+        let plain = format!(
+            "{} is blocked: the earlier {} also fits here, and HermitCrab uses only the first allomorph that fits",
+            self.label_with(morpheme, Some(blocked)),
+            self.label_with(morpheme, Some(blocker)),
+        );
+        Some(FirstFailure {
+            kind: FailureKind::OtherGate,
+            plain,
+            position: pins.iter().position(|p| p.morpheme == morpheme),
+            hc_reason: (provenance == Provenance::HcReported)
+                .then(|| "DisjunctiveAllomorph".to_string()),
+            provenance,
+            object: Some(FailureObject {
+                kind: ObjectType::Allomorph,
+                id: Some(blocked_id),
+                guid: self.form_guid(blocked),
+            }),
+            morphs: vec![
+                self.morph_ref(morpheme, Some(blocked))?,
+                self.morph_ref(morpheme, Some(blocker))?,
+            ],
+            members: Vec::new(),
+            environments: Vec::new(),
+            context: None,
+            environment: None,
+            stem_name: None,
+            features: Vec::new(),
+            alternatives: None,
+            gate: Some("disjunctive_allomorph".to_string()),
+        })
     }
 
     fn classify(
@@ -384,6 +465,17 @@ impl<'a> Searcher<'a> {
                 }
                 self.co_occurrence_failure(word, reason, context, pins)
             }
+            FailureReason::DisjunctiveAllomorph => match context.and_then(|c| c.evidence.as_ref()) {
+                Some(RejectionEvidence::AllomorphBlocked { blocked, blocker }) => {
+                    self.allomorph_blocked_failure(*blocked, *blocker, pins, Provenance::HcReported)
+                }
+                _ => {
+                    return stop(
+                        StopReason::UnclassifiedFailure,
+                        "the furthest derivation fails the validity check DisjunctiveAllomorph without naming the blocking allomorph",
+                    )
+                }
+            },
             other => {
                 return stop(
                     StopReason::UnclassifiedFailure,
@@ -416,6 +508,9 @@ impl<'a> Searcher<'a> {
                     .as_ref()
                     .and_then(|c| c.evidence.as_ref())
                     .and_then(|evidence| match evidence {
+                        RejectionEvidence::AllomorphBlocked { blocked, .. } => {
+                            self.position_of_allomorph(*blocked, pins, word)
+                        }
                         RejectionEvidence::Environments { object, .. }
                         | RejectionEvidence::CoOccurrence { object, .. } => match *object {
                             TraceObject::Allomorph(a) => self.position_of_allomorph(a, pins, word),
@@ -566,6 +661,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         })
     }
 
@@ -661,6 +757,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         })
     }
 
@@ -789,27 +886,41 @@ fn collect_failed(sink: &TreeTraceSink, at: TraceHandle, out: &mut Vec<TraceNode
 
 /// What in the trace is more than a plain analysis-side miss; `no_morph_match` needs there to be none.
 fn other_stop(sink: &TreeTraceSink) -> Option<String> {
-    fn walk(sink: &TreeTraceSink, at: TraceHandle) -> Option<String> {
+    /// Whether the trace names a blocked allomorph, which explains the partial parse it leaves behind.
+    fn names_blocked_allomorph(sink: &TreeTraceSink, at: TraceHandle) -> bool {
+        let node = sink.node(at);
+        node.failure_reason == Some(FailureReason::DisjunctiveAllomorph)
+            || node
+                .children
+                .iter()
+                .any(|&child| names_blocked_allomorph(sink, child))
+    }
+    fn walk(sink: &TreeTraceSink, at: TraceHandle, blocked: bool) -> Option<String> {
         let node = sink.node(at);
         if node.type_ == TraceType::Blocked {
             return Some("a derivation blocked by a family member".to_string());
         }
         if let Some(reason) = node.failure_reason {
-            if !matches!(
-                reason,
-                FailureReason::Pattern
-                    | FailureReason::HeadPattern
-                    | FailureReason::NonHeadPattern
-                    | FailureReason::AllomorphNotApplicable
-            ) {
+            if !(blocked && reason == FailureReason::PartialParse)
+                && !matches!(
+                    reason,
+                    FailureReason::Pattern
+                        | FailureReason::HeadPattern
+                        | FailureReason::NonHeadPattern
+                        | FailureReason::AllomorphNotApplicable
+                )
+            {
                 return Some(format!("a derivation stopped with {reason:?}"));
             }
         } else if node.type_ == TraceType::Failed {
             return Some("a failed derivation".to_string());
         }
-        node.children.iter().find_map(|&child| walk(sink, child))
+        node.children
+            .iter()
+            .find_map(|&child| walk(sink, child, blocked))
     }
-    walk(sink, sink.root()?)
+    let root = sink.root()?;
+    walk(sink, root, names_blocked_allomorph(sink, root))
 }
 
 #[cfg(test)]

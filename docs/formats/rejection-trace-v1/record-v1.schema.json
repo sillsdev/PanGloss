@@ -4978,6 +4978,29 @@
                   "const": "reject"
                 },
                 "stage": {
+                  "const": "morphology"
+                },
+                "reason": {
+                  "const": "allomorph_blocked"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "synthesis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
                   "const": "validity"
                 },
                 "reason": {

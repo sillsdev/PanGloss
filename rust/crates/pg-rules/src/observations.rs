@@ -146,6 +146,11 @@ pub enum Decision<'a> {
         blocked: AllomorphId,
         blocker: AllomorphId,
     },
+    /// Synthesis stopped at an earlier allomorph whose input pattern matched, so the analysed allomorph was never tried.
+    AllomorphBlockedAtSynthesis {
+        blocked: AllomorphId,
+        blocker: AllomorphId,
+    },
     SurfaceMismatch {
         table: TableId,
         requested: &'a str,

@@ -259,6 +259,7 @@ mod tests {
             stem_name: None,
             features: vec![],
             alternatives: None,
+            gate: None,
         }
     }
 

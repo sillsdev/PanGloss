@@ -124,7 +124,10 @@ allomorph precedence refused the used one. The subject is the used (blocked) all
 the object with role `blocker` is the earlier allomorph that won; both carry the same grammar
 ids and, on a FieldWorks snapshot, form guids as every other allomorph reference. The tuple
 is advertised in `--describe` under `interfaces.diagnostic.eventTuples`; a parser that does
-not list it records no stop for such a path. The registry's reserved
+not list it records no stop for such a path. The same reason is also recorded with stage `morphology`
+when synthesis breaks at an earlier allomorph whose input pattern matched, before the allomorph the analysis
+recorded was tried and so before any word exists to validate (#444): the subject is the recorded (blocked)
+allomorph and the `blocker` is the earlier one that matched. The registry's reserved
 `disjunctive_allomorph` tuple is the same C# failure without a named blocker and is never emitted.
 
 Verified FieldWorks objects carry GUIDs. Compiled keys are scoped by the parser build
