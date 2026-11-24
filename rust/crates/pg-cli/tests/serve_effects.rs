@@ -403,7 +403,6 @@ fn rules_are_listed_in_stratum_and_ordinal_order_with_their_ids() {
                 e["rule"]["status"].as_str().unwrap().to_string(),
             )
         })
-        .map(|(a, b, c, d, e)| (a, b, c, d, e))
         .collect();
     let expected = [
         (
