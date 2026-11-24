@@ -104,21 +104,97 @@ fn lists_every_class_with_token_name_id_and_kind_and_every_feature_with_its_valu
     );
 }
 
+/// The letters of the fixture word each class selects, written down independently of the engine: a class whose token resolved to another class would select other letters.
+const WORD: &str = "pbtdkgaiunŋ";
+const SELECTS: [(&str, &str); 14] = [
+    ("ncV", "aiu"),
+    ("ncStop", "pbtdkg"),
+    ("ncVoiced", "bdgaiunŋ"),
+    ("ncV2", "ptk"),
+    ("ncW", "ptk"),
+    ("W", "bdgaiunŋ"),
+    ("ncAnon", "ptk"),
+    ("ncPlus", "ptk"),
+    ("ncNas", "nŋ"),
+    ("ncEng", "ŋ"),
+    ("ncBr", "p"),
+    ("ncOpen", "g"),
+    ("no]way", "k"),
+    ("__none__", ""),
+];
+
 #[test]
-fn every_token_is_accepted_by_match() {
+fn every_token_selects_the_class_it_was_listed_for_and_a_null_token_reaches_nothing() {
     let mut s = Server::start();
     let r = s.inventory();
+    let selects: std::collections::BTreeMap<&str, &str> = SELECTS.into_iter().collect();
+    let letters: Vec<char> = WORD.chars().collect();
     let mut seen = BTreeSet::new();
+    let mut nulls = 0;
     for c in r["classes"].as_array().unwrap() {
-        let Some(token) = c["token"].as_str() else {
-            continue;
-        };
-        assert!(seen.insert(token.to_string()), "tokens are unique: {token}");
-        let m = s.matching(&format!("[{token}]"), &["a"]);
-        assert_eq!(m["type"], "result", "[{token}] must parse: {m}");
+        let id = c["id"].as_str().unwrap();
+        let expected = selects
+            .get(id)
+            .unwrap_or_else(|| panic!("class {id} needs an entry in SELECTS: {c}"));
+        match c["token"].as_str() {
+            Some(token) => {
+                assert!(seen.insert(token.to_string()), "tokens are unique: {token}");
+                let m = s.matching(&format!("[{token}]"), &[WORD]);
+                assert_eq!(m["type"], "result", "[{token}] must parse: {m}");
+                let got: String = m["words"][0]["matches"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| letters[x["segments"][0].as_u64().unwrap() as usize])
+                    .collect();
+                assert_eq!(&got, expected, "[{token}] must select class {id}: {m}");
+            }
+            None => {
+                nulls += 1;
+                // No spelling reaches it: neither its name nor its id parses to a class that selects it.
+                for spelling in [c["name"].as_str().unwrap_or(""), id] {
+                    let m = s.matching(&format!("[{spelling}]"), &[WORD]);
+                    let got: String = if m["type"] == "result" {
+                        m["words"][0]["matches"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|x| letters[x["segments"][0].as_u64().unwrap() as usize])
+                            .collect()
+                    } else {
+                        String::new()
+                    };
+                    assert_ne!(&got, expected, "[{spelling}] must not reach {id}: {m}");
+                }
+            }
+        }
     }
-    // Every class here has a token.
-    assert_eq!(seen.len(), r["classes"].as_array().unwrap().len());
+    assert_eq!(nulls, 1, "exactly the unnamed class whose id is `no]way`");
+    assert_eq!(
+        class(&r, "no]way")["token"],
+        Value::Null,
+        "{}",
+        class(&r, "no]way")
+    );
+    // Every class listed has an entry, so a class added to the fixture is covered.
+    assert_eq!(selects.len() - 1, r["classes"].as_array().unwrap().len());
+}
+
+#[test]
+fn spaces_non_ascii_and_brackets_in_names_follow_the_token_rules() {
+    let mut s = Server::start();
+    let r = s.inventory();
+    assert_eq!(class(&r, "ncNas")["token"], "Nasal Stop");
+    assert_eq!(class(&r, "ncEng")["token"], "Ŋ-class");
+    assert_eq!(
+        class(&r, "ncBr")["token"],
+        "ncBr",
+        "a name holding ] falls back to the id"
+    );
+    assert_eq!(class(&r, "ncOpen")["token"], "[Open");
+    // Case is exact.
+    let m = s.matching("[voiced]", &["a"]);
+    assert_eq!(m["code"], "unknown_natural_class", "{m}");
 }
 
 #[test]
@@ -141,7 +217,11 @@ fn match_takes_the_name_then_the_xml_id_and_the_first_of_equal_names_wins() {
     assert_eq!(class(&r, "ncW")["token"], "W");
     assert_eq!(class(&r, "W")["token"], "Other");
     let w = s.matching("[W]", &["pa"]);
-    assert_eq!(w["words"][0]["matches"][0]["segments"], json!([0, 1]), "{w}");
+    assert_eq!(
+        w["words"][0]["matches"][0]["segments"],
+        json!([0, 1]),
+        "{w}"
+    );
     // An empty name and a name no bracket can hold fall back to the id.
     assert_eq!(class(&r, "ncAnon")["token"], "ncAnon");
     assert_eq!(class(&r, "ncPlus")["token"], "ncPlus");

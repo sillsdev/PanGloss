@@ -102,6 +102,23 @@
       <FeatureNaturalClass id="ncPlus"><Name>+hi</Name>
         <FeatureValue feature="featVoice" symbolValues="vNeg" />
       </FeatureNaturalClass>
+      <!-- Names the token rules treat specially: an inner space and non-ASCII are fine, a name holding ] falls back to its id, an unnamed class whose id holds ] has no spelling at all. -->
+      <SegmentNaturalClass id="ncNas"><Name>Nasal Stop</Name>
+        <Segment segment="c9" />
+        <Segment segment="c10" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncEng"><Name>Ŋ-class</Name>
+        <Segment segment="c10" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncBr"><Name>A]B</Name>
+        <Segment segment="c0" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncOpen"><Name>[Open</Name>
+        <Segment segment="c5" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="no]way"><Name></Name>
+        <Segment segment="c4" />
+      </SegmentNaturalClass>
     </NaturalClasses>
     <Strata>
       <Stratum characterDefinitionTable="tbl">
