@@ -1,31 +1,50 @@
 //! `parse_word_morph_spans`: each parse reading's per-morph surface spans, on conformance fixtures and against `generate`'s.
 
+use std::collections::HashSet;
+
 use pg_conformance_fixtures::require_fixture;
 use pg_featstruct::FeatureStruct;
 use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId};
 use pg_parse::morpher::{ParseSpans, TracedGenerateLimits};
 use pg_parse::{project_parse_analysis_with_morphemes, GenMorpheme, Morpher, ParseOptions};
 
-/// The fixture's grammar with synthetic source GUIDs, which an XML grammar lacks and the FieldWorks projection needs.
+/// The fixture's grammar with synthetic source GUIDs, which an XML grammar lacks and the FieldWorks projection needs; circumfix allomorphs get two forms.
 fn load(fixture: (&str, &str)) -> Grammar {
-    with_guids(require_fixture(fixture.0, fixture.1).load_grammar())
+    guid_grammar(&require_fixture(fixture.0, fixture.1), &[])
 }
 
-fn with_guids(mut g: Grammar) -> Grammar {
+/// `words` find the circumfix allomorphs: one that two records of one reading share.
+fn guid_grammar(fixture: &pg_conformance_fixtures::FixtureRef, words: &[String]) -> Grammar {
+    let one_form = with_guids(fixture.load_grammar(), &HashSet::new());
+    let morpher = Morpher::new(&one_form, usize::MAX);
+    let mut two_form = HashSet::new();
+    for word in words {
+        for analysis in morpher.parse_word(word).structured {
+            let mut seen = HashSet::new();
+            for o in &analysis.morph_occurrences {
+                if !seen.insert((o.allomorph_id, o.morpheme_id)) {
+                    two_form.insert(o.allomorph_id as usize);
+                }
+            }
+        }
+    }
+    with_guids(fixture.load_grammar(), &two_form)
+}
+
+fn with_guids(mut g: Grammar, two_form: &HashSet<usize>) -> Grammar {
     let guid = |a: usize, b: usize| format!("{:08x}-0000-4000-8000-{:012x}", a + 1, b + 1);
     for (i, source) in g.allomorph_sources.iter_mut().enumerate() {
-        if source.form_guids.is_empty() {
-            source.form_guids.push(None);
-        }
-        for (k, form) in source.form_guids.iter_mut().enumerate() {
-            *form = Some(guid(i, k));
-        }
+        let slots = if two_form.contains(&i) { 2 } else { 1 };
+        source.form_guids = (0..slots).map(|k| Some(guid(i, k))).collect();
     }
     for (i, morpheme) in g.morphemes.iter_mut().enumerate() {
         morpheme.source_msa_guid = Some(guid(i, 0));
     }
     g
 }
+
+/// A run's segment range and byte offsets.
+type Run = ((usize, usize), Option<(usize, usize)>);
 
 /// What one morph got: its runs with their text, or the typed null.
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -52,6 +71,72 @@ impl Reading {
             (Some(list), None) => Got::Runs(list.iter().map(|s| s.segments).collect()),
             (None, Some(reason)) => Got::Null(reason.code),
             other => panic!("spans and reason must exclude each other: {other:?}"),
+        }
+    }
+
+    /// Each morph id once, in surface order.
+    fn unique_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for id in &self.morph_ids {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
+
+    /// All items of `morph_id` together: every run, in surface order, or the first typed null.
+    fn merged(&self, morph_id: &str) -> Got {
+        let mut all = Vec::new();
+        for (item, id) in self.morph_ids.iter().enumerate() {
+            if id != morph_id {
+                continue;
+            }
+            let m = &self.spans.spans.morphemes[item];
+            match (&m.spans, &m.reason) {
+                (Some(list), None) => all.extend(list.iter().map(|s| s.segments)),
+                (None, Some(reason)) => return Got::Null(reason.code),
+                other => panic!("spans and reason must exclude each other: {other:?}"),
+            }
+        }
+        all.sort();
+        Got::Runs(all)
+    }
+
+    /// Runs, unattributed runs and text must account for the surface exactly once, whoever computed them.
+    fn assert_invariants(&self, label: &str) {
+        let spans = &self.spans.spans;
+        assert_eq!(spans.morphemes.len(), self.morph_ids.len(), "{label}");
+        let mut covered: Vec<Run> = Vec::new();
+        for m in &spans.morphemes {
+            assert_eq!(m.spans.is_none(), m.reason.is_some(), "{label}: {m:?}");
+            covered.extend(m.spans.iter().flatten().map(|s| (s.segments, s.offsets)));
+        }
+        covered.extend(
+            spans
+                .unattributed
+                .iter()
+                .map(|u| (u.span.segments, u.span.offsets)),
+        );
+        covered.sort();
+        let mut next = 0;
+        let mut text = String::new();
+        let mut all_offsets = true;
+        for ((start, end), offsets) in &covered {
+            assert_eq!(*start, next, "{label}: gap or overlap in {spans:?}");
+            assert!(start < end, "{label}: empty run");
+            next = *end;
+            match offsets {
+                Some((a, b)) => text.push_str(&self.spans.surface[*a..*b]),
+                None => all_offsets = false,
+            }
+        }
+        assert_eq!(next, spans.segment_count, "{label}: runs stop short");
+        if all_offsets {
+            assert_eq!(
+                text, self.spans.surface,
+                "{label}: text does not rebuild the surface"
+            );
         }
     }
 
@@ -90,7 +175,9 @@ fn readings(g: &Grammar, word: &str) -> Vec<Reading> {
         .iter()
         .zip(spans)
         .filter_map(|(analysis, spans)| {
-            let (_, ids) = project_parse_analysis_with_morphemes(analysis, g).ok()?;
+            let ids = project_parse_analysis_with_morphemes(analysis, g)
+                .ok()?
+                .morphemes;
             Some(Reading {
                 morph_ids: ids
                     .iter()
@@ -211,6 +298,91 @@ fn an_epenthetic_segment_is_unattributed_to_its_rule() {
 }
 
 #[test]
+fn an_xml_circumfix_gives_each_half_its_own_run() {
+    let fixture = require_fixture("edge-cases", "circumfix-cross-product-and-infix-drop");
+    let g = guid_grammar(&fixture, &["pabatidan".to_string()]);
+    let all = readings(&g, "pabatidan");
+    let r = all
+        .iter()
+        .find(|r| r.morph_ids.iter().filter(|id| *id == "CROSS").count() == 2)
+        .expect("a reading with both halves as separate morphs");
+    r.assert_invariants("pabatidan");
+    assert_eq!(r.morph_ids, ["CROSS", "ROOT", "CROSS"]);
+    let texts: Vec<Vec<Option<String>>> = (0..3)
+        .map(|item| {
+            r.spans.spans.morphemes[item]
+                .spans
+                .iter()
+                .flatten()
+                .map(|s| s.offsets.map(|(a, b)| r.spans.surface[a..b].to_string()))
+                .collect()
+        })
+        .collect();
+    let some = |t: &str| vec![Some(t.to_string())];
+    assert_eq!(texts, [some("pa"), some("batid"), some("an")]);
+    assert_eq!(r.spans.spans.unattributed, []);
+}
+
+/// A FieldWorks project's circumfix halves are two morphs of one morpheme with their own forms.
+#[test]
+fn a_fieldworks_circumfix_gives_each_half_its_own_run() {
+    let fixture = require_fixture("edge-cases", "adhoc-prohibition-circumfix-pairings");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let (snapshot, _report) = pg_fwdata::import_file(&project).unwrap();
+    let (g, _warnings) = pg_grammar::compile_project(&snapshot).unwrap();
+    let morpher = Morpher::new(&g, usize::MAX);
+    let opts = ParseOptions::default().with_morph_spans(true);
+    let mut halves = 0;
+    for word in ["tagaka", "tagaki", "togaka", "togaki"] {
+        let (outcome, spans) = morpher.parse_word_morph_spans(word, &opts);
+        assert!(!outcome.structured.is_empty(), "{word} parses");
+        for (analysis, spans) in outcome.structured.iter().zip(spans) {
+            let projected = project_parse_analysis_with_morphemes(analysis, &g).unwrap();
+            let spans = spans.expect("a projected reading has spans");
+            assert_eq!(projected.analysis.morphs.len(), 3, "{word}");
+            let text = |item: usize| -> String {
+                let runs = spans.spans.morphemes[item].spans.as_ref().expect("no null");
+                runs.iter()
+                    .map(|s| {
+                        let (a, b) = s.offsets.unwrap();
+                        &spans.surface[a..b]
+                    })
+                    .collect()
+            };
+            assert_eq!(
+                [text(0), text(1), text(2)],
+                [&word[..2], "ga", &word[4..]],
+                "{word}"
+            );
+            halves += 2;
+        }
+    }
+    assert!(
+        halves >= 8,
+        "all four pairings project, saw {halves} halves"
+    );
+}
+
+#[test]
+fn a_guessed_root_gets_the_surface_it_guessed() {
+    let g = load(("edge-cases", "guesser-pattern-root-fallback"));
+    let morpher = Morpher::new(&g, usize::MAX);
+    let opts = ParseOptions::default()
+        .with_guess_root(true)
+        .with_morph_spans(true);
+    let (outcome, spans) = morpher.parse_word_morph_spans("gag", &opts);
+    assert!(outcome.guessed && !outcome.structured.is_empty());
+    assert_eq!(spans.len(), outcome.structured.len());
+    for spans in spans {
+        let spans = spans.expect("a guessed reading has spans");
+        let root = &spans.spans.morphemes[0];
+        let run = root.spans.as_ref().expect("the guessed root is placed")[0];
+        let (a, b) = run.offsets.unwrap();
+        assert_eq!(&spans.surface[a..b], "gag");
+    }
+}
+
+#[test]
 fn spans_are_not_tracked_unless_asked() {
     let g = load(("edge-cases", "mpr-gated-exception"));
     let morpher = Morpher::new(&g, usize::MAX);
@@ -299,19 +471,15 @@ fn batch_spans_equal_generate_spans_on_every_fixture_parse() {
         if yaml.skip_in_generic_replay().is_some() {
             continue;
         }
-        let g = with_guids(fixture.load_grammar());
+        let words: Vec<String> = yaml.words.iter().map(|e| e.word.clone()).collect();
+        let g = guid_grammar(&fixture, &words);
         for entry in &yaml.words {
             if !entry.parses.iter().any(|p| !p.guess) {
                 continue;
             }
             for r in readings(&g, &entry.word) {
-                let mut ids = r.morph_ids.clone();
-                ids.sort();
-                ids.dedup();
-                if ids.len() != r.morph_ids.len() {
-                    continue;
-                }
-                let signature = r.morph_ids.join("+");
+                r.assert_invariants(&format!("{}: {}", fixture.label(), entry.word));
+                let signature = r.unique_ids().join("+");
                 let answers = generate_answers(&g, &signature, &entry.word);
                 if answers.is_empty() {
                     let rotated = generate_rotations(&g, &r, &entry.word);
@@ -348,11 +516,11 @@ fn batch_spans_equal_generate_spans_on_every_fixture_parse() {
 
 /// The seed names its root first; try each morph as the root.
 fn generate_rotations(g: &Grammar, r: &Reading, word: &str) -> Vec<Vec<(String, Got)>> {
-    for root in 0..r.morph_ids.len() {
-        let mut order = vec![r.morph_ids[root].clone()];
+    let ids = r.unique_ids();
+    for root in 0..ids.len() {
+        let mut order = vec![ids[root].clone()];
         order.extend(
-            r.morph_ids
-                .iter()
+            ids.iter()
                 .enumerate()
                 .filter(|(i, _)| *i != root)
                 .map(|(_, id)| id.clone()),
@@ -374,9 +542,9 @@ fn check(
     nulls: &mut usize,
 ) {
     let mine: Vec<(String, Got)> = r
-        .morph_ids
+        .unique_ids()
         .iter()
-        .map(|id| (id.clone(), r.got(id)))
+        .map(|id| (id.clone(), r.merged(id)))
         .collect();
     let matches = answers.iter().any(|answer| {
         mine.iter().all(|(id, got)| {

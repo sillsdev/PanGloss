@@ -105,7 +105,7 @@ use std::sync::{
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{
     hc_parse_batch,
-    parse_morph::{project_parse_analysis, PARSE_ANALYSIS_PROFILE},
+    parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
     GenMorpheme, Morpher, WordAnalysis,
 };
 use pg_stats::{StatsProfile, WorkCap};
@@ -229,17 +229,26 @@ struct ParseAnalysisBatchRow {
     timed_out: bool,
     #[serde(rename = "invalidShape")]
     invalid_shape: bool,
-    analyses: Vec<serde_json::Value>,
+    analyses: Vec<ReadingRow>,
     unavailable: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<engine::Completion>,
+}
+
+/// One reading; `morphSpans` is present only under `--morph-spans`, and the flattened `morphs` keep their own key order.
+#[derive(serde::Serialize)]
+struct ReadingRow {
+    #[serde(flatten)]
+    analysis: ParseAnalysis,
+    #[serde(rename = "morphSpans", skip_serializing_if = "Option::is_none")]
+    morph_spans: Option<serde_json::Value>,
 }
 
 fn projected_analyses(
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
     morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
-) -> (Vec<serde_json::Value>, Vec<String>) {
+) -> (Vec<ReadingRow>, Vec<String>) {
     if outcome.invalid_shape {
         return (Vec::new(), Vec::new());
     }
@@ -247,15 +256,11 @@ fn projected_analyses(
     let mut unavailable = Vec::new();
     for (index, analysis) in outcome.structured.iter().enumerate() {
         match project_parse_analysis(analysis, grammar) {
-            Ok(projected) => {
-                let mut value =
-                    serde_json::to_value(projected).expect("projected analysis serializes");
-                if let Some(spans) = morph_spans {
-                    value["morphSpans"] =
-                        batch_spans::render(spans.get(index).and_then(Option::as_ref));
-                }
-                analyses.push(value);
-            }
+            Ok(projected) => analyses.push(ReadingRow {
+                analysis: projected,
+                morph_spans: morph_spans
+                    .map(|spans| batch_spans::render(spans.get(index).and_then(Option::as_ref))),
+            }),
             Err(error) => unavailable.push(error.to_string()),
         }
     }

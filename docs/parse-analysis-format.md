@@ -54,7 +54,7 @@ The spans come from the synthesized word that verified the reading, through the 
 
 | Field | Meaning |
 | --- | --- |
-| `surface` | The NFD form of the surface; `offsets` index it. |
+| `surface` | The surface in NFD and lower case, which can differ from `word`; `offsets` index it. Read `text` and do not slice `word`. |
 | `segmentCount` | Segments of the surface, as `match` counts them. |
 | `morphemes` | One entry per element of the reading's `morphs`, in order; `item` is that index. |
 | `morphemes[].spans` | Runs `{segments, offsets, text}`: half-open segment indexes, half-open UTF-8 byte offsets into `surface`, and `surface[offsets]`. An infix or circumfix gives several runs; an empty list means no segment is left. `null` when no sound span exists. |
@@ -64,7 +64,8 @@ The spans come from the synthesized word that verified the reading, through the 
 
 `morphSpans` is `null` for a reading with no span answer. A wrong span is worse than none, so a null is always preferred to a guess:
 
-- Both halves of a circumfix (one morpheme, two projected morphs) are `repeated_morpheme`, because the engine's records cannot say which half is which.
+- The two halves of a circumfix (one morpheme, two projected morphs with the same morpheme id) each get their own run, e.g. `kabutangan` is `ka|butang|an`.
+- `repeated_morpheme` applies only where the records cannot be told apart: a morpheme the reading applied more than twice, or a morph whose records belong to another morpheme. A morpheme applied twice with one form is folded into one morph in `morphs`, and its span is the union of its runs.
 - A null affix FieldWorks omits from `morphs` has no item; any segment it owns is `unrequested_morpheme`.
 - A word with a truncation, an ambiguous reduplication copy or a compound has every morph null with the reason above.
 - Readings under `unavailable` have no spans.

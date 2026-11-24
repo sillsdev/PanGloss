@@ -166,14 +166,34 @@ pub fn project_parse_analysis(
     analysis: &WordAnalysis,
     grammar: &Grammar,
 ) -> Result<ParseAnalysis, ParseProjectionError> {
-    project_parse_analysis_with_morphemes(analysis, grammar).map(|(projected, _)| projected)
+    project_parse_analysis_with_morphemes(analysis, grammar).map(|projected| projected.analysis)
 }
 
-/// `project_parse_analysis` plus the compiled morpheme id behind each projected morph, parallel to `morphs`.
+/// One projected morph before ordering: order, occurrence, placement, the morph, its morpheme id and its occurrence indexes.
+type Event = (
+    u32,
+    usize,
+    SourceMorphPlacement,
+    ParseMorph,
+    u32,
+    Vec<usize>,
+);
+
+/// A projection with the morpheme and the annotation occurrences behind each projected morph, parallel to `analysis.morphs`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectedMorphs {
+    pub analysis: ParseAnalysis,
+    /// The compiled morpheme id of each morph.
+    pub morphemes: Vec<u32>,
+    /// Indexes into `WordAnalysis::morph_occurrences` (already in `order` order) of each morph's own annotation records.
+    pub occurrences: Vec<Vec<usize>>,
+}
+
+/// `project_parse_analysis` plus the morpheme and occurrences behind each projected morph.
 pub fn project_parse_analysis_with_morphemes(
     analysis: &WordAnalysis,
     grammar: &Grammar,
-) -> Result<(ParseAnalysis, Vec<u32>), ParseProjectionError> {
+) -> Result<ProjectedMorphs, ParseProjectionError> {
     if analysis.morph_occurrences.is_empty() && !analysis.morpheme_ids.is_empty() {
         return Err(ParseProjectionError::MissingOccurrences {
             expected: analysis.morpheme_ids.len(),
@@ -183,7 +203,7 @@ pub fn project_parse_analysis_with_morphemes(
     let mut occurrences = analysis.morph_occurrences.clone();
     occurrences.sort_by_key(|occurrence| occurrence.order);
     let mut used = vec![false; occurrences.len()];
-    let mut events: Vec<(u32, usize, SourceMorphPlacement, ParseMorph, u32)> = Vec::new();
+    let mut events: Vec<Event> = Vec::new();
     let mut ordinary_morphemes = Vec::new();
 
     for i in 0..occurrences.len() {
@@ -251,6 +271,7 @@ pub fn project_parse_analysis_with_morphemes(
                     guessed_string: Some(guessed_string),
                 },
                 occurrence.morpheme_id,
+                vec![i],
             ));
             continue;
         }
@@ -272,12 +293,21 @@ pub fn project_parse_analysis_with_morphemes(
             continue;
         }
         if source.form_guids.len() == 1 && ordinary_morphemes.contains(&occurrence.morpheme_id) {
+            let mut repeats = Vec::new();
             for (j, candidate) in occurrences.iter().enumerate().skip(i) {
                 if candidate.allomorph_id == occurrence.allomorph_id
                     && candidate.morpheme_id == occurrence.morpheme_id
                 {
                     used[j] = true;
+                    repeats.push(j);
                 }
+            }
+            // A repeated application of one morpheme joins that morpheme's first morph.
+            if let Some(first) = events
+                .iter_mut()
+                .find(|event| event.4 == occurrence.morpheme_id)
+            {
+                first.5.extend(repeats);
             }
             continue;
         }
@@ -318,11 +348,13 @@ pub fn project_parse_analysis_with_morphemes(
                 let form = require_guid(form, "MoForm", occurrence.allomorph_id, Some(0))?;
                 used[i] = true;
                 ordinary_morphemes.push(occurrence.morpheme_id);
+                let mut own = vec![i];
                 for (j, candidate) in occurrences.iter().enumerate().skip(i + 1) {
                     if candidate.allomorph_id == occurrence.allomorph_id
                         && candidate.morpheme_id == occurrence.morpheme_id
                     {
                         used[j] = true;
+                        own.push(j);
                     }
                 }
                 events.push((
@@ -336,6 +368,7 @@ pub fn project_parse_analysis_with_morphemes(
                         guessed_string: None,
                     },
                     occurrence.morpheme_id,
+                    own,
                 ));
             }
             2 => {
@@ -380,6 +413,7 @@ pub fn project_parse_analysis_with_morphemes(
                         guessed_string: None,
                     },
                     occurrence.morpheme_id,
+                    vec![i],
                 ));
                 events.push((
                     occurrences[j].order,
@@ -392,6 +426,7 @@ pub fn project_parse_analysis_with_morphemes(
                         guessed_string: None,
                     },
                     occurrence.morpheme_id,
+                    vec![j],
                 ));
             }
             count => {
@@ -403,19 +438,26 @@ pub fn project_parse_analysis_with_morphemes(
         }
     }
 
-    events.sort_by_key(|(order, ordinal, _, _, _)| (*order, *ordinal));
+    events.sort_by_key(|(order, ordinal, _, _, _, _)| (*order, *ordinal));
     let mut morphs = Vec::with_capacity(events.len());
     let mut morpheme_ids = Vec::with_capacity(events.len());
-    for (_, _, placement, morph, morpheme) in events {
+    let mut occurrence_sets = Vec::with_capacity(events.len());
+    for (_, _, placement, morph, morpheme, own) in events {
         if placement == SourceMorphPlacement::InsertBeforeLast && !morphs.is_empty() {
             morphs.insert(morphs.len() - 1, morph);
             morpheme_ids.insert(morpheme_ids.len() - 1, morpheme);
+            occurrence_sets.insert(occurrence_sets.len() - 1, own);
         } else {
             morphs.push(morph);
             morpheme_ids.push(morpheme);
+            occurrence_sets.push(own);
         }
     }
-    Ok((ParseAnalysis { morphs }, morpheme_ids))
+    Ok(ProjectedMorphs {
+        analysis: ParseAnalysis { morphs },
+        morphemes: morpheme_ids,
+        occurrences: occurrence_sets,
+    })
 }
 
 /// Keeps one projection error attached to each input analysis.
