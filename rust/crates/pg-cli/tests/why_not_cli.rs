@@ -692,6 +692,7 @@ fn a_furthest_derivation_failing_the_disjunctive_check_is_named_not_hidden_by_an
     );
     assert_eq!(failure_kind(&r), "other_gate", "{r}");
     assert_eq!(r["failure"]["hc_reason"], "DisjunctiveAllomorph", "{r}");
+    assert_eq!(r["failure"]["gate"], "disjunctive_allomorph", "{r}");
     assert_eq!(r["failure"]["provenance"], "hc_reported", "{r}");
 }
 
@@ -1038,12 +1039,19 @@ fn a_disjunctive_break_before_the_analysed_allomorph_is_a_named_other_gate() {
         &["--expect", "eBan,mrDat"],
     );
     assert_eq!(failure_kind(&r), "other_gate", "{r}");
-    assert_eq!(r["failure"]["hc_reason"], "DisjunctiveAllomorph", "{r}");
+    assert!(
+        r["failure"]["hc_reason"].is_null(),
+        "C# raises no reason here: {r}"
+    );
+    assert_eq!(r["failure"]["gate"], "disjunctive_allomorph", "{r}");
+    assert_eq!(r["failure"]["provenance"], "derived", "{r}");
     assert_eq!(r["failure"]["object"]["type"], "allomorph", "{r}");
+    assert_eq!(r["failure"]["object"]["id"], "subKu", "{r}");
     assert_eq!(r["failure"]["position"], 1, "{r}");
     let morphs = r["failure"]["morphs"].as_array().unwrap();
     assert_eq!(morphs.len(), 2, "{r}");
-    assert_ne!(morphs[0]["allomorph"], morphs[1]["allomorph"], "{r}");
+    assert_eq!(morphs[0]["allomorph"], "subKu", "blocked first: {r}");
+    assert_eq!(morphs[1]["allomorph"], "subKa", "blocker second: {r}");
 }
 
 #[test]

@@ -228,7 +228,7 @@ impl Progress {
             FailureKind::StemName => FailureReason::RequiredStemName,
             FailureKind::SurfaceMismatch => FailureReason::SurfaceFormMismatch,
             FailureKind::SlotOrder | FailureKind::RequiredSlotEmpty => FailureReason::PartialParse,
-            FailureKind::OtherGate if f.hc_reason.as_deref() == Some("DisjunctiveAllomorph") => {
+            FailureKind::OtherGate if f.gate.as_deref() == Some("disjunctive_allomorph") => {
                 FailureReason::DisjunctiveAllomorph
             }
             FailureKind::FeatureClash | FailureKind::InflectionClass | FailureKind::OtherGate => {
@@ -359,6 +359,9 @@ pub struct FirstFailure {
     pub features: Vec<FeatureDiff>,
     /// How many other derivations for this candidate also fail; null when not counted.
     pub alternatives: Option<u32>,
+    /// `other_gate` only: the named gate (`disjunctive_allomorph`); omitted for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gate: Option<String>,
 }
 
 /// The accepted derivation named by authored ids only: the engine's dense morpheme, allomorph and
@@ -956,6 +959,7 @@ mod tests {
                 actual: "future".into(),
             }],
             alternatives: Some(1),
+            gate: None,
         }
     }
 

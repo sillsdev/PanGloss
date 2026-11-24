@@ -335,6 +335,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         }))
     }
 
@@ -412,7 +413,8 @@ impl<'a> Searcher<'a> {
             kind: FailureKind::OtherGate,
             plain,
             position: pins.iter().position(|p| p.morpheme == morpheme),
-            hc_reason: Some("DisjunctiveAllomorph".to_string()),
+            hc_reason: (provenance == Provenance::HcReported)
+                .then(|| "DisjunctiveAllomorph".to_string()),
             provenance,
             object: Some(FailureObject {
                 kind: ObjectType::Allomorph,
@@ -430,6 +432,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: Some("disjunctive_allomorph".to_string()),
         })
     }
 
@@ -658,6 +661,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         })
     }
 
@@ -753,6 +757,7 @@ impl<'a> Searcher<'a> {
             stem_name: None,
             features: Vec::new(),
             alternatives: None,
+            gate: None,
         })
     }
 
