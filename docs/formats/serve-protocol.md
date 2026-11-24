@@ -92,10 +92,32 @@ The process keeps running after every `error`.
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
 | `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type; `id` is `null` when it could not be read |
-| `unknown_op` | `op` is a string other than `parse` or `shutdown` |
+| `unknown_op` | `op` is a string other than `parse`, `generate` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |
 | `internal` | the parser panicked on this word; the details are on stderr |
+
+## The `generate` op
+
+`generate` runs the `pangloss generate --request` v1 document inside the server and keeps one result per seed. It needs a project with authored FieldWorks identity (a snapshot or fwdata); an HC XML project gets `authored_identity_unavailable`. `--describe` declares it as `interfaces.serveOps.generate`, and a test checks that declaration against what the op emits.
+
+```json
+{"id":"g1","op":"generate","request":{"schemaVersion":1,"root":{"entryGuid":"..","msaGuid":"..","msaClass":"MoStemMsa"},"morphemes":[{"entryGuid":"..","msaGuid":"..","msaClass":"MoInflAffMsa"}]},"trace":true,"maxTraceSteps":50000}
+```
+
+Optional fields: `trace` (default `false`; `true` adds each surface's `steps`), `maxSeeds` (default 10000), `maxTraceSteps` (default 50000; counts trace nodes kept across every seed), `maxWork` (lowers the 50,000,000-unit generation cap for this request) and `wordTimeoutMs` (a wall-clock deadline; without it the server's `--word-timeout-ms` applies). Unknown fields are `bad_request`. The parse `--work-cap` is never the generation cap.
+
+The response is a `result` with `complete`, `stopReason`, `workUnits`, `seedChoices`, `traceSteps`, the effective `limits`, and `seeds`. A seed is one choice of allomorphs: `seedKey` (`r<root allomorph>/p<selection>`), `allomorphs`, `surfaces` and `traceTruncated`. `allomorphs` lists the root, then each requested morpheme in request order, each `{role, entryGuid, msaGuid, allomorphId, formGuid, shape, ruleName}`: `role` is `root`, `nonHead` or `rule`; an affix is a rule, so it has a `ruleName` and a null `allomorphId`, `formGuid` and `shape`, while an entry has `allomorphId`, `formGuid` and `shape` (the chosen allomorph's spelling) and a null `ruleName`. Seeds come in visit order, surfaces are sorted, and a surface reached by two seeds appears under both. Everything is deterministic except a stop on `deadline`.
+
+With `trace: true` a surface is `{surface, derivations, steps, stepsUnresolved, alternatives}`. `derivations` counts the words of this seed that reached the surface; it is 1 unless the seed branched (for example two allomorphs of one affix both matched). Each step is `{stratum, rule:{kind,id,name,guid}, input, output, subrule}` in application order (not sorted), with `+` marking morpheme boundaries. A step list is only given when it is proven: it starts at the seed's shape, every `input` is the previous `output`, and every step is a node on that word's own derivation in the trace tree, never one borrowed from a sibling word. So:
+
+- one derivation: `steps` is that derivation, `alternatives` is `[]`;
+- several distinct derivations reached the surface: `steps` is `[]` and `alternatives` holds each one (sorted, at most 16);
+- a derivation could not be proven (the trace was truncated, several rule sequences fit equally, or the work budget ran out): `steps` is `[]`, `alternatives` is `[]` and `stepsUnresolved` is `true`. A step list is never a guess.
+
+Without `trace` a surface is `{surface, derivations}`. The attribution runs inside the same work budget and deadline as generation, so it can end a request with `work_limit` or `deadline`. The `version` in the `generate` capability versions the request and response shapes of this op.
+
+`stopReason` is `seed_product_exceeds_budget`, `work_limit`, `deadline`, `trace_limit` or `seed_limit`, or `null` when `complete` is `true`. Any stop sets `complete: false` and still returns the seeds finished so far, including the seed in which the cap hit (its surfaces may be incomplete); they are not the full set. Request errors (`bad_request`, `request_too_large`, `unsupported_schema_version`, `unsupported_msa_class`, `unsupported_form_selection`, `authored_identity_unavailable`, `unknown_entry`, `unknown_msa`, `msa_not_owned_by_entry`, `ambiguous_identity`) are `error` responses; a cap is never an error.
 
 ## Closing stdin
 

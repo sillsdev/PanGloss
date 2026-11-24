@@ -334,10 +334,11 @@ pub(crate) fn read_request_file(
     parse_request_json(&bytes)
 }
 
-pub(crate) fn generate_request_words(
+/// The compiled owners a validated request addresses.
+pub(crate) fn resolve_request(
     grammar: &Grammar,
     request: &ValidatedGenerateRequest,
-) -> Result<Vec<String>, GenerateRequestError> {
+) -> Result<(pg_grammar::model::LexEntryId, Vec<GenMorpheme>), GenerateRequestError> {
     let root = resolve_fw_entry_msa(
         grammar,
         &request.root.entry_guid,
@@ -357,6 +358,14 @@ pub(crate) fn generate_request_words(
                 .map_err(|error| map_identity_error(error, item))
         })
         .collect::<Result<Vec<_>, _>>()?;
+    Ok((root, others))
+}
+
+pub(crate) fn generate_request_words(
+    grammar: &Grammar,
+    request: &ValidatedGenerateRequest,
+) -> Result<Vec<String>, GenerateRequestError> {
+    let (root, others) = resolve_request(grammar, request)?;
 
     let morpher = Morpher::new(grammar, crate::DEFAULT_GENERATION_WORK_CAP)
         .with_generation_cap(crate::DEFAULT_GENERATION_WORK_CAP);

@@ -61,6 +61,11 @@ impl TraceHandle {
         self.0 & Self::OBSERVATION_BIT != 0 && self != Self::DUMMY
     }
 
+    /// The handle for arena index `index`, for walking `TreeTraceSink::len` nodes in the order they were minted.
+    pub fn from_index(index: u32) -> Self {
+        Self(index)
+    }
+
     /// The document-local arena index, for linking published events within one trace.
     pub fn index(self) -> u32 {
         assert!(
@@ -672,6 +677,10 @@ pub struct TreeTraceSink {
     nodes: RefCell<Vec<TraceNode>>,
     root: Cell<Option<TraceHandle>>,
     capture_failure_context: bool,
+    /// Most nodes the arena may hold; `usize::MAX` for the unbounded default.
+    node_cap: usize,
+    /// Latched once an append was refused because the arena was full.
+    truncated: Cell<bool>,
 }
 
 impl Default for TreeTraceSink {
@@ -693,7 +702,26 @@ impl TreeTraceSink {
             nodes: RefCell::new(Vec::new()),
             root: Cell::new(None),
             capture_failure_context: false,
+            node_cap: usize::MAX,
+            truncated: Cell::new(false),
         }
+    }
+
+    /// A sink that holds at most `node_cap` nodes. Once full it drops every further event and
+    /// latches `Self::truncated`: an append returns its parent's handle, so callers keep a valid
+    /// cursor and nothing is retained past the cap. Only the plain synthesis event methods are
+    /// safe on a bounded sink; the failure-context and template-slot setters assume the handle
+    /// they were given names the event they just appended.
+    pub fn with_node_cap(node_cap: usize) -> Self {
+        Self {
+            node_cap,
+            ..Self::new()
+        }
+    }
+
+    /// Whether any event was dropped because the node cap was reached.
+    pub fn truncated(&self) -> bool {
+        self.truncated.get()
     }
 
     /// The tree's root node handle, if one has been minted yet (`analyze_word`/`generate_words`).
@@ -708,6 +736,35 @@ impl TreeTraceSink {
         self.nodes.borrow()[h.0 as usize].clone()
     }
 
+    /// Run `f` on one node in place; unlike `Self::node` this never clones the node's input and output words.
+    pub fn with_node<R>(&self, h: TraceHandle, f: impl FnOnce(&TraceNode) -> R) -> R {
+        f(&self.nodes.borrow()[h.0 as usize])
+    }
+
+    /// Each node's parent, by arena index. Children are always minted after their parent, so one pass recovers every parent.
+    pub fn parent_index(&self) -> Vec<Option<u32>> {
+        let nodes = self.nodes.borrow();
+        let mut parent: Vec<Option<u32>> = vec![None; nodes.len()];
+        for (index, node) in nodes.iter().enumerate() {
+            for child in &node.children {
+                parent[child.0 as usize] = Some(index as u32);
+            }
+        }
+        parent
+    }
+
+    /// The handles from the root down to and including `h`, given `Self::parent_index`.
+    pub fn path_from_root(&self, parents: &[Option<u32>], h: TraceHandle) -> Vec<TraceHandle> {
+        let mut path = vec![h];
+        let mut cursor = h.0;
+        while let Some(up) = parents[cursor as usize] {
+            path.push(TraceHandle(up));
+            cursor = up;
+        }
+        path.reverse();
+        path
+    }
+
     /// The number of nodes minted so far (for iteration without re-walking from the root).
     pub fn len(&self) -> usize {
         self.nodes.borrow().len()
@@ -719,6 +776,10 @@ impl TreeTraceSink {
 
     fn append(&self, parent: TraceHandle, node: TraceNode) -> TraceHandle {
         let mut nodes = self.nodes.borrow_mut();
+        if nodes.len() >= self.node_cap {
+            self.truncated.set(true);
+            return parent;
+        }
         let h = TraceHandle(nodes.len() as u32);
         nodes.push(node);
         nodes[parent.0 as usize].children.push(h);

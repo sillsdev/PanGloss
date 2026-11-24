@@ -2495,23 +2495,7 @@ impl<'g> Morpher<'g> {
                     return false;
                 }
                 seed_choices = seed_choices.saturating_add(1);
-                let mut seed = self.build_root_seed(root, allo_idx, real_fs.clone());
-                for item in perm {
-                    match *item {
-                        PermItem::Rule(id) => {
-                            seed.morphological_rule_unapplied(
-                                is_realizational_rule(g, id),
-                                Some(id),
-                            );
-                        }
-                        PermItem::NonHead(allo_id) => {
-                            // The non-head gets a fresh empty realizational FS, never the outer `real_fs` this call was given.
-                            seed.morphological_rule_unapplied(false, None);
-                            let nh = self.build_allomorph_seed(allo_id, FeatureStruct::EMPTY);
-                            seed.non_head_unapplied(nh);
-                        }
-                    }
-                }
+                let seed = self.build_generation_seed(root, allo_idx, perm, real_fs.clone());
                 let generated = self.synthesis_pipeline_selected_with_policy(
                     seed,
                     &NoopSink,
@@ -2842,6 +2826,32 @@ impl<'g> Morpher<'g> {
         }
     }
 
+    /// The seed `Word` for one `visit_permute_rules` selection: the root at `allo_idx` with each selected rule or non-head allomorph queued, in selector order.
+    fn build_generation_seed(
+        &self,
+        root: LexEntryId,
+        allo_idx: usize,
+        perm: &[PermItem],
+        real_fs: FeatureStruct,
+    ) -> Word {
+        let g = self.g;
+        let mut seed = self.build_root_seed(root, allo_idx, real_fs);
+        for item in perm {
+            match *item {
+                PermItem::Rule(id) => {
+                    seed.morphological_rule_unapplied(is_realizational_rule(g, id), Some(id));
+                }
+                PermItem::NonHead(allo_id) => {
+                    // The non-head gets a fresh empty realizational FS, never the outer `real_fs` this call was given.
+                    seed.morphological_rule_unapplied(false, None);
+                    let nh = self.build_allomorph_seed(allo_id, FeatureStruct::EMPTY);
+                    seed.non_head_unapplied(nh);
+                }
+            }
+        }
+        seed
+    }
+
     /// A fresh root-level seed `Word` at `allo_idx`; explicit (unlike `pg_rules::morph::seed_from_entry`'s always-primary allomorph) because generation tries every allomorph.
     pub(crate) fn build_root_seed(
         &self,
@@ -3003,6 +3013,9 @@ fn contains_feature(fs: &FeatureStruct, feat: FeatId) -> bool {
         FeatureValue::Symbolic(_) => false,
     })
 }
+
+mod generate_trace;
+pub use generate_trace::*;
 
 #[cfg(test)]
 mod trace_tests;
