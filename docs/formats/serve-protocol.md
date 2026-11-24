@@ -119,6 +119,28 @@ Without `trace` a surface is `{surface, derivations}`. The attribution runs insi
 
 `stopReason` is `seed_product_exceeds_budget`, `work_limit`, `deadline`, `trace_limit` or `seed_limit`, or `null` when `complete` is `true`. Any stop sets `complete: false` and still returns the seeds finished so far, including the seed in which the cap hit (its surfaces may be incomplete); they are not the full set. Request errors (`bad_request`, `request_too_large`, `unsupported_schema_version`, `unsupported_msa_class`, `unsupported_form_selection`, `authored_identity_unavailable`, `unknown_entry`, `unknown_msa`, `msa_not_owned_by_entry`, `ambiguous_identity`) are `error` responses; a cap is never an error.
 
+## Op `inventory`: the grammar's natural classes and features
+
+`interfaces.serveOps.inventory` in `pangloss --describe` declares the op, its fields, errors and stop reasons; a binary without that key lacks the op. It is read-only and additive, and does not change the protocol version. It is a serve op rather than a `--describe` field because its content depends on the loaded grammar, and `--describe` is static.
+
+```json
+{"id":"i1","op":"inventory"}
+```
+
+The request takes only `maxWork` and `wordTimeoutMs`, with the limits `match` has (a field the op does not know is `bad_request`). The listing spends one work unit per class and per feature value; a request that runs out answers `complete:false` with `stopReason` `work_limit` or `deadline` and the classes and features listed so far, never a silent partial list.
+
+```json
+{"id":"i1","type":"result","op":"inventory","complete":true,"stopReason":null,
+ "classes":[{"token":"V","name":"V","id":"ncV","kind":"segment"},
+            {"token":"Voiced","name":"Voiced","id":"ncVoiced","kind":"feature"}],
+ "features":[{"name":"voice","id":"featVoice","values":["+","-"]}]}
+```
+
+- `classes` is every natural class of the grammar in grammar order, including the synthetic `Any` class (`id` `__any__`) the loader adds. `kind` is `segment` (an explicit segment list) or `feature` (a feature structure).
+- `token` is exactly the text `match` accepts between brackets: `[V]`. `match` resolves `[x]` by class `name` first and, failing that, by class `id` (the grammar.xml id, or the FieldWorks guid), so both spellings are accepted. When two classes share a name the first wins that name, and the later one is reached by its `id`; when a class's `id` equals another class's name, the name wins. `token` is the spelling that reaches the class: its name, else its `id`, else `null` (a name that is empty, or starts with `+`, `-` or a Greek letter, or holds `]`, cannot be written in brackets). Parsing `[token]` always gives back the class it came from, and a test pins this for every class.
+- `name` is the grammar's one label for the class (`null` when the grammar gave none). For a grammar compiled from a FieldWorks project that label is the natural class's Abbreviation, the text environment strings cite, and the Name FieldWorks shows is not kept. The op therefore lists no separate `abbreviation`.
+- `features` is every phonological feature the grammar defines, in grammar order, with `values`, the names of its symbols in order. The engine's own `Type` feature (segment or boundary) is not listed.
+
 ## Op `match`: pattern text over a word list
 
 `interfaces.serveOps.match` in `pangloss --describe` declares the op, its constructs, error codes, statuses, stop reasons and limits; a binary without that key lacks the op. It is additive and does not change the protocol version.
@@ -134,7 +156,7 @@ Pattern text, with whitespace between items ignored:
 
 | Item | Meaning |
 |---|---|
-| `[Name]` | a natural class of the grammar, by name (or xml id) |
+| `[Name]` | a natural class of the grammar, by name, else by xml id (see op `inventory` for the spelling of every class) |
 | `/ŋk/` | literal segments, segmented against the surface table |
 | `( items )` | optional |
 | `( items )*` | optional and repeated |

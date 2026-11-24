@@ -234,9 +234,9 @@ fn unknown_names_are_typed_with_near_matches() {
     let r = s.matching("[voiced]", &["aba"]);
     assert_eq!(r["code"], "unknown_natural_class", "{r}");
     assert_eq!(r["near"], json!(["Voiced"]));
-    let r = s.matching("[+voice -son]", &["aba"]);
+    let r = s.matching("[+voice -hard]", &["aba"]);
     assert_eq!(r["code"], "unknown_feature", "{r}");
-    assert_eq!(r["name"], "son");
+    assert_eq!(r["name"], "hard");
     assert_eq!(r["offset"], 9);
 }
 
@@ -521,7 +521,7 @@ fn describe_declares_exactly_what_is_emitted() {
     for (pattern, words) in [
         ("[V] x", "aba"),
         ("[vowel]", "aba"),
-        ("[+voice -son]", "aba"),
+        ("[+voice -hard]", "aba"),
         ("[+voice]", "aba"),
         ("[Stop]+[V]", "aba"),
     ] {

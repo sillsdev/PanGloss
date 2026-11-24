@@ -257,6 +257,7 @@ fn interfaces() -> InterfacesDescribe {
         },
         serve_ops: serde_json::json!({
             "generate": crate::serve_generate::describe(),
+            "inventory": crate::serve_inventory::describe(),
             "match": crate::serve_match::describe(),
         }),
     }

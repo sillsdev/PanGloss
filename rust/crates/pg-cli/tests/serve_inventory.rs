@@ -1,0 +1,244 @@
+//! `pangloss serve` op `inventory`: the natural classes and phonological features of the loaded grammar, and the spelling `match` accepts for each class.
+
+use std::collections::BTreeSet;
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
+use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+
+use serde_json::{json, Value};
+
+const BIN: &str = env!("CARGO_BIN_EXE_pangloss");
+
+struct Server {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: BufReader<ChildStdout>,
+}
+
+impl Server {
+    fn start() -> Server {
+        let project =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/match-fixture.xml");
+        let mut child = Command::new(BIN)
+            .args(["serve", "--project"])
+            .arg(project)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("pangloss serve must start");
+        let stdin = child.stdin.take();
+        let stdout = BufReader::new(child.stdout.take().unwrap());
+        let mut server = Server {
+            child,
+            stdin,
+            stdout,
+        };
+        assert_eq!(server.read_line()["type"], "ready");
+        server
+    }
+
+    fn read_line(&mut self) -> Value {
+        let mut line = String::new();
+        let n = self.stdout.read_line(&mut line).expect("read stdout");
+        assert!(n > 0, "server closed stdout");
+        serde_json::from_str(line.trim_end()).unwrap_or_else(|e| panic!("not JSON ({e}): {line}"))
+    }
+
+    fn ask(&mut self, request: Value) -> Value {
+        let stdin = self.stdin.as_mut().expect("stdin open");
+        stdin.write_all(request.to_string().as_bytes()).unwrap();
+        stdin.write_all(b"\n").unwrap();
+        stdin.flush().unwrap();
+        self.read_line()
+    }
+
+    fn inventory(&mut self) -> Value {
+        self.ask(json!({"id": "i", "op": "inventory"}))
+    }
+
+    fn matching(&mut self, pattern: &str, words: &[&str]) -> Value {
+        self.ask(json!({"id": "m", "op": "match", "pattern": pattern, "words": words}))
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        let _ = self.child.wait();
+    }
+}
+
+fn class<'a>(r: &'a Value, id: &str) -> &'a Value {
+    r["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == id)
+        .unwrap_or_else(|| panic!("no class {id}: {r}"))
+}
+
+#[test]
+fn lists_every_class_with_token_name_id_and_kind_and_every_feature_with_its_values() {
+    let mut s = Server::start();
+    let r = s.inventory();
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["op"], "inventory");
+    assert_eq!(r["complete"], true);
+    assert!(r["stopReason"].is_null());
+    assert_eq!(
+        class(&r, "ncV"),
+        &json!({"token": "V", "name": "V", "id": "ncV", "kind": "segment"})
+    );
+    assert_eq!(
+        class(&r, "ncVoiced"),
+        &json!({"token": "Voiced", "name": "Voiced", "id": "ncVoiced", "kind": "feature"})
+    );
+    assert_eq!(
+        r["features"],
+        json!([
+            {"name": "voice", "id": "featVoice", "values": ["+", "-"]},
+            {"name": "son", "id": "featSon", "values": ["+", "-"]},
+        ]),
+        "the engine's own Type feature is not listed"
+    );
+}
+
+#[test]
+fn every_token_is_accepted_by_match() {
+    let mut s = Server::start();
+    let r = s.inventory();
+    let mut seen = BTreeSet::new();
+    for c in r["classes"].as_array().unwrap() {
+        let Some(token) = c["token"].as_str() else {
+            continue;
+        };
+        assert!(seen.insert(token.to_string()), "tokens are unique: {token}");
+        let m = s.matching(&format!("[{token}]"), &["a"]);
+        assert_eq!(m["type"], "result", "[{token}] must parse: {m}");
+    }
+    // Every class here has a token.
+    assert_eq!(seen.len(), r["classes"].as_array().unwrap().len());
+}
+
+#[test]
+fn match_takes_the_name_then_the_xml_id_and_the_first_of_equal_names_wins() {
+    let mut s = Server::start();
+    let r = s.inventory();
+    // Name and id are both accepted: `Voiced` is a name, `ncVoiced` is an id.
+    let by_name = s.matching("[Voiced]", &["bad"]);
+    let by_id = s.matching("[ncVoiced]", &["bad"]);
+    assert_eq!(by_name["words"], by_id["words"]);
+    assert_eq!(by_name["words"][0]["matches"].as_array().unwrap().len(), 2);
+    // Two classes named V: the first (the segment class) owns the name; the second is reached by its id.
+    assert_eq!(class(&r, "ncV")["token"], "V");
+    assert_eq!(class(&r, "ncV2")["token"], "ncV2");
+    let first = s.matching("[V]", &["pa"]);
+    assert_eq!(first["words"][0]["matches"][0]["segments"], json!([1, 2]));
+    let second = s.matching("[ncV2]", &["pa"]);
+    assert_eq!(second["words"][0]["matches"][0]["segments"], json!([0, 1]));
+    // A class whose id equals another class's name loses to the name: `[W]` is class ncW, and class `W` is spelled by its own name.
+    assert_eq!(class(&r, "ncW")["token"], "W");
+    assert_eq!(class(&r, "W")["token"], "Other");
+    let w = s.matching("[W]", &["pa"]);
+    assert_eq!(w["words"][0]["matches"][0]["segments"], json!([0, 1]), "{w}");
+    // An empty name and a name no bracket can hold fall back to the id.
+    assert_eq!(class(&r, "ncAnon")["token"], "ncAnon");
+    assert_eq!(class(&r, "ncPlus")["token"], "ncPlus");
+    assert_eq!(class(&r, "ncPlus")["name"], "+hi");
+}
+
+#[test]
+fn the_synthetic_any_class_is_listed_and_spelled_any() {
+    let mut s = Server::start();
+    let r = s.inventory();
+    assert_eq!(class(&r, "__any__")["token"], "Any");
+    let m = s.matching("[Any]", &["ab"]);
+    assert_eq!(m["words"][0]["matches"].as_array().unwrap().len(), 2, "{m}");
+}
+
+#[test]
+fn a_work_limit_returns_a_typed_partial_list_never_a_silent_one() {
+    let mut s = Server::start();
+    let r = s.ask(json!({"id": "i", "op": "inventory", "maxWork": 3}));
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["complete"], false, "{r}");
+    assert_eq!(r["stopReason"], "work_limit");
+    assert_eq!(r["classes"].as_array().unwrap().len(), 3);
+    assert!(r["features"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn request_keys_are_checked() {
+    let mut s = Server::start();
+    for bad in [
+        json!({"id": "i", "op": "inventory", "maxWork": 0}),
+        json!({"id": "i", "op": "inventory", "wordTimeoutMs": "x"}),
+        json!({"id": "i", "op": "inventory", "scope": "all"}),
+    ] {
+        let r = s.ask(bad.clone());
+        assert_eq!(r["code"], "bad_request", "{bad}: {r}");
+    }
+    let r = s.ask(json!({"id": "i", "op": "inventory", "maxWork": 100000, "wordTimeoutMs": 5000}));
+    assert_eq!(r["complete"], true, "{r}");
+}
+
+#[test]
+fn the_inventory_is_deterministic() {
+    let mut s = Server::start();
+    let first = s.inventory();
+    assert_eq!(first, s.inventory());
+    assert_eq!(first, Server::start().inventory());
+}
+
+#[test]
+fn describe_declares_exactly_what_is_emitted() {
+    let output = Command::new(BIN).arg("--describe").output().unwrap();
+    let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let decl = &doc["interfaces"]["serveOps"]["inventory"];
+    assert_eq!(decl["version"], 1);
+    assert_eq!(decl["readOnly"], true);
+    let strings = |v: &Value| -> BTreeSet<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str().unwrap().to_string())
+            .collect()
+    };
+    let keys = |v: &Value| -> BTreeSet<String> { v.as_object().unwrap().keys().cloned().collect() };
+
+    let mut s = Server::start();
+    let r = s.inventory();
+    let kinds: BTreeSet<String> = r["classes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["kind"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(strings(&decl["classKinds"]), kinds);
+    for c in r["classes"].as_array().unwrap() {
+        assert_eq!(keys(c), strings(&decl["classFields"]), "{c}");
+    }
+    for f in r["features"].as_array().unwrap() {
+        assert_eq!(keys(f), strings(&decl["featureFields"]), "{f}");
+    }
+
+    // `work_limit` is elicited by a limit; `deadline` is wall-clock, so a test cannot force it on a listing this small.
+    let w = s.ask(json!({"id": "i", "op": "inventory", "maxWork": 1}));
+    assert_eq!(w["stopReason"], "work_limit");
+    assert_eq!(
+        strings(&decl["stopReasons"]),
+        BTreeSet::from(["work_limit".to_string(), "deadline".to_string()])
+    );
+
+    let mut errors = BTreeSet::new();
+    let e = s.ask(json!({"id": "i", "op": "inventory", "bogus": 1}));
+    errors.insert(e["code"].as_str().unwrap().to_string());
+    // `internal` guards a panic a request cannot reach.
+    errors.insert("internal".into());
+    assert_eq!(strings(&decl["errors"]), errors);
+    assert_eq!(
+        strings(&decl["request"]),
+        BTreeSet::from(["maxWork".to_string(), "wordTimeoutMs".to_string()])
+    );
+}
