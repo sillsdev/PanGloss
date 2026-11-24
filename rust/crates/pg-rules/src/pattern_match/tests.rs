@@ -768,12 +768,6 @@ fn a_straddle_probe_never_misses_a_match_across_an_edge() {
         "[V] /p/",
         // An optional group in front.
         "([Stop]) [V]",
-        // A boundary named inside the pattern.
-        "[Stop] + [V]",
-        "/p/ + /b/",
-        // Anchors.
-        "# /p/ [V]",
-        "[V] /b/ #",
         // An unbounded group between two nodes, and at the end.
         "/p/ ([V])* /b/",
         "[V] ([Stop])*",
@@ -844,5 +838,32 @@ fn a_pattern_the_probes_cannot_cut_soundly_is_refused() {
                 "`{text}` matches no segment, so no probe can be built"
             );
         }
+    }
+}
+
+#[test]
+fn a_boundary_or_anchor_in_the_pattern_is_an_edge_marker_and_is_not_cut() {
+    let g = pg_grammar::load(GRAMMAR).unwrap();
+    let table = &g.char_tables[0];
+    let boundary = crate::pattern_text::boundary_char_def(table, "+");
+    for text in [
+        "+ /t/",
+        "/t/ +",
+        "+ /b/ /a/",
+        "[Stop] + [V]",
+        "# /p/ [V]",
+        "[V] /b/ #",
+    ] {
+        let parsed =
+            parse_pattern(&g, table, text, boundary).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        assert!(has_edge_marker(&g, TableId(0), &parsed.target), "`{text}`");
+        assert!(
+            compile_straddle(&g, TableId(0), &parsed.target).is_err(),
+            "`{text}`"
+        );
+    }
+    for text in ["[V] /p/", "([Stop]) [V]"] {
+        let parsed = parse_pattern(&g, table, text, boundary).unwrap();
+        assert!(!has_edge_marker(&g, TableId(0), &parsed.target), "`{text}`");
     }
 }

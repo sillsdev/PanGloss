@@ -231,6 +231,39 @@ pub fn segment_byte_spans(
     )
 }
 
+/// Whether `pattern` holds an anchor or a boundary node, which can lie on a morpheme edge where the form alone has no node.
+pub fn has_edge_marker(g: &Grammar, table: TableId, pattern: &Pattern) -> bool {
+    fn walk(chardefs: &CharDefTable, nodes: &[PatternNode]) -> bool {
+        nodes.iter().any(|n| match n {
+            PatternNode::Anchor(_) => true,
+            PatternNode::CharDef(id) => chardefs.get(*id).kind() == CharDefKind::Boundary,
+            PatternNode::Segments { shape, .. } => shape
+                .shape
+                .interior()
+                .any(|(_, kind, _, _)| kind != NodeKind::Segment),
+            PatternNode::Quantifier { children, .. } => walk(chardefs, children),
+            PatternNode::Context(_) => false,
+        })
+    }
+    walk(&g.char_tables[table.0 as usize], &pattern.nodes)
+}
+
+/// Whether a segment of `shape` has no value for some feature of a grammar that has features, or none of its features are authored. The matcher here (subsumption) then under-matches what rule application matches, where an absent value is permissive.
+pub fn has_underspecified_segment(g: &Grammar, table: TableId, shape: &Shape) -> bool {
+    let chardefs = &g.char_tables[table.0 as usize];
+    let type_feature = chardefs.type_feature();
+    shape.interior().any(|(_, kind, id, _)| {
+        let def = chardefs.get(pg_grammar_model::chardef::CharDefId(id));
+        // A grammar with no features at all matches by spelling, so only a grammar that has features can leave a segment without a value.
+        kind == NodeKind::Segment
+            && def.feature_lanes().len() > 1
+            && (!def.has_authored_features()
+                || (0..def.feature_lanes().len() as u32)
+                    .map(pg_grammar_model::featsys::FlatIndex)
+                    .any(|f| f != type_feature && def.feature_is_defaulted(f)))
+    })
+}
+
 /// How many segments `shape` holds (boundaries excluded), the unit of [`ShapeMatch`] spans.
 pub fn segment_count(shape: &Shape) -> usize {
     shape
@@ -253,12 +286,12 @@ struct Probe {
 
 /// Every way a pattern could match across an edge of a form, the rest of it lying in an unknown neighbour.
 ///
-/// It over-approximates: the neighbour is unconstrained, anchors and boundary nodes are dropped, and a quantifier cut by an edge is relaxed to match zero repetitions. A `false` answer is therefore proof that no match overlaps the form and reaches past an edge; a `true` answer proves nothing.
+/// It over-approximates: the neighbour is unconstrained and a quantifier cut by an edge is relaxed to match zero repetitions. A `false` answer is therefore proof that no match overlaps the form and reaches past an edge; a `true` answer proves nothing.
 pub struct StraddleProbes {
     probes: Vec<Probe>,
 }
 
-/// The pattern as one segment per node, anchors and boundary nodes dropped; `Err` for alpha variables, a quantifier over several nodes, a pattern that can match no segment, or one over [`STRADDLE_MAX_NODES`].
+/// The pattern as one segment per node; `Err` for an anchor or boundary node (it sits on a morpheme edge, not in a segment), alpha variables, a quantifier over several nodes, a pattern that can match no segment, or one over [`STRADDLE_MAX_NODES`].
 fn flatten_for_straddle(
     g: &Grammar,
     table: TableId,

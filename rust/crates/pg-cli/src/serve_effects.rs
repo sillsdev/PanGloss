@@ -1,4 +1,4 @@
-//! `pangloss serve` op `effects`: which phonological rules can change one morpheme, never claiming "cannot change" without proof; feeding and bleeding are out of scope.
+//! `pangloss serve` op `effects`: which phonological rules can change one morpheme, never claiming "cannot change" without proof; bleeding is out of scope and feeding is answered conservatively (`may_be_fed`).
 //! Wire shape and limits: `docs/formats/serve-protocol.md`.
 
 use std::collections::HashMap;
@@ -15,8 +15,8 @@ use pg_parse::source_identity::{
 };
 use pg_parse::Morpher;
 use pg_rules::pattern_match::{
-    compile_match, compile_straddle, segment_byte_spans, segment_count, CompiledMatch,
-    StraddleProbes,
+    compile_match, compile_straddle, has_edge_marker, has_underspecified_segment,
+    segment_byte_spans, segment_count, CompiledMatch, StraddleProbes,
 };
 use pg_rules::pattern_text::ParsedPattern;
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
@@ -47,9 +47,8 @@ const ERROR_CODES: [&str; 6] = [
 ];
 const STOP_REASONS: [&str; 2] = ["work_limit", "deadline"];
 const MAY_APPLY: [&str; 2] = ["unknown", "notOnForm"];
-/// The `reason` of a `notOnForm` verdict; it is not a claim that the rule cannot change the form.
-const NOT_ON_FORM_REASON: &str =
-    "no LHS match on the underlying form; feeding by earlier rules not considered";
+/// The `reason` of a `notOnForm` verdict. It is a code, and `notOnForm` is never a claim that the rule cannot change the form.
+const NO_LHS_MATCH: &str = "no_lhs_match";
 /// Matcher work units one allomorph-against-subrule scan may use before its answer is `unknown`.
 const MATCH_WORK_PER_UNIT: usize = 5_000_000;
 const NON_LOCAL_CRITERIA: [&str; 3] = [
@@ -77,16 +76,19 @@ const EFFECT_FIELDS: [&str; 7] = [
     "lhsSpans",
 ];
 /// Every `reason` an effect carries.
-const REASONS: [&str; 9] = [
+const REASONS: [&str; 12] = [
     "environment_unchecked",
     "lhs_may_straddle_edge",
     "empty_lhs_epenthesis",
     "lhs_not_modelable",
+    "lhs_boundary",
+    "underspecified_segments",
     "stratum_precedes_morpheme",
     "lhs_match_budget",
     "form_not_segmentable_in_stratum",
     "form_partly_unmodelled",
-    NOT_ON_FORM_REASON,
+    "may_be_fed",
+    NO_LHS_MATCH,
 ];
 const ALLOMORPH_FIELDS: [&str; 4] = ["allomorphId", "form", "segments", "formPartial"];
 const MSA_CLASSES: [FwClass; 4] = [
@@ -118,7 +120,7 @@ pub(crate) fn describe() -> Value {
         "resultFields": RESULT_FIELDS,
         "allomorphFields": ALLOMORPH_FIELDS,
         "effectFields": EFFECT_FIELDS,
-        "contract": "conservative: a rule is never claimed unable to change a form without proof; unproven is unknown with a reason; feeding and bleeding between rules are not considered",
+        "contract": "conservative: a rule is never claimed unable to change a form without proof; unproven is unknown with a reason. notOnForm (reason no_lhs_match) means the rule's target has no match on the allomorph's own form, including across its morpheme edges, and nothing earlier can change the form: no earlier rule in application order is anything but notOnForm on it (else may_be_fed), and no affix modifies stem material. It is not 'cannot change': bleeding is not considered",
     })
 }
 
@@ -252,6 +254,7 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
     let mut partial = false;
     let mut opaque = false;
     let mut open = false;
+    let mut copied = Vec::new();
     for action in &a.rhs {
         match action {
             OutputAction::InsertSegments { table, shape } => {
@@ -266,13 +269,22 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
                     open = true;
                 }
             }
-            OutputAction::Copy(_) | OutputAction::Modify(..) | OutputAction::InsertContext(_) => {
+            OutputAction::Copy(part) | OutputAction::Modify(part, _) => {
                 partial = true;
                 open = false;
-                opaque |= !matches!(action, OutputAction::Copy(_));
+                // A part written twice is a reduplicant: stem material the form does not hold.
+                opaque |= !matches!(action, OutputAction::Copy(_)) || copied.contains(part);
+                copied.push(*part);
+            }
+            OutputAction::InsertContext(_) => {
+                partial = true;
+                open = false;
+                opaque = true;
             }
         }
     }
+    // An allomorph that writes no segment of its own but copies stem material is a reduplication or a null affix; the stem it copies is not this form.
+    opaque |= runs.is_empty() && partial;
     Ok(AllomorphForm {
         id: a.id,
         segments,
@@ -384,7 +396,8 @@ enum LhsVerdict {
 struct CompiledLhs {
     table: TableId,
     full: CompiledMatch,
-    straddle: StraddleProbes,
+    /// The cross-edge probes, or the reason there are none (the pattern has a boundary or anchor, or cannot be cut soundly).
+    straddle: Result<StraddleProbes, &'static str>,
 }
 
 fn lhs_of(rule: &PhonRuleDef) -> &Pattern {
@@ -395,6 +408,11 @@ fn lhs_of(rule: &PhonRuleDef) -> &Pattern {
 }
 
 fn compile_lhs(g: &Grammar, table: TableId, pattern: &Pattern) -> Option<CompiledLhs> {
+    let straddle = if has_edge_marker(g, table, pattern) {
+        Err("lhs_boundary")
+    } else {
+        compile_straddle(g, table, pattern).map_err(|_| "lhs_not_modelable")
+    };
     Some(CompiledLhs {
         table,
         full: compile_match(
@@ -407,7 +425,7 @@ fn compile_lhs(g: &Grammar, table: TableId, pattern: &Pattern) -> Option<Compile
             },
         )
         .ok()?,
-        straddle: compile_straddle(g, table, pattern).ok()?,
+        straddle,
     })
 }
 
@@ -425,6 +443,7 @@ fn scan_form(
     let mut spans = Vec::new();
     let mut straddles = false;
     let mut offset = 0usize;
+    let mut underspecified = false;
     {
         let _scope = budget.enter();
         for run in &form.runs {
@@ -432,6 +451,7 @@ fn scan_form(
                 return LhsVerdict::Unknown("form_not_segmentable_in_stratum");
             };
             let count = segment_count(&shape);
+            underspecified |= has_underspecified_segment(g, compiled.table, &shape);
             spans.extend(
                 compiled
                     .full
@@ -439,8 +459,8 @@ fn scan_form(
                     .into_iter()
                     .map(|m| (m.start + offset, m.end + offset)),
             );
-            if !straddles {
-                straddles = compiled.straddle.may_straddle(g, &shape);
+            if let (false, Ok(probes)) = (straddles, &compiled.straddle) {
+                straddles = probes.may_straddle(g, &shape);
             }
             offset += count;
         }
@@ -452,12 +472,19 @@ fn scan_form(
             LhsVerdict::Unknown("lhs_match_budget")
         };
     }
+    spans.retain(|(start, end)| start < end);
     if !spans.is_empty() {
         spans.sort_unstable();
         spans.dedup();
         LhsVerdict::Inside(spans)
     } else if straddles {
         LhsVerdict::Straddles
+    } else if let Err(reason) = compiled.straddle {
+        LhsVerdict::Unknown(reason)
+    } else if form.opaque {
+        LhsVerdict::Unknown("form_partly_unmodelled")
+    } else if underspecified {
+        LhsVerdict::Unknown("underspecified_segments")
     } else {
         LhsVerdict::NotOnForm
     }
@@ -466,8 +493,8 @@ fn scan_form(
 /// The verdicts of every rule against every allomorph, computed on demand and remembered.
 struct LhsScan<'a> {
     g: &'a Grammar,
-    compiled: HashMap<usize, Option<CompiledLhs>>,
-    verdicts: HashMap<(usize, usize), LhsVerdict>,
+    compiled: HashMap<(usize, usize), Option<CompiledLhs>>,
+    verdicts: HashMap<(usize, usize, usize), LhsVerdict>,
     morpheme_stratum: usize,
     deadline: Instant,
 }
@@ -480,7 +507,7 @@ impl LhsScan<'_> {
         if item.stratum < self.morpheme_stratum {
             return LhsVerdict::Unknown("stratum_precedes_morpheme");
         }
-        if let Some(found) = self.verdicts.get(&(form_index, item.prule)) {
+        if let Some(found) = self.verdicts.get(&(form_index, item.prule, item.stratum)) {
             return found.clone();
         }
         let g = self.g;
@@ -492,22 +519,44 @@ impl LhsScan<'_> {
             let stratum_table = g.strata[item.stratum].table;
             let compiled = self
                 .compiled
-                .entry(item.prule)
+                .entry((item.prule, item.stratum))
                 .or_insert_with(|| compile_lhs(g, stratum_table, pattern));
             match compiled {
                 None => LhsVerdict::Unknown("lhs_not_modelable"),
-                Some(compiled) => {
-                    match scan_form(g, compiled, form, self.deadline, MATCH_WORK_PER_UNIT) {
-                        LhsVerdict::NotOnForm if form.opaque => {
-                            LhsVerdict::Unknown("form_partly_unmodelled")
-                        }
-                        found => found,
-                    }
-                }
+                Some(compiled) => scan_form(g, compiled, form, self.deadline, MATCH_WORK_PER_UNIT),
             }
         };
         self.verdicts
-            .insert((form_index, item.prule), verdict.clone());
+            .insert((form_index, item.prule, item.stratum), verdict.clone());
+        verdict
+    }
+}
+
+/// Withholds `notOnForm` from a rule that something before it could feed: a rule earlier in application order that is not itself `notOnForm` on the same form, or an affix that modifies stem material.
+struct Feeding {
+    earlier_may_apply: bool,
+    modifies_stem: bool,
+}
+
+impl Feeding {
+    fn new(modifies_stem: bool) -> Self {
+        Feeding {
+            earlier_may_apply: false,
+            modifies_stem,
+        }
+    }
+
+    /// The verdict of the next rule in application order; `on_morpheme` is false for a listed rule or one of an earlier stratum, which cannot feed.
+    fn apply(&mut self, verdict: LhsVerdict, on_morpheme: bool) -> LhsVerdict {
+        let verdict = match verdict {
+            LhsVerdict::NotOnForm if self.earlier_may_apply || self.modifies_stem => {
+                LhsVerdict::Unknown("may_be_fed")
+            }
+            other => other,
+        };
+        if on_morpheme && !matches!(verdict, LhsVerdict::NotOnForm) {
+            self.earlier_may_apply = true;
+        }
         verdict
     }
 }
@@ -629,7 +678,18 @@ pub(crate) fn handle(
     let mut units = 0usize;
     let mut stop: Option<&str> = None;
     let mut effects = Vec::new();
+    // An affix process that modifies stem material can create what a rule's target needs before the phonology runs.
+    let modifies_stem = g.mrules.iter().enumerate().any(|(index, _)| {
+        g.mrules[index]
+            .affix_allomorphs()
+            .is_some_and(|allomorphs| {
+                allomorphs
+                    .iter()
+                    .any(|a| a.rhs.iter().any(|x| matches!(x, OutputAction::Modify(..))))
+            })
+    });
     'scan: for (form_index, form) in forms.iter().enumerate() {
+        let mut feeding = Feeding::new(modifies_stem);
         for item in &items {
             if units >= max_work {
                 stop = Some("work_limit");
@@ -644,12 +704,16 @@ pub(crate) fn handle(
                 stop = Some("deadline");
                 break 'scan;
             }
+            let verdict = feeding.apply(
+                verdict,
+                item.unlisted.is_none() && item.stratum >= morpheme_stratum,
+            );
             units += 1;
             let (may_apply, reason, spans): (&str, &str, Option<&Vec<(usize, usize)>>) =
                 match &verdict {
                     LhsVerdict::Inside(spans) => ("unknown", "environment_unchecked", Some(spans)),
                     LhsVerdict::Straddles => ("unknown", "lhs_may_straddle_edge", None),
-                    LhsVerdict::NotOnForm => ("notOnForm", NOT_ON_FORM_REASON, None),
+                    LhsVerdict::NotOnForm => ("notOnForm", NO_LHS_MATCH, None),
                     LhsVerdict::Unknown(reason) => ("unknown", reason, None),
                     LhsVerdict::Listed(reason) => ("unknown", reason, None),
                     LhsVerdict::Deadline => unreachable!("handled above"),
@@ -706,6 +770,7 @@ pub(crate) fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pg_grammar::chardef::CharDefKind;
     use pg_grammar::model::SkippedPhonRule;
 
     const FWDATA: &str =
@@ -854,22 +919,34 @@ mod tests {
             None,
         )
         .unwrap();
-        assert!(compile_lhs(&g, table, &parsed.target).is_none());
+        assert!(compile_lhs(&g, table, &parsed.target)
+            .unwrap()
+            .straddle
+            .is_err());
+        assert_eq!(
+            name(&scan(&g, "([V])*", &form(&g, "kd"))),
+            "unknown lhs_not_modelable"
+        );
     }
 
     #[test]
-    fn a_boundary_in_the_lhs_lets_it_straddle_the_morpheme_edge() {
+    fn a_boundary_in_the_lhs_is_never_not_on_form() {
         let g = load();
-        // `t + k` reads `t` at the end of one morpheme and `k` at the start of the next.
-        for (word, expected) in [
-            ("kat", "straddles"),
-            ("ka", "straddles"),
-            ("aa", "not_on_form"),
-            ("ak", "not_on_form"),
-        ] {
-            let found = scan(&g, "/t/ + /k/", &form(&g, word));
-            assert_eq!(name(&found), expected, "`t + k` on {word}");
+        // A boundary sits on the morpheme edge, not in the form, so `+ t` can match `t` of a form that has no boundary of its own.
+        for text in ["+ /t/", "/t/ +", "+ /k/ /a/", "/t/ + /k/"] {
+            for word in ["tak", "kat", "aa", "ka"] {
+                let found = scan(&g, text, &form(&g, word));
+                assert!(
+                    !matches!(found, LhsVerdict::NotOnForm),
+                    "`{text}` on {word} is {}",
+                    name(&found)
+                );
+            }
         }
+        assert_eq!(
+            name(&scan(&g, "+ /t/", &form(&g, "tak"))),
+            "unknown lhs_boundary"
+        );
     }
 
     #[test]
@@ -899,61 +976,94 @@ mod tests {
         assert_eq!(name(&found), "unknown lhs_match_budget");
     }
 
-    /// Segment positions the rule changes in `word` when the engine applies it, or `None` when the result has another length (insertion or deletion), which this check does not read.
-    fn changed_positions(
+    /// The segment-node ranges (the left anchor is node 0, so ranges begin at 1) of each part of the word `parts` joined, or `None` when the parts do not segment as a whole.
+    fn word_ranges(
         g: &Grammar,
-        rule: &pg_grammar::model::RewriteRuleDef,
         table: TableId,
-        word: &str,
-    ) -> Option<Vec<usize>> {
-        let input =
-            pg_rules::shape_feat::segment_with_features(g, &g.char_tables[table.0 as usize], word)
-                .ok()?;
-        let out = pg_rules::rewrite::synthesize(g, rule, &input).pop()?;
-        (out.len() == input.len()).then(|| {
-            (0..input.len())
-                .filter(|&i| out.node_lanes(i) != input.node_lanes(i))
-                .collect()
-        })
+        parts: &[&str],
+    ) -> Option<(String, Vec<(usize, usize)>)> {
+        let chardefs = &g.char_tables[table.0 as usize];
+        let (mut ranges, mut at, mut word) = (Vec::new(), 1usize, String::new());
+        for part in parts {
+            let n = if part.is_empty() {
+                0
+            } else {
+                pg_rules::shape_feat::segment_with_features(g, chardefs, part)
+                    .ok()?
+                    .interior()
+                    .count()
+            };
+            ranges.push((at, at + n));
+            at += n;
+            word.push_str(part);
+        }
+        let whole = pg_rules::shape_feat::segment_with_features(g, chardefs, &word).ok()?;
+        (whole.interior().count() == at - 1).then_some((word, ranges))
     }
 
-    /// Soundness against the engine: wherever a rule really changes a segment of a form (between any neighbours drawn from the grammar's own roots), the verdict for that form's LHS is never `NotOnForm`.
+    /// Soundness against the engine, over every edge-case fixture of the conformance suite: wherever `synthesize` changes a node of a focus form between any neighbours (empty, a root or a segment, joined with no separator or with each boundary character of the table), the rule's verdict for that focus is never `NotOnForm`. A length-changing result counts when the changed region overlaps the focus. Returns the number of violations; rules with an empty target and metathesis rules are not covered.
     #[test]
     fn a_rule_the_engine_applies_to_a_form_is_never_not_on_form() {
-        let mut applied_cases = 0usize;
-        for name_of in [
-            "word-boundary-affix-rewrite",
-            "deletion-reapplications",
-            "expansion-interposed-optional",
-            "boundary-narrowing-probe",
-            "ambiguous-disagree-feature-class-bounded-rtl",
-        ] {
-            let g = pg_conformance_fixtures::require_fixture("edge-cases", name_of).load_grammar();
-            let roots: Vec<String> = g
+        let mut violations = Vec::new();
+        let (mut applied, mut length_changes, mut checked) = (0usize, 0usize, 0usize);
+        for fixture in
+            pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
+        {
+            if fixture.category != "edge-cases" {
+                continue;
+            }
+            let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
+                continue;
+            };
+            let mut roots: Vec<String> = g
                 .entries
                 .iter()
                 .flat_map(|e| e.allomorphs.iter().map(|a| a.shape.text.clone()))
                 .filter(|t| !t.is_empty())
                 .collect();
-            let mut neighbours: Vec<&str> = vec![""];
-            neighbours.extend(roots.iter().map(String::as_str));
+            roots.sort();
+            roots.dedup();
+            roots.truncate(25);
             for (stratum_index, stratum) in g.strata.iter().enumerate() {
+                let chardefs = &g.char_tables[stratum.table.0 as usize];
+                let mut separators = vec![String::new()];
+                let mut segments: Vec<String> = Vec::new();
+                for (_, def) in chardefs.iter() {
+                    let Some(first) = def.representations_nfd().first().filter(|r| !r.is_empty())
+                    else {
+                        continue;
+                    };
+                    match def.kind() {
+                        CharDefKind::Boundary => separators.push(first.clone()),
+                        CharDefKind::Segment => segments.push(first.clone()),
+                    }
+                }
+                separators.truncate(3);
+                segments.truncate(12);
+                let mut neighbours = vec![String::new()];
+                neighbours.extend(roots.iter().cloned());
+                neighbours.extend(segments.iter().cloned());
+                let mut foci = roots.clone();
+                foci.extend(segments.iter().cloned());
                 for PRuleId(rule_index) in &stratum.prules {
                     let Some(PhonRuleDef::Rewrite(rule)) = g.prules.get(*rule_index as usize)
                     else {
                         continue;
                     };
+                    if rule.lhs.nodes.is_empty() {
+                        continue;
+                    }
                     let Some(compiled) = compile_lhs(&g, stratum.table, &rule.lhs) else {
                         continue;
                     };
-                    for focus in &roots {
-                        let Ok(segments) = segments_of(&g, stratum.table, focus) else {
+                    for focus in &foci {
+                        let Ok(focus_segments) = segments_of(&g, stratum.table, focus) else {
                             continue;
                         };
-                        let focus_form = AllomorphForm {
+                        let form = AllomorphForm {
                             id: AllomorphId(0),
                             text: focus.clone(),
-                            segments: segments.clone(),
+                            segments: focus_segments,
                             runs: vec![focus.clone()],
                             partial: false,
                             opaque: false,
@@ -961,29 +1071,70 @@ mod tests {
                         let verdict = scan_form(
                             &g,
                             &compiled,
-                            &focus_form,
+                            &form,
                             Instant::now() + std::time::Duration::from_secs(60),
                             MATCH_WORK_PER_UNIT,
                         );
-                        for left in &neighbours {
-                            for right in &neighbours {
-                                let word = format!("{left}{focus}{right}");
-                                let Some(changed) =
-                                    changed_positions(&g, rule, stratum.table, &word)
-                                else {
-                                    continue;
-                                };
-                                let from =
-                                    segments_of(&g, stratum.table, left).map_or(0, |s| s.len());
-                                let to = from + segments.len();
-                                if changed.iter().any(|p| (from..to).contains(p)) {
-                                    applied_cases += 1;
-                                    assert!(
-                                        !matches!(verdict, LhsVerdict::NotOnForm),
-                                        "{name_of}: rule {} (stratum {stratum_index}) changes `{focus}` inside `{word}` but the verdict is {}",
-                                        rule.xml_id,
-                                        name(&verdict)
-                                    );
+                        if !matches!(verdict, LhsVerdict::NotOnForm) {
+                            continue;
+                        }
+                        checked += 1;
+                        for separator in &separators {
+                            for left in &neighbours {
+                                for right in &neighbours {
+                                    let parts = [left, separator, focus, separator, right]
+                                        .map(String::as_str);
+                                    let Some((word, ranges)) =
+                                        word_ranges(&g, stratum.table, &parts)
+                                    else {
+                                        continue;
+                                    };
+                                    let (from, to) = ranges[2];
+                                    let input = pg_rules::shape_feat::segment_with_features(
+                                        &g,
+                                        &g.char_tables[stratum.table.0 as usize],
+                                        &word,
+                                    )
+                                    .expect("the parts segmented");
+                                    let Ok(outputs) =
+                                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                            || pg_rules::rewrite::synthesize(&g, rule, &input),
+                                        ))
+                                    else {
+                                        continue;
+                                    };
+                                    let Some(out) = outputs.last() else { continue };
+                                    let same = |i: usize, j: usize| {
+                                        input.char_def(i) == out.char_def(j)
+                                            && input.node_lanes(i) == out.node_lanes(j)
+                                    };
+                                    let hit = if out.len() != input.len() {
+                                        length_changes += 1;
+                                        let common = input.len().min(out.len());
+                                        let prefix =
+                                            (0..common).take_while(|&i| same(i, i)).count();
+                                        let suffix = (0..common)
+                                            .take_while(|&k| {
+                                                same(input.len() - 1 - k, out.len() - 1 - k)
+                                            })
+                                            .count();
+                                        let end = input.len().saturating_sub(suffix);
+                                        prefix < end
+                                            && prefix < to
+                                            && from < end
+                                            && end - prefix <= 2
+                                    } else {
+                                        let changed: Vec<usize> =
+                                            (0..input.len()).filter(|&i| !same(i, i)).collect();
+                                        applied += usize::from(!changed.is_empty());
+                                        changed.iter().any(|p| (from..to).contains(p))
+                                    };
+                                    if hit {
+                                        violations.push(format!(
+                                            "{} s{stratum_index} {} focus `{focus}` word `{word}`",
+                                            fixture.name, rule.xml_id
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -991,9 +1142,102 @@ mod tests {
                 }
             }
         }
-        assert!(
-            applied_cases > 0,
-            "no rule changed any form: the check is vacuous"
+        violations.sort();
+        violations.dedup();
+        eprintln!(
+            "engine sweep: {checked} notOnForm foci checked, {applied} equal-length applications, {length_changes} length-changing results, {} violations",
+            violations.len()
         );
+        assert!(
+            applied > 0,
+            "no rule changed any form: the sweep is vacuous"
+        );
+        assert!(
+            violations.is_empty(),
+            "{} violations, first: {:?}",
+            violations.len(),
+            &violations[..violations.len().min(10)]
+        );
+    }
+
+    #[test]
+    fn a_rule_after_one_that_may_apply_is_may_be_fed_not_not_on_form() {
+        let mut gate = Feeding::new(false);
+        // `k -> t / _ i` then `t -> s / _ i`: the first may apply (here: the target is inside), so the second may be fed.
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::Inside(vec![(0, 1)]), true)),
+            "inside [(0, 1)]"
+        );
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "unknown may_be_fed"
+        );
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "unknown may_be_fed"
+        );
+        // Only rules that all say `notOnForm` keep it.
+        let mut gate = Feeding::new(false);
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "not_on_form"
+        );
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "not_on_form"
+        );
+        // A listed rule or one of an earlier stratum does not run on the morpheme, so it cannot feed.
+        let mut gate = Feeding::new(false);
+        gate.apply(LhsVerdict::Unknown("stratum_precedes_morpheme"), false);
+        gate.apply(LhsVerdict::Listed("x".into()), false);
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "not_on_form"
+        );
+        // An affix that modifies stem material can feed any rule.
+        let mut gate = Feeding::new(true);
+        assert_eq!(
+            name(&gate.apply(LhsVerdict::NotOnForm, true)),
+            "unknown may_be_fed"
+        );
+    }
+
+    #[test]
+    fn a_reduplicating_or_copy_only_affix_is_never_not_on_form() {
+        let g = pg_conformance_fixtures::require_fixture(
+            "edge-cases",
+            "copy-agreement-featureless-redup",
+        )
+        .load_grammar();
+        let mut seen = 0;
+        for index in 0..g.mrules.len() {
+            let Ok(forms) = affix_forms(&g, MRuleId(index as u32)) else {
+                continue;
+            };
+            for form in &forms {
+                for PRuleId(rule_index) in &g.strata[0].prules {
+                    let PhonRuleDef::Rewrite(rule) = &g.prules[*rule_index as usize] else {
+                        continue;
+                    };
+                    let compiled = compile_lhs(&g, g.strata[0].table, &rule.lhs).unwrap();
+                    let verdict = scan_form(
+                        &g,
+                        &compiled,
+                        form,
+                        Instant::now() + std::time::Duration::from_secs(60),
+                        MATCH_WORK_PER_UNIT,
+                    );
+                    seen += 1;
+                    assert!(
+                        !matches!(verdict, LhsVerdict::NotOnForm),
+                        "mrule {index} form `{}` rule {}: {}",
+                        form.text,
+                        rule.xml_id,
+                        name(&verdict)
+                    );
+                }
+            }
+        }
+        assert!(seen > 0, "the fixture has an affix and a rule");
     }
 }

@@ -506,8 +506,7 @@ fn max_work_above_the_server_cap_is_refused() {
     child.wait().unwrap();
 }
 
-const NO_MATCH_REASON: &str =
-    "no LHS match on the underlying form; feeding by earlier rules not considered";
+const NO_MATCH_REASON: &str = "no_lhs_match";
 
 fn kat() -> Value {
     json!({"entryGuid": KAT_ENTRY, "msaGuid": KAT_MSA})
@@ -627,4 +626,25 @@ fn an_affix_form_holding_the_lhs_is_inside_and_one_without_it_is_not_on_form() {
     for e in r["effects"].as_array().unwrap() {
         assert_eq!(e["mayApply"], "notOnForm", "{e}");
     }
+}
+
+#[test]
+fn no_rule_is_not_on_form_after_one_that_may_apply() {
+    let mut s = Server::start_with(&three_rule_metathesis_fwdata());
+    let r = s.effects(metathesis(), json!({"edges": ["left"]}));
+    assert_eq!(r["type"], "result", "{r}");
+    let mut earlier_may_apply = false;
+    for e in r["effects"].as_array().unwrap() {
+        if e["rule"]["status"] != "compiled" {
+            continue;
+        }
+        if earlier_may_apply {
+            assert_ne!(e["mayApply"], "notOnForm", "{e}");
+        }
+        earlier_may_apply |= e["mayApply"] != "notOnForm";
+    }
+    assert!(
+        earlier_may_apply,
+        "the first rule may apply, so the check is not vacuous: {r}"
+    );
 }
