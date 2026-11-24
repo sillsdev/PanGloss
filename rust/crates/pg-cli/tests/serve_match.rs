@@ -951,3 +951,24 @@ fn the_segment_test_is_declared_and_validated() {
         "{m}"
     );
 }
+
+#[test]
+fn environment_sides_stay_exact_while_the_target_matches_by_features() {
+    let mut s = Server::start_with("effects-feature-segment-test.xml");
+    // Rule application tests an environment by identity: `e` shares `i`'s features but is not `i`, and `y` is not a member of `{i,u}`.
+    assert_eq!(attack_matches(&mut s, "/a/ / _ /i/", "ae", None), []);
+    assert_eq!(attack_matches(&mut s, "/a/ / _ /i/", "ai", None), [(0, 1)]);
+    assert_eq!(attack_matches(&mut s, "/a/ / _ [ncIU]", "iay", None), []);
+    assert_eq!(
+        attack_matches(&mut s, "/a/ / _ [ncIU]", "iau", None),
+        [(1, 2)]
+    );
+    assert_eq!(attack_matches(&mut s, "/a/ / /i/ _", "ia", None), [(1, 2)]);
+    assert_eq!(attack_matches(&mut s, "/a/ / /i/ _", "ea", None), []);
+    // The target of the same pattern is still tested by features.
+    assert_eq!(attack_matches(&mut s, "/i/ / _ /a/", "ea", None), [(0, 1)]);
+    assert_eq!(
+        attack_matches(&mut s, "/i/ / _ /a/", "ea", Some("identity")),
+        []
+    );
+}

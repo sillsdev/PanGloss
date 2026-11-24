@@ -7,7 +7,9 @@
 //!
 //! A pattern of the form `target / left _ right` compiles each of its three parts the same way and
 //! keeps the target spans whose sides hold, checked by the code a rewrite rule checks its own
-//! environment with, so the result agrees with where a rule applies.
+//! environment with. With [`compile_match_engine`] the target is tested as rule application tests it,
+//! so every position a rule rewrites is among the spans; the sides stay exact, and spans where the
+//! rule would leave the segment unchanged (or overlap another) are extra.
 //!
 //! Alpha variables are bound by that same walk, in a rule's order: the target first, then the left
 //! side, then the right, so one variable agrees across every position of one match. A feature bundle
@@ -65,7 +67,7 @@ pub fn compile_match(
     compile_match_with(g, table, parsed, false, false)
 }
 
-/// [`compile_match`] with rule application's segment test, for a target and its environment sides: a segment matches by features, so it finds every position the engine's target and sides accept. Alpha variables still agree, as in rule application.
+/// [`compile_match`] with rule application's segment test for the target only: a segment matches the target by features, so it finds every position the engine's target accepts. The environment sides stay exact, as rule application tests them (a literal names one segment, a class its members). Alpha variables still agree.
 pub fn compile_match_engine(
     g: &Grammar,
     table: TableId,
@@ -117,9 +119,6 @@ fn compile_match_with(
         Some(sides) => {
             let side = |p: &Option<Pattern>| match p {
                 None => Ok(None),
-                Some(p) if engine => {
-                    try_compile_env_as_engine(g, table, p, extra).map_err(MatchCompileError)
-                }
                 Some(p) => try_compile_env(g, table, p, extra).map_err(MatchCompileError),
             };
             Some(Sides {

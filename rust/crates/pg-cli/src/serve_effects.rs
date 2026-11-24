@@ -1321,7 +1321,7 @@ mod tests {
         assert!(violations.is_empty(), "{violations:?}");
     }
 
-    /// The exact matcher behind serve `match` tests segment identity, so it does not match `e` for `/i/` or `y` for `{i, u}`; rule application does. Effects must use the engine's test, `match` keeps identity.
+    /// The exact matcher behind serve `match` tests segment identity, so it does not match `e` for `/i/` or `y` for `{i, u}`; rule application does. Effects uses the engine's test; `match` uses it by default and keeps identity as `segmentTest:"identity"`.
     #[test]
     fn the_exact_matcher_differs_from_the_engine_on_feature_matched_segments() {
         let g = feature_segment_grammar();
