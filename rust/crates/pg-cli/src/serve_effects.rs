@@ -459,3 +459,72 @@ pub(crate) fn handle(
         },
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pg_grammar::model::SkippedPhonRule;
+
+    const FWDATA: &str =
+        include_str!("../../../../docs/divergences/evidence/071/kat-fixture-with-k.fwdata");
+
+    fn load() -> Grammar {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kat.fwdata");
+        std::fs::write(&path, FWDATA).unwrap();
+        crate::load_grammar_with_trace_metadata(path.to_str().unwrap())
+            .expect("the fixture loads")
+            .0
+    }
+
+    #[test]
+    fn a_rule_that_did_not_compile_is_listed_unknown_after_the_compiled_rules() {
+        let mut g = load();
+        let compiled = g.prules.len();
+        g.skipped_prules.push(SkippedPhonRule {
+            guid: "11111111-2222-3333-4444-555555555555".into(),
+            name: Some("broken".into()),
+            kind: "rewrite",
+            status: "not_compiled",
+            reason: "LHS segment not in the table".into(),
+        });
+        let morpher = Morpher::new(&g, 1_000_000);
+        let object = json!({
+            "morpheme": {
+                "entryGuid": "00000000-0000-0000-0000-000000000040",
+                "msaGuid": "00000000-0000-0000-0000-000000000042",
+            },
+        });
+        let r = handle(&g, &morpher, &json!("x"), object.as_object().unwrap());
+        assert_eq!(r["type"], "result", "{r}");
+        let effects = r["effects"].as_array().unwrap();
+        let broken: Vec<&Value> = effects
+            .iter()
+            .filter(|e| e["rule"]["status"] == "not_compiled")
+            .collect();
+        assert_eq!(broken.len(), 2, "one row per edge: {r}");
+        for e in &broken {
+            assert_eq!(e["mayApply"], "unknown");
+            assert_eq!(e["reason"], "LHS segment not in the table");
+            assert!(e["rule"]["stratum"].is_null() && e["rule"]["ordinal"].is_null());
+            assert_eq!(e["rule"]["id"], "11111111-2222-3333-4444-555555555555");
+        }
+        let first = effects
+            .iter()
+            .position(|e| e["rule"]["status"] == "not_compiled")
+            .unwrap();
+        assert!(first > 0 || compiled == 0, "compiled rules come first");
+        assert!(effects[first..]
+            .iter()
+            .all(|e| e["rule"]["status"] == "not_compiled"));
+    }
+
+    #[test]
+    fn a_form_with_a_character_the_table_lacks_is_not_segmentable() {
+        let g = load();
+        let table = g.strata[0].table;
+        let err = segments_of(&g, table, "ra\u{0378}nna").expect_err("U+0378 is in no table");
+        assert!(err.contains("does not segment"), "{err}");
+        assert!(segments_of(&g, table, "ranna").is_ok());
+    }
+}

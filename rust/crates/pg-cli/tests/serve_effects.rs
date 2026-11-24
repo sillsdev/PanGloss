@@ -451,7 +451,7 @@ fn a_form_with_an_inferred_segment_keeps_its_segments_and_never_reads_as_empty()
 }
 
 #[test]
-fn max_work_above_the_server_cap_is_clamped_to_it() {
+fn max_work_above_the_server_cap_is_refused() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("kat.fwdata");
     std::fs::write(&path, FWDATA).unwrap();
