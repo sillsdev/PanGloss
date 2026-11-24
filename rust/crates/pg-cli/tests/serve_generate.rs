@@ -15,16 +15,16 @@ const AFFIX: &str = r#"{"entryGuid":"00000000-0000-0000-0000-000000000050","msaG
 
 struct Project {
     path: std::path::PathBuf,
+    _dir: tempfile::TempDir,
 }
 
 impl Project {
+    /// Each project gets its own directory, so tests sharing a file name never overwrite one another's grammar.
     fn new(name: &str, text: &str) -> Project {
-        let dir =
-            std::env::temp_dir().join(format!("pangloss-serve-generate-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(name);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
         std::fs::write(&path, text).unwrap();
-        Project { path }
+        Project { path, _dir: dir }
     }
 }
 
