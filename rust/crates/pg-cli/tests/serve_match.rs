@@ -18,8 +18,13 @@ struct Server {
 
 impl Server {
     fn start() -> Server {
-        let project =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/match-fixture.xml");
+        Server::start_with("match-fixture.xml")
+    }
+
+    fn start_with(fixture: &str) -> Server {
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data")
+            .join(fixture);
         let mut child = Command::new(BIN)
             .args(["serve", "--project"])
             .arg(project)
@@ -108,7 +113,7 @@ fn a_natural_class_matches_every_span_with_indices_offsets_and_context() {
 #[test]
 fn offsets_are_utf8_bytes_while_segment_indices_count_segments() {
     let mut s = Server::start();
-    let r = s.matching("/ŋ/", &["aŋa"]);
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "/ŋ/", "words": ["aŋa"], "segmentTest": "identity"}));
     let w = &r["words"][0];
     assert_eq!(w["matches"][0]["segments"], json!([1, 2]), "{r}");
     assert_eq!(w["matches"][0]["offsets"], json!([1, 3]), "{r}");
@@ -867,5 +872,82 @@ fn describe_declares_exactly_what_is_emitted() {
     assert_eq!(
         r["code"], "bad_request",
         "an oversized pattern is refused: {r}"
+    );
+}
+
+/// The attack grammar of the `effects` review: `e` has the features of `i`, and `{i,u}` (a list of segments) is the union of theirs.
+fn attack_matches(
+    s: &mut Server,
+    pattern: &str,
+    word: &str,
+    test: Option<&str>,
+) -> Vec<(u64, u64)> {
+    let mut request = json!({"id": "m", "op": "match", "pattern": pattern, "words": [word]});
+    if let Some(test) = test {
+        request["segmentTest"] = json!(test);
+    }
+    let r = s.ask(request);
+    assert_eq!(r["type"], "result", "{r}");
+    spans(&r["words"][0])
+}
+
+#[test]
+fn the_engine_segment_test_matches_by_features_unless_identity_is_asked_for() {
+    let mut s = Server::start_with("effects-feature-segment-test.xml");
+    // Default and `engine`: a literal matches any segment with its feature bundle.
+    assert_eq!(attack_matches(&mut s, "/i/", "e", None), [(0, 1)]);
+    assert_eq!(attack_matches(&mut s, "/i/", "e", Some("engine")), [(0, 1)]);
+    assert_eq!(attack_matches(&mut s, "/i/", "y", None), []);
+    // A class built from a list of segments is the union of their features: every vowel is in it.
+    for word in ["i", "u", "y", "a", "e"] {
+        assert_eq!(
+            attack_matches(&mut s, "[ncIU]", word, None),
+            [(0, 1)],
+            "{word}"
+        );
+    }
+    // `identity` keeps exact segment and class membership.
+    assert_eq!(attack_matches(&mut s, "/i/", "e", Some("identity")), []);
+    assert_eq!(
+        attack_matches(&mut s, "/i/", "i", Some("identity")),
+        [(0, 1)]
+    );
+    for word in ["y", "a", "e"] {
+        assert_eq!(
+            attack_matches(&mut s, "[ncIU]", word, Some("identity")),
+            [],
+            "{word}"
+        );
+    }
+    for word in ["i", "u"] {
+        assert_eq!(
+            attack_matches(&mut s, "[ncIU]", word, Some("identity")),
+            [(0, 1)],
+            "{word}"
+        );
+    }
+}
+
+#[test]
+fn the_segment_test_is_declared_and_validated() {
+    let mut s = Server::start();
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a"], "segmentTest": "loose"}),
+    );
+    assert_eq!(r["code"], "bad_request", "{r}");
+    let r = s
+        .ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a"], "segmentTest": 1}));
+    assert_eq!(r["code"], "bad_request", "{r}");
+    let out = Command::new(BIN).arg("--describe").output().unwrap();
+    let d: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let m = &d["interfaces"]["serveOps"]["match"];
+    assert_eq!(m["defaultSegmentTest"], "engine", "{m}");
+    assert_eq!(m["segmentTests"], json!(["engine", "identity"]), "{m}");
+    assert!(
+        m["request"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("segmentTest")),
+        "{m}"
     );
 }

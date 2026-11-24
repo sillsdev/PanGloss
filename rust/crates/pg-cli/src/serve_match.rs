@@ -4,7 +4,9 @@ use pg_fst::work::WorkBudget;
 use pg_grammar::chardef::CharDefId;
 use pg_grammar::model::{Grammar, TableId};
 use pg_parse::Morpher;
-use pg_rules::pattern_match::{compile_match, has_stray_boundary, segment_byte_spans};
+use pg_rules::pattern_match::{
+    compile_match, compile_match_engine, has_stray_boundary, segment_byte_spans,
+};
 use pg_rules::pattern_text::{boundary_char_def, parse_pattern, PatternError};
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use serde_json::{json, Map, Value};
@@ -57,7 +59,10 @@ pub(crate) const DEFAULT_MAX_WORK: usize = 50_000_000;
 /// Per-word wall clock when neither the request nor `--word-timeout-ms` names one.
 pub(crate) const DEFAULT_WORD_TIMEOUT_MS: u64 = 10_000;
 pub(crate) const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
-const KNOWN_FIELDS: [&str; 10] = [
+/// What a segment is tested by: `engine` as rule application does (features), `identity` by exact segment and class membership.
+const SEGMENT_TESTS: [&str; 2] = ["engine", "identity"];
+const DEFAULT_SEGMENT_TEST: &str = "engine";
+const KNOWN_FIELDS: [&str; 11] = [
     "id",
     "op",
     "pattern",
@@ -68,6 +73,7 @@ const KNOWN_FIELDS: [&str; 10] = [
     "maxMatchesPerWord",
     "maxWork",
     "wordTimeoutMs",
+    "segmentTest",
 ];
 
 /// The `interfaces.serveOps.match` capability object; derived from the same constants the handler uses.
@@ -80,6 +86,8 @@ pub(crate) fn describe() -> Value {
         "stopReasons": STOP_REASONS,
         "request": &KNOWN_FIELDS[2..],
         "wordReasons": WORD_REASONS,
+        "segmentTests": SEGMENT_TESTS,
+        "defaultSegmentTest": DEFAULT_SEGMENT_TEST,
         "zeroWidth": "reported: a pattern that can match the empty string reports an empty match at every position its anchors allow",
         "offsets": "utf8ByteOffsetsInNfdText",
         "limits": {
@@ -228,6 +236,12 @@ pub(crate) fn handle(
         Ok(n) => n,
         Err(e) => return e,
     };
+    let identity = match object.get("segmentTest") {
+        None => false,
+        Some(Value::String(s)) if s == "engine" => false,
+        Some(Value::String(s)) if s == "identity" => true,
+        Some(_) => return bad("\"segmentTest\" must be \"engine\" or \"identity\""),
+    };
     let (max_work, word_timeout) = match request_budget(id, object, morpher) {
         Ok(b) => b,
         Err(e) => return e,
@@ -298,7 +312,12 @@ pub(crate) fn handle(
         Ok(p) => p,
         Err(e) => return pattern_error(id, e),
     };
-    let compiled = match compile_match(g, table_id, &parsed) {
+    let compile = if identity {
+        compile_match
+    } else {
+        compile_match_engine
+    };
+    let compiled = match compile(g, table_id, &parsed) {
         Ok(c) => c,
         Err(e) => return error(id, "pattern_compile_failed", e.0, json!({})),
     };

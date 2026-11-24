@@ -35,8 +35,8 @@ pub struct CompiledMatch {
     nullable: bool,
     anchor_start: bool,
     anchor_end: bool,
-    /// Compiled with the engine's segment test, so it may match more than the exact matcher and skips the alpha-agreement filter.
-    engine: bool,
+    /// Skips the alpha-agreement filter, so the matcher can only over-match: set for the target-only engine matcher.
+    skip_alpha: bool,
 }
 
 /// The compiled sides of an environment; a side with no items is `None` and always holds.
@@ -62,7 +62,16 @@ pub fn compile_match(
     table: TableId,
     parsed: &ParsedPattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
-    compile_match_with(g, table, parsed, false)
+    compile_match_with(g, table, parsed, false, false)
+}
+
+/// [`compile_match`] with rule application's segment test, for a target and its environment sides: a segment matches by features, so it finds every position the engine's target and sides accept. Alpha variables still agree, as in rule application.
+pub fn compile_match_engine(
+    g: &Grammar,
+    table: TableId,
+    parsed: &ParsedPattern,
+) -> Result<CompiledMatch, MatchCompileError> {
+    compile_match_with(g, table, parsed, true, false)
 }
 
 /// [`compile_match`] with the segment test rule application uses for a rule's left-hand side: a segment matches by features (a segment-list class by their union; a literal by its feature bundle), so it never under-matches what the engine rewrites. It over-approximates the engine and ignores alpha-variable agreement; the target only, with no environment.
@@ -76,7 +85,7 @@ pub fn compile_match_as_engine(
         environment: None,
         synthetic_classes: Vec::new(),
     };
-    compile_match_with(g, table, &parsed, true)
+    compile_match_with(g, table, &parsed, true, true)
 }
 
 fn compile_match_with(
@@ -84,11 +93,12 @@ fn compile_match_with(
     table: TableId,
     parsed: &ParsedPattern,
     engine: bool,
+    skip_alpha: bool,
 ) -> Result<CompiledMatch, MatchCompileError> {
     let pattern = &parsed.target;
     let extra = &parsed.synthetic_classes;
     let env = if engine {
-        try_compile_env_as_engine(g, table, pattern)
+        try_compile_env_as_engine(g, table, pattern, extra)
     } else {
         try_compile_env(g, table, pattern, extra)
     }
@@ -107,6 +117,9 @@ fn compile_match_with(
         Some(sides) => {
             let side = |p: &Option<Pattern>| match p {
                 None => Ok(None),
+                Some(p) if engine => {
+                    try_compile_env_as_engine(g, table, p, extra).map_err(MatchCompileError)
+                }
                 Some(p) => try_compile_env(g, table, p, extra).map_err(MatchCompileError),
             };
             Some(Sides {
@@ -122,7 +135,7 @@ fn compile_match_with(
         nullable,
         anchor_start: anchor(AnchorSide::Left),
         anchor_end: anchor(AnchorSide::Right),
-        engine,
+        skip_alpha,
     })
 }
 
@@ -150,7 +163,9 @@ impl CompiledMatch {
             .find_spans(&segs)
             .into_iter()
             .filter(|&(a, b)| {
-                self.engine || !env.uses_alpha() || bind_exact_span(g, env, &segs[a..b]).is_some()
+                self.skip_alpha
+                    || !env.uses_alpha()
+                    || bind_exact_span(g, env, &segs[a..b]).is_some()
             })
             .map(|(a, b)| ShapeMatch {
                 start: before[a],
