@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- A word lost because an earlier suffix allomorph's input pattern matched and stopped synthesis before the recorded allomorph (a FieldWorks alternate form with a left-context environment ahead of the lexeme form, Motif #316) now names the stop. `parse --trace-rejections` records `allomorph_blocked` at stage `morphology` (subject the recorded allomorph, `blocker` the earlier one; new tuple `["synthesis","reject","morphology","allomorph_blocked","none"]` in `interfaces.diagnostic.eventTuples`), the tree trace gains a `Failed [DisjunctiveAllomorph]` node, and `why-not` answers `rejected` with kind `other_gate` and `hc_reason` `DisjunctiveAllomorph` (also for the validity-check form of the rule) instead of `unknown` with an unnamed PartialParse; `interfaces.whyNot.kinds` now lists `other_gate`. No parse output changes (#444).
+
 ## 0.31.0
 
 Released 2026-11-24.

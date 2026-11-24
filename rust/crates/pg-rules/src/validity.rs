@@ -645,13 +645,19 @@ fn fail_allomorph_blocked(
             return false;
         }
     }
-    fail(
+    fail_with_context(
         g,
         object,
         trace,
         parent,
         w,
         FailureReason::DisjunctiveAllomorph,
+        || crate::trace::FailureContext {
+            required: None,
+            actual: None,
+            environment: None,
+            evidence: Some(RejectionEvidence::AllomorphBlocked { blocked, blocker }),
+        },
     )
 }
 

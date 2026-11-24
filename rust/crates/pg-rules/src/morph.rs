@@ -2261,6 +2261,9 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
                     && allo.environments.is_empty()
                     && g.fs_interner.get(allo.required_syn_fs).is_empty()
                 {
+                    if let Some(blocked) = recorded.filter(|_| last.is_some_and(|k| k > i)) {
+                        record_synthesis_allomorph_blocked(trace, parent, word, blocked, allo.id);
+                    }
                     break;
                 }
             }
@@ -2292,6 +2295,41 @@ fn synth_affix_cached<const COLLECT_STATS: bool>(
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
+}
+
+/// Name the stop where the disjunctive break skipped the analysed allomorph `blocked` in favour of the earlier `blocker`.
+fn record_synthesis_allomorph_blocked(
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    word: &Word,
+    blocked: AllomorphId,
+    blocker: AllomorphId,
+) {
+    match trace.mode() {
+        TraceMode::Tree => {
+            let event = trace.failed(parent, word, FailureReason::DisjunctiveAllomorph);
+            if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, blocked);
+                trace.set_failure_context(
+                    event,
+                    crate::trace::FailureContext {
+                        required: None,
+                        actual: None,
+                        environment: None,
+                        evidence: Some(crate::trace::RejectionEvidence::AllomorphBlocked {
+                            blocked,
+                            blocker,
+                        }),
+                    },
+                );
+            }
+        }
+        TraceMode::Observe(recorder) => recorder.record_at(
+            word,
+            Decision::AllomorphBlockedAtSynthesis { blocked, blocker },
+        ),
+        TraceMode::Off => {}
+    }
 }
 
 // Realizational affix process — synthesis.

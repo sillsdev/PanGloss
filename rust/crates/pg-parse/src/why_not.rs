@@ -141,14 +141,14 @@ impl FailureKind {
         match self {
             FailureKind::NoMorphMatch
             | FailureKind::EnvironmentUnmet
-            | FailureKind::AdhocProhibition => true,
+            | FailureKind::AdhocProhibition
+            | FailureKind::OtherGate => true,
             FailureKind::SlotOrder
             | FailureKind::RequiredSlotEmpty
             | FailureKind::FeatureClash
             | FailureKind::StemName
             | FailureKind::InflectionClass
-            | FailureKind::SurfaceMismatch
-            | FailureKind::OtherGate => false,
+            | FailureKind::SurfaceMismatch => false,
         }
     }
 
@@ -228,6 +228,9 @@ impl Progress {
             FailureKind::StemName => FailureReason::RequiredStemName,
             FailureKind::SurfaceMismatch => FailureReason::SurfaceFormMismatch,
             FailureKind::SlotOrder | FailureKind::RequiredSlotEmpty => FailureReason::PartialParse,
+            FailureKind::OtherGate if f.hc_reason.as_deref() == Some("DisjunctiveAllomorph") => {
+                FailureReason::DisjunctiveAllomorph
+            }
             FailureKind::FeatureClash | FailureKind::InflectionClass | FailureKind::OtherGate => {
                 FailureReason::ObligatorySyntacticFeatures
             }

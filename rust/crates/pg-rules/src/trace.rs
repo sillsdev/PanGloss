@@ -270,6 +270,11 @@ pub enum RejectionEvidence {
         end: u32,
         alternatives: Vec<EnvironmentResult>,
     },
+    /// An earlier allomorph of the same morpheme blocks the used one (C# disjunctive allomorph rule).
+    AllomorphBlocked {
+        blocked: AllomorphId,
+        blocker: AllomorphId,
+    },
 }
 
 /// Evidence captured by the rejection owner, without re-evaluating a predicate.

@@ -8,7 +8,7 @@ grammar object the failure is about, so a tool can draft a fix.
 
 > **Status: slice 2 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
 > reparsing the word with the expected morphs pinned. A rejection names the first failing
-> constraint for these kinds: `no_morph_match`, `environment_unmet` and `adhoc_prohibition`. `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
+> constraint for these kinds: `no_morph_match`, `environment_unmet`, `adhoc_prohibition` and, for one gate, `other_gate`. `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
 > other failure, or a search that cannot finish, answers `unknown` with a `stop` reason, never a
 > guess. The examples below show the shape of each answer; ids, GUIDs and wording in them are
 > invented. Kinds beyond the three above are later slices. Slice 2 declares the capability (see Detecting why-not) and makes every id in a report a `grammar.xml` id or a typed absence (see Ids).
@@ -169,6 +169,14 @@ Real `hc_reason` values are C# `FailureReason` names; `slot_order` has none, bec
 event for it (a wrong order simply never offers the morph), so it is always `derived`.
 `inflection_class` has no HermitCrab concept of its own; it is reported through the stem name or
 MPR feature that carries it.
+
+`other_gate` is answered for one gate: HermitCrab's disjunctive allomorph rule, `hc_reason`
+`DisjunctiveAllomorph`. An earlier allomorph of the same morpheme fits where the expected morph's allomorph
+would stand, so the later one is never used (a FieldWorks alternate form with a left-context environment ahead
+of the lexeme form is the usual cause). `object` is the blocked allomorph; `morphs` lists it first and the
+blocking allomorph second; `position` is the morpheme's slot. `provenance` is `hc_reported` when the rejection
+comes from the validity check (a synthesized word carries the used allomorph) and `derived` when synthesis
+stopped at the earlier allomorph before any word was built (Motif #316, PanGloss #444).
 
 ### Provenance, engine-specific kinds and GUIDs
 

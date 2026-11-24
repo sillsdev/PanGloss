@@ -679,7 +679,8 @@ fn an_unknown_sequence_beats_a_rejected_one() {
 }
 
 #[test]
-fn a_furthest_derivation_failing_an_unplaced_kind_is_not_hidden_by_an_earlier_rejection() {
+fn a_furthest_derivation_failing_the_disjunctive_check_is_named_not_hidden_by_an_earlier_rejection()
+{
     let r = answer_on(
         "why-not-disjunctive-suffix.xml",
         "monkt",
@@ -689,8 +690,9 @@ fn a_furthest_derivation_failing_an_unplaced_kind_is_not_hidden_by_an_earlier_re
         r["failure"]["kind"], "environment_unmet",
         "the root allomorph failing its environment is not the furthest derivation: {r}"
     );
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure", "{r}");
+    assert_eq!(failure_kind(&r), "other_gate", "{r}");
+    assert_eq!(r["failure"]["hc_reason"], "DisjunctiveAllomorph", "{r}");
+    assert_eq!(r["failure"]["provenance"], "hc_reported", "{r}");
 }
 
 #[test]
@@ -743,7 +745,12 @@ fn describe_declares_the_why_not_capability() {
         .collect();
     assert_eq!(
         kinds,
-        ["no_morph_match", "environment_unmet", "adhoc_prohibition"]
+        [
+            "no_morph_match",
+            "environment_unmet",
+            "adhoc_prohibition",
+            "other_gate"
+        ]
     );
 }
 
@@ -768,6 +775,11 @@ fn every_declared_kind_is_really_answered_and_the_rest_are_unknown() {
             "trace-family.xml",
             "kibuton",
             &["--expect", "eKib,mrPast2,mrPl"],
+        ),
+        answer_on(
+            "trace-disjunctive-synthesis.xml",
+            "banku",
+            &["--expect", "eBan,mrDat"],
         ),
     ];
     for r in &seen {
@@ -1015,5 +1027,33 @@ fn a_json_choice_with_neither_id_nor_guid_or_half_a_guid_is_an_error() {
         let o = fw_why_not("da", &bad);
         assert!(!o.status.success(), "{bad}");
         assert!(stderr(&o).contains(want), "{bad}: {}", stderr(&o));
+    }
+}
+
+#[test]
+fn a_disjunctive_break_before_the_analysed_allomorph_is_a_named_other_gate() {
+    let r = answer_on(
+        "trace-disjunctive-synthesis.xml",
+        "banku",
+        &["--expect", "eBan,mrDat"],
+    );
+    assert_eq!(failure_kind(&r), "other_gate", "{r}");
+    assert_eq!(r["failure"]["hc_reason"], "DisjunctiveAllomorph", "{r}");
+    assert_eq!(r["failure"]["object"]["type"], "allomorph", "{r}");
+    assert_eq!(r["failure"]["position"], 1, "{r}");
+    let morphs = r["failure"]["morphs"].as_array().unwrap();
+    assert_eq!(morphs.len(), 2, "{r}");
+    assert_ne!(morphs[0]["allomorph"], morphs[1]["allomorph"], "{r}");
+}
+
+#[test]
+fn the_parses_beside_a_disjunctive_break_are_still_accepted() {
+    for (word, expect) in [
+        ("basku", "eBas,mrDat"),
+        ("banka", "eBan,mrDat"),
+        ("ban", "eBan"),
+    ] {
+        let r = answer_on("trace-disjunctive-synthesis.xml", word, &["--expect", expect]);
+        assert_eq!(r["result"], "accepted", "{word}: {r}");
     }
 }
