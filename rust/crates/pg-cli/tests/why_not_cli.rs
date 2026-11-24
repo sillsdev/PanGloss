@@ -1053,7 +1053,11 @@ fn the_parses_beside_a_disjunctive_break_are_still_accepted() {
         ("banka", "eBan,mrDat"),
         ("ban", "eBan"),
     ] {
-        let r = answer_on("trace-disjunctive-synthesis.xml", word, &["--expect", expect]);
+        let r = answer_on(
+            "trace-disjunctive-synthesis.xml",
+            word,
+            &["--expect", expect],
+        );
         assert_eq!(r["result"], "accepted", "{word}: {r}");
     }
 }

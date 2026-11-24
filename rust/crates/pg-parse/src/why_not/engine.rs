@@ -898,12 +898,13 @@ fn other_stop(sink: &TreeTraceSink) -> Option<String> {
         if let Some(reason) = node.failure_reason {
             if !(blocked && reason == FailureReason::PartialParse)
                 && !matches!(
-                reason,
-                FailureReason::Pattern
-                    | FailureReason::HeadPattern
-                    | FailureReason::NonHeadPattern
-                    | FailureReason::AllomorphNotApplicable
-            ) {
+                    reason,
+                    FailureReason::Pattern
+                        | FailureReason::HeadPattern
+                        | FailureReason::NonHeadPattern
+                        | FailureReason::AllomorphNotApplicable
+                )
+            {
                 return Some(format!("a derivation stopped with {reason:?}"));
             }
         } else if node.type_ == TraceType::Failed {
