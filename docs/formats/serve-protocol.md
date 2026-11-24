@@ -48,7 +48,7 @@ One JSON object per line. Blank lines are ignored.
 ```
 
 - `id` is required and must be a string; it is echoed in the response.
-- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`).
+- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`). `ruleTrace` is optional (default `false`) and only affects `traceDetails: false`: the JSON rule-trace tree is built and appended to `result` only when it is `true`; `traceDetails: true` ignores it.
 - `shutdown`: the process answers `bye`, then exits 0.
 - End of input on stdin exits 0 at once (see Closing stdin). Cancellation is the host killing the process.
 
@@ -67,18 +67,18 @@ A request that ran a parse always yields a `result`, including a parse that stop
 | `traceDetails` | cold argv | `result` | `exitCode` |
 |---|---|---|---|
 | `true` | `pangloss parse <project> <word> --trace --trace-format json --trace-details` | the JSON document the command prints (the trace-details envelope, see `trace-details-v2.md`), as a JSON value | always 0 (the command exits 0 even when capped or timed out; read `search.capped` / `search.timedOut` in the document) |
-| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess` or `--guess=true` (never because the project guesses), then the JSON trace tree (absent when no trace exists) | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
+| `false` (default) | `pangloss parse <project> <word> --trace --trace-format json` with `ruleTrace: true`; the default is that output without the tree | the command's whole stdout as one JSON string: the line `<word>\t<signature>\n`, then `guessed:\t<true\|false>\n` only when the server runs with `--guess` or `--guess=true` (never because the project guesses), then, only when the request has `ruleTrace: true`, the JSON trace tree (absent when no trace exists); without `ruleTrace` the string ends after those lines and the tree is not built | 1 when the parse was incomplete (capped, timed out, invalid shape), else 0; the string is still the full stdout |
 
-For `traceDetails: true`, every field is identical to the cold document except the wall-clock measurements: `elapsedNs`, `timedNs`, `timingOverrunNs`, `unattributedNs` and every `*ElapsedNs` field. For `traceDetails: false` the string is byte-identical.
+For `traceDetails: true`, every field is identical to the cold document except the wall-clock measurements: `elapsedNs`, `timedNs`, `timingOverrunNs`, `unattributedNs` and every `*ElapsedNs` field. For `traceDetails: false` with `ruleTrace: true` the string is byte-identical; without `ruleTrace` it is that string up to the end of the signature (and `guessed:`) lines, with no trace tree.
 
 Every `result` response, in both modes, also carries the word's search counts beside `result`, outside the cold stdout:
 
 - `status`: `ok`, `CAP` when the work cap stopped the parse, `MEMCAP` when the per-word parser-state ceiling (100 MiB by default) or the affix-matching capture-state ceiling (256 MiB by default) stopped it, `TIMEOUT` when the
   time limit stopped it, or `SKIPPED` for an invalid shape. This optional field is absent from
   older servers.
-- `workSteps`: the word's work, meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.
+- `workSteps`: the word's work (with `traceDetails: false` and no `ruleTrace` the parse is untraced, so the count equals batch's `work_steps` and a cold untraced `parse`; this is the reference count. A traced parse, `ruleTrace: true` or `traceDetails: true`, can count differently in either direction, so a word near `--work-cap` can differ in either direction: `niyidtan` in `prefixal-discontinuous-slot-dependency` at `--work-cap 300` is `CAP` plain and a full analysis with `ruleTrace: true`), meaning the total of work steps the parse reserved. This is the quantity `--work-cap` bounds.
 
-This is the same count as the `work_steps` column that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for `traceDetails: true`, as `search.workSteps` in the document. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat the field as optional: older servers omit it.
+This is the same count as the `work_steps` column that `pangloss batch --work-columns` writes (see `batch-tsv.md`) and, for the traced modes only, `traceDetails: true` and `ruleTrace: true`, as `search.workSteps` in the document and the traced count. They are deterministic for a given project, word, cap settings and PanGloss version, so compare parse cost with `workSteps`, not with wall-clock time. A parse stopped by `--word-timeout-ms` is the exception: its counts depend on this computer's speed. Treat the field as optional: older servers omit it.
 
 Every `result` response also carries `guessed`: `true` when the analyses were guessed from a lexical pattern rather than found in the lexicon, whatever the `--guess` flag. A project that guesses by default can return guessed analyses without the `guessed:` line, so read this field, not the string. Treat it as optional: older servers omit it.
 
@@ -91,7 +91,7 @@ The process keeps running after every `error`.
 | code | meaning |
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
-| `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type; `id` is `null` when it could not be read |
+| `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type, or `ruleTrace` present and not a boolean; `id` is `null` when it could not be read |
 | `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |
