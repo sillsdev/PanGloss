@@ -61,6 +61,18 @@ fn attack_grammars() -> Vec<(String, Loader)> {
     ]
 }
 
+fn r2_grammars() -> Vec<(String, Loader)> {
+    macro_rules! r2 {
+        ($($n:literal),*) => {
+            vec![$(xml(concat!("r2-", $n), include_str!(concat!("../../tests/data/effects-output-r2-", $n, ".xml")))),*]
+        };
+    }
+    r2!(
+        "assim", "classSim", "delL2", "expsim", "insBoth", "insL2", "iterBoth", "iterL", "rtlL",
+        "rtlR", "simBoth", "simR"
+    )
+}
+
 /// The aligned edit regions `(i0, i1, o0, o1)` between two node lists, from a longest common subsequence.
 fn regions<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize, usize, usize)> {
     let (n, m) = (a.len(), b.len());
@@ -553,4 +565,110 @@ fn merged_bundles_print_on_a_loaded_grammar() {
             text.output_unprintable
         );
     }
+}
+
+/// The second-round attack grammars: every one where `match` of the plain overlay misses a rewritten site is flagged, and the flagged rows are the only ones with misses.
+#[test]
+fn every_second_round_grammar_that_misses_is_flagged() {
+    let mut missing = 0;
+    for (name, _) in r2_grammars() {
+        let one = |_: ()| {
+            r2_grammars()
+                .into_iter()
+                .filter(|(n, _)| *n == name)
+                .collect::<Vec<_>>()
+        };
+        let loose = sweep(one(()), &|t| t.output_match_pattern.clone(), &|_| false);
+        let strict = sweep(one(()), &|t| t.output_match_pattern.clone(), &self_flagged);
+        eprintln!(
+            "{name}: {} misses unflagged-included, {} after skipping flagged",
+            loose.misses.len(),
+            strict.misses.len()
+        );
+        assert!(
+            strict.misses.is_empty(),
+            "{name}: {:?}",
+            &strict.misses[..strict.misses.len().min(3)]
+        );
+        if !loose.misses.is_empty() {
+            missing += 1;
+        }
+    }
+    assert!(
+        missing >= 6,
+        "only {missing} grammars miss: the attack no longer bites"
+    );
+}
+
+/// A grammar with no features at all (segments matched by identity): `t -> d / t _`, simultaneous, is flagged, and its plain overlay misses.
+#[test]
+fn a_featureless_self_interacting_rule_is_flagged() {
+    let one = || {
+        vec![xml(
+            "featureless",
+            include_str!("../../tests/data/effects-output-featureless.xml"),
+        )]
+    };
+    let g = pg_grammar::load(include_str!(
+        "../../tests/data/effects-output-featureless.xml"
+    ))
+    .expect("loads");
+    assert!(g.phon_features.len() <= 1, "no authored features");
+    let table = g.strata[0].table;
+    let mut text = rule_text(&g, &g.prules[0], 0, table);
+    text.with_alteration(&g, 0, 0);
+    assert_eq!(
+        text.output_match_pattern.as_deref(),
+        Some("/d/ / /t/ _"),
+        "{:?}",
+        text.output_unprintable
+    );
+    assert!(self_flagged(&text), "{:?}", text.output_altered_reasons);
+    let loose = sweep(one(), &|t| t.output_match_pattern.clone(), &|_| false);
+    let strict = sweep(one(), &|t| t.output_match_pattern.clone(), &self_flagged);
+    eprintln!(
+        "featureless: {} misses unflagged-included, {} after skipping",
+        loose.misses.len(),
+        strict.misses.len()
+    );
+    assert!(
+        !loose.misses.is_empty(),
+        "the rule does not miss: the case proves nothing"
+    );
+    assert!(strict.misses.is_empty());
+}
+
+/// Counts, over every rewrite subrule of the project in `PG_COUNT_FWDATA`, the rows that are altered and self-interacting (run by hand: `-- --ignored --nocapture`).
+#[test]
+#[ignore = "needs a project path in PG_COUNT_FWDATA"]
+fn count_flags_on_a_project() {
+    let path = std::env::var("PG_COUNT_FWDATA").expect("PG_COUNT_FWDATA");
+    let (g, _) = crate::load_grammar(&path).expect("loads");
+    let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    for (si, stratum) in g.strata.iter().enumerate() {
+        for (ordinal, PRuleId(index)) in stratum.prules.iter().enumerate() {
+            let Some(def @ PhonRuleDef::Rewrite(rule)) = g.prules.get(*index as usize) else {
+                continue;
+            };
+            for sub in 0..rule.subrules.len() {
+                let mut t = rule_text(&g, def, sub, stratum.table);
+                t.with_alteration(&g, si, ordinal);
+                *tally.entry("rows".into()).or_default() += 1;
+                if t.output_match_pattern.is_none() {
+                    *tally.entry("no output pattern".into()).or_default() += 1;
+                    continue;
+                }
+                if t.output_may_be_altered == Some(true) {
+                    *tally.entry("outputMayBeAltered".into()).or_default() += 1;
+                }
+                for r in &t.output_altered_reasons {
+                    *tally.entry(format!("reason {}", r.0)).or_default() += 1;
+                }
+                if self_flagged(&t) {
+                    *tally.entry("selfInteraction".into()).or_default() += 1;
+                }
+            }
+        }
+    }
+    eprintln!("COUNTS {tally:?}");
 }

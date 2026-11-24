@@ -1,7 +1,7 @@
 //! A phonological rule as the text serve `match` reads: `lhs`, `environment`, the combined `target / left _ right` and `rhs`, each printed exactly or refused with a typed reason, plus the reasons a rule is not local.
 
 use pg_featstruct::SymbolBits;
-use pg_grammar_model::chardef::{CharDefKind, CharDefTable};
+use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
     AlphaVar, Grammar, MRuleId, MorphRuleDef, NaturalClassKind, OutputAction, Pattern, PatternNode,
@@ -189,26 +189,52 @@ pub fn rule_text(
     out
 }
 
-/// Whether what the rule rewrites or writes (any subrule: they share one pass) could satisfy a node of any subrule's environment, or an insertion or length change has an environment side of two or more nodes. Conservative: lane overlap only.
+/// The segments of `table` a segment-naming node accepts, `None` for a feature class (decided by lanes). A grammar with no authored features matches a literal by its char def and a segment-list class by its members, so there the set is exactly those; otherwise the engine's lane test over the table decides.
+fn accepted_segments(
+    g: &Grammar,
+    table: &CharDefTable,
+    node: &PatternNode,
+    lanes: &[u64],
+) -> Option<Vec<usize>> {
+    let named: Vec<CharDefId> = match node {
+        PatternNode::CharDef(cd) => vec![*cd],
+        PatternNode::Context(sc) => match &g.natural_classes[sc.nat_class.0 as usize].kind {
+            NaturalClassKind::Segments(segs) => segs.clone(),
+            NaturalClassKind::Feature(_) => return None,
+        },
+        _ => return None,
+    };
+    if named.iter().all(|cd| table.unifiable_cds(*cd).is_none()) {
+        return Some(named.iter().map(|cd| cd.0 as usize).collect());
+    }
+    Some(
+        table
+            .iter()
+            .filter(|(_, def)| def.kind() == CharDefKind::Segment)
+            .filter(|(_, def)| pg_featstruct::flat_unifiable(lanes, &def.matching_lanes()))
+            .map(|(id, _)| id.0 as usize)
+            .collect(),
+    )
+}
+
+/// Whether what the rule rewrites or writes (any subrule: they share one pass) could satisfy a node of any subrule's environment, or an insertion or length change has an environment side of two or more nodes. Conservative: segment nodes meet when a segment satisfies both, feature classes when their lanes meet.
 fn self_interaction(g: &Grammar, table: TableId, rule: &RewriteRuleDef) -> bool {
     let chardefs = &g.char_tables[table.0 as usize];
-    let mut env = Vec::new();
-    let mut written: Vec<Vec<u64>> = Vec::new();
+    type Seen = (Vec<u64>, Option<Vec<usize>>);
+    let seen = |n: &PatternNode| -> Seen {
+        let lanes = crate::rewrite::node_full_lanes(g, chardefs, n);
+        let set = accepted_segments(g, chardefs, n, &lanes);
+        (lanes, set)
+    };
     let mut flat = Vec::new();
     flatten(&rule.lhs.nodes, &mut flat);
-    written.extend(
-        flat.iter()
-            .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
-    );
-    let mut wide = false;
+    let lhs: Vec<Seen> = flat.iter().map(|n| seen(n)).collect();
+    let mut written: Vec<Seen> = lhs.clone();
+    let mut env: Vec<Seen> = Vec::new();
     for sub in &rule.subrules {
         let mut nodes = Vec::new();
         flatten(&sub.rhs.nodes, &mut nodes);
-        written.extend(
-            nodes
-                .iter()
-                .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
-        );
+        written.extend(nodes.iter().map(|n| seen(n)));
         let mut sides = [Vec::new(), Vec::new()];
         for (side, p) in sides
             .iter_mut()
@@ -218,24 +244,20 @@ fn self_interaction(g: &Grammar, table: TableId, rule: &RewriteRuleDef) -> bool 
                 flatten(&p.nodes, side);
             }
         }
-        wide |= sides.iter().any(|s| s.len() >= 2);
-        env.extend(
-            sides
-                .iter()
-                .flatten()
-                .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
-        );
-        let length_change = rule.lhs.nodes.len() != sub.rhs.nodes.len();
-        if length_change && wide {
+        // A pure insertion can land between two adjacent nodes of another site's window; a rewrite or deletion edits only segments its target matched, which the lane and segment test already covers.
+        if lhs.is_empty() && sides.iter().any(|s| s.len() >= 2) {
             return true;
         }
+        env.extend(sides.iter().flatten().map(|n| seen(n)));
     }
-    let meets = |a: &Vec<u64>, b: &Vec<u64>| a.iter().zip(b).all(|(x, y)| x & y != 0);
+    let meets = |a: &Seen, b: &Seen| {
+        a.0.iter().zip(&b.0).all(|(x, y)| x & y != 0)
+            && match (&a.1, &b.1) {
+                (Some(x), Some(y)) => x.iter().any(|i| y.contains(i)),
+                _ => true,
+            }
+    };
     // Sites of a target of two or more nodes can overlap one another.
-    let lhs: Vec<Vec<u64>> = flat
-        .iter()
-        .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n))
-        .collect();
     let overlapping = lhs
         .iter()
         .enumerate()
