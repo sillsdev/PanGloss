@@ -22,7 +22,7 @@ pub(crate) fn describe() -> Value {
         "errors": ERROR_CODES,
         "stopReasons": STOP_REASONS,
         "classKinds": CLASS_KINDS,
-        "classFields": ["token", "name", "id", "kind"],
+        "classFields": ["token", "name", "fullName", "id", "kind"],
         "featureFields": ["name", "id", "values"],
         "classToken": "the text between the brackets of [token] in a match pattern: the class name, else its XML id when the name is empty, repeated by an earlier class, or not writable in brackets; null when neither spelling reaches the class",
         "work": "one unit per class and per feature value listed",
@@ -92,6 +92,7 @@ pub(crate) fn handle(
         classes.push(json!({
             "token": class_token(g, NatClassId(i as u32)),
             "name": class.name,
+            "fullName": class.full_name,
             "id": class.xml_id,
             "kind": kind,
         }));

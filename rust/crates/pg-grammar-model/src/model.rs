@@ -305,6 +305,8 @@ pub enum PartRef {
 pub struct NaturalClass {
     pub xml_id: String,
     pub name: Option<String>,
+    /// The class's full Name in the analysis writing system, when the source keeps one apart from `name`; `None` otherwise.
+    pub full_name: Option<String>,
     pub kind: NaturalClassKind,
 }
 

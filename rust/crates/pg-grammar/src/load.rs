@@ -456,6 +456,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         natural_classes.push(NaturalClass {
             xml_id: id,
             name: nc.text_of("Name").map(str::to_string),
+            full_name: None,
             kind,
         });
     }
