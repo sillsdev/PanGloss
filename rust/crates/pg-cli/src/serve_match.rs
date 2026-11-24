@@ -18,15 +18,16 @@ const DEFAULT_MAX_MATCHES_PER_WORD: usize = 1000;
 const HARD_MAX_MATCHES_PER_WORD: usize = 100_000;
 const MAX_MATCHES_TOTAL: usize = 1_000_000;
 
-const SUPPORTED_CONSTRUCTS: [&str; 6] = [
+const SUPPORTED_CONSTRUCTS: [&str; 7] = [
     "naturalClass",
     "literal",
     "optional",
     "repeat",
     "wordEdge",
     "morphemeBoundary",
+    "environment",
 ];
-const GATED_CONSTRUCTS: [&str; 3] = ["featureBundle", "alphaVariable", "environment"];
+const GATED_CONSTRUCTS: [&str; 2] = ["featureBundle", "alphaVariable"];
 /// Every error code this op can emit.
 const ERROR_CODES: [&str; 11] = [
     "bad_request",
@@ -291,11 +292,11 @@ pub(crate) fn handle(
             }
         },
     };
-    let pattern = match parse_pattern(g, table, pattern_text, boundary) {
+    let parsed = match parse_pattern(g, table, pattern_text, boundary) {
         Ok(p) => p,
         Err(e) => return pattern_error(id, e),
     };
-    let compiled = match compile_match(g, table_id, &pattern) {
+    let compiled = match compile_match(g, table_id, &parsed) {
         Ok(c) => c,
         Err(e) => return error(id, "pattern_compile_failed", e.0, json!({})),
     };
