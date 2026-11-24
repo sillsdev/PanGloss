@@ -231,6 +231,73 @@ fn plain_mode_carries_the_rule_trace_only_when_asked() {
     assert!(server.finish().success());
 }
 
+fn staged(name: &str) -> String {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/languages")
+        .join(name)
+        .join("grammar.xml")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Batch's `work_steps` for one word under the given extra batch flags.
+fn batch_work_steps(project: &str, word: &str, extra: &[&str]) -> (String, u64) {
+    let dir = std::env::temp_dir().join(format!("pg-serve-ws-{}-{word}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let words = dir.join("w.txt");
+    let out = dir.join("o.tsv");
+    std::fs::write(&words, format!("{word}\n")).unwrap();
+    let status = Command::new(BIN)
+        .args(["batch", project])
+        .arg(&words)
+        .arg(&out)
+        .args(["--work-columns"])
+        .args(extra)
+        .output()
+        .unwrap()
+        .status;
+    assert!(status.success());
+    let text = std::fs::read_to_string(&out).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let cols: Vec<&str> = text.lines().next().unwrap().split('\t').collect();
+    (cols[3].to_string(), cols[5].parse().unwrap())
+}
+
+/// Plain `workSteps` is the untraced count batch reports, whatever `ruleTrace` would give.
+#[test]
+fn plain_work_steps_equal_batch_work_steps() {
+    for (project, words) in [
+        (data("trace-family.xml"), vec!["zodut", "vem", "xqzzkt"]),
+        (
+            staged("prefixal-discontinuous-slot-dependency"),
+            vec!["niyidtan"],
+        ),
+    ] {
+        let (mut server, _) = Server::start(&project, &[]);
+        for word in words {
+            let r = server.parse("p", word, false);
+            let (_, steps) = batch_work_steps(&project, word, &[]);
+            assert_eq!(r["workSteps"], steps, "{word}: {r}");
+        }
+        assert!(server.finish().success());
+    }
+}
+
+/// Near `--work-cap` plain (untraced, as batch) and `ruleTrace:true` can disagree: niyidtan caps plain at 300 but analyses traced.
+#[test]
+fn near_the_work_cap_plain_follows_batch_not_the_traced_parse() {
+    let project = staged("prefixal-discontinuous-slot-dependency");
+    let (mut server, _) = Server::start(&project, &["--work-cap", "300"]);
+    let plain = server.parse("p", "niyidtan", false);
+    let traced =
+        server.ask(json!({"id": "t", "op": "parse", "word": "niyidtan", "ruleTrace": true}));
+    let (batch_status, _) = batch_work_steps(&project, "niyidtan", &["--work-cap", "300"]);
+    assert_eq!(plain["status"], "CAP", "{plain}");
+    assert_eq!(batch_status, "CAP");
+    assert_eq!(traced["status"], "ok", "{traced}");
+    assert!(server.finish().success());
+}
+
 #[test]
 fn describe_declares_the_parse_request_fields() {
     let output = Command::new(BIN).arg("--describe").output().unwrap();

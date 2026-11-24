@@ -413,14 +413,13 @@ struct Served {
 /// The `interfaces.serveOps.parse` capability object.
 pub(crate) fn describe_parse() -> Value {
     json!({
-        "request": PARSE_REQUEST_FIELDS,
+        // Hand-kept; describe_declares_the_parse_request_fields pins ruleTrace and traceDetails.
+        "request": ["id", "op", "word", "traceDetails", "ruleTrace"],
         "defaultTraceDetails": false,
         "defaultRuleTrace": false,
         "ruleTrace": "with traceDetails false, the JSON rule-trace tree is appended to result only when ruleTrace is true; it is neither built nor sent otherwise. traceDetails true ignores ruleTrace",
     })
 }
-
-const PARSE_REQUEST_FIELDS: &[&str] = &["id", "op", "word", "traceDetails", "ruleTrace"];
 
 /// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`, minus the rule-trace tree unless `rule_trace`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
 fn parse_word(
