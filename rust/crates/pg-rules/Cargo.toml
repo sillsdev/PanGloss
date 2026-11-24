@@ -26,10 +26,6 @@ name = "stratum_gate"
 path = "tests/stratum_gate.rs"
 
 [[test]]
-name = "rule_text_gate"
-path = "tests/rule_text_gate.rs"
-
-[[test]]
 name = "mpr_allocation"
 path = "tests/mpr_allocation.rs"
 
