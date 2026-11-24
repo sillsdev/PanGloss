@@ -1774,22 +1774,18 @@ fn blocked_allomorph_snapshot() -> std::path::PathBuf {
         .lexicon
         .entries
         .iter_mut()
-        .find(|e| e.guid.ends_with("0040"))
-        .expect("two-allomorph entry");
-    for allomorph in &mut entry.allomorphs {
-        let form = if allomorph.guid.ends_with("0044") {
-            "tta"
-        } else {
-            "dda"
-        };
-        for ws in &mut allomorph.forms {
-            ws.form = form.into();
-        }
-        allomorph.morph_type = pg_snapshot::MorphType::Stem;
-        if allomorph.guid.ends_with("0044") {
-            allomorph.environments = vec!["00000000-0000-0000-0000-0000000000e1".into()];
-        }
+        .find(|e| e.guid.ends_with("0030"))
+        .expect("the bare stem entry");
+    let mut earlier = entry.allomorphs[0].clone();
+    earlier.guid = "00000000-0000-0000-0000-0000000000e2".into();
+    earlier.environments = vec!["00000000-0000-0000-0000-0000000000e1".into()];
+    for ws in &mut earlier.forms {
+        ws.form = "tta".into();
     }
+    for ws in &mut entry.allomorphs[0].forms {
+        ws.form = "dda".into();
+    }
+    entry.allomorphs.insert(0, earlier);
     // The import's own findings (a dangling environment, a provisional letter) are not part of this synthetic grammar.
     snapshot.conversion_provenance = pg_snapshot::ConversionProvenance::synthetic();
     for entry in &mut snapshot.lexicon.entries {
@@ -1803,7 +1799,7 @@ fn blocked_allomorph_snapshot() -> std::path::PathBuf {
 }
 
 #[test]
-fn retiring_an_earlier_allomorph_unblocks_the_later_one() {
+fn retire_of_an_earlier_allomorph_unblocks_the_later_one() {
     let grammar = blocked_allomorph_snapshot();
     let words: Vec<String> = ["tta", "dda"].iter().map(|s| s.to_string()).collect();
     let baseline = analysed_readings("retire-blocked-base", &grammar, &words).unwrap();
@@ -1813,7 +1809,7 @@ fn retiring_an_earlier_allomorph_unblocks_the_later_one() {
         "retire-blocked",
         &grammar,
         &words,
-        &["00000000-0000-0000-0000-000000000044"],
+        &["00000000-0000-0000-0000-0000000000e2"],
     )
     .expect("allomorph deletion compiles");
     assert_eq!(report[0]["status"], "lost");
