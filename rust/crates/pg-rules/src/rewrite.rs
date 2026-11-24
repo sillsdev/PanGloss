@@ -637,8 +637,17 @@ fn compile_env_impl(
     id_lane: bool,
     synthesis: bool,
 ) -> Option<EnvFst> {
-    try_compile_env_impl(g, table_id, env, strip_boundaries, id_lane, synthesis, &[])
-        .expect("environment compiles")
+    try_compile_env_impl(
+        g,
+        table_id,
+        env,
+        strip_boundaries,
+        id_lane,
+        synthesis,
+        &[],
+        false,
+    )
+    .expect("environment compiles")
 }
 
 /// `compile_env` for an untrusted pattern (query text rather than a loaded grammar): a bridge failure comes back as `Err` instead of a panic. `extra_classes` are the classes the pattern defines itself, numbered after the grammar's own.
@@ -648,10 +657,30 @@ pub(crate) fn try_compile_env(
     env: &Pattern,
     extra_classes: &[NaturalClass],
 ) -> Result<Option<EnvFst>, String> {
-    try_compile_env_impl(g, table_id, Some(env), false, false, true, extra_classes)
+    try_compile_env_impl(
+        g,
+        table_id,
+        Some(env),
+        false,
+        false,
+        true,
+        extra_classes,
+        false,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// `try_compile_env` whose segment test is the one rule application compiles for a rule's target (`lhs_fst`): features decide, and identity only on a featureless grammar. A segment the engine's target FST accepts is accepted here, so the matcher never under-matches the engine.
+pub(crate) fn try_compile_env_as_engine(
+    g: &Grammar,
+    table_id: TableId,
+    env: &Pattern,
+) -> Result<Option<EnvFst>, String> {
+    try_compile_env_impl(g, table_id, Some(env), false, false, true, &[], true)
         .map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_compile_env_impl(
     g: &Grammar,
     table_id: TableId,
@@ -660,6 +689,7 @@ fn try_compile_env_impl(
     id_lane: bool,
     synthesis: bool,
     extra_classes: &[NaturalClass],
+    engine_target: bool,
 ) -> Result<Option<EnvFst>, crate::bridge::BridgeError> {
     let Some(env) = env else { return Ok(None) };
     let stripped;
@@ -685,8 +715,12 @@ fn try_compile_env_impl(
     let bridge = PatternBridge::new(g)
         .with_table(table_id)
         .with_extra_classes(extra_classes)
-        .id_lane(id_lane)
-        .identity_lanes(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none());
+        .id_lane(id_lane);
+    let bridge = if engine_target {
+        bridge.strrep(true)
+    } else {
+        bridge.identity_lanes(!id_lane || crate::bridge::id_lane_width(g, table_id).is_none())
+    };
     let mut compiled = bridge.compile_pattern(pat_ref)?;
     let only_anchor = compiled.top_level_len == 0 && (compiled.anchor_start || compiled.anchor_end);
     let agreement = compiled

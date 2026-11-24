@@ -741,3 +741,129 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
         "match missed a position a conformance alpha rule changes"
     );
 }
+
+/// Whether `pattern` matches `word` (morpheme boundaries written `+`) over a span that overlaps the form's segments `[from, to)` and is not wholly inside them.
+fn straddles_for_real(
+    g: &Grammar,
+    compiled: &CompiledMatch,
+    word: &str,
+    from: usize,
+    to: usize,
+) -> bool {
+    let shape = segment_with_features(g, &g.char_tables[0], word).unwrap();
+    compiled
+        .matches(g, &shape)
+        .iter()
+        .any(|m| m.start < m.end && m.start < to && m.end > from && (m.start < from || m.end > to))
+}
+
+/// The soundness of `StraddleProbes`: whenever a pattern really matches across an edge of a form between any neighbours (with the morpheme boundaries between them), `may_straddle` says so.
+#[test]
+fn a_straddle_probe_never_misses_a_match_across_an_edge() {
+    let g = pg_grammar::load(GRAMMAR).unwrap();
+    let table = &g.char_tables[0];
+    let boundary = crate::pattern_text::boundary_char_def(table, "+");
+    let patterns = [
+        // A natural class and a literal.
+        "[V] /p/",
+        // An optional group in front.
+        "([Stop]) [V]",
+        // An unbounded group between two nodes, and at the end.
+        "/p/ ([V])* /b/",
+        "[V] ([Stop])*",
+        // A single node never straddles.
+        "[Stop]",
+        // Three nodes, so a form can sit wholly inside the pattern.
+        "[Stop] [V] [Stop]",
+    ];
+    let alphabet = ["p", "b", "a", "i", "h"];
+    let mut neighbours = vec![String::new()];
+    for a in alphabet {
+        neighbours.push(a.to_string());
+        for b in alphabet {
+            neighbours.push(format!("{a}{b}"));
+        }
+    }
+    let forms = ["p", "a", "ap", "pa", "bab", "hh"];
+    let (mut straddling, mut clear) = (0usize, 0usize);
+    for text in patterns {
+        let parsed =
+            parse_pattern(&g, table, text, boundary).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        let compiled = compile_match(&g, TableId(0), &parsed).unwrap();
+        let probes = compile_straddle(&g, TableId(0), &parsed.target)
+            .unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        for form in forms {
+            let alone = segment_with_features(&g, table, form).unwrap();
+            let says = probes.may_straddle(&g, &alone);
+            let n = form.chars().count();
+            let mut real = false;
+            for left in &neighbours {
+                for right in &neighbours {
+                    let word = format!("{left}+{form}+{right}");
+                    let from = left.chars().count();
+                    real |= straddles_for_real(&g, &compiled, &word, from, from + n);
+                }
+            }
+            assert!(
+                says || !real,
+                "`{text}` really straddles `{form}` but the probes say no"
+            );
+            if says {
+                straddling += 1;
+            } else {
+                clear += 1;
+            }
+        }
+    }
+    assert!(
+        straddling > 5 && clear > 5,
+        "{straddling} straddle, {clear} clear: the check is not vacuous"
+    );
+}
+
+#[test]
+fn a_pattern_the_probes_cannot_cut_soundly_is_refused() {
+    let g = pg_grammar::load(GRAMMAR).unwrap();
+    let table = &g.char_tables[0];
+    for text in ["([V])*", "([Stop]) ([V])", "+", "#"] {
+        let parsed = parse_pattern(
+            &g,
+            table,
+            text,
+            crate::pattern_text::boundary_char_def(table, "+"),
+        );
+        if let Ok(parsed) = parsed {
+            assert!(
+                compile_straddle(&g, TableId(0), &parsed.target).is_err(),
+                "`{text}` matches no segment, so no probe can be built"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_boundary_or_anchor_in_the_pattern_is_an_edge_marker_and_is_not_cut() {
+    let g = pg_grammar::load(GRAMMAR).unwrap();
+    let table = &g.char_tables[0];
+    let boundary = crate::pattern_text::boundary_char_def(table, "+");
+    for text in [
+        "+ /t/",
+        "/t/ +",
+        "+ /b/ /a/",
+        "[Stop] + [V]",
+        "# /p/ [V]",
+        "[V] /b/ #",
+    ] {
+        let parsed =
+            parse_pattern(&g, table, text, boundary).unwrap_or_else(|e| panic!("{text}: {e:?}"));
+        assert!(has_edge_marker(&g, TableId(0), &parsed.target), "`{text}`");
+        assert!(
+            compile_straddle(&g, TableId(0), &parsed.target).is_err(),
+            "`{text}`"
+        );
+    }
+    for text in ["[V] /p/", "([Stop]) [V]"] {
+        let parsed = parse_pattern(&g, table, text, boundary).unwrap();
+        assert!(!has_edge_marker(&g, TableId(0), &parsed.target), "`{text}`");
+    }
+}

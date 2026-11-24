@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- `pangloss serve` `effects` matches each phonological rule's left-hand side against the allomorph's own form and says `notOnForm` (`reason:"no_lhs_match"`) only when the target has no match inside it or across either morpheme edge and nothing earlier can feed it, so it never means "cannot change". A form that holds the target is `unknown` with `lhsSpans`; anything unproven stays `unknown` with a named reason, among them `lhs_may_straddle_edge`, `lhs_boundary` (a boundary or anchor in the target), `underspecified_segments` (a segment with no value for a feature, where rule application is more permissive), `may_be_fed` (an earlier rule may apply, or an affix modifies stem material) and `form_partly_unmodelled` (a reduplicating, copy-only or modifying affix). `--describe` lists the `reasons`.
+
 ## 0.30.0
 
 Released 2026-11-24.
