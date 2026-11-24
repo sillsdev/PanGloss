@@ -155,8 +155,7 @@ fn parse_all(grammar: &Grammar, s: &Settings<'_>, words: &[&String]) -> Vec<Pars
     let owned: Vec<String> = words.iter().map(|w| (*w).clone()).collect();
     crate::parse_batch_in_order(&owned, s.threads, |_, word| {
         let outcome = morpher.parse_word_opts(word, &opts);
-        let incomplete = outcome.invalid_shape
-            || outcome.timed_out
+        let incomplete = outcome.timed_out
             || outcome.capped
             || outcome.capture_capped
             || outcome.word_mem_capped;
@@ -285,8 +284,12 @@ pub(crate) fn run(
         } else {
             "unchanged"
         };
-        let cause = (status == "lost").then(|| Cause {
-            kind: "no-alternative-chain",
+        let cause = matches!(status, "lost" | "reduced" | "changed").then(|| Cause {
+            kind: if status == "lost" {
+                "no-alternative-chain"
+            } else {
+                "alternative-route"
+            },
             via: lost
                 .iter()
                 .flat_map(|r| {

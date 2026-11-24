@@ -19,7 +19,7 @@
       "additionalProperties": false,
       "required": ["kind", "via"],
       "properties": {
-        "kind": { "enum": ["no-alternative-chain"] },
+        "kind": { "enum": ["no-alternative-chain", "alternative-route"] },
         "via": { "type": "array", "items": { "type": "string" } }
       }
     }

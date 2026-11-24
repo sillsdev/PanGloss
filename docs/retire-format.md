@@ -13,12 +13,14 @@ One JSON object per input word, in input order, schema tag `pangloss-retire/v1`;
 | Field | Meaning |
 | --- | --- |
 | `index`, `word` | Position and text of the word. |
-| `status` | `unchanged`; `lost` (had readings, now none); `reduced` (lost some, keeps others); `gained` (new readings, none lost); `changed` (both); `incomplete` (a cap, timeout or invalid shape stopped either parse, so no verdict). |
+| `status` | `unchanged`; `lost` (had readings, now none); `reduced` (lost some, keeps others); `gained` (new readings, none lost); `changed` (both); `incomplete` (a work cap, memory cap or timeout stopped either parse, so no verdict; rerun with a larger `--work-cap` or `--word-timeout-ms`; a word of invalid shape has no readings on either side and is `unchanged`). |
 | `reparsed` | Whether the retired grammar parsed the word. |
 | `baselineReadings`, `retiredReadings` | Reading counts before and after. |
 | `lost`, `gained` | Readings only before, or only after; each `{entries, morphs}` with `morphs` as in `fieldworks-parse-analysis/v1` and `entries` the sorted entry guids among its morphs (the reading's entry dependency). Readings are compared by their morph list. |
-| `cause` | On `lost` words only: `{kind, via}`. `kind` is `no-alternative-chain` (no reading survives), `via` the retired entries the lost readings ran through. |
+| `cause` | On `lost`, `reduced` and `changed` words: `{kind, via}`. `kind` is `no-alternative-chain` (`lost`: no reading survives) or `alternative-route` (other readings survive), `via` the retired entries the lost readings ran through. |
 
 A summary of status counts is printed to stderr as `RETIRE`.
 
-Not covered: causes finer than `no-alternative-chain` (a class mismatch, dead continuation or repeated affix) are not yet derived for lost words.
+Not covered: causes finer than these (a class mismatch, dead continuation or repeated affix) are not derived; the retired entry is absent from the retired grammar, so a why-not on the lost reading has nothing to explain it with.
+
+Checked on the Swahili project: with 1, 2, 3 and all 29 retire candidates, over all 10,319 gold words, every row equals a plain batch of a snapshot copy with the entries deleted, including words outside the re-parse scope.
