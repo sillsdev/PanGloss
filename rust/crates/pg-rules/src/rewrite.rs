@@ -675,9 +675,19 @@ pub(crate) fn try_compile_env_as_engine(
     g: &Grammar,
     table_id: TableId,
     env: &Pattern,
+    extra_classes: &[NaturalClass],
 ) -> Result<Option<EnvFst>, String> {
-    try_compile_env_impl(g, table_id, Some(env), false, false, true, &[], true)
-        .map_err(|e| e.to_string())
+    try_compile_env_impl(
+        g,
+        table_id,
+        Some(env),
+        false,
+        false,
+        true,
+        extra_classes,
+        true,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -57,8 +57,9 @@ impl Server {
         self.ask(json!({"id": "i", "op": "inventory"}))
     }
 
+    /// Tokens are checked against the members a class lists, so the exact test is asked for; the engine test also takes the segments a class's feature union admits.
     fn matching(&mut self, pattern: &str, words: &[&str]) -> Value {
-        self.ask(json!({"id": "m", "op": "match", "pattern": pattern, "words": words}))
+        self.ask(json!({"id": "m", "op": "match", "pattern": pattern, "words": words, "segmentTest": "identity"}))
     }
 }
 
@@ -313,4 +314,22 @@ fn describe_declares_exactly_what_is_emitted() {
         strings(&decl["request"]),
         BTreeSet::from(["maxWork".to_string(), "wordTimeoutMs".to_string()])
     );
+}
+
+#[test]
+fn under_the_default_segment_test_a_token_selects_the_features_union_of_its_class() {
+    let mut s = Server::start();
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": [WORD]}));
+    assert_eq!(r["type"], "result", "{r}");
+    let letters: Vec<char> = WORD.chars().collect();
+    let got: String = r["words"][0]["matches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| letters[x["segments"][0].as_u64().unwrap() as usize])
+        .collect();
+    // `V` lists a, i and u; the default engine test also takes the segments their feature union admits.
+    assert_eq!(got, "aiunŋ", "{r}");
+    let exact = s.matching("[V]", &[WORD]);
+    assert_ne!(exact, r);
 }

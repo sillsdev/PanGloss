@@ -7,7 +7,9 @@
 //!
 //! A pattern of the form `target / left _ right` compiles each of its three parts the same way and
 //! keeps the target spans whose sides hold, checked by the code a rewrite rule checks its own
-//! environment with, so the result agrees with where a rule applies.
+//! environment with. With [`compile_match_engine`] the target is tested as rule application tests it,
+//! so every position a rule rewrites is among the spans; the sides stay exact, and spans where the
+//! rule would leave the segment unchanged (or overlap another) are extra.
 //!
 //! Alpha variables are bound by that same walk, in a rule's order: the target first, then the left
 //! side, then the right, so one variable agrees across every position of one match. A feature bundle
@@ -35,8 +37,8 @@ pub struct CompiledMatch {
     nullable: bool,
     anchor_start: bool,
     anchor_end: bool,
-    /// Compiled with the engine's segment test, so it may match more than the exact matcher and skips the alpha-agreement filter.
-    engine: bool,
+    /// Skips the alpha-agreement filter, so the matcher can only over-match: set for the target-only engine matcher.
+    skip_alpha: bool,
 }
 
 /// The compiled sides of an environment; a side with no items is `None` and always holds.
@@ -62,7 +64,16 @@ pub fn compile_match(
     table: TableId,
     parsed: &ParsedPattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
-    compile_match_with(g, table, parsed, false)
+    compile_match_with(g, table, parsed, false, false)
+}
+
+/// [`compile_match`] with rule application's segment test for the target only: a segment matches the target by features, so it finds every position the engine's target accepts. The environment sides stay exact, as rule application tests them (a literal names one segment, a class its members). Alpha variables still agree.
+pub fn compile_match_engine(
+    g: &Grammar,
+    table: TableId,
+    parsed: &ParsedPattern,
+) -> Result<CompiledMatch, MatchCompileError> {
+    compile_match_with(g, table, parsed, true, false)
 }
 
 /// [`compile_match`] with the segment test rule application uses for a rule's left-hand side: a segment matches by features (a segment-list class by their union; a literal by its feature bundle), so it never under-matches what the engine rewrites. It over-approximates the engine and ignores alpha-variable agreement; the target only, with no environment.
@@ -76,7 +87,7 @@ pub fn compile_match_as_engine(
         environment: None,
         synthetic_classes: Vec::new(),
     };
-    compile_match_with(g, table, &parsed, true)
+    compile_match_with(g, table, &parsed, true, true)
 }
 
 fn compile_match_with(
@@ -84,11 +95,12 @@ fn compile_match_with(
     table: TableId,
     parsed: &ParsedPattern,
     engine: bool,
+    skip_alpha: bool,
 ) -> Result<CompiledMatch, MatchCompileError> {
     let pattern = &parsed.target;
     let extra = &parsed.synthetic_classes;
     let env = if engine {
-        try_compile_env_as_engine(g, table, pattern)
+        try_compile_env_as_engine(g, table, pattern, extra)
     } else {
         try_compile_env(g, table, pattern, extra)
     }
@@ -122,7 +134,7 @@ fn compile_match_with(
         nullable,
         anchor_start: anchor(AnchorSide::Left),
         anchor_end: anchor(AnchorSide::Right),
-        engine,
+        skip_alpha,
     })
 }
 
@@ -150,7 +162,9 @@ impl CompiledMatch {
             .find_spans(&segs)
             .into_iter()
             .filter(|&(a, b)| {
-                self.engine || !env.uses_alpha() || bind_exact_span(g, env, &segs[a..b]).is_some()
+                self.skip_alpha
+                    || !env.uses_alpha()
+                    || bind_exact_span(g, env, &segs[a..b]).is_some()
             })
             .map(|(a, b)| ShapeMatch {
                 start: before[a],

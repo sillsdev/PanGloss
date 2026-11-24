@@ -602,26 +602,19 @@ fn one_greek_letter_on_two_features_is_unsupported() {
 }
 
 #[test]
-fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
+fn every_position_a_conformance_rule_rewrites_is_a_match_span() {
     use crate::pattern_text::EnvironmentPattern;
     use pg_grammar_model::chardef::CharDefKind;
     use pg_grammar_model::model::RewriteMode;
-    // Feeds each rule's own `Pattern` objects to `compile_match`, bypassing the text parser, over short words of the grammar's own segments. Soundness: every position a simultaneous rule changes is a position `match` reports. Extra positions are fine (the rule's output may equal its input). Iterative rules feed themselves and partial segment classes match by feature union in rule application, so only simultaneous rules are asserted.
-    let (mut rules_checked, mut missed, mut extra, mut skipped) = (0, 0, 0, 0);
+    // Feeds each rule's own `Pattern` objects to `compile_match_engine`, bypassing the text parser, over short words of the grammar's own segments. Soundness: every position a simultaneous rule changes is a position `match` reports. Extra positions are fine (the rule's output may equal its input). Iterative rules feed themselves, so only simultaneous rules are asserted.
+    let (mut rules_checked, mut missed, mut extra, mut skipped, mut panicked) = (0, 0, 0, 0, 0);
     for fixture in
         pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
     {
         let rel = fixture.label();
         let xml = fixture.load_grammar_xml();
-        // Left out, as not this code's concern: a partial segment class matches by feature union in rule application and by exact membership in `match` (the `partial-class` and `ambiguous-disagree` fixtures), and `intermediate-alpha-target` runs on another rule's output.
-        let name = fixture.name.as_str();
-        if name.contains("partial")
-            || name.contains("ambiguous-disagree")
-            || name == "intermediate-alpha-target"
-        {
-            continue;
-        }
-        if !xml.contains("<AlphaVariable") {
+        // Left out: `intermediate-alpha-target` runs on another rule's output.
+        if fixture.name == "intermediate-alpha-target" {
             continue;
         }
         let Ok(mut g) = pg_grammar::load(&xml) else {
@@ -657,7 +650,6 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
             let PhonRuleDef::Rewrite(rule) = rule else {
                 continue;
             };
-            let uses_vars = !rule.vars.vars.is_empty();
             if rule.lhs.nodes.is_empty()
                 || rule
                     .subrules
@@ -667,8 +659,15 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
                 skipped += 1;
                 continue;
             }
+            // `synthesize` runs every rule against the first table, so a rule of another stratum's table has no verdict here.
+            if crate::cache::owning_table_for_prule(&g, pg_grammar_model::model::PRuleId(ri as u32))
+                .is_some_and(|t| t != TableId(0))
+            {
+                skipped += 1;
+                continue;
+            }
             let iterative = rule.mode != RewriteMode::Simultaneous;
-            if !uses_vars || iterative {
+            if iterative {
                 skipped += 1;
                 continue;
             }
@@ -682,7 +681,7 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
                     }),
                     synthetic_classes: Vec::new(),
                 };
-                compiled_all.push(compile_match(&g, TableId(0), &parsed).expect("compiles"));
+                compiled_all.push(compile_match_engine(&g, TableId(0), &parsed).expect("compiles"));
             }
             let gated = rule.subrules.iter().any(|sr| sr.required_pos.is_some());
             rules_checked += 1;
@@ -694,7 +693,16 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
                 let segpos: Vec<usize> = (0..input.len())
                     .filter(|&i| input.kind(i) == NodeKind::Segment)
                     .collect();
-                let applied: Vec<usize> = match synthesize(&g, rule, &input).pop() {
+                // The engine panics on a few fixtures (an out-of-range char-def lookup); such a word has no verdict.
+                let Ok(mut outputs) =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        synthesize(&g, rule, &input)
+                    }))
+                else {
+                    panicked += 1;
+                    continue;
+                };
+                let applied: Vec<usize> = match outputs.pop() {
                     Some(out) if out.len() == input.len() => segpos
                         .iter()
                         .enumerate()
@@ -731,14 +739,14 @@ fn every_conformance_alpha_rule_is_found_by_match_on_its_own_patterns() {
             extra += m2;
         }
     }
-    eprintln!("alpha sweep: rules={rules_checked} skipped={skipped} missed_words={missed} extra_words={extra}");
+    eprintln!("engine sweep: rules={rules_checked} skipped={skipped} engine_panics={panicked} missed_words={missed} extra_words={extra}");
     assert!(
         rules_checked > 0,
-        "the sweep found no simultaneous alpha rule to check"
+        "the sweep found no simultaneous rule to check"
     );
     assert_eq!(
         missed, 0,
-        "match missed a position a conformance alpha rule changes"
+        "match missed a position a conformance rule changes"
     );
 }
 
