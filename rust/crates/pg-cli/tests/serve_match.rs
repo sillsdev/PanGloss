@@ -247,12 +247,153 @@ fn gated_constructs_are_typed_unsupported() {
         ("[+voice]", "featureBundle"),
         ("[-voice]", "featureBundle"),
         ("[αvoice]", "alphaVariable"),
-        ("[V] / [Stop] _ [V]", "environment"),
     ] {
         let r = s.matching(pattern, &["aba"]);
         assert_eq!(r["code"], "unsupported_construct", "{pattern}: {r}");
         assert_eq!(r["construct"], construct, "{pattern}: {r}");
     }
+}
+
+fn first_spans(r: &Value) -> Vec<Vec<(u64, u64)>> {
+    r["words"].as_array().unwrap().iter().map(spans).collect()
+}
+
+#[test]
+fn an_environment_returns_the_target_span_where_both_sides_hold() {
+    let mut s = Server::start();
+    let r = s.matching("[Stop] / [V] _ [V]", &["abada", "bada", "abba"]);
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(1, 2), (3, 4)], vec![(2, 3)], vec![]],
+        "{r}"
+    );
+    assert_eq!(
+        r["words"][0]["matches"][0],
+        json!({"segments": [1, 2], "offsets": [1, 2], "left": [0, 1], "right": [2, 5]})
+    );
+    // One side alone, and a pattern with both sides empty, which is the plain target.
+    let r = s.matching("[Stop] / [V] _", &["abada"]);
+    assert_eq!(first_spans(&r), vec![vec![(1, 2), (3, 4)]], "{r}");
+    let r = s.matching("[Stop] / _ [V]", &["abab"]);
+    assert_eq!(first_spans(&r), vec![vec![(1, 2)]], "{r}");
+    let plain = s.matching("[V]", &["abada"]);
+    let empty = s.matching("[V] / _", &["abada"]);
+    assert_eq!(plain["words"], empty["words"]);
+    // A literal target next to the separator still parses as a literal.
+    let r = s.matching("/b/ / [V] _ [V]", &["abab"]);
+    assert_eq!(first_spans(&r), vec![vec![(1, 2)]], "{r}");
+}
+
+#[test]
+fn environment_anchors_hold_at_both_edges() {
+    let mut s = Server::start();
+    let r = s.matching("[V] / # _", &["aba", "baa"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![]], "{r}");
+    let r = s.matching("[V] / _ #", &["aba", "baa", "bab"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(2, 3)], vec![(2, 3)], vec![]],
+        "{r}"
+    );
+    let r = s.matching("[V] / # _ #", &["a", "aa"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![]], "{r}");
+    // The side may be the anchor alone, with the other side open.
+    let r = s.matching("[Stop] / # _ [V]", &["ba", "aba"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![]], "{r}");
+}
+
+#[test]
+fn optional_elements_in_an_environment_side_may_be_present_or_absent() {
+    let mut s = Server::start();
+    let r = s.matching("[V] / # ([Stop]) _", &["ba", "bba", "aba"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(1, 2)], vec![], vec![(0, 1)]],
+        "{r}"
+    );
+    let r = s.matching("[V] / _ ([Stop]) #", &["a", "ab", "abb"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 1)], vec![(0, 1)], vec![]],
+        "{r}"
+    );
+    let r = s.matching("[Stop] / [V] ([V])* _", &["bab", "baab", "bb"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(2, 3)], vec![(3, 4)], vec![]],
+        "{r}"
+    );
+}
+
+#[test]
+fn an_empty_target_is_an_insertion_point_between_the_sides() {
+    let mut s = Server::start();
+    let r = s.matching("/ [V] _ [V]", &["aa", "aba", "baab"]);
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(1, 1)], vec![], vec![(2, 2)]],
+        "{r}"
+    );
+    let r = s.matching("/ # _ [Stop]", &["ba", "ab"]);
+    assert_eq!(first_spans(&r), vec![vec![(0, 0)], vec![]], "{r}");
+    assert_eq!(
+        r["words"][0]["matches"][0],
+        json!({"segments": [0, 0], "offsets": [0, 0], "left": [0, 0], "right": [0, 2]})
+    );
+}
+
+#[test]
+fn a_boundary_is_transparent_to_a_side_unless_the_side_names_it() {
+    let mut s = Server::start();
+    let ask = |s: &mut Server, pattern: &str| {
+        s.ask(
+            json!({"id": "m", "op": "match", "pattern": pattern, "boundaryMarker": "+",
+            "words": ["a+ba", "aba"]}),
+        )
+    };
+    let r = ask(&mut s, "[V] / _ [Stop]");
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![(0, 1)]], "{r}");
+    let r = ask(&mut s, "[V] / _ + [Stop]");
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![]], "{r}");
+}
+
+#[test]
+fn environment_text_errors_are_typed() {
+    let mut s = Server::start();
+    for (pattern, token, offset) in [
+        ("[V] / [Stop]", "end of pattern", 12),
+        ("[V] _ [Stop]", "_", 4),
+        ("# [V] / _ [Stop]", "#", 0),
+        ("[V] / [Stop] # _", "#", 13),
+        ("[V] / _ # [Stop]", "#", 8),
+        ("[V] / _ [Stop] / _", "/", 15),
+        ("[V] / ) _", ")", 6),
+    ] {
+        let r = s.matching(pattern, &["aba"]);
+        assert_eq!(r["code"], "pattern_parse", "{pattern:?}: {r}");
+        assert_eq!(r["token"], token, "{pattern:?}: {r}");
+        assert_eq!(r["offset"], offset, "{pattern:?}: {r}");
+    }
+}
+
+#[test]
+fn an_environment_runs_under_the_work_budget() {
+    let mut s = Server::start();
+    let long = long_word();
+    let r = s.ask(json!({"id": "m", "op": "match",
+        "pattern": "[V] / ([V])*([V])*([V])*([V])*([V])*[Stop] _ [Stop]",
+        "words": [long, "abab"], "maxWork": 100000}));
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["complete"], false, "{r}");
+    assert_eq!(r["stopReason"], "work_limit");
+    assert_eq!(r["words"][0]["stop"], "work_limit");
+    assert_eq!(r["words"][0]["matches"], json!([]));
+    assert_eq!(r["words"][1]["status"], "ok", "{r}");
+    let r = s.ask(json!({"id": "m", "op": "match",
+        "pattern": "[V] / ([V])*([V])*([V])*([V])*([V])*[Stop] _ [Stop]",
+        "words": [very_long_word()], "maxWork": 4_000_000_000u64, "wordTimeoutMs": 200}));
+    assert_eq!(r["stopReason"], "deadline", "{r}");
 }
 
 #[test]
@@ -461,6 +602,7 @@ fn describe_declares_exactly_what_is_emitted() {
         ("optional", "([V])[V]"),
         ("repeat", "([V])*[V]"),
         ("wordEdge", "#[V]"),
+        ("environment", "[V] / [Stop] _ [Stop]"),
     ];
     let mut covered: BTreeSet<String> = BTreeSet::new();
     for (name, pattern) in supported {
@@ -473,11 +615,7 @@ fn describe_declares_exactly_what_is_emitted() {
     covered.insert("morphemeBoundary".into());
     assert_eq!(strings(&decl["constructs"]["supported"]), covered);
 
-    let gated = [
-        ("featureBundle", "[+voice]"),
-        ("alphaVariable", "[αvoice]"),
-        ("environment", "[V] / [V] _ [V]"),
-    ];
+    let gated = [("featureBundle", "[+voice]"), ("alphaVariable", "[αvoice]")];
     let mut gated_seen: BTreeSet<String> = BTreeSet::new();
     for (name, pattern) in gated {
         let r = s.matching(pattern, &["aba"]);
@@ -520,6 +658,7 @@ fn describe_declares_exactly_what_is_emitted() {
     // Every declared error code is one the requests in this file elicit, and none is undeclared.
     for (pattern, words) in [
         ("[V] x", "aba"),
+        ("[V] / [Stop]", "aba"),
         ("[vowel]", "aba"),
         ("[+voice -hard]", "aba"),
         ("[+voice]", "aba"),

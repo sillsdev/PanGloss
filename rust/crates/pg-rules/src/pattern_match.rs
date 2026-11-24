@@ -4,21 +4,35 @@
 //! matcher: subsumption matching, `#` anchors, optional boundary nodes) and lists every span the
 //! pattern matches, anywhere in the word. Spans are in segment indices: boundary nodes are
 //! optional inside the matcher but are not segments, so they are not counted.
+//!
+//! A pattern of the form `target / left _ right` compiles each of its three parts the same way and
+//! keeps the target spans whose sides hold, checked by the code a rewrite rule checks its own
+//! environment with, so the result agrees with where a rule applies.
 
 use pg_grammar_model::chardef::CharDefTable;
 use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId};
+
+use crate::pattern_text::ParsedPattern;
 use pg_shape::{NodeKind, Shape};
 
-use crate::rewrite::{try_compile_env, EnvFst};
+use crate::rewrite::{environment_holds, try_compile_env, EnvFst};
 
 /// A pattern compiled once and applied to many shapes.
 pub struct CompiledMatch {
     env: Option<EnvFst>,
+    /// The sides of `target / left _ right`; `Some` makes this an environment match.
+    sides: Option<Sides>,
     table: TableId,
     /// Every non-anchor node is an optional group, so the empty string matches.
     nullable: bool,
     anchor_start: bool,
     anchor_end: bool,
+}
+
+/// The compiled sides of an environment; a side with no items is `None` and always holds.
+struct Sides {
+    left: Option<EnvFst>,
+    right: Option<EnvFst>,
 }
 
 /// Why a pattern could not be compiled.
@@ -32,12 +46,13 @@ pub struct ShapeMatch {
     pub end: usize,
 }
 
-/// Compiles `pattern` for shapes segmented with `table`.
+/// Compiles `parsed` for shapes segmented with `table`.
 pub fn compile_match(
     g: &Grammar,
     table: TableId,
-    pattern: &Pattern,
+    parsed: &ParsedPattern,
 ) -> Result<CompiledMatch, MatchCompileError> {
+    let pattern = &parsed.target;
     let env = try_compile_env(g, table, pattern).map_err(MatchCompileError)?;
     let anchor = |side| {
         pattern
@@ -48,8 +63,22 @@ pub fn compile_match(
     let nullable = pattern.nodes.iter().all(|n| {
         matches!(n, PatternNode::Anchor(_)) || matches!(n, PatternNode::Quantifier { min: 0, .. })
     });
+    let sides = match &parsed.environment {
+        None => None,
+        Some(sides) => {
+            let side = |p: &Option<Pattern>| match p {
+                None => Ok(None),
+                Some(p) => try_compile_env(g, table, p).map_err(MatchCompileError),
+            };
+            Some(Sides {
+                left: side(&sides.left)?,
+                right: side(&sides.right)?,
+            })
+        }
+    };
     Ok(CompiledMatch {
         env,
+        sides,
         table,
         nullable,
         anchor_start: anchor(AnchorSide::Left),
@@ -58,11 +87,8 @@ pub fn compile_match(
 }
 
 impl CompiledMatch {
-    /// Every match in `shape`, sorted ascending and deduplicated.
+    /// Every match in `shape`, sorted ascending and deduplicated. For an environment pattern, the target spans whose sides hold.
     pub fn matches(&self, g: &Grammar, shape: &Shape) -> Vec<ShapeMatch> {
-        let Some(env) = &self.env else {
-            return Vec::new();
-        };
         let (segs, node_of) = crate::morph::segs_of(g, self.table, shape, true);
         // before[p] = segments among the first p matcher positions.
         let mut before = Vec::with_capacity(node_of.len() + 1);
@@ -74,6 +100,12 @@ impl CompiledMatch {
             }
             before.push(n);
         }
+        if let Some(sides) = &self.sides {
+            return self.environment_matches(g, sides, &segs, &before);
+        }
+        let Some(env) = &self.env else {
+            return Vec::new();
+        };
         let mut out: Vec<ShapeMatch> = env
             .find_spans(&segs)
             .into_iter()
@@ -94,16 +126,44 @@ impl CompiledMatch {
         out.dedup();
         out
     }
+
+    /// The target spans, in matcher positions, whose left and right sides hold; an empty target (an insertion point) is every position.
+    fn environment_matches(
+        &self,
+        g: &Grammar,
+        sides: &Sides,
+        segs: &[pg_fst::Segment],
+        before: &[usize],
+    ) -> Vec<ShapeMatch> {
+        let mut spans = self
+            .env
+            .as_ref()
+            .map_or_else(Vec::new, |env| env.find_spans(segs));
+        if self.nullable {
+            spans.extend((0..=segs.len()).map(|p| (p, p)));
+        }
+        let mut out: Vec<ShapeMatch> = spans
+            .into_iter()
+            .filter(|&(a, b)| environment_holds(g, segs, a, b, &sides.left, &sides.right))
+            .map(|(a, b)| ShapeMatch {
+                start: before[a],
+                end: before[b],
+            })
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
 }
 
 /// One-shot form of [`compile_match`] then [`CompiledMatch::matches`].
 pub fn match_pattern(
     g: &Grammar,
     table: TableId,
-    pattern: &Pattern,
+    parsed: &ParsedPattern,
     shape: &Shape,
 ) -> Result<Vec<ShapeMatch>, MatchCompileError> {
-    Ok(compile_match(g, table, pattern)?.matches(g, shape))
+    Ok(compile_match(g, table, parsed)?.matches(g, shape))
 }
 
 /// The byte span of each interior (non-anchor) node of `shape` inside `text`, which must be the NFD text the shape was segmented from. `None` when a node's character definition has no representation at its place, which would mean `shape` is not a segmentation of `text`.
@@ -155,3 +215,6 @@ pub fn segment_byte_spans(
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod tests;

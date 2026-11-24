@@ -1082,6 +1082,18 @@ fn environment_bindings(
     Some(bindings)
 }
 
+/// Whether the target span `[start, end)` of `segs` has both environments, checked as a rule application checks them (a side that is `None` holds). The query seam of `crate::pattern_match` for `target / left _ right`.
+pub(crate) fn environment_holds(
+    g: &Grammar,
+    segs: &[Segment],
+    start: usize,
+    end: usize,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+) -> bool {
+    environment_bindings(g, segs, start, end, left, right, Bindings::default()).is_some()
+}
+
 fn apply_variable_bindings(
     g: &Grammar,
     node: &mut MutNode,

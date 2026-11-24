@@ -6,17 +6,21 @@
 //! Supported grammar (whitespace between items is ignored):
 //!
 //! ```text
-//! pattern := item*
+//! pattern := items | items? '/' items? '_' items?      the second form is a rule environment
+//! items   := item*
 //! item    := '#' | '+' | class | literal | group
 //! class   := '[' natural-class-name ']'
 //! literal := '/' segment-text '/'          segmented against the surface table
 //! group   := '(' item+ ')' [ '*' ]         optional, or optional-and-repeated
 //! ```
 //!
-//! `#` is a word edge and may only open or close the top-level pattern. `+` is a morpheme boundary
-//! and needs the caller to name a boundary character definition. Feature bundles (`[+voice -son]`),
-//! alpha variables (`[αback]`) and the rule form `target / left _ right` parse far enough to be
-//! named, and then come back as [`PatternError::Unsupported`] until conformance fixtures exist.
+//! `#` is a word edge. In a plain pattern it may open or close the pattern; in an environment it may
+//! open the left side or close the right side, and the target takes none. `+` is a morpheme boundary
+//! and needs the caller to name a boundary character definition. In an environment the `/` that
+//! separates the target from its sides is followed by whitespace or `_`, which tells it from the
+//! `/` that opens a literal; an empty target is allowed (an insertion point), and so is an empty side.
+//! Feature bundles (`[+voice -son]`) and alpha variables (`[αback]`) parse far enough to be named,
+//! and then come back as [`PatternError::Unsupported`] until conformance fixtures exist.
 
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::model::{
@@ -57,12 +61,40 @@ pub enum PatternError {
     BoundaryNeedsMarkedInput { offset: usize },
 }
 
+/// Pattern text parsed: the target pattern and, for `target / left _ right`, the two sides.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedPattern {
+    /// The whole pattern for plain text; the part before `/` for an environment (possibly empty).
+    pub target: Pattern,
+    /// `Some` when the text has the `target / left _ right` form.
+    pub environment: Option<EnvironmentPattern>,
+}
+
+/// The two sides of `target / left _ right`; a side with no items is `None`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentPattern {
+    pub left: Option<Pattern>,
+    pub right: Option<Pattern>,
+}
+
+/// Which part of the text `Parser::items` is reading.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Section {
+    /// The whole of a plain pattern, or the target before it is known to be an environment's.
+    Top,
+    Group,
+    Left,
+    Right,
+}
+
 struct Parser<'a> {
     g: &'a Grammar,
     table: &'a CharDefTable,
     text: &'a str,
     pos: usize,
     boundary: Option<CharDefId>,
+    /// Offset of the first `#` the parser accepted in the top-level section, so an environment can refuse it in the target.
+    anchor_at: Option<usize>,
 }
 
 /// Parses `text` against the grammar and the character table the words will be segmented with. `boundary` is the character definition `+` stands for, when the caller marks boundaries in its words.
@@ -71,23 +103,59 @@ pub fn parse_pattern(
     table: &CharDefTable,
     text: &str,
     boundary: Option<CharDefId>,
-) -> Result<Pattern, PatternError> {
+) -> Result<ParsedPattern, PatternError> {
     let mut p = Parser {
         g,
         table,
         text,
         pos: 0,
         boundary,
+        anchor_at: None,
     };
-    let mut nodes = Vec::new();
-    p.items(&mut nodes, true)?;
-    if p.peek().is_some() {
-        return Err(p.unexpected(&["end of pattern"]));
+    let mut target = Vec::new();
+    p.items(&mut target, Section::Top)?;
+    match p.peek() {
+        None => {
+            if target.is_empty() {
+                return Err(p.unexpected(&EXPECTED_ITEM_KINDS));
+            }
+            Ok(ParsedPattern {
+                target: Pattern { nodes: target },
+                environment: None,
+            })
+        }
+        Some('/') => {
+            if let Some(anchor) = p
+                .anchor_at
+                .filter(|_| target.iter().any(|n| matches!(n, PatternNode::Anchor(_))))
+            {
+                p.pos = anchor;
+                return Err(p.unexpected(&["'['", "'/'", "'('", "'+'"]));
+            }
+            p.pos += 1; // '/'
+            let mut left = Vec::new();
+            p.items(&mut left, Section::Left)?;
+            if p.peek() != Some('_') {
+                return Err(p.unexpected(&["'_'"]));
+            }
+            p.pos += 1; // '_'
+            let mut right = Vec::new();
+            p.items(&mut right, Section::Right)?;
+            if p.peek().is_some() {
+                return Err(p.unexpected(&["end of pattern"]));
+            }
+            let side = |nodes: Vec<PatternNode>| (!nodes.is_empty()).then_some(Pattern { nodes });
+            Ok(ParsedPattern {
+                target: Pattern { nodes: target },
+                environment: Some(EnvironmentPattern {
+                    left: side(left),
+                    right: side(right),
+                }),
+            })
+        }
+        Some('_') => Err(p.unexpected(&["end of pattern", "'/'"])),
+        Some(_) => Err(p.unexpected(&["end of pattern"])),
     }
-    if nodes.is_empty() {
-        return Err(p.unexpected(&EXPECTED_ITEM_KINDS));
-    }
-    Ok(Pattern { nodes })
 }
 
 impl Parser<'_> {
@@ -112,21 +180,36 @@ impl Parser<'_> {
         }
     }
 
-    /// Reads items until `)` or the end. `top` allows `#` at the pattern's two ends.
-    fn items(&mut self, out: &mut Vec<PatternNode>, top: bool) -> Result<(), PatternError> {
+    /// Whether the `/` at the cursor separates an environment's target from its sides: it is followed by whitespace, `_` or the end, where a literal's `/` is followed by segment text.
+    fn at_environment_slash(&self) -> bool {
+        self.text[self.pos + 1..]
+            .chars()
+            .next()
+            .is_none_or(|c| c.is_whitespace() || c == '_')
+    }
+
+    /// Reads items until the end of the section: `)` closes a group, `_` ends a left side, and an environment's `/` ends the target. `#` is allowed where `section` says.
+    fn items(&mut self, out: &mut Vec<PatternNode>, section: Section) -> Result<(), PatternError> {
         let mut seen_item = false;
         loop {
             self.skip_space();
             let Some(c) = self.peek() else { return Ok(()) };
             match c {
-                ')' => return Ok(()),
+                ')' | '_' => return Ok(()),
+                '/' if self.at_environment_slash() => return Ok(()),
                 '#' => {
                     let at = self.pos;
-                    if !top {
+                    let opens = matches!(section, Section::Top | Section::Left) && !seen_item;
+                    let closes =
+                        section == Section::Right || (section == Section::Top && seen_item);
+                    if !opens && !closes {
                         return Err(self.unexpected(&["'['", "'/'", "'('", "'+'", "')'"]));
                     }
                     self.pos += 1;
-                    if !seen_item {
+                    if opens {
+                        if section == Section::Top {
+                            self.anchor_at.get_or_insert(at);
+                        }
                         out.push(PatternNode::Anchor(AnchorSide::Left));
                         seen_item = true;
                         continue;
@@ -148,20 +231,8 @@ impl Parser<'_> {
                     }
                 }
                 '[' => out.push(self.class()?),
-                '/' if seen_item && self.text[self.pos..].contains('_') => {
-                    return Err(PatternError::Unsupported {
-                        construct: "environment",
-                        offset: self.pos,
-                    })
-                }
                 '/' => self.literal(out)?,
                 '(' => out.push(self.group()?),
-                '_' => {
-                    return Err(PatternError::Unsupported {
-                        construct: "environment",
-                        offset: self.pos,
-                    })
-                }
                 _ => return Err(self.unexpected(&EXPECTED_ITEM_KINDS)),
             }
             seen_item = true;
@@ -171,7 +242,7 @@ impl Parser<'_> {
     fn group(&mut self) -> Result<PatternNode, PatternError> {
         self.pos += 1; // '('
         let mut children = Vec::new();
-        self.items(&mut children, false)?;
+        self.items(&mut children, Section::Group)?;
         if self.peek() != Some(')') {
             return Err(self.unexpected(&["')'"]));
         }
