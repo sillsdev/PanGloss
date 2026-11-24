@@ -387,6 +387,15 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             }),
             false,
         ),
+        Some("shadowedAllomorphs") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_shadowed::handle(ctx.grammar, &id, object)
+            }))
+            .unwrap_or_else(|_| {
+                error_response(&id, "internal", "shadowedAllomorphs panicked; see stderr")
+            }),
+            false,
+        ),
         Some(other) => (
             error_response(&id, "unknown_op", &format!("unknown op: {other}")),
             false,
