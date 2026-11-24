@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.31.0
+
+Released 2026-11-24.
 
 - `pangloss serve` op `inventory`: each class row also carries `fullName`, the natural class's Name in the analysis writing system, or `null` when the grammar has none (a FieldWorks class with no Name, or any grammar loaded from HermitCrab XML, which has one label). `name` is unchanged and stays the Abbreviation for a FieldWorks project, so a host can resolve the full Name a user copied (`Vowels`) to the label `match` takes (`V`); `match` still accepts only the `token`. Declared in `--describe` as `interfaces.serveOps.inventory.classFields`. See `docs/formats/serve-protocol.md`.
 - **Behaviour change:** `pangloss serve` `match` tests a target's segments the way rule application does by default: a literal matches every segment with its feature bundle and a segment-list class matches by the union of its members' features, so every position a rule rewrites is a reported span (it used to miss them); an environment side is still exact, as in rule application, and spans may include positions the rule leaves unchanged. The old exact test is kept as the request key `segmentTest:"identity"` (`"engine"` is the default); `--describe` lists `segmentTests` and `defaultSegmentTest`, the way to detect the new default (the protocol version is unchanged); an inventory `token` now selects the class's feature union unless `identity` is sent. A request that relied on exact matching of a literal or class must send `segmentTest:"identity"`.
