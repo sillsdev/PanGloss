@@ -3,7 +3,7 @@
 //!
 //! The types, input validation and wire shape (`pangloss.whynot.v1`, `docs/formats/why-not.md`)
 //! are what a consumer codes against; [`why_not`] validates its input and answers each candidate
-//! with [`engine`]. Vocabulary is the
+//! with `engine`. Vocabulary is the
 //! rejection-diagnostics v1 vocabulary (`docs/formats/rejection-trace-v1.md`): `hc_reason` carries
 //! the C# `FailureReason` name, the grammar object carries `type`/`id`/`guid`, and `entry_guid` plus
 //! `msa_guid` are the same FieldWorks identities the v1 selector resolves. Morphemes and stem names
@@ -783,7 +783,7 @@ pub fn validate(g: &Grammar, req: &WhyNotRequest<'_>) -> Result<(), WhyNotError>
     Ok(())
 }
 
-/// The best candidate: the first accepted one; else the rejected one with the furthest [`Progress`],
+/// The best candidate: the first accepted one; else the rejected one with the furthest `Progress`,
 /// earliest in input order on a tie; else `None` (every candidate unknown).
 pub fn select_best(results: &[CandidateResult]) -> Option<usize> {
     if let Some(i) = results
