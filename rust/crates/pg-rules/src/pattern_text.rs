@@ -517,7 +517,7 @@ pub fn boundary_char_def(table: &CharDefTable, marker: &str) -> Option<CharDefId
 }
 
 /// Every `reason` a [`PatternPrinter`] refusal can carry.
-pub const UNPRINTABLE_REASONS: [&str; 22] = [
+pub const UNPRINTABLE_REASONS: [&str; 23] = [
     "stratum_table_differs",
     "segment_not_writable",
     "segment_not_in_surface_table",
@@ -540,6 +540,7 @@ pub const UNPRINTABLE_REASONS: [&str; 22] = [
     "boundary_rewrite",
     "rhs_node_kind",
     "lhs_node_kind",
+    "output_underspecified_segments",
 ];
 
 /// A pattern the match text cannot say exactly; the code is one of [`UNPRINTABLE_REASONS`].

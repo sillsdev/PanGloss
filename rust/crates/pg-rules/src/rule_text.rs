@@ -1,11 +1,11 @@
 //! A phonological rule as the text serve `match` reads: `lhs`, `environment`, the combined `target / left _ right` and `rhs`, each printed exactly or refused with a typed reason, plus the reasons a rule is not local.
 
 use pg_featstruct::SymbolBits;
-use pg_grammar_model::chardef::CharDefKind;
+use pg_grammar_model::chardef::{CharDefKind, CharDefTable};
 use pg_grammar_model::featsys::FlatIndex;
 use pg_grammar_model::model::{
-    AlphaVar, Grammar, NaturalClassKind, Pattern, PatternNode, PhonRuleDef, RewriteMode,
-    RewriteRuleDef, RewriteSubruleDef, TableId, VarId,
+    AlphaVar, Grammar, MRuleId, MorphRuleDef, NaturalClassKind, OutputAction, Pattern, PatternNode,
+    PhonRuleDef, RewriteMode, RewriteRuleDef, RewriteSubruleDef, TableId, VarId,
 };
 
 use crate::pattern_match::compile_match_as_engine;
@@ -52,14 +52,18 @@ pub struct RuleText {
     pub output_target_len: usize,
     /// Whether the output pattern holds a word edge.
     output_has_edge: bool,
+    /// Whether the rule's own written or rewritten segments could satisfy or overlap its own environment, or an insertion or length change has a side of two or more nodes: one site's edit can then change another site's environment.
+    pub output_self_interaction: bool,
 }
 
 /// The `outputMayBeAltered` reasons, as `(reason)` codes.
-pub const OUTPUT_ALTERED_REASONS: [&str; 4] = [
+pub const OUTPUT_ALTERED_REASONS: [&str; 6] = [
     "nonLocal",
     "laterRewrite",
     "laterInsertion",
     "wordEdgeLaterStratum",
+    "selfInteraction",
+    "laterMorphology",
 ];
 
 /// The text of subrule `subrule` of `rule`, which runs in a stratum whose character table is `stratum_table`; the text is read against the last stratum's (surface) table.
@@ -178,8 +182,65 @@ pub fn rule_text(
             (_, Err(e)) => out.output_unprintable.push(("outputMatchPattern", e.0)),
         }
     }
+    if let PhonRuleDef::Rewrite(r) = rule {
+        out.output_self_interaction = self_interaction(g, stratum_table, r);
+    }
     out.boundary_marker = printer.boundary_marker().map(str::to_string);
     out
+}
+
+/// Whether what the rule rewrites or writes (any subrule: they share one pass) could satisfy a node of any subrule's environment, or an insertion or length change has an environment side of two or more nodes. Conservative: lane overlap only.
+fn self_interaction(g: &Grammar, table: TableId, rule: &RewriteRuleDef) -> bool {
+    let chardefs = &g.char_tables[table.0 as usize];
+    let mut env = Vec::new();
+    let mut written: Vec<Vec<u64>> = Vec::new();
+    let mut flat = Vec::new();
+    flatten(&rule.lhs.nodes, &mut flat);
+    written.extend(
+        flat.iter()
+            .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
+    );
+    let mut wide = false;
+    for sub in &rule.subrules {
+        let mut nodes = Vec::new();
+        flatten(&sub.rhs.nodes, &mut nodes);
+        written.extend(
+            nodes
+                .iter()
+                .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
+        );
+        let mut sides = [Vec::new(), Vec::new()];
+        for (side, p) in sides
+            .iter_mut()
+            .zip([sub.left_env.as_ref(), sub.right_env.as_ref()])
+        {
+            if let Some(p) = p {
+                flatten(&p.nodes, side);
+            }
+        }
+        wide |= sides.iter().any(|s| s.len() >= 2);
+        env.extend(
+            sides
+                .iter()
+                .flatten()
+                .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n)),
+        );
+        let length_change = rule.lhs.nodes.len() != sub.rhs.nodes.len();
+        if length_change && wide {
+            return true;
+        }
+    }
+    let meets = |a: &Vec<u64>, b: &Vec<u64>| a.iter().zip(b).all(|(x, y)| x & y != 0);
+    // Sites of a target of two or more nodes can overlap one another.
+    let lhs: Vec<Vec<u64>> = flat
+        .iter()
+        .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n))
+        .collect();
+    let overlapping = lhs
+        .iter()
+        .enumerate()
+        .any(|(i, a)| lhs.iter().skip(i + 1).any(|b| meets(a, b)));
+    overlapping || written.iter().any(|w| env.iter().any(|e| meets(w, e)))
 }
 
 impl RuleText {
@@ -194,6 +255,34 @@ impl RuleText {
         }
         if self.output_has_edge && stratum + 1 < g.strata.len() {
             reasons.push((OUTPUT_ALTERED_REASONS[3], None));
+        }
+        if self.output_self_interaction {
+            let own = g
+                .strata
+                .get(stratum)
+                .and_then(|s| s.prules.get(ordinal))
+                .and_then(|p| g.prules.get(p.0 as usize))
+                .map(|r| match r {
+                    PhonRuleDef::Rewrite(r) => r.xml_id.clone(),
+                    PhonRuleDef::Metathesis(r) => r.xml_id.clone(),
+                });
+            reasons.push((OUTPUT_ALTERED_REASONS[4], own));
+        }
+        for st in g.strata.iter().skip(stratum + 1) {
+            let mut rules: Vec<MRuleId> = st.mrules.clone();
+            for t in &st.templates {
+                if let Some(t) = g.templates.get(t.0 as usize) {
+                    rules.extend(t.slots.iter().flat_map(|slot| slot.rules.iter().copied()));
+                }
+            }
+            for id in rules {
+                if let Some(rule) = g.mrules.get(id.0 as usize) {
+                    if !plain_affix(rule) {
+                        reasons.push((OUTPUT_ALTERED_REASONS[5], None));
+                        break;
+                    }
+                }
+            }
         }
         for (si, st) in g.strata.iter().enumerate().skip(stratum) {
             for (oi, pid) in st.prules.iter().enumerate() {
@@ -232,6 +321,42 @@ impl RuleText {
         self.output_may_be_altered = Some(!reasons.is_empty());
         self.output_altered_reasons = reasons;
     }
+}
+
+/// Whether a morphological rule only adds a prefix or a suffix to its copied input: one input part, copied whole, only segments inserted around it. Anything else (a modified or split copy, an infix, reduplication, compounding, a realizational rule) can rewrite or split what an earlier stratum wrote.
+fn plain_affix(rule: &MorphRuleDef) -> bool {
+    let MorphRuleDef::AffixProcess(def) = rule else {
+        return false;
+    };
+    def.allomorphs.iter().all(|a| {
+        let copies = a
+            .rhs
+            .iter()
+            .filter(|o| matches!(o, OutputAction::Copy(_)))
+            .count();
+        let only_inserts = a.rhs.iter().all(|o| {
+            matches!(
+                o,
+                OutputAction::Copy(_) | OutputAction::InsertSegments { .. }
+            )
+        });
+        a.lhs.len() <= 1 && copies == 1 && only_inserts
+    })
+}
+
+/// Whether a segment the engine could spell a node of `lanes` as holds back a feature the node pins (it leaves the feature unspecified), so the spelled word no longer satisfies the pattern.
+fn spelling_underspecified(g: &Grammar, table: &CharDefTable, lanes: &[u64]) -> bool {
+    let nfeat = g.phon_features.len();
+    let mut node = lanes.to_vec();
+    for (f, lane) in node.iter_mut().enumerate().skip(nfeat) {
+        *lane = pg_grammar_model::membership::mask(&g.phon_features, f);
+    }
+    table.iter().any(|(_, def)| {
+        let seg = def.matching_lanes();
+        def.kind() == CharDefKind::Segment
+            && pg_featstruct::flat_unifiable(&node, &seg)
+            && seg.iter().zip(&node).take(nfeat).any(|(s, n)| s & !n != 0)
+    })
 }
 
 /// A lane vector that constrains nothing.
@@ -319,10 +444,15 @@ fn output_target(
             }
         }
         let text = printer.print(&sub.rhs, Place::Target)?;
-        let covered = rhs_nodes
+        let covered: Vec<Vec<u64>> = rhs_nodes
             .iter()
             .map(|n| crate::rewrite::node_full_lanes(g, chardefs, n))
             .collect();
+        for (n, lanes) in rhs_nodes.iter().zip(&covered) {
+            if matches!(n, PatternNode::Context(_)) && spelling_underspecified(g, chardefs, lanes) {
+                return Err(Unprintable("output_underspecified_segments"));
+            }
+        }
         return Ok((text, covered));
     }
     let mut words = Vec::new();
@@ -334,10 +464,12 @@ fn output_target(
         if is_boundary(g, l, table) || is_boundary(g, r, table) {
             return Err(Unprintable("boundary_rewrite"));
         }
+        // Both sides are segments, so the `Type` pair every loaded class carries agrees and the bundle text does not name it.
+        let type_lane = g.phon_features.type_flat().0 as usize;
         let features = |n: &PatternNode| -> Vec<(usize, u64)> {
             node_pins(g, chardefs, n)
                 .into_iter()
-                .filter(|(f, _)| *f < nfeat)
+                .filter(|(f, _)| *f < nfeat && *f != type_lane)
                 .collect()
         };
         let (pins_l, pins_r) = (features(l), features(r));
@@ -386,6 +518,9 @@ fn output_target(
         let mut lanes = full_lanes(g);
         for (f, b) in &result {
             lanes[*f] = *b;
+        }
+        if spelling_underspecified(g, chardefs, &lanes) {
+            return Err(Unprintable("output_underspecified_segments"));
         }
         words.push(word);
         covered.push(lanes);

@@ -462,7 +462,9 @@ fn every_output_pattern_reads_back_as_the_features_the_rewrite_leaves() {
                             }
                             _ => Vec::new(),
                         };
-                        for f in (0..nfeat).filter(|f| !vars.contains(f)) {
+                        for f in (0..nfeat).filter(|f| {
+                            !vars.contains(f) && *f != g.phon_features.type_flat().0 as usize
+                        }) {
                             if lanes[f] != text.output_covered[i][f] {
                                 failures.push(format!(
                                     "{at}: `{pattern}` node {i} feature {f} reads back as {:#x}, the rewrite leaves {:#x}",

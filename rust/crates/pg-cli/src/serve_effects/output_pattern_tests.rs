@@ -1,16 +1,21 @@
-//! Soundness of `outputMatchPattern`: where a rule alone rewrote a word, `match` of the output pattern on the output word reports a span there.
+//! Soundness of `outputMatchPattern`: where one subrule alone rewrote a word, `match` of the output pattern on the output word reports a span at every edit.
 
 use std::collections::BTreeMap;
 
 use pg_grammar::chardef::CharDefKind;
-use pg_grammar::model::{PRuleId, PhonRuleDef};
+use pg_grammar::model::{Grammar, PRuleId, PhonRuleDef};
 use pg_parse::Morpher;
 use pg_rules::rule_text::{rule_text, RuleText};
 use pg_rules::shape_feat::segment_with_features_load as segment_with_features;
 use pg_rules::surface_probe::render_shape_marked;
 use serde_json::json;
 
-/// What one run over the fixtures found.
+/// An output word and, per edit, the segment ranges it may sit at.
+type Edit = (String, Vec<Vec<(usize, usize)>>);
+
+type Loader = Box<dyn Fn() -> Grammar>;
+
+/// What one run over the grammars found.
 #[derive(Default)]
 struct Sweep {
     tally: BTreeMap<String, usize>,
@@ -21,20 +26,95 @@ fn is_boundary(kind: impl std::fmt::Debug) -> bool {
     format!("{kind:?}") == "Boundary"
 }
 
-/// Applies each printable, local rule alone to generated words and checks `pattern_of(text)` against the output words; every rewritten position (a segment whose features changed, or the edit point of a length change) must lie in a reported span.
-fn sweep(pattern_of: &dyn Fn(&RuleText) -> Option<String>) -> Sweep {
+fn conformance() -> Vec<(String, Loader)> {
+    pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
+        .into_iter()
+        .map(|f| {
+            let label = f.label().to_string();
+            let load: Loader = Box::new(move || f.load_grammar());
+            (label, load)
+        })
+        .collect()
+}
+
+fn xml(label: &str, text: &'static str) -> (String, Loader) {
+    (
+        label.to_string(),
+        Box::new(move || pg_grammar::load(text).expect("the grammar loads")),
+    )
+}
+
+fn attack_grammars() -> Vec<(String, Loader)> {
+    vec![
+        xml(
+            "selfsim",
+            include_str!("../../tests/data/effects-output-selfsim.xml"),
+        ),
+        xml(
+            "selfiter",
+            include_str!("../../tests/data/effects-output-selfiter.xml"),
+        ),
+        xml(
+            "insertsim",
+            include_str!("../../tests/data/effects-output-insertsim.xml"),
+        ),
+    ]
+}
+
+/// The aligned edit regions `(i0, i1, o0, o1)` between two node lists, from a longest common subsequence.
+fn regions<T: PartialEq>(a: &[T], b: &[T]) -> Vec<(usize, usize, usize, usize)> {
+    let (n, m) = (a.len(), b.len());
+    let mut lcs = vec![vec![0usize; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if a[i] == b[j] {
+                lcs[i + 1][j + 1] + 1
+            } else {
+                lcs[i + 1][j].max(lcs[i][j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let (mut start, mut out) = (None, Vec::new());
+    while i < n || j < m {
+        if i < n && j < m && a[i] == b[j] {
+            if let Some((i0, j0)) = start.take() {
+                out.push((i0, i, j0, j));
+            }
+            i += 1;
+            j += 1;
+        } else {
+            start.get_or_insert((i, j));
+            if i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1]) {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+    }
+    if let Some((i0, j0)) = start {
+        out.push((i0, n, j0, m));
+    }
+    out
+}
+
+/// Applies each printable, local subrule alone to generated words and checks `pattern_of(text)` against the output words; every edit (a segment whose features changed, an inserted run, a deletion point) must lie in a reported span. Rows `skip` names are counted and left out.
+fn sweep(
+    grammars: Vec<(String, Loader)>,
+    pattern_of: &dyn Fn(&RuleText) -> Option<String>,
+    skip: &dyn Fn(&RuleText) -> bool,
+) -> Sweep {
     let mut out = Sweep::default();
     let mut tally = |key: &str, n: usize| *out.tally.entry(key.to_string()).or_default() += n;
     let mut misses = Vec::new();
-    for fixture in
-        pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
-    {
-        let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
+    for (label, load) in grammars {
+        let Ok(g) = std::panic::catch_unwind(AssertUnwindSafe(&load)) else {
             continue;
         };
         let Some(last) = g.strata.last().map(|s| s.table) else {
             continue;
         };
+        let mut ug = load();
         let morpher = Morpher::new(&g, 50_000_000);
         let table = &g.char_tables[last.0 as usize];
         let mut roots: Vec<String> = g
@@ -67,8 +147,8 @@ fn sweep(pattern_of: &dyn Fn(&RuleText) -> Option<String>) -> Sweep {
             .take(6)
             .chain(segments.iter().take(8))
             .collect();
-        for stratum in &g.strata {
-            for PRuleId(index) in &stratum.prules {
+        for (stratum_index, stratum) in g.strata.iter().enumerate() {
+            for (ordinal, PRuleId(index)) in stratum.prules.iter().enumerate() {
                 let Some(def @ PhonRuleDef::Rewrite(rule)) = g.prules.get(*index as usize) else {
                     continue;
                 };
@@ -76,165 +156,171 @@ fn sweep(pattern_of: &dyn Fn(&RuleText) -> Option<String>) -> Sweep {
                     tally("rules of another stratum table", 1);
                     continue;
                 }
-                let texts: Vec<RuleText> = (0..rule.subrules.len())
-                    .map(|i| rule_text(&g, def, i, stratum.table))
-                    .collect();
-                if texts.is_empty() || texts.iter().any(|t| pattern_of(t).is_none()) {
-                    tally("rules with no output pattern", 1);
-                    continue;
-                }
-                if texts.iter().any(|t| !t.non_local.is_empty()) {
-                    tally("rules flagged non-local", 1);
-                    continue;
-                }
-                let markers: Vec<&str> = texts
-                    .iter()
-                    .filter_map(|t| t.boundary_marker.as_deref())
-                    .collect();
-                if markers.windows(2).any(|w| w[0] != w[1]) {
-                    tally("rules with two boundary markers", 1);
-                    continue;
-                }
-                tally("rules checked", 1);
-                // Per word: the output text and, for each edit, the segment ranges it may be placed at.
-                type Edit = (String, Vec<Vec<(usize, usize)>>);
-                let mut edits: Vec<Edit> = Vec::new();
-                for separator in &separators {
-                    if markers
-                        .first()
-                        .is_some_and(|m| !separator.is_empty() && separator != m)
-                    {
+                let subrules = rule.subrules.len();
+                for sub in 0..subrules {
+                    let mut text = rule_text(&g, def, sub, stratum.table);
+                    text.with_alteration(&g, stratum_index, ordinal);
+                    if pattern_of(&text).is_none() {
+                        tally("rows with no output pattern", 1);
                         continue;
                     }
-                    for left in &sides {
-                        for focus in &foci {
-                            for right in &sides {
-                                let word = format!("{left}{separator}{focus}{separator}{right}");
-                                let Ok(input) = segment_with_features(&g, table, &word) else {
-                                    continue;
-                                };
-                                let Ok(outputs) =
-                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        pg_rules::rewrite::synthesize(&g, rule, &input)
-                                    }))
-                                else {
-                                    continue;
-                                };
-                                let Some(output) = outputs.last() else {
-                                    continue;
-                                };
-                                let inn: Vec<_> = input
-                                    .interior()
-                                    .map(|(n, k, _, _)| {
-                                        (
-                                            is_boundary(k),
-                                            (input.char_def(n), input.node_lanes(n).to_vec()),
-                                        )
-                                    })
-                                    .collect();
-                                let outn: Vec<_> = output
-                                    .interior()
-                                    .map(|(n, k, _, _)| {
-                                        (
-                                            is_boundary(k),
-                                            (output.char_def(n), output.node_lanes(n).to_vec()),
-                                        )
-                                    })
-                                    .collect();
-                                if inn == outn {
-                                    continue;
-                                }
-                                let Some(text) =
-                                    render_shape_marked(table, output, separator.as_str())
-                                else {
-                                    tally("outputs with no spelling", 1);
-                                    continue;
-                                };
-                                // Segment index of node position `p`.
-                                let seg_at = |nodes: &[(bool, _)], p: usize| {
-                                    nodes[..p].iter().filter(|(b, _)| !b).count()
-                                };
-                                let mut checks: Vec<Vec<(usize, usize)>> = Vec::new();
-                                if inn.len() == outn.len() {
-                                    for (p, (a, b)) in inn.iter().zip(&outn).enumerate() {
-                                        if a != b && !b.0 {
-                                            let at = seg_at(&outn, p);
-                                            checks.push(vec![(at, at + 1)]);
-                                            tally("equal-length places", 1);
-                                        }
-                                    }
-                                } else {
-                                    let prefix =
-                                        inn.iter().zip(&outn).take_while(|(a, b)| a == b).count();
-                                    let suffix = inn[prefix..]
-                                        .iter()
-                                        .rev()
-                                        .zip(outn[prefix..].iter().rev())
-                                        .take_while(|(a, b)| a == b)
-                                        .count();
-                                    let (ri, ro) =
-                                        (inn.len() - prefix - suffix, outn.len() - prefix - suffix);
-                                    let widest = rule
-                                        .subrules
-                                        .iter()
-                                        .map(|s| s.rhs.nodes.len())
-                                        .max()
-                                        .unwrap_or(0);
-                                    if ri > rule.lhs.nodes.len() || ro > widest {
-                                        tally("length changes of more than one site left out", 1);
+                    if !text.non_local.is_empty() {
+                        tally("rows flagged non-local", 1);
+                        continue;
+                    }
+                    if skip(&text) {
+                        tally("rows flagged for self interaction", 1);
+                        continue;
+                    }
+                    tally("rows checked", 1);
+                    // Run this subrule alone: the others' edits would be unexplained.
+                    let held = {
+                        let Some(PhonRuleDef::Rewrite(r)) = ug.prules.get_mut(*index as usize)
+                        else {
+                            continue;
+                        };
+                        let mut all = std::mem::take(&mut r.subrules);
+                        r.subrules = vec![all.remove(sub)];
+                        all
+                    };
+                    let Some(PhonRuleDef::Rewrite(alone)) = ug.prules.get(*index as usize) else {
+                        continue;
+                    };
+                    let mut edits: Vec<Edit> = Vec::new();
+                    for separator in &separators {
+                        if text
+                            .boundary_marker
+                            .as_ref()
+                            .is_some_and(|m| !separator.is_empty() && separator != m)
+                        {
+                            continue;
+                        }
+                        for left in &sides {
+                            for focus in &foci {
+                                for right in &sides {
+                                    let word =
+                                        format!("{left}{separator}{focus}{separator}{right}");
+                                    let Ok(input) = segment_with_features(&ug, table, &word) else {
                                         continue;
-                                    }
-                                    // A pure insertion or deletion next to an equal node can sit one place either way; every such place gives the same word.
-                                    let (block, width) =
-                                        if ro > 0 { (&outn, ro) } else { (&inn, ri) };
-                                    let (mut lo, mut hi) = (prefix, prefix);
-                                    if ri == 0 || ro == 0 {
-                                        while lo > 0 && block[lo - 1] == block[lo + width - 1] {
-                                            lo -= 1;
-                                        }
-                                        while hi + width < block.len()
-                                            && block[hi + width] == block[hi]
-                                        {
-                                            hi += 1;
-                                        }
-                                    }
-                                    let places = (lo..=hi)
-                                        .map(|q| {
-                                            let a = seg_at(block, q);
-                                            if ro > 0 {
-                                                (a, seg_at(block, q + width))
-                                            } else {
-                                                (a, a)
-                                            }
+                                    };
+                                    let Ok(outputs) =
+                                        std::panic::catch_unwind(AssertUnwindSafe(|| {
+                                            pg_rules::rewrite::synthesize(&ug, alone, &input)
+                                        }))
+                                    else {
+                                        continue;
+                                    };
+                                    let Some(output) = outputs.last() else {
+                                        continue;
+                                    };
+                                    let inn: Vec<_> = input
+                                        .interior()
+                                        .map(|(n, k, _, _)| {
+                                            (
+                                                is_boundary(k),
+                                                (input.char_def(n), input.node_lanes(n).to_vec()),
+                                            )
                                         })
                                         .collect();
-                                    tally(
-                                        match (ri, ro) {
-                                            (_, 0) => "deletion places",
-                                            (0, _) => "insertion places",
-                                            _ => "expansion places",
-                                        },
-                                        1,
-                                    );
-                                    checks.push(places);
+                                    let outn: Vec<_> = output
+                                        .interior()
+                                        .map(|(n, k, _, _)| {
+                                            (
+                                                is_boundary(k),
+                                                (output.char_def(n), output.node_lanes(n).to_vec()),
+                                            )
+                                        })
+                                        .collect();
+                                    if inn == outn {
+                                        continue;
+                                    }
+                                    let Some(spelled) =
+                                        render_shape_marked(table, output, separator.as_str())
+                                    else {
+                                        tally("outputs with no spelling", 1);
+                                        continue;
+                                    };
+                                    let seg_at = |nodes: &[(bool, _)], p: usize| {
+                                        nodes[..p].iter().filter(|(b, _)| !b).count()
+                                    };
+                                    let mut checks: Vec<Vec<(usize, usize)>> = Vec::new();
+                                    if inn.len() == outn.len() {
+                                        for (p, (a, b)) in inn.iter().zip(&outn).enumerate() {
+                                            if a != b && !b.0 {
+                                                let at = seg_at(&outn, p);
+                                                checks.push(vec![(at, at + 1)]);
+                                                tally("equal-length places", 1);
+                                            }
+                                        }
+                                    } else {
+                                        for (i0, i1, o0, o1) in regions(&inn, &outn) {
+                                            let (ri, ro) = (i1 - i0, o1 - o0);
+                                            // A pure insertion or deletion next to an equal node can sit one place either way; every such place gives the same word.
+                                            let (block, start, width) = if ro > 0 {
+                                                (&outn, o0, ro)
+                                            } else {
+                                                (&inn, i0, ri)
+                                            };
+                                            let (mut lo, mut hi) = (start, start);
+                                            if ri == 0 || ro == 0 {
+                                                while lo > 0
+                                                    && block[lo - 1] == block[lo + width - 1]
+                                                {
+                                                    lo -= 1;
+                                                }
+                                                while hi + width < block.len()
+                                                    && block[hi + width] == block[hi]
+                                                {
+                                                    hi += 1;
+                                                }
+                                            }
+                                            let places = (lo..=hi)
+                                                .map(|q| {
+                                                    if ro > 0 {
+                                                        (seg_at(&outn, q), seg_at(&outn, q + width))
+                                                    } else {
+                                                        let at = seg_at(
+                                                            &outn,
+                                                            (o0 as isize + q as isize - i0 as isize)
+                                                                as usize,
+                                                        );
+                                                        (at, at)
+                                                    }
+                                                })
+                                                .collect();
+                                            tally(
+                                                match (ri, ro) {
+                                                    (_, 0) => "deletion places",
+                                                    (0, _) => "insertion places",
+                                                    _ => "expansion places",
+                                                },
+                                                1,
+                                            );
+                                            checks.push(places);
+                                        }
+                                    }
+                                    edits.push((spelled, checks));
                                 }
-                                edits.push((text, checks));
                             }
                         }
                     }
-                }
-                tally("words the rule rewrites", edits.len());
-                let mut request = json!({
-                    "pattern": null,
-                    "words": edits.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(),
-                });
-                if let Some(m) = markers.first().copied().or(marker.as_deref()) {
-                    request["boundaryMarker"] = json!(m);
-                }
-                let mut spans_found: Vec<Vec<(usize, usize)>> = vec![Vec::new(); edits.len()];
-                let mut skipped = vec![false; edits.len()];
-                for text in &texts {
-                    request["pattern"] = json!(pattern_of(text));
+                    {
+                        let Some(PhonRuleDef::Rewrite(r)) = ug.prules.get_mut(*index as usize)
+                        else {
+                            continue;
+                        };
+                        let mut all = held;
+                        all.insert(sub, r.subrules.pop().expect("the subrule kept"));
+                        r.subrules = all;
+                    }
+                    tally("words the subrule rewrites", edits.len());
+                    let mut request = json!({
+                        "pattern": pattern_of(&text),
+                        "words": edits.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(),
+                    });
+                    if let Some(m) = text.boundary_marker.as_deref().or(marker.as_deref()) {
+                        request["boundaryMarker"] = json!(m);
+                    }
                     let r = crate::serve_match::handle(
                         &g,
                         &morpher,
@@ -243,48 +329,45 @@ fn sweep(pattern_of: &dyn Fn(&RuleText) -> Option<String>) -> Sweep {
                     );
                     if r["type"] != "result" {
                         misses.push(format!(
-                            "{} {}: match refused `{:?}`: {r}",
-                            fixture.label(),
+                            "{label} {}: match refused `{:?}`: {r}",
                             rule.xml_id,
-                            pattern_of(text)
+                            pattern_of(&text)
                         ));
                         continue;
                     }
-                    for (i, word) in r["words"].as_array().unwrap().iter().enumerate() {
+                    for (edit, word) in edits.iter().zip(r["words"].as_array().unwrap()) {
                         if word["status"] != "ok" {
-                            skipped[i] = true;
+                            tally("words match cannot read", 1);
+                            continue;
                         }
-                        for m in word["matches"].as_array().unwrap() {
-                            let seg = &m["segments"];
-                            spans_found[i].push((
-                                seg[0].as_u64().unwrap() as usize,
-                                seg[1].as_u64().unwrap() as usize,
-                            ));
-                        }
-                    }
-                }
-                for ((edit, found), skipped) in edits.iter().zip(&spans_found).zip(&skipped) {
-                    if *skipped {
-                        tally("words match cannot read", 1);
-                        continue;
-                    }
-                    for places in &edit.1 {
-                        tally("rewritten places checked", 1);
-                        let hit = places.iter().any(|(a, b)| {
-                            if a == b {
-                                found.iter().any(|(x, y)| x == a && y == a)
-                            } else {
-                                (*a..*b).all(|p| found.iter().any(|(x, y)| *x <= p && p < *y))
+                        let found: Vec<(usize, usize)> = word["matches"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .map(|m| {
+                                (
+                                    m["segments"][0].as_u64().unwrap() as usize,
+                                    m["segments"][1].as_u64().unwrap() as usize,
+                                )
+                            })
+                            .collect();
+                        for places in &edit.1 {
+                            tally("edits checked", 1);
+                            let hit = places.iter().any(|(a, b)| {
+                                if a == b {
+                                    found.iter().any(|(x, y)| x == a && y == a)
+                                } else {
+                                    (*a..*b).all(|p| found.iter().any(|(x, y)| *x <= p && p < *y))
+                                }
+                            });
+                            if !hit {
+                                misses.push(format!(
+                                    "{label} {} sub {sub} word `{}` places {places:?}: pattern {:?}, spans {found:?}",
+                                    rule.xml_id,
+                                    edit.0,
+                                    pattern_of(&text)
+                                ));
                             }
-                        });
-                        if !hit {
-                            misses.push(format!(
-                                "{} {} word `{}` places {places:?}: patterns {:?}, spans {found:?}",
-                                fixture.label(),
-                                rule.xml_id,
-                                edit.0,
-                                texts.iter().map(pattern_of).collect::<Vec<_>>()
-                            ));
                         }
                     }
                 }
@@ -295,26 +378,45 @@ fn sweep(pattern_of: &dyn Fn(&RuleText) -> Option<String>) -> Sweep {
     out
 }
 
+use std::panic::AssertUnwindSafe;
+
+fn self_flagged(t: &RuleText) -> bool {
+    t.output_altered_reasons
+        .iter()
+        .any(|r| r.0 == "selfInteraction")
+}
+
+fn show(name: &str, s: &Sweep) {
+    eprintln!("{name}: {:?}, {} misses", s.tally, s.misses.len());
+}
+
 #[test]
-fn match_on_the_output_pattern_finds_every_position_a_rule_alone_rewrote() {
-    let real = sweep(&|t| t.output_match_pattern.clone());
-    eprintln!(
-        "output pattern vs rule application: {:?}, {} misses",
-        real.tally,
-        real.misses.len()
-    );
-    let checked = real
-        .tally
-        .get("rewritten places checked")
-        .copied()
-        .unwrap_or(0);
+fn match_on_the_output_pattern_finds_every_edit_of_every_unflagged_subrule() {
+    let mut grammars = conformance();
+    grammars.extend(attack_grammars());
+    grammars.push(xml(
+        "merge",
+        include_str!("../../tests/data/effects-output-merge.xml"),
+    ));
+    grammars.push(xml(
+        "litbundle",
+        include_str!("../../tests/data/effects-output-litbundle.xml"),
+    ));
+    let real = sweep(grammars, &|t| t.output_match_pattern.clone(), &self_flagged);
+    show("output pattern vs rule application", &real);
     assert!(
-        checked > 0,
-        "no rewritten place was checked: the test is vacuous"
+        real.tally.get("edits checked").copied().unwrap_or(0) > 0,
+        "vacuous"
     );
     let mut misses = real.misses;
     misses.sort();
     misses.dedup();
+    let mut groups: BTreeMap<String, usize> = BTreeMap::new();
+    for m in &misses {
+        let key = m.split(" word ").next().unwrap_or("").to_string();
+        *groups.entry(key).or_default() += 1;
+    }
+    eprintln!("miss groups: {groups:#?}");
     assert!(
         misses.is_empty(),
         "{} misses, first: {:#?}",
@@ -323,18 +425,132 @@ fn match_on_the_output_pattern_finds_every_position_a_rule_alone_rewrote() {
     );
 }
 
-/// The mutation: handing `match` the input pattern instead (the target before the rewrite) must be caught, or the check above proves nothing.
+/// The three reviewer repros: a rule whose written segments feed or break its own environment at another site misses with the plain overlay, and is flagged `selfInteraction`.
+#[test]
+fn a_rule_that_rewrites_its_own_environment_misses_and_is_flagged() {
+    let loose = sweep(
+        attack_grammars(),
+        &|t| t.output_match_pattern.clone(),
+        &|_| false,
+    );
+    show("self-interacting, unflagged rows included", &loose);
+    for name in ["selfsim", "selfiter", "insertsim"] {
+        assert!(
+            loose.misses.iter().any(|m| m.starts_with(name)),
+            "{name}: no miss shown"
+        );
+    }
+    for (_, load) in attack_grammars() {
+        let g = load();
+        let table = g.strata.last().unwrap().table;
+        let def = g
+            .prules
+            .iter()
+            .find(|r| matches!(r, PhonRuleDef::Rewrite(r) if r.xml_id == "prX"))
+            .expect("rule prX");
+        let mut text = rule_text(&g, def, 0, table);
+        text.with_alteration(&g, 0, 0);
+        assert!(
+            text.output_match_pattern.is_some(),
+            "{:?}",
+            text.output_unprintable
+        );
+        assert_eq!(text.output_may_be_altered, Some(true));
+        assert!(self_flagged(&text), "{:?}", text.output_altered_reasons);
+    }
+}
+
+/// The mutation: handing `match` the input pattern instead must be caught, or the check proves nothing.
 #[test]
 fn the_sweep_catches_the_input_pattern_as_the_output_pattern() {
-    let mutated = sweep(&|t| t.output_match_pattern.as_ref().and(t.match_pattern.clone()));
-    eprintln!(
-        "mutated: {:?}, {} misses",
-        mutated.tally,
-        mutated.misses.len()
+    let mutated = sweep(
+        conformance(),
+        &|t| t.output_match_pattern.as_ref().and(t.match_pattern.clone()),
+        &self_flagged,
     );
+    show("mutated", &mutated);
     assert!(
         mutated.misses.len() > 100,
-        "the mutated pattern gave only {} misses: the sweep cannot see a wrong pattern",
+        "the mutated pattern gave only {} misses",
         mutated.misses.len()
     );
+}
+
+/// A rule of the first stratum whose output a later stratum's morphology modifies: the engine's surface no longer holds the pattern, and the row says so.
+#[test]
+fn a_later_stratum_that_modifies_the_input_is_flagged_and_the_engine_changes_the_output() {
+    let g = pg_grammar::load(include_str!(
+        "../../tests/data/effects-output-latermorph.xml"
+    ))
+    .expect("loads");
+    let def = &g.prules[0];
+    let table = g.strata[0].table;
+    let mut text = rule_text(&g, def, 0, table);
+    text.with_alteration(&g, 0, 0);
+    let pattern = text.output_match_pattern.clone().expect("printable");
+    let morpher = Morpher::new(&g, 1_000_000);
+    let plain = morpher.generate_words(
+        pg_grammar::model::LexEntryId(0),
+        &[],
+        pg_featstruct::FeatureStruct::EMPTY,
+    );
+    let modified = morpher.generate_words(
+        pg_grammar::model::LexEntryId(0),
+        &[pg_parse::GenMorpheme::Rule(pg_grammar::model::MRuleId(0))],
+        pg_featstruct::FeatureStruct::EMPTY,
+    );
+    eprintln!("pattern {pattern}: root alone {plain:?}, with the later rule {modified:?}");
+    let found = |word: &str| {
+        let r = crate::serve_match::handle(
+            &g,
+            &morpher,
+            &json!("m"),
+            json!({"pattern": pattern, "words": [word]})
+                .as_object()
+                .unwrap(),
+        );
+        !r["words"][0]["matches"].as_array().unwrap().is_empty()
+    };
+    assert!(found(&plain[0]), "the root alone shows the output pattern");
+    assert!(
+        !found(&modified[0]),
+        "the later stratum's modification removes it"
+    );
+    assert_eq!(text.output_may_be_altered, Some(true));
+    assert!(
+        text.output_altered_reasons
+            .iter()
+            .any(|r| r.0 == "laterMorphology"),
+        "{:?}",
+        text.output_altered_reasons
+    );
+}
+
+/// On an XML-loaded grammar every class carries the `Type` pair; merged bundles and a literal overlaid by a bundle still print.
+#[test]
+fn merged_bundles_print_on_a_loaded_grammar() {
+    for (xml_text, want) in [
+        (
+            include_str!("../../tests/data/effects-output-merge.xml"),
+            "[+back +round] / /i/ _",
+        ),
+        (
+            include_str!("../../tests/data/effects-output-litbundle.xml"),
+            "[-back +round] / /i/ _",
+        ),
+    ] {
+        let g = pg_grammar::load(xml_text).unwrap();
+        let table = g.strata.last().unwrap().table;
+        let text = rule_text(&g, &g.prules[0], 0, table);
+        eprintln!(
+            "{:?} {:?}",
+            text.output_match_pattern, text.output_unprintable
+        );
+        assert_eq!(
+            text.output_match_pattern.as_deref(),
+            Some(want),
+            "{:?}",
+            text.output_unprintable
+        );
+    }
 }
