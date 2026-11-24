@@ -12,6 +12,7 @@ pub mod bridge;
 pub mod cache;
 pub mod canonical;
 pub mod cascade;
+pub mod edge_env;
 pub mod extras;
 mod gates;
 pub mod metathesis;

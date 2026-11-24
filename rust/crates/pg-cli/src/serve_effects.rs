@@ -1,6 +1,9 @@
 //! `pangloss serve` op `effects`: which phonological rules can change one morpheme, never claiming "cannot change" without proof; bleeding is out of scope and feeding is answered conservatively (`may_be_fed`).
 //! Wire shape and limits: `docs/formats/serve-protocol.md`.
 
+#[path = "serve_effects_edge.rs"]
+mod edge;
+
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -61,7 +64,7 @@ const RESULT_FIELDS: [&str; 7] = [
     "effects",
     "limits",
 ];
-const EFFECT_FIELDS: [&str; 19] = [
+const EFFECT_FIELDS: [&str; 22] = [
     "rule",
     "subrule",
     "allomorphId",
@@ -81,6 +84,9 @@ const EFFECT_FIELDS: [&str; 19] = [
     "outputUnprintable",
     "outputMayBeAltered",
     "outputMayBeAlteredReasons",
+    "notAtEdges",
+    "edgeReasons",
+    "notInside",
 ];
 /// The `part` of an `unprintable` entry.
 const UNPRINTABLE_PARTS: [&str; 6] = [
@@ -138,6 +144,8 @@ pub(crate) fn describe() -> Value {
         "resultFields": RESULT_FIELDS,
         "allomorphFields": ALLOMORPH_FIELDS,
         "effectFields": EFFECT_FIELDS,
+        "edgeStatuses": edge::EDGE_STATUSES,
+        "edgeReasons": edge::EDGE_REASONS,
         "unprintableParts": UNPRINTABLE_PARTS,
         "unprintableReasons": pg_rules::pattern_text::UNPRINTABLE_REASONS,
         "ruleText": "lhs, environment (left _ right) and rhs are pattern text in the syntax serve match reads, printed exactly or null with an unprintable entry; matchPattern is lhs / environment, to hand match with boundaryMarker when set. A subrule is one rhs alternative; nonLocal is null for a rule that is not compiled",
@@ -228,6 +236,11 @@ struct AllomorphForm {
     partial: bool,
     /// The allomorph also writes material this form does not hold (a modified part or an inserted context), so no rule can be ruled out on it.
     opaque: bool,
+    /// Stem material (a copied or modified part) stands before the first run, or after the last.
+    copy_before: bool,
+    copy_after: bool,
+    /// How many input parts the affix's left-hand side has; a root has one.
+    lhs_parts: usize,
 }
 
 /// The form's segments, or the reason it cannot be segmented; never an empty list standing for failure.
@@ -255,6 +268,9 @@ fn root_forms(g: &Grammar, entry: LexEntryId) -> Result<Vec<AllomorphForm>, Stri
                 runs: vec![a.shape.text.clone()],
                 partial: false,
                 opaque: false,
+                copy_before: false,
+                copy_after: false,
+                lhs_parts: 1,
             })
         })
         .collect()
@@ -275,6 +291,7 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
     let mut partial = false;
     let mut opaque = false;
     let mut open = false;
+    let (mut copy_before, mut copy_after) = (false, false);
     let mut copied = Vec::new();
     for action in &a.rhs {
         match action {
@@ -291,6 +308,11 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
                 }
             }
             OutputAction::Copy(part) | OutputAction::Modify(part, _) => {
+                if runs.is_empty() {
+                    copy_before = true;
+                } else {
+                    copy_after = true;
+                }
                 partial = true;
                 open = false;
                 // A part written twice is a reduplicant: stem material the form does not hold.
@@ -298,6 +320,11 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
                 copied.push(*part);
             }
             OutputAction::InsertContext(_) => {
+                if runs.is_empty() {
+                    copy_before = true;
+                } else {
+                    copy_after = true;
+                }
                 partial = true;
                 open = false;
                 opaque = true;
@@ -313,6 +340,9 @@ fn affix_form(g: &Grammar, a: &AffixAllomorphDef) -> Result<AllomorphForm, Strin
         runs,
         partial,
         opaque,
+        copy_before,
+        copy_after,
+        lhs_parts: a.lhs.len(),
     })
 }
 
@@ -324,6 +354,8 @@ struct RuleItem {
     unlisted: Option<String>,
     /// Index into `Grammar::prules` and the stratum the rule runs in; meaningless when `unlisted`.
     prule: usize,
+    /// The subrule's index in its rule (0 for a rule with none).
+    sub_index: usize,
     stratum: usize,
     /// The rule row as match text; `None` for a rule that is not in the compiled grammar.
     text: Option<RuleText>,
@@ -346,6 +378,7 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                     subrule: Value::Null,
                     unlisted: Some(format!("stratum lists missing rule index {index}")),
                     prule: 0,
+                    sub_index: 0,
                     stratum: 0,
                     text: None,
                 });
@@ -374,6 +407,7 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
                     subrule,
                     unlisted: None,
                     prule: *index as usize,
+                    sub_index,
                     stratum: stratum_index,
                     text: Some({
                         let mut text = rule_text(g, rule, sub_index, stratum.table);
@@ -398,6 +432,7 @@ fn rule_items(g: &Grammar) -> Vec<RuleItem> {
             subrule: Value::Null,
             unlisted: Some(skipped.reason.clone()),
             prule: 0,
+            sub_index: 0,
             stratum: 0,
             text: None,
         });
@@ -752,9 +787,13 @@ pub(crate) fn handle(
                     .any(|a| a.rhs.iter().any(|x| matches!(x, OutputAction::Modify(..))))
             })
     });
+    let mut edge_ctx = edge::EdgeContext::new(g, &items);
     'scan: for (form_index, form) in forms.iter().enumerate() {
         let mut feeding = Feeding::new(modifies_stem);
-        for item in &items {
+        let form_segments = edge_ctx.form_segments(g, form);
+        // A rule before this one that is not provably unable to touch the form's own segments.
+        let (mut form_unstable, mut pending_unstable, mut last_prule) = (false, false, None);
+        for (item_index, item) in items.iter().enumerate() {
             if units >= max_work {
                 stop = Some("work_limit");
                 break 'scan;
@@ -768,6 +807,18 @@ pub(crate) fn handle(
                 stop = Some("deadline");
                 break 'scan;
             }
+            if item.unlisted.is_none() && last_prule != Some(item.prule) {
+                form_unstable |= pending_unstable;
+                pending_unstable = false;
+                last_prule = Some(item.prule);
+            }
+            let fed = if form_unstable {
+                Some("may_be_fed")
+            } else if modifies_stem {
+                Some("affix_modifies_stem")
+            } else {
+                None
+            };
             let verdict = feeding.apply(
                 verdict,
                 item.unlisted.is_none() && item.stratum >= morpheme_stratum,
@@ -782,6 +833,24 @@ pub(crate) fn handle(
                     LhsVerdict::Listed(reason) => ("unknown", reason, None),
                     LhsVerdict::Deadline => unreachable!("handled above"),
                 };
+            let edge_answer = edge_ctx.answer(
+                g,
+                &edge::Row {
+                    form,
+                    segments: form_segments.as_deref(),
+                    item_index,
+                    item,
+                    verdict: &verdict,
+                    fed,
+                },
+                &edges,
+            );
+            if item.unlisted.is_none()
+                && item.stratum >= morpheme_stratum
+                && !edge_ctx.inert_on_form(g, item, form_segments.as_deref())
+            {
+                pending_unstable = true;
+            }
             for edge in &edges {
                 let mut effect = json!({
                     "rule": item.rule,
@@ -796,6 +865,20 @@ pub(crate) fn handle(
                         json!(spans.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>());
                 }
                 add_rule_text(&mut effect, item.text.as_ref());
+                effect["notAtEdges"] = json!(edge_answer
+                    .edges
+                    .iter()
+                    .filter(|(_, status, _)| *status == edge::Status::NotAtEdge)
+                    .map(|(e, _, _)| *e)
+                    .collect::<Vec<_>>());
+                effect["edgeReasons"] = json!(edge_answer
+                    .edges
+                    .iter()
+                    .map(|(e, status, reason)| json!({
+                        "edge": e, "status": status.name(), "reason": reason,
+                    }))
+                    .collect::<Vec<_>>());
+                effect["notInside"] = json!(edge_answer.not_inside);
                 effects.push(effect);
             }
         }
@@ -845,9 +928,13 @@ mod tests {
         include_str!("../../../../docs/divergences/evidence/071/kat-fixture-with-k.fwdata");
 
     fn load() -> Grammar {
+        load_fwdata(FWDATA)
+    }
+
+    fn load_fwdata(fwdata: &str) -> Grammar {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("kat.fwdata");
-        std::fs::write(&path, FWDATA).unwrap();
+        std::fs::write(&path, fwdata).unwrap();
         crate::load_grammar_with_trace_metadata(path.to_str().unwrap())
             .expect("the fixture loads")
             .0
@@ -912,6 +999,9 @@ mod tests {
             runs: vec![text.into()],
             partial: false,
             opaque: false,
+            copy_before: false,
+            copy_after: false,
+            lhs_parts: 1,
         }
     }
 
@@ -1128,6 +1218,9 @@ mod tests {
                         runs: vec![focus.clone()],
                         partial: false,
                         opaque: false,
+                        copy_before: false,
+                        copy_after: false,
+                        lhs_parts: 1,
                     };
                     let verdict = scan_form(
                         g,
@@ -1651,6 +1744,9 @@ mod tests {
                 runs: vec![focus.into()],
                 partial: false,
                 opaque: false,
+                copy_before: false,
+                copy_after: false,
+                lhs_parts: 1,
             };
             scan_form(
                 &g,
@@ -1753,5 +1849,372 @@ mod tests {
             differing > 0,
             "serve `match` and rule application differ here"
         );
+    }
+
+    /// Gating oracle: wherever the edge test rules a rule out at an edge of a root form, the engine never changes that form's own edge segment when a neighbour from the claimed set stands beside it; returns the violations and the claimed edges checked.
+    fn edge_sweep_grammar(
+        label: &str,
+        g: &Grammar,
+        checked: &mut usize,
+        violations: &mut Vec<String>,
+    ) {
+        let items = rule_items(g);
+        let mut ctx = edge::EdgeContext::new(g, &items);
+        let (before, after) = ctx.neighbour_texts();
+        let mut roots: Vec<String> = g
+            .entries
+            .iter()
+            .flat_map(|e| e.allomorphs.iter().map(|a| a.shape.text.clone()))
+            .filter(|t| !t.is_empty())
+            .collect();
+        roots.sort();
+        roots.dedup();
+        roots.truncate(25);
+        for (item_index, item) in items.iter().enumerate() {
+            let table = g.strata[item.stratum].table;
+            let PhonRuleDef::Rewrite(rule) = &g.prules[item.prule] else {
+                continue;
+            };
+            if item.unlisted.is_some() || rule.lhs.nodes.is_empty() {
+                continue;
+            }
+            let Some(compiled) = compile_lhs(g, table, &rule.lhs) else {
+                continue;
+            };
+            for focus in &roots {
+                let Ok(focus_segments) = segments_of(g, table, focus) else {
+                    continue;
+                };
+                let form = AllomorphForm {
+                    id: AllomorphId(0),
+                    text: focus.clone(),
+                    segments: focus_segments,
+                    runs: vec![focus.clone()],
+                    partial: false,
+                    opaque: false,
+                    copy_before: false,
+                    copy_after: false,
+                    lhs_parts: 1,
+                };
+                let verdict = scan_form(
+                    g,
+                    &compiled,
+                    &form,
+                    Instant::now() + std::time::Duration::from_secs(60),
+                    MATCH_WORK_PER_UNIT,
+                );
+                let segments = ctx.form_segments(g, &form);
+                let answer = ctx.answer(
+                    g,
+                    &edge::Row {
+                        form: &form,
+                        segments: segments.as_deref(),
+                        item_index,
+                        item,
+                        verdict: &verdict,
+                        fed: None,
+                    },
+                    &["left", "right"],
+                );
+                for (edge_name, status, reason) in &answer.edges {
+                    if *status != edge::Status::NotAtEdge || *reason != edge::NO_NEIGHBOUR {
+                        continue;
+                    }
+                    *checked += 1;
+                    let left = *edge_name == "left";
+                    let others = if left { &before } else { &after };
+                    for other in others {
+                        let parts: [&str; 3] = if left {
+                            [other, focus, ""]
+                        } else {
+                            ["", focus, other]
+                        };
+                        let Some((word, ranges)) = word_ranges(g, table, &parts) else {
+                            continue;
+                        };
+                        let (from, to) = ranges[1];
+                        let Some((alone_word, alone_ranges)) =
+                            word_ranges(g, table, &["", focus, ""])
+                        else {
+                            continue;
+                        };
+                        let run = |word: &str| {
+                            let input = pg_rules::shape_feat::segment_with_features(
+                                g,
+                                &g.char_tables[table.0 as usize],
+                                word,
+                            )
+                            .expect("the parts segmented");
+                            let out =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    pg_rules::rewrite::synthesize(g, rule, &input)
+                                }))
+                                .ok()
+                                .and_then(|o| o.last().cloned());
+                            (input, out)
+                        };
+                        let ((input, out), (alone_in, alone_out)) = (run(&word), run(&alone_word));
+                        let (Some(out), Some(alone_out)) = (out, alone_out) else {
+                            continue;
+                        };
+                        // Only same-length results are compared node by node: the focus region must be as it is with no neighbour.
+                        if out.len() != input.len() || alone_out.len() != alone_in.len() {
+                            continue;
+                        }
+                        let (alone_from, _) = alone_ranges[1];
+                        let differs = (0..to - from).any(|k| {
+                            out.char_def(from + k) != alone_out.char_def(alone_from + k)
+                                || out.node_lanes(from + k) != alone_out.node_lanes(alone_from + k)
+                        });
+                        if differs {
+                            violations.push(format!(
+                                "{label} {} focus `{focus}` {edge_name} neighbour `{other}`",
+                                rule.xml_id
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_rule_ruled_out_at_an_edge_never_applies_across_it() {
+        let (mut checked, mut violations) = (0usize, Vec::new());
+        for fixture in
+            pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
+        {
+            if fixture.category != "edge-cases" {
+                continue;
+            }
+            let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
+                continue;
+            };
+            edge_sweep_grammar(&fixture.name, &g, &mut checked, &mut violations);
+        }
+        violations.sort();
+        violations.dedup();
+        eprintln!(
+            "edge sweep: {checked} claimed edges checked, {} violations",
+            violations.len()
+        );
+        assert!(checked > 0, "no edge was ruled out: the oracle is vacuous");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    const KAT: (&str, &str) = (
+        "00000000-0000-0000-0000-000000000030",
+        "00000000-0000-0000-0000-000000000032",
+    );
+    const AFFIX: (&str, &str) = (
+        "00000000-0000-0000-0000-000000000050",
+        "00000000-0000-0000-0000-000000000052",
+    );
+
+    /// The fixture as the project loads it, with guessed roots off so the lexicon alone says what can stand beside a morph.
+    fn load_text(fwdata: &str) -> Grammar {
+        let mut g = load_fwdata(fwdata);
+        g.guess_roots = false;
+        g
+    }
+
+    fn load_closed() -> Grammar {
+        load_text(FWDATA)
+    }
+
+    /// The effect rows of one morpheme, for both edges.
+    fn rows(g: &Grammar, morpheme: (&str, &str)) -> Vec<Value> {
+        let morpher = Morpher::new(g, 1_000_000);
+        let object = json!({"morpheme": {"entryGuid": morpheme.0, "msaGuid": morpheme.1}});
+        let r = handle(g, &morpher, &json!("x"), object.as_object().unwrap());
+        assert_eq!(r["type"], "result", "{r}");
+        r["effects"].as_array().unwrap().clone()
+    }
+
+    fn edge_entry<'a>(row: &'a Value, edge: &str) -> &'a Value {
+        row["edgeReasons"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["edge"] == edge)
+            .unwrap_or_else(|| panic!("no {edge} entry: {row}"))
+    }
+
+    /// The Voicing rule (`t -> d / [V] _`) row of the first left-edge entry.
+    fn voicing(g: &Grammar, morpheme: (&str, &str)) -> Value {
+        rows(g, morpheme)
+            .into_iter()
+            .find(|r| r["rule"]["name"] == "Voicing" && r["edge"] == "left")
+            .expect("the Voicing row")
+    }
+
+    fn assert_unknown(row: &Value, reason: &str) {
+        for edge in ["left", "right"] {
+            let entry = edge_entry(row, edge);
+            assert_eq!(entry["status"], "unknown", "{row}");
+            assert_eq!(entry["reason"], reason, "{row}");
+        }
+        assert_eq!(row["notAtEdges"], json!([]), "{row}");
+        assert_eq!(row["notInside"], Value::Null, "{row}");
+    }
+
+    #[test]
+    fn a_rule_whose_environment_no_neighbour_meets_is_ruled_out_at_the_edge() {
+        let g = load_closed();
+        // `kat`: the target `t` is at the right end but its vowel context lies inside, so no edge is needed.
+        let row = voicing(&g, KAT);
+        assert_eq!(row["notAtEdges"], json!(["left", "right"]), "{row}");
+        assert_eq!(row["notInside"], false, "{row}");
+        assert_eq!(
+            edge_entry(&row, "left")["reason"],
+            "no_neighbour_satisfies_environment"
+        );
+        // A suffix `t` needs a vowel before it; the root `ranna` ends in one, so the left edge stays open and the right has nothing to reach.
+        let g = load_text(&FWDATA.replacen(
+            r#"<AUni ws="fx">s</AUni>"#,
+            r#"<AUni ws="fx">t</AUni>"#,
+            1,
+        ));
+        let row = voicing(&g, AFFIX);
+        assert_eq!(row["notAtEdges"], json!(["right"]), "{row}");
+        assert_eq!(edge_entry(&row, "left")["status"], "notRuledOut", "{row}");
+        assert_eq!(
+            edge_entry(&row, "left")["reason"],
+            "environment_satisfiable"
+        );
+        // With no vowel-final morph in the grammar, no neighbour can be the vowel.
+        let g = load_text(
+            &FWDATA
+                .replacen(r#"<AUni ws="fx">s</AUni>"#, r#"<AUni ws="fx">t</AUni>"#, 1)
+                .replace(
+                    r#"<AUni ws="fx">ranna</AUni>"#,
+                    r#"<AUni ws="fx">rann</AUni>"#,
+                ),
+        );
+        let row = voicing(&g, AFFIX);
+        assert_eq!(row["notAtEdges"], json!(["left", "right"]), "{row}");
+        assert_eq!(
+            row["notInside"], true,
+            "the lone `t` has no vowel inside: {row}"
+        );
+    }
+
+    #[test]
+    fn a_not_on_form_row_is_not_at_either_edge() {
+        let g = load_closed();
+        let row = rows(
+            &g,
+            (
+                "00000000-0000-0000-0000-000000000040",
+                "00000000-0000-0000-0000-000000000042",
+            ),
+        )
+        .into_iter()
+        .find(|r| r["rule"]["name"] == "Voicing")
+        .unwrap();
+        assert_eq!(row["mayApply"], "notOnForm");
+        assert_eq!(row["notAtEdges"], json!(["left", "right"]));
+        assert_eq!(edge_entry(&row, "left")["reason"], "no_lhs_match");
+    }
+
+    fn voicing_rule(g: &mut Grammar) -> &mut pg_grammar::model::RewriteRuleDef {
+        g.prules
+            .iter_mut()
+            .find_map(|r| match r {
+                PhonRuleDef::Rewrite(r) if r.name.as_deref() == Some("Voicing") => Some(r),
+                _ => None,
+            })
+            .expect("Voicing")
+    }
+
+    #[test]
+    fn every_unproven_route_is_unknown_with_a_reason() {
+        use pg_grammar::model::PatternNode;
+        let group = |inner: Vec<PatternNode>, min: u32, max: Option<u32>| Pattern {
+            nodes: vec![PatternNode::Quantifier {
+                min,
+                max,
+                children: inner,
+            }],
+        };
+        // The Voicing rule's own left environment is one natural class node.
+        let class_node = {
+            let mut g = load_closed();
+            let rule = voicing_rule(&mut g);
+            rule.subrules[0].left_env.as_ref().unwrap().nodes[0].clone()
+        };
+        // An optional group in the environment.
+        let mut g = load_closed();
+        voicing_rule(&mut g).subrules[0].left_env =
+            Some(group(vec![class_node.clone()], 0, Some(1)));
+        assert_unknown(&voicing(&g, KAT), "optional_or_repeated_group");
+        // A repeated group.
+        let mut g = load_closed();
+        voicing_rule(&mut g).subrules[0].left_env = Some(group(vec![class_node.clone()], 1, None));
+        assert_unknown(&voicing(&g, KAT), "non_local");
+        // A word boundary anchor.
+        let mut g = load_closed();
+        voicing_rule(&mut g).subrules[0].left_env = Some(Pattern {
+            nodes: vec![
+                PatternNode::Anchor(pg_grammar::model::AnchorSide::Left),
+                class_node.clone(),
+            ],
+        });
+        assert_unknown(&voicing(&g, KAT), "boundary_in_pattern");
+        // A boundary character.
+        let mut g = load_closed();
+        let boundary = g.char_tables[g.strata[0].table.0 as usize]
+            .iter()
+            .find(|(_, d)| d.kind() == CharDefKind::Boundary)
+            .map(|(id, _)| id);
+        if let Some(id) = boundary {
+            voicing_rule(&mut g).subrules[0].left_env = Some(Pattern {
+                nodes: vec![class_node.clone(), PatternNode::CharDef(id)],
+            });
+            assert_unknown(&voicing(&g, KAT), "boundary_in_pattern");
+        }
+        // An alpha variable.
+        let mut g = load_closed();
+        let PatternNode::Context(c) = &class_node else {
+            panic!("a context node")
+        };
+        let mut with_var = c.clone();
+        with_var.vars.push(pg_grammar::model::AlphaVar {
+            feature: pg_grammar::featsys::FlatIndex(0),
+            var: pg_grammar::model::VarId(0),
+            plus: true,
+        });
+        voicing_rule(&mut g).subrules[0].left_env = Some(Pattern {
+            nodes: vec![PatternNode::Context(with_var)],
+        });
+        assert_unknown(&voicing(&g, KAT), "non_local");
+        // An empty target.
+        let mut g = load_closed();
+        voicing_rule(&mut g).lhs = Pattern::default();
+        let rows = rows(&g, KAT);
+        let row = rows
+            .iter()
+            .find(|r| r["rule"]["name"] == "Voicing")
+            .unwrap();
+        assert_unknown(row, "empty_lhs_epenthesis");
+        // Guessed roots may be any segment, so the neighbour set is the whole inventory: the `t` of the suffix then has a vowel before it, and the `kat` rows stay ruled out only through their own form.
+        let mut g = load_text(
+            &FWDATA
+                .replacen(r#"<AUni ws="fx">s</AUni>"#, r#"<AUni ws="fx">t</AUni>"#, 1)
+                .replace(
+                    r#"<AUni ws="fx">ranna</AUni>"#,
+                    r#"<AUni ws="fx">rann</AUni>"#,
+                ),
+        );
+        g.guess_roots = true;
+        let row = voicing(&g, AFFIX);
+        assert_eq!(edge_entry(&row, "left")["status"], "notRuledOut", "{row}");
+        assert_eq!(row["notAtEdges"], json!(["right"]), "{row}");
+        // An iterative rule that changes length is non-local.
+        let g = pg_grammar::load(include_str!(
+            "../tests/data/effects-length-change-itdel.xml"
+        ))
+        .unwrap();
+        assert!(g.strata.len() == 1);
     }
 }

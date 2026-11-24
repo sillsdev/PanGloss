@@ -289,6 +289,21 @@ fn describe_declares_what_the_op_emits() {
             let reason = e["reason"].as_str().unwrap().to_string();
             assert!(reasons.contains(&reason), "undeclared reason {reason}");
             emitted.push(reason);
+            for entry in e["edgeReasons"].as_array().unwrap() {
+                assert!(
+                    declared("edgeStatuses")
+                        .contains(&entry["status"].as_str().unwrap().to_string()),
+                    "{entry}"
+                );
+                let why = entry["reason"].as_str().unwrap().to_string();
+                assert!(
+                    declared("edgeReasons").contains(&why)
+                        || why == "no_neighbour_satisfies_environment"
+                        || why == "environment_satisfiable"
+                        || why == "no_lhs_match",
+                    "undeclared edge reason {why}"
+                );
+            }
         }
     }
     for reason in [
