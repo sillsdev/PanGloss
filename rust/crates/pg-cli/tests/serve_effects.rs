@@ -174,7 +174,10 @@ fn an_affix_form_is_its_inserted_segments() {
         "the form keeps its morph boundary"
     );
     assert_eq!(allomorphs[0]["segments"], json!(["s"]));
-    assert_eq!(allomorphs[0]["formPartial"], true, "a suffix process copies the stem");
+    assert_eq!(
+        allomorphs[0]["formPartial"], true,
+        "a suffix process copies the stem"
+    );
     assert_eq!(r["effects"].as_array().unwrap().len(), 2);
 }
 
