@@ -19,12 +19,18 @@ const VAR_NAMES: [&str; 24] = [
 ];
 
 /// All phonological-rule definitions, plus which of them run on the Morphology vs. Clitics stratum.
-type RuleBuild = (Vec<PhonRuleDef>, Vec<PRuleId>, Vec<PRuleId>);
+type RuleBuild = (
+    Vec<PhonRuleDef>,
+    Vec<PRuleId>,
+    Vec<PRuleId>,
+    Vec<pg_grammar_model::model::SkippedPhonRule>,
+);
 
 pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, GrammarError> {
     let mut prules = Vec::new();
     let mut morphology_prules = Vec::new();
     let mut clitic_prules = Vec::new();
+    let mut skipped = Vec::new();
 
     // `m_notOnClitics` (default true) -> rules run on the morphophonemic (Morphology) stratum; `false` -> the clitic stratum.
     let on_morphology = snapshot.morphology.parser_parameters.not_on_clitics;
@@ -46,18 +52,36 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
                         }
                         ctx.represented(key);
                     }
-                    Err(e) => ctx.refuse(
-                        key,
-                        issue_codes::RULE_BUILD_FAILED,
-                        IssueClass::UnrepresentableForHc,
-                        format!("phonological rule {:?}: {e}; skipped", r.guid),
-                    ),
+                    Err(e) => {
+                        skipped.push(pg_grammar_model::model::SkippedPhonRule {
+                            guid: r.guid.to_string(),
+                            name: Some(r.name.clone()).filter(|n| !n.is_empty()),
+                            kind: "rewrite",
+                            status: "not_compiled",
+                            reason: e.to_string(),
+                        });
+                        ctx.refuse(
+                            key,
+                            issue_codes::RULE_BUILD_FAILED,
+                            IssueClass::UnrepresentableForHc,
+                            format!("phonological rule {:?}: {e}; skipped", r.guid),
+                        )
+                    }
                 }
             }
             PhonologicalRule::Metathesis(r) => {
                 let key = InventoryKey::object(InventoryKind::PhonologicalRule, r.guid.clone());
                 // `HCLoader` loads a metathesis rule only when both switch indices are set.
                 if r.left_switch_index == -1 || r.right_switch_index == -1 {
+                    skipped.push(pg_grammar_model::model::SkippedPhonRule {
+                        guid: r.guid.to_string(),
+                        name: Some(r.name.clone()).filter(|n| !n.is_empty()),
+                        kind: "metathesis",
+                        status: "disabled",
+                        reason:
+                            "a metathesis rule with an unset switch index is not loaded (HCLoader)"
+                                .to_string(),
+                    });
                     ctx.not_considered(
                         key,
                         pg_snapshot::LoadReasonCode::ConversionIssue(
@@ -79,18 +103,27 @@ pub(crate) fn build(snapshot: &Snapshot, ctx: &Ctx) -> Result<RuleBuild, Grammar
                         }
                         ctx.represented(key);
                     }
-                    Err(e) => ctx.refuse(
-                        key,
-                        issue_codes::RULE_BUILD_FAILED,
-                        IssueClass::UnrepresentableForHc,
-                        format!("metathesis rule {:?}: {e}; skipped", r.guid),
-                    ),
+                    Err(e) => {
+                        skipped.push(pg_grammar_model::model::SkippedPhonRule {
+                            guid: r.guid.to_string(),
+                            name: Some(r.name.clone()).filter(|n| !n.is_empty()),
+                            kind: "metathesis",
+                            status: "not_compiled",
+                            reason: e.to_string(),
+                        });
+                        ctx.refuse(
+                            key,
+                            issue_codes::RULE_BUILD_FAILED,
+                            IssueClass::UnrepresentableForHc,
+                            format!("metathesis rule {:?}: {e}; skipped", r.guid),
+                        )
+                    }
                 }
             }
         }
     }
 
-    Ok((prules, morphology_prules, clitic_prules))
+    Ok((prules, morphology_prules, clitic_prules, skipped))
 }
 
 pub(crate) fn record_unreferenced_feature_constraints(snapshot: &Snapshot, ctx: &Ctx) {

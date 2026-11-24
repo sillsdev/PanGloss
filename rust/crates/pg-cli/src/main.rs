@@ -165,6 +165,7 @@ pub mod readiness_verdict;
 mod recipe_optimize;
 mod rich_trace;
 mod serve;
+mod serve_effects;
 mod serve_generate;
 mod serve_inventory;
 mod serve_match;

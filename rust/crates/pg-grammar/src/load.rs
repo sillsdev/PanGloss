@@ -656,6 +656,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         allomorph_owners: acc.allomorph_owners,
         allomorph_sources: acc.allomorph_sources,
         prules,
+        skipped_prules: Vec::new(),
         mrules: acc.mrules,
         templates: acc.templates,
         entries: acc.entries,

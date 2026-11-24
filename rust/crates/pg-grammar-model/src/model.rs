@@ -396,6 +396,18 @@ pub enum PhonRuleDef {
     Metathesis(MetathesisRuleDef),
 }
 
+/// A source phonological rule that is not in `Grammar::prules`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedPhonRule {
+    pub guid: String,
+    pub name: Option<String>,
+    /// `rewrite` or `metathesis`.
+    pub kind: &'static str,
+    /// `not_compiled` (the build failed) or `disabled` (the loader does not load it).
+    pub status: &'static str,
+    pub reason: String,
+}
+
 /// `<PhonologicalRule>` → C# `RewriteRule`.
 #[derive(Debug)]
 pub struct RewriteRuleDef {
@@ -1185,6 +1197,8 @@ pub struct Grammar {
     /// Source MoForm identities parallel to `allomorph_owners`.
     pub allomorph_sources: Vec<AllomorphSource>,
     pub prules: Vec<PhonRuleDef>,
+    /// Phonological rules of the source that never became a `prules` entry, so a reader of the grammar can see what is absent.
+    pub skipped_prules: Vec<SkippedPhonRule>,
     pub mrules: Vec<MorphRuleDef>,
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
