@@ -92,7 +92,7 @@ The process keeps running after every `error`.
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
 | `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type, or `ruleTrace` present and not a boolean; `id` is `null` when it could not be read |
-| `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects` or `shutdown` |
+| `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects`, `shadowedAllomorphs` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |
 | `internal` | the parser panicked on this word; the details are on stderr |
@@ -234,6 +234,20 @@ Result:
   - `outputMayBeAltered` says the pattern is the output right after this rule, not at the end of the derivation: later rules can rewrite those segments or split them. It is `true` when the rule is `nonLocal` (`nonLocal`), a rule that runs later, after it in its stratum or in a later stratum, has a target that can match a segment the pattern covers (`laterRewrite`, `rule` names it) or can insert between them (`laterInsertion`), or the pattern holds a word edge and a later stratum can add material beyond it (`wordEdgeLaterStratum`), or the rule's own written or rewritten segments can satisfy or overlap its own environment, or an insertion or length change has an environment side of two or more nodes, so one site's edit changes another site's (`selfInteraction`, `rule` names it, iterative or simultaneous), or a later stratum has a morphological rule that is not a plain prefix or suffix (a modified or split copy, an infix, compounding, a realizational rule) and can rewrite or split what this rule wrote (`laterMorphology`); `outputMayBeAlteredReasons` lists `{reason, rule}` and `--describe` lists `outputAlteredReasons`. The test is conservative: it asks only whether a later target can overlap a covered node, not whether the rule would apply. It is `true` in the common case; `false` means no later rule, later morphology or self interaction can touch the pattern's segments. It is `null` when there is no pattern.
 - **Out of scope.** Test roots (`testRoots`) are not reported yet. Bleeding is not analysed, and feeding is only answered conservatively (`may_be_fed`): nothing says how rules interact beyond their stratum and ordinal.
 - Errors (the request never ran): `bad_request`, `unknown_morpheme` (unknown entry, MSA not of the entry, or an `allomorphId` the morpheme does not own), `ambiguous_identity`, `authored_identity_unavailable`, `form_not_segmentable` (an allomorph form does not segment against its table; never reported as empty segments), `internal`. A work or deadline stop is a `result` with `complete:false`, never an error.
+
+## Op `shadowedAllomorphs`: alternates that can never be selected
+
+`interfaces.serveOps.shadowedAllomorphs` in `pangloss --describe` declares the op, its row fields, verdicts, reasons and contract. It is static and read-only: it analyses the loaded grammar and parses nothing, so parse results are unchanged.
+
+```json
+{"id":"s1","op":"shadowedAllomorphs","includeSelectable":false}
+```
+
+- Result: `complete`, `counts` (`shadowed`, `maybe_shadowed`, `selectable` over the morphemes with two or more alternates), `deadCounts` (`proven`, `maybe`, `live`), `alternates` and `deadContinuations`. `selectable` and `live` rows are listed only with `includeSelectable:true`.
+- **Shadowing.** For each entry or affix rule, each alternate gets a `verdict`. `shadowed` is proven: an earlier alternate of the same morpheme is eligible wherever this one is and does not free-fluctuate with it, so no parse or generation selects this one; `blockers` names that earlier alternate. Example: an unconstrained passive `w` before `liw` shadows `liw`. `maybe_shadowed` lists the `reasons` that were not proven (`environment_subsumption_undecided`, `lhs_subsumption_undecided`, and so on, all declared in `--describe`). A proof uses only identical or empty conditions; a condition the engine does not model is never counted as covered.
+- **Dead continuation.** A stem alternate is chosen by surface lookup, not by order, so it is reported separately: `continuation` is `proven` when no affix allomorph that could attach accepts the entry's rule features (inflection class) or stem name, and the allomorph cannot stand as a bare word; `maybe` when that last part is unproven (`reasons`); `live` otherwise. `blockedBy` names the requirement (`kind` `required_mpr`, `excluded_mpr` or `stem_name`, the `names`, and the affix `allomorphs` and `rules` that demand it), for example every following affix requires VC-B while the root is VC-A. Adding a null VC-A to VC-B converter makes the root live.
+- Errors: `bad_request` (an unknown field or a non-boolean `includeSelectable`), `internal`.
+- Not proven: a `maybe_shadowed` or `maybe` row says nothing either way, and no rule-level syntactic-feature or part-of-speech condition is modelled for dead continuations. The FST engine is not covered.
 
 ## Closing stdin
 
