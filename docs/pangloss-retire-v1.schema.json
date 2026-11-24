@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pangloss-retire/v1 row",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "index", "word", "status", "reparsed", "baselineReadings", "retiredReadings", "lost", "gained"],
+  "properties": {
+    "schema": { "const": "pangloss-retire/v1" },
+    "index": { "type": "integer", "minimum": 0 },
+    "word": { "type": "string" },
+    "status": { "enum": ["unchanged", "lost", "reduced", "gained", "changed", "incomplete"] },
+    "reparsed": { "type": "boolean" },
+    "baselineReadings": { "type": "integer", "minimum": 0 },
+    "retiredReadings": { "type": "integer", "minimum": 0 },
+    "lost": { "type": "array", "items": { "$ref": "#/$defs/reading" } },
+    "gained": { "type": "array", "items": { "$ref": "#/$defs/reading" } },
+    "cause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "via"],
+      "properties": {
+        "kind": { "enum": ["no-alternative-chain"] },
+        "via": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "reading": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries", "morphs"],
+      "properties": {
+        "entries": { "type": "array", "items": { "type": "string" } },
+        "morphs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["form", "msa", "inflType", "guessedString"],
+            "properties": {
+              "form": { "type": ["string", "null"] },
+              "msa": { "type": ["string", "null"] },
+              "inflType": { "type": ["string", "null"] },
+              "guessedString": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}
