@@ -29,7 +29,7 @@ const SUPPORTED_CONSTRUCTS: [&str; 9] = [
     "featureBundle",
     "alphaVariable",
 ];
-const GATED_CONSTRUCTS: [&str; 1] = ["featureValue"];
+const GATED_CONSTRUCTS: [&str; 2] = ["featureValue", "alphaAcrossFeatures"];
 /// Every error code this op can emit.
 const ERROR_CODES: [&str; 11] = [
     "bad_request",

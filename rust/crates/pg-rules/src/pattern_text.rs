@@ -107,7 +107,7 @@ struct Parser<'a> {
     /// Classes made for the text's feature bundles; see [`ParsedPattern::synthetic_classes`].
     synthetic: Vec<NaturalClass>,
     /// The Greek letters seen so far; a letter's place here is its variable id.
-    letters: Vec<char>,
+    letters: Vec<(char, FlatIndex)>,
 }
 
 /// Parses `text` against the grammar and the character table the words will be segmented with. `boundary` is the character definition `+` stands for, when the caller marks boundaries in its words.
@@ -383,10 +383,16 @@ impl Parser<'_> {
             }
             match letter {
                 Some(c) => {
-                    let var = match self.letters.iter().position(|l| *l == c) {
+                    let var = match self.letters.iter().position(|(l, _)| *l == c) {
+                        Some(i) if self.letters[i].1 != flat => {
+                            return Err(PatternError::Unsupported {
+                                construct: "alphaAcrossFeatures",
+                                offset: at,
+                            });
+                        }
                         Some(i) => i,
                         None => {
-                            self.letters.push(c);
+                            self.letters.push((c, flat));
                             self.letters.len() - 1
                         }
                     };

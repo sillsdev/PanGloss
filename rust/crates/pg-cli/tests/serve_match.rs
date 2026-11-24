@@ -252,6 +252,24 @@ fn a_feature_value_a_sign_cannot_name_is_typed_unsupported() {
     assert_eq!(r["offset"], 8);
 }
 
+#[test]
+fn one_greek_letter_on_two_features_is_typed_unsupported() {
+    let mut s = Server::start();
+    for (pattern, offset) in [
+        ("[αvoice] [αson]", 11),
+        ("[αvoice αson]", 9),
+        ("/b/ / [αvoice] _ [αson]", 19),
+    ] {
+        let r = s.matching(pattern, &["bab"]);
+        assert_eq!(r["code"], "unsupported_construct", "{pattern}: {r}");
+        assert_eq!(r["construct"], "alphaAcrossFeatures", "{pattern}: {r}");
+        assert_eq!(r["offset"], offset, "{pattern}: {r}");
+    }
+    // The same letter on the same feature, and different letters on different features, still match.
+    assert_eq!(s.matching("[αvoice][αvoice]", &["bab"])["type"], "result");
+    assert_eq!(s.matching("[αvoice βson]", &["bab"])["type"], "result");
+}
+
 fn first_spans(r: &Value) -> Vec<Vec<(u64, u64)>> {
     r["words"].as_array().unwrap().iter().map(spans).collect()
 }
@@ -772,7 +790,10 @@ fn describe_declares_exactly_what_is_emitted() {
     covered.insert("morphemeBoundary".into());
     assert_eq!(strings(&decl["constructs"]["supported"]), covered);
 
-    let gated = [("featureValue", "[+tone]")];
+    let gated = [
+        ("featureValue", "[+tone]"),
+        ("alphaAcrossFeatures", "[αvoice] [αson]"),
+    ];
     let mut gated_seen: BTreeSet<String> = BTreeSet::new();
     for (name, pattern) in gated {
         let r = s.matching(pattern, &["aba"]);
