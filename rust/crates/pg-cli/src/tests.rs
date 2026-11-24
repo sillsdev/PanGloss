@@ -326,6 +326,53 @@ fn analyses_sidecar_projects_source_guids_from_fwdata() {
 }
 
 #[test]
+fn morph_spans_are_opt_in_and_place_each_morph_on_the_surface() {
+    let fixture = fwdata_fixture_with_k();
+    for (tag, threads) in [("spans-seq", "1"), ("spans-par", "2")] {
+        let plain = run_batch_sidecar_path(tag, &fixture, "kad\n", &["--threads", threads]);
+        assert!(plain[0]["analyses"][0].get("morphSpans").is_none());
+        let rows = run_batch_sidecar_path(
+            tag,
+            &fixture,
+            "kad\n",
+            &["--threads", threads, "--morph-spans"],
+        );
+        let spans = &rows[0]["analyses"][0]["morphSpans"];
+        assert_eq!(spans["surface"], "kad");
+        assert_eq!(spans["segmentCount"], 3);
+        assert_eq!(spans["morphemes"][0]["item"], 0);
+        assert_eq!(spans["morphemes"][0]["reason"], serde_json::Value::Null);
+        assert_eq!(
+            spans["morphemes"][0]["spans"],
+            serde_json::json!([{"segments": [0, 3], "offsets": [0, 3], "text": "kad"}])
+        );
+        assert_eq!(spans["unattributed"], serde_json::json!([]));
+        assert_eq!(
+            rows[0]["analyses"][0]["morphs"],
+            plain[0]["analyses"][0]["morphs"]
+        );
+    }
+}
+
+#[test]
+fn morph_spans_need_the_analyses_sidecar() {
+    let dir = scratch_dir("spans-needs-analyses");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let args: Vec<String> = vec![
+        fwdata_fixture_with_k().to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--morph-spans".to_string(),
+    ];
+    let error = run_batch(&args).expect_err("--morph-spans alone is refused");
+    assert!(
+        error.contains("--morph-spans requires --analyses"),
+        "{error}"
+    );
+}
+
+#[test]
 fn analyses_sidecar_preserves_cap_and_timeout_flags() {
     let grammar_xml = homophonous_suffix_grammar_xml(7);
     let capped_rows = run_batch_sidecar_custom(

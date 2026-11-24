@@ -34,8 +34,8 @@ pub use morpher::{
 };
 pub use overlay::{RootAuthority, SuppliedRoot, SuppliedRootOverlay};
 pub use parse_morph::{
-    project_parse_analyses, project_parse_analysis, ParseAnalysis, ParseMorph,
-    ParseProjectionError, PARSE_ANALYSIS_PROFILE,
+    project_parse_analyses, project_parse_analysis, project_parse_analysis_with_morphemes,
+    ParseAnalysis, ParseMorph, ParseProjectionError, PARSE_ANALYSIS_PROFILE,
 };
 pub use phonology::{
     measure_phonology, PhonologyCompletion, PhonologyContext, PhonologyMeasurement,

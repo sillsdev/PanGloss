@@ -166,6 +166,14 @@ pub fn project_parse_analysis(
     analysis: &WordAnalysis,
     grammar: &Grammar,
 ) -> Result<ParseAnalysis, ParseProjectionError> {
+    project_parse_analysis_with_morphemes(analysis, grammar).map(|(projected, _)| projected)
+}
+
+/// `project_parse_analysis` plus the compiled morpheme id behind each projected morph, parallel to `morphs`.
+pub fn project_parse_analysis_with_morphemes(
+    analysis: &WordAnalysis,
+    grammar: &Grammar,
+) -> Result<(ParseAnalysis, Vec<u32>), ParseProjectionError> {
     if analysis.morph_occurrences.is_empty() && !analysis.morpheme_ids.is_empty() {
         return Err(ParseProjectionError::MissingOccurrences {
             expected: analysis.morpheme_ids.len(),
@@ -175,7 +183,7 @@ pub fn project_parse_analysis(
     let mut occurrences = analysis.morph_occurrences.clone();
     occurrences.sort_by_key(|occurrence| occurrence.order);
     let mut used = vec![false; occurrences.len()];
-    let mut events: Vec<(u32, usize, SourceMorphPlacement, ParseMorph)> = Vec::new();
+    let mut events: Vec<(u32, usize, SourceMorphPlacement, ParseMorph, u32)> = Vec::new();
     let mut ordinary_morphemes = Vec::new();
 
     for i in 0..occurrences.len() {
@@ -242,6 +250,7 @@ pub fn project_parse_analysis(
                     infl_type,
                     guessed_string: Some(guessed_string),
                 },
+                occurrence.morpheme_id,
             ));
             continue;
         }
@@ -326,6 +335,7 @@ pub fn project_parse_analysis(
                         infl_type,
                         guessed_string: None,
                     },
+                    occurrence.morpheme_id,
                 ));
             }
             2 => {
@@ -369,6 +379,7 @@ pub fn project_parse_analysis(
                         infl_type: infl_type.clone(),
                         guessed_string: None,
                     },
+                    occurrence.morpheme_id,
                 ));
                 events.push((
                     occurrences[j].order,
@@ -380,6 +391,7 @@ pub fn project_parse_analysis(
                         infl_type,
                         guessed_string: None,
                     },
+                    occurrence.morpheme_id,
                 ));
             }
             count => {
@@ -391,16 +403,19 @@ pub fn project_parse_analysis(
         }
     }
 
-    events.sort_by_key(|(order, ordinal, _, _)| (*order, *ordinal));
+    events.sort_by_key(|(order, ordinal, _, _, _)| (*order, *ordinal));
     let mut morphs = Vec::with_capacity(events.len());
-    for (_, _, placement, morph) in events {
+    let mut morpheme_ids = Vec::with_capacity(events.len());
+    for (_, _, placement, morph, morpheme) in events {
         if placement == SourceMorphPlacement::InsertBeforeLast && !morphs.is_empty() {
             morphs.insert(morphs.len() - 1, morph);
+            morpheme_ids.insert(morpheme_ids.len() - 1, morpheme);
         } else {
             morphs.push(morph);
+            morpheme_ids.push(morpheme);
         }
     }
-    Ok(ParseAnalysis { morphs })
+    Ok((ParseAnalysis { morphs }, morpheme_ids))
 }
 
 /// Keeps one projection error attached to each input analysis.

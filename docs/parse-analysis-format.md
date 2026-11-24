@@ -42,6 +42,33 @@ Projection follows `HCParser.GetMorphs`: omit synthetic null-affixes, retain cir
 
 Runtime fabricated roots without authored Form/MSA identities are unavailable. Guessed text cannot create or replace those identities. The wire supports conditional guessed text when authoritative source references exist; it does not promise that every parser result can currently be projected.
 
+## Morph spans (opt-in)
+
+`pangloss batch ... --analyses analyses.jsonl --morph-spans` adds `morphSpans` to every reading in `analyses`, beside `morphs`. Without the flag the field is absent and rows are unchanged; the flag is refused without `--analyses` and with `--stats`, `--partials`, `--engine fst`, `--prefilter` or a diagnostic run. A consumer that rejects unknown members must accept `morphSpans` before it passes the flag.
+
+```json
+{"morphs":[...],"morphSpans":{"surface":"mentanukam","segmentCount":10,"morphemes":[{"item":0,"spans":[{"segments":[0,3],"offsets":[0,3],"text":"men"}],"reason":null,"rule":null}],"unattributed":[]}}
+```
+
+The spans come from the synthesized word that verified the reading, through the same function as `serve generate` (`morphSpans` in `docs/formats/serve-protocol.md`, "Morpheme spans"), so shape, units and reasons are the same.
+
+| Field | Meaning |
+| --- | --- |
+| `surface` | The NFD form of the surface; `offsets` index it. |
+| `segmentCount` | Segments of the surface, as `match` counts them. |
+| `morphemes` | One entry per element of the reading's `morphs`, in order; `item` is that index. |
+| `morphemes[].spans` | Runs `{segments, offsets, text}`: half-open segment indexes, half-open UTF-8 byte offsets into `surface`, and `surface[offsets]`. An infix or circumfix gives several runs; an empty list means no segment is left. `null` when no sound span exists. |
+| `morphemes[].reason`, `rule` | Set exactly when `spans` is `null`: `span_lost_by_rule` (with `rule`), `span_unknown_truncation`, `span_ambiguous_copy`, `nested_morph`, `compound_unsupported`, `repeated_morpheme`, `morph_not_recorded`, `segments_not_aligned`. |
+| `unattributed` | Runs `{segments, offsets, text, reason, rule}` no morph claims (`inserted_by_rule` for epenthesis, `no_morph_owner`, `unrequested_morpheme`, or the reason of a null morph whose segments are in doubt). With the morph runs they tile `[0, segmentCount)`. |
+| `text` | `null` when `offsets` is `null`. |
+
+`morphSpans` is `null` for a reading with no span answer. A wrong span is worse than none, so a null is always preferred to a guess:
+
+- Both halves of a circumfix (one morpheme, two projected morphs) are `repeated_morpheme`, because the engine's records cannot say which half is which.
+- A null affix FieldWorks omits from `morphs` has no item; any segment it owns is `unrequested_morpheme`.
+- A word with a truncation, an ambiguous reduplication copy or a compound has every morph null with the reason above.
+- Readings under `unavailable` have no spans.
+
 ## Comparison and provenance
 
 Approved-analysis correctness is positive subset matching: every approved morphology must be found; extra parser readings do not constitute failure. Exact parser conformance instead compares the complete multiset. Neither comparison may infer complete search from the number of findings.

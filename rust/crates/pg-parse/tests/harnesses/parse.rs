@@ -22,6 +22,8 @@ mod adhoc_morpheme_variant_copies;
 mod analysis_order_gate;
 #[path = "../batch_determinism.rs"]
 mod batch_determinism;
+#[path = "../batch_morph_spans.rs"]
+mod batch_morph_spans;
 #[path = "../bracket_pattern_affix_form.rs"]
 mod bracket_pattern_affix_form;
 #[path = "../cd_set_gate.rs"]

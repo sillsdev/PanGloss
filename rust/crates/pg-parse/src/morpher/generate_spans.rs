@@ -19,7 +19,44 @@ enum Claim {
     Reason(&'static str, Option<PRuleId>),
 }
 
+/// A parse analysis's morph spans: item `i` of `spans` is the analysis's `i`th projected morph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseSpans {
+    /// The surface in NFD; `offsets` index it.
+    pub surface: String,
+    pub spans: SurfaceSpans,
+}
+
 impl Morpher<'_> {
+    /// The synthesized `word`'s spans for each morph `analysis` projects to, or `None` when the analysis does not project.
+    pub(super) fn parse_spans(
+        &self,
+        word: &Word,
+        analysis: &crate::WordAnalysis,
+    ) -> Option<ParseSpans> {
+        let (_, morphemes) =
+            crate::parse_morph::project_parse_analysis_with_morphemes(analysis, self.g).ok()?;
+        let items: Vec<SeedItem> = morphemes
+            .into_iter()
+            .map(|morpheme| SeedItem {
+                role: SeedItemRole::Root,
+                entry_guid: None,
+                msa_guid: None,
+                allomorph_id: None,
+                form_guid: None,
+                shape: None,
+                rule_name: None,
+                morpheme: Some(pg_grammar_model::model::MorphemeId(morpheme)),
+            })
+            .collect();
+        let surface = self.generated_surface_of(word);
+        let spans = self.word_spans(word, &surface, &items);
+        Some(ParseSpans {
+            surface: surface.nfd().collect(),
+            spans,
+        })
+    }
+
     /// Where each segment of `word`'s `surface` came from; every segment is in exactly one morpheme's spans or one unattributed run, and a morpheme the engine cannot place soundly has typed-null spans.
     pub(super) fn word_spans(
         &self,

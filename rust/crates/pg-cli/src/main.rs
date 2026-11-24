@@ -87,6 +87,7 @@
 mod alloc_trace;
 mod analyze_text_cmd;
 mod batch_prefilter;
+mod batch_spans;
 #[cfg(test)]
 mod test_support;
 
@@ -104,7 +105,7 @@ use std::sync::{
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::{
     hc_parse_batch,
-    parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
+    parse_morph::{project_parse_analysis, PARSE_ANALYSIS_PROFILE},
     GenMorpheme, Morpher, WordAnalysis,
 };
 use pg_stats::{StatsProfile, WorkCap};
@@ -228,7 +229,7 @@ struct ParseAnalysisBatchRow {
     timed_out: bool,
     #[serde(rename = "invalidShape")]
     invalid_shape: bool,
-    analyses: Vec<ParseAnalysis>,
+    analyses: Vec<serde_json::Value>,
     unavailable: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<engine::Completion>,
@@ -237,21 +238,32 @@ struct ParseAnalysisBatchRow {
 fn projected_analyses(
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
-) -> (Vec<ParseAnalysis>, Vec<String>) {
+    morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
+) -> (Vec<serde_json::Value>, Vec<String>) {
     if outcome.invalid_shape {
         return (Vec::new(), Vec::new());
     }
     let mut analyses = Vec::with_capacity(outcome.structured.len());
     let mut unavailable = Vec::new();
-    for analysis in &outcome.structured {
+    for (index, analysis) in outcome.structured.iter().enumerate() {
         match project_parse_analysis(analysis, grammar) {
-            Ok(projected) => analyses.push(projected),
+            Ok(projected) => {
+                let mut value =
+                    serde_json::to_value(projected).expect("projected analysis serializes");
+                if let Some(spans) = morph_spans {
+                    value["morphSpans"] =
+                        batch_spans::render(spans.get(index).and_then(Option::as_ref));
+                }
+                analyses.push(value);
+            }
             Err(error) => unavailable.push(error.to_string()),
         }
     }
     (analyses, unavailable)
 }
 
+// Only the fst batch and tests write rows without spans.
+#[cfg_attr(not(any(test, feature = "foma-tools")), allow(dead_code))]
 fn write_parse_analysis_row<W: Write>(
     w: &mut W,
     index: usize,
@@ -261,7 +273,21 @@ fn write_parse_analysis_row<W: Write>(
     grammar: &Grammar,
     engine: Option<engine::Engine>,
 ) -> std::io::Result<()> {
-    let (analyses, unavailable) = projected_analyses(outcome, grammar);
+    write_parse_analysis_row_spans(w, index, word, elapsed_ms, outcome, grammar, engine, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_parse_analysis_row_spans<W: Write>(
+    w: &mut W,
+    index: usize,
+    word: &str,
+    elapsed_ms: u128,
+    outcome: &pg_parse::ParseOutcome,
+    grammar: &Grammar,
+    engine: Option<engine::Engine>,
+    morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
+) -> std::io::Result<()> {
+    let (analyses, unavailable) = projected_analyses(outcome, grammar, morph_spans);
     let row = ParseAnalysisBatchRow {
         schema: PARSE_ANALYSIS_PROFILE,
         index,
@@ -487,7 +513,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -1595,6 +1621,7 @@ fn run_batch_impl(
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
     let mut partials: u8 = 0;
+    let mut morph_spans = false;
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
     let mut flush_each_word = true;
@@ -1690,6 +1717,7 @@ fn run_batch_impl(
             s if s == "--guess" || s.starts_with("--guess=") => {
                 guess_arg = Some(parse_guess_flag(s)?)
             }
+            "--morph-spans" => morph_spans = true,
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
             "--no-flush" => flush_each_word = false,
@@ -1752,7 +1780,7 @@ fn run_batch_impl(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1830,6 +1858,16 @@ fn run_batch_impl(
     }
     if analyses_path_arg.is_some() && start_idx > 0 {
         return Err("--start cannot be combined with --analyses".into());
+    }
+    if morph_spans
+        && (analyses_path_arg.is_none()
+            || stats_requested
+            || partials != 0
+            || engine == Some(engine::Engine::Fst)
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off)
+    {
+        return Err("--morph-spans requires --analyses and cannot be combined with --stats, --partials, --engine fst, a diagnostic run or --prefilter".into());
     }
     if cost_column && stats_requested {
         return Err(
@@ -2056,7 +2094,10 @@ fn run_batch_impl(
         "LOADTIME\tengine={timing_engine}\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
-    let opts = morpher.project_parse_options().with_partials(partials);
+    let opts = morpher
+        .project_parse_options()
+        .with_partials(partials)
+        .with_morph_spans(morph_spans);
     let row_flags = BatchRowFlags {
         engine,
         partials: partials != 0,
@@ -2123,6 +2164,7 @@ fn run_batch_impl(
             if per_word_diagnostics {
                 reset_per_word_diagnostics();
             }
+            let mut row_spans: Vec<Option<pg_parse::morpher::ParseSpans>> = Vec::new();
             let (result, stats) = if let Some(collector) = &stats_collector {
                 let (result, stats) = collector.parse(&morpher, word, &opts, parse_counter)?;
                 (result, Some(stats))
@@ -2134,6 +2176,11 @@ fn run_batch_impl(
                 }
                 let outcome = match prefilter.as_mut() {
                     Some(prefilter) => prefilter.parse(i, &morpher, word, &opts),
+                    None if morph_spans => {
+                        let (outcome, spans) = morpher.parse_word_morph_spans(word, &opts);
+                        row_spans = spans;
+                        outcome
+                    }
                     None => {
                         if let Some(trace) = diagnostic_run.as_mut() {
                             let (outcome, row) = trace.parse(&morpher, &opts, i, word);
@@ -2343,8 +2390,15 @@ fn run_batch_impl(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(
-                    analyses_w, i, word, elapsed_ms, &outcome, &grammar, engine,
+                write_parse_analysis_row_spans(
+                    analyses_w,
+                    i,
+                    word,
+                    elapsed_ms,
+                    &outcome,
+                    &grammar,
+                    engine,
+                    morph_spans.then_some(row_spans.as_slice()),
                 )
                 .map_err(|e| e.to_string())?;
             }
@@ -2367,6 +2421,7 @@ fn run_batch_impl(
         };
         let remaining = &words[start..];
         let mut diagnostic_rows = None;
+        let mut batch_spans_rows = None;
         let (results, result_start) = if let Some(collector) = &stats_collector {
             let cache = stats_cache
                 .as_mut()
@@ -2405,6 +2460,24 @@ fn run_batch_impl(
                     .into_iter()
                     .unzip();
                 diagnostic_rows = Some(rows.into_iter());
+                results
+            } else if morph_spans {
+                let (results, spans): (Vec<_>, Vec<_>) =
+                    parse_batch_in_order(remaining, threads, |_, word| {
+                        let started = Instant::now();
+                        parse_counter.record();
+                        let (outcome, spans) = morpher.parse_word_morph_spans(word, &opts);
+                        (
+                            pg_parse::BatchWordOutcome {
+                                outcome,
+                                elapsed: started.elapsed(),
+                            },
+                            spans,
+                        )
+                    })
+                    .into_iter()
+                    .unzip();
+                batch_spans_rows = Some(spans.into_iter());
                 results
             } else if opts.partials != 0
                 || (opts.guess_root && !morpher.lexical_patterns().is_empty())
@@ -2461,8 +2534,16 @@ fn run_batch_impl(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(
-                    analyses_w, i, word, elapsed_ms, &r.outcome, &grammar, engine,
+                let spans = batch_spans_rows.as_mut().and_then(|rows| rows.next());
+                write_parse_analysis_row_spans(
+                    analyses_w,
+                    i,
+                    word,
+                    elapsed_ms,
+                    &r.outcome,
+                    &grammar,
+                    engine,
+                    spans.as_deref(),
                 )
                 .map_err(|e| e.to_string())?;
             }
