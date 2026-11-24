@@ -397,6 +397,27 @@ fn an_environment_runs_under_the_work_budget() {
 }
 
 #[test]
+fn a_side_alone_exhausts_the_work_budget_where_the_plain_target_does_not() {
+    let mut s = Server::start();
+    let long = long_word();
+    let cap = 100_000;
+    // The same target with no sides stops at the match cap, not the work cap, so the work limit below is the side's.
+    let plain = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]",
+        "words": [long.clone()], "maxWork": cap}));
+    assert_eq!(plain["stopReason"], "match_cap", "{plain}");
+    for pattern in [
+        "[V] / _ ([V])*([V])*([V])*([V])*([V])*[Stop] #",
+        "[V] / # ([V])*([V])*([V])*([V])*([V])*[Stop] _",
+    ] {
+        let r = s.ask(json!({"id": "m", "op": "match", "pattern": pattern,
+            "words": [long.clone(), "ab"], "maxWork": cap}));
+        assert_eq!(r["complete"], false, "{pattern}: {r}");
+        assert_eq!(r["words"][0]["stop"], "work_limit", "{pattern}: {r}");
+        assert_eq!(r["words"][1]["status"], "ok", "{pattern}: {r}");
+    }
+}
+
+#[test]
 fn request_errors_are_typed() {
     let mut s = Server::start();
     let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]", "words": ["a", "b", "c"], "maxWords": 2}));
