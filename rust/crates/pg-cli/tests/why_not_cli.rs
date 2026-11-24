@@ -265,6 +265,15 @@ fn data(name: &str) -> PathBuf {
         .join(name)
 }
 
+fn disjunctive_fixture() -> String {
+    // The suite fixture sillsdev/fieldworks-parser-conformance edge-cases/disjunctive-folded-env-blocks.
+    pg_conformance_fixtures::suite_root()
+        .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml")
+        .to_str()
+        .unwrap()
+        .to_string()
+}
+
 fn answer_on(grammar: &str, word: &str, args: &[&str]) -> Value {
     let o = Command::new(BIN)
         .arg("why-not")
@@ -777,11 +786,7 @@ fn every_declared_kind_is_really_answered_and_the_rest_are_unknown() {
             "kibuton",
             &["--expect", "eKib,mrPast2,mrPl"],
         ),
-        answer_on(
-            "trace-disjunctive-synthesis.xml",
-            "banku",
-            &["--expect", "eBan,mrDat"],
-        ),
+        answer_on(&disjunctive_fixture(), "banku", &["--expect", "eBan,mrDat"]),
     ];
     for r in &seen {
         let k = failure_kind(r).to_string();
@@ -1033,11 +1038,7 @@ fn a_json_choice_with_neither_id_nor_guid_or_half_a_guid_is_an_error() {
 
 #[test]
 fn a_disjunctive_break_before_the_analysed_allomorph_is_a_named_other_gate() {
-    let r = answer_on(
-        "trace-disjunctive-synthesis.xml",
-        "banku",
-        &["--expect", "eBan,mrDat"],
-    );
+    let r = answer_on(&disjunctive_fixture(), "banku", &["--expect", "eBan,mrDat"]);
     assert_eq!(failure_kind(&r), "other_gate", "{r}");
     assert!(
         r["failure"]["hc_reason"].is_null(),
@@ -1061,11 +1062,7 @@ fn the_parses_beside_a_disjunctive_break_are_still_accepted() {
         ("banka", "eBan,mrDat"),
         ("ban", "eBan"),
     ] {
-        let r = answer_on(
-            "trace-disjunctive-synthesis.xml",
-            word,
-            &["--expect", expect],
-        );
+        let r = answer_on(&disjunctive_fixture(), word, &["--expect", expect]);
         assert_eq!(r["result"], "accepted", "{word}: {r}");
     }
 }

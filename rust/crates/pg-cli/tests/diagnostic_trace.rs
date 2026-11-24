@@ -23,7 +23,14 @@ mod trace_off;
 const BIN: &str = env!("CARGO_BIN_EXE_pangloss");
 const GRAMMAR: &str = include_str!("data/trace-family.xml");
 const ALLOMORPH_BLOCKED: &str = include_str!("data/trace-allomorph-blocked.xml");
-const DISJUNCTIVE_SYNTHESIS: &str = include_str!("data/trace-disjunctive-synthesis.xml");
+fn disjunctive_synthesis() -> String {
+    // The suite fixture sillsdev/fieldworks-parser-conformance edge-cases/disjunctive-folded-env-blocks.
+    std::fs::read_to_string(
+        pg_conformance_fixtures::suite_root()
+            .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml"),
+    )
+    .expect("conformance suite fixture")
+}
 
 fn run(args: &[&str]) -> Output {
     let binary = std::env::var_os("PANGLOSS_DIAGNOSTIC_TEST_BIN").unwrap_or_else(|| BIN.into());
@@ -396,19 +403,19 @@ fn the_blocked_stop_names_the_later_allomorph_as_blocked_and_the_earlier_as_bloc
 
 #[test]
 fn a_disjunctive_break_before_the_analysed_allomorph_is_a_typed_stop() {
-    let data = parse(DISJUNCTIVE_SYNTHESIS, "banku", &[]);
+    let data = parse(&disjunctive_synthesis(), "banku", &[]);
     let (blocked, blocker) = blocked_pair_at(&data, "morphology");
     assert!(
-        blocked.ends_with(&allomorph_index(DISJUNCTIVE_SYNTHESIS, "subKu")),
+        blocked.ends_with(&allomorph_index(&disjunctive_synthesis(), "subKu")),
         "blocked {blocked}"
     );
     assert!(
-        blocker.ends_with(&allomorph_index(DISJUNCTIVE_SYNTHESIS, "subKa")),
+        blocker.ends_with(&allomorph_index(&disjunctive_synthesis(), "subKa")),
         "blocker {blocker}"
     );
     assert_eq!(data[data.len() - 2]["search"]["outputCount"], 0);
     for word in ["basku", "banka", "ban"] {
-        let data = parse(DISJUNCTIVE_SYNTHESIS, word, &[]);
+        let data = parse(&disjunctive_synthesis(), word, &[]);
         assert!(
             data.iter().all(|row| row["reason"] != "allomorph_blocked"),
             "{word}"
@@ -420,7 +427,7 @@ fn a_disjunctive_break_before_the_analysed_allomorph_is_a_typed_stop() {
 fn the_disjunctive_break_changes_no_parse() {
     let temp = tempfile::tempdir().unwrap();
     let grammar = temp.path().join("grammar.xml");
-    fs::write(&grammar, DISJUNCTIVE_SYNTHESIS).unwrap();
+    fs::write(&grammar, disjunctive_synthesis()).unwrap();
     for (word, line) in [
         ("banku", "banku\t-"),
         ("basku", "basku\tBAS+DAT|basku"),
@@ -976,7 +983,7 @@ fn describe_advertises_exactly_the_tuples_emitted_by_the_cli() {
         parse(&early_root_grammar(), AMBIGUOUS_ROOTLESS_WORD, &[]),
         parse(&nonblocking_grammar(), "kibes", &[]),
         parse(ALLOMORPH_BLOCKED, "wakta", &[]),
-        parse(DISJUNCTIVE_SYNTHESIS, "banku", &[]),
+        parse(&disjunctive_synthesis(), "banku", &[]),
     ];
     let alternatives = lookup_alternative_grammars().map(|xml| parse(&xml, "kibes", &[]));
     let emitted: BTreeSet<_> = fixtures

@@ -790,7 +790,12 @@ fn a_blocked_allomorph_names_both_allomorphs_in_the_evidence() {
             "wakta",
         ),
         (
-            include_str!("../../tests/data/trace-disjunctive-synthesis.xml"),
+            std::fs::read_to_string(
+                pg_conformance_fixtures::suite_root()
+                    .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml"),
+            )
+            .expect("conformance suite fixture")
+            .as_str(),
             "banku",
         ),
     ] {

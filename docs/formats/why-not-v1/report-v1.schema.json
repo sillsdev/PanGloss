@@ -286,6 +286,10 @@
             "null"
           ]
         },
+        "gate": {
+          "type": "string",
+          "minLength": 1
+        },
         "provenance": {
           "enum": [
             "hc_reported",
