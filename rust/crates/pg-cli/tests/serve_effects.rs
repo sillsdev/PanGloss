@@ -15,6 +15,8 @@ const METATHESIS_ENTRY: &str = "59812fa2-7cb8-4481-baed-78212699c934";
 const METATHESIS_MSA: &str = "568c4482-a8ab-46c5-8434-beadf5fcd625";
 const ROOT_ENTRY: &str = "00000000-0000-0000-0000-000000000040";
 const ROOT_MSA: &str = "00000000-0000-0000-0000-000000000042";
+const KAT_ENTRY: &str = "00000000-0000-0000-0000-000000000030";
+const KAT_MSA: &str = "00000000-0000-0000-0000-000000000032";
 const AFFIX_ENTRY: &str = "00000000-0000-0000-0000-000000000050";
 const AFFIX_MSA: &str = "00000000-0000-0000-0000-000000000052";
 
@@ -117,7 +119,7 @@ fn error_code(response: &Value) -> &str {
 }
 
 #[test]
-fn a_root_lists_its_allomorph_and_every_rule_as_unknown_for_each_edge() {
+fn a_root_lists_its_allomorph_and_every_rule_for_each_edge() {
     let mut s = Server::start();
     let r = s.effects(root(), json!({}));
     assert_eq!(r["type"], "result", "{r}");
@@ -147,8 +149,9 @@ fn a_root_lists_its_allomorph_and_every_rule_as_unknown_for_each_edge() {
         assert!(e["rule"]["stratum"].is_string(), "{e}");
         assert_eq!(e["subrule"], 0);
         assert_eq!(e["allomorphId"], id);
-        assert_eq!(e["mayApply"], "unknown");
-        assert_eq!(e["reason"], "not_analysed");
+        // `ranna` has no `t`, so the one rule cannot be on the form; that is not "cannot change".
+        assert_eq!(e["mayApply"], "notOnForm");
+        assert_eq!(e["reason"], NO_MATCH_REASON);
     }
 }
 
@@ -269,11 +272,33 @@ fn describe_declares_what_the_op_emits() {
             .collect()
     };
     let effect_fields = declared("effectFields");
-    for e in r["effects"].as_array().unwrap() {
-        for key in e.as_object().unwrap().keys() {
-            assert!(effect_fields.contains(key), "undeclared effect field {key}");
+    let reasons = declared("reasons");
+    // `kat` holds the LHS (so it carries `lhsSpans`), `ranna` does not, and the two-node LHS straddles.
+    let mut emitted = Vec::new();
+    for response in [
+        r.clone(),
+        s.effects(kat(), json!({})),
+        Server::start_with(&two_node_lhs_fwdata()).effects(kat(), json!({})),
+    ] {
+        for e in response["effects"].as_array().unwrap() {
+            for key in e.as_object().unwrap().keys() {
+                assert!(effect_fields.contains(key), "undeclared effect field {key}");
+            }
+            assert!(declared("mayApply").contains(&e["mayApply"].as_str().unwrap().to_string()));
+            let reason = e["reason"].as_str().unwrap().to_string();
+            assert!(reasons.contains(&reason), "undeclared reason {reason}");
+            emitted.push(reason);
         }
-        assert!(declared("mayApply").contains(&e["mayApply"].as_str().unwrap().to_string()));
+    }
+    for reason in [
+        "environment_unchecked",
+        "lhs_may_straddle_edge",
+        NO_MATCH_REASON,
+    ] {
+        assert!(
+            emitted.contains(&reason.to_string()),
+            "{reason} never emitted"
+        );
     }
     let result_fields = declared("resultFields");
     for key in r.as_object().unwrap().keys() {
@@ -479,4 +504,127 @@ fn max_work_above_the_server_cap_is_refused() {
     assert_eq!(error_code(&r), "bad_request");
     drop(stdin);
     child.wait().unwrap();
+}
+
+const NO_MATCH_REASON: &str =
+    "no LHS match on the underlying form; feeding by earlier rules not considered";
+
+fn kat() -> Value {
+    json!({"entryGuid": KAT_ENTRY, "msaGuid": KAT_MSA})
+}
+
+/// The Voicing rule widened to `t k -> d k`, so its left-hand side is two nodes and can straddle a morpheme edge.
+fn two_node_lhs_fwdata() -> String {
+    FWDATA
+        .replacen(
+            r#"<StrucDesc>
+<objsur guid="00000000-0000-0000-0000-000000000019" t="o" />"#,
+            r#"<StrucDesc>
+<objsur guid="00000000-0000-0000-0000-000000000019" t="o" />
+<objsur guid="00000000-0000-0000-0000-0000000000a1" t="o" />"#,
+            1,
+        )
+        .replacen(
+            r#"<objsur guid="00000000-0000-0000-0000-00000000001e" t="o" />"#,
+            r#"<objsur guid="00000000-0000-0000-0000-00000000001e" t="o" />
+<objsur guid="00000000-0000-0000-0000-0000000000a2" t="o" />"#,
+            1,
+        )
+        .replacen(
+            "</rt>\n</languageproject>",
+            r#"</rt>
+<rt class="PhSimpleContextSeg" guid="00000000-0000-0000-0000-0000000000a1" ownerguid="00000000-0000-0000-0000-000000000018">
+<FeatureStructure>
+<objsur guid="00000000-0000-0000-0000-000000000025" t="r" />
+</FeatureStructure>
+</rt>
+<rt class="PhSimpleContextSeg" guid="00000000-0000-0000-0000-0000000000a2" ownerguid="00000000-0000-0000-0000-00000000001a">
+<FeatureStructure>
+<objsur guid="00000000-0000-0000-0000-000000000025" t="r" />
+</FeatureStructure>
+</rt>
+</languageproject>"#,
+            1,
+        )
+}
+
+#[test]
+fn a_form_holding_the_lhs_lists_its_spans_and_awaits_the_environment() {
+    let mut s = Server::start();
+    let r = s.effects(kat(), json!({}));
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["allomorphs"][0]["segments"], json!(["k", "a", "t"]));
+    let effects = r["effects"].as_array().unwrap();
+    assert_eq!(effects.len(), 2, "{r}");
+    for e in effects {
+        assert_eq!(e["mayApply"], "unknown", "{e}");
+        assert_eq!(e["reason"], "environment_unchecked", "{e}");
+        assert_eq!(e["lhsSpans"], json!([[2, 3]]), "{e}");
+    }
+}
+
+#[test]
+fn a_form_without_the_lhs_is_not_on_form_never_cannot_change() {
+    let mut s = Server::start();
+    for morpheme in [root(), affix()] {
+        let r = s.effects(morpheme, json!({}));
+        let effects = r["effects"].as_array().unwrap();
+        assert_eq!(effects.len(), 2, "{r}");
+        for e in effects {
+            assert_eq!(e["mayApply"], "notOnForm", "{e}");
+            assert_eq!(e["reason"], NO_MATCH_REASON, "{e}");
+            assert!(e.get("lhsSpans").is_none(), "{e}");
+        }
+    }
+}
+
+#[test]
+fn an_lhs_that_may_straddle_a_morpheme_edge_stays_unknown() {
+    let mut s = Server::start_with(&two_node_lhs_fwdata());
+    // `kat` ends in t, so the rule's `t k` may match across its right edge.
+    let r = s.effects(kat(), json!({}));
+    assert_eq!(r["type"], "result", "{r}");
+    for e in r["effects"].as_array().unwrap() {
+        assert_eq!(e["mayApply"], "unknown", "{e}");
+        assert_eq!(e["reason"], "lhs_may_straddle_edge", "{e}");
+        assert!(e.get("lhsSpans").is_none(), "{e}");
+    }
+    // `ranna` has neither t nor k at an edge.
+    let r = s.effects(root(), json!({}));
+    for e in r["effects"].as_array().unwrap() {
+        assert_eq!(e["mayApply"], "notOnForm", "{e}");
+    }
+}
+
+#[test]
+fn every_rule_appears_for_every_allomorph_whatever_its_verdict() {
+    let mut s = Server::start();
+    let r = s.effects(kat(), json!({"edges": ["left"]}));
+    assert_eq!(r["effects"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(r["effects"][0]["rule"]["name"], "Voicing");
+}
+
+/// The fixture's suffix `-s` rewritten as `-t`, so the Voicing rule's LHS (`t`) is found in an affix form.
+fn affix_with_t_fwdata() -> String {
+    let changed = FWDATA.replacen(r#"<AUni ws="fx">s</AUni>"#, r#"<AUni ws="fx">t</AUni>"#, 1);
+    assert_ne!(changed, FWDATA, "the fixture must hold the suffix s");
+    changed
+}
+
+#[test]
+fn an_affix_form_holding_the_lhs_is_inside_and_one_without_it_is_not_on_form() {
+    let mut s = Server::start_with(&affix_with_t_fwdata());
+    let r = s.effects(affix(), json!({}));
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["allomorphs"][0]["segments"], json!(["t"]), "{r}");
+    for e in r["effects"].as_array().unwrap() {
+        assert_eq!(e["mayApply"], "unknown", "{e}");
+        assert_eq!(e["reason"], "environment_unchecked", "{e}");
+        assert_eq!(e["lhsSpans"], json!([[0, 1]]), "{e}");
+    }
+    // The root `ranna` of the same grammar has no `t`.
+    let r = s.effects(root(), json!({}));
+    for e in r["effects"].as_array().unwrap() {
+        assert_eq!(e["mayApply"], "notOnForm", "{e}");
+    }
 }

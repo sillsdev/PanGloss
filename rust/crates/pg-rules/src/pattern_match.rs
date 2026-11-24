@@ -14,7 +14,7 @@
 //! such as `[+voice]` is a natural class the pattern text defines itself (see
 //! [`crate::pattern_text::ParsedPattern::synthetic_classes`]).
 
-use pg_grammar_model::chardef::CharDefTable;
+use pg_grammar_model::chardef::{CharDefKind, CharDefTable};
 use pg_grammar_model::model::{AnchorSide, Grammar, Pattern, PatternNode, TableId};
 
 use crate::pattern_text::ParsedPattern;
@@ -229,6 +229,181 @@ pub fn segment_byte_spans(
             .map(|(_, s)| s)
             .collect(),
     )
+}
+
+/// How many segments `shape` holds (boundaries excluded), the unit of [`ShapeMatch`] spans.
+pub fn segment_count(shape: &Shape) -> usize {
+    shape
+        .interior()
+        .filter(|(_, kind, _, _)| *kind == NodeKind::Segment)
+        .count()
+}
+
+/// Most pattern nodes a straddle probe set is built for; a longer pattern is not modelled.
+const STRADDLE_MAX_NODES: usize = 8;
+
+/// One way part of a pattern may lie in the form and the rest in unknown neighbours.
+struct Probe {
+    matcher: CompiledMatch,
+    /// The part in the form begins at the form's left edge.
+    at_left_edge: bool,
+    /// The part in the form ends at the form's right edge.
+    at_right_edge: bool,
+}
+
+/// Every way a pattern could match across an edge of a form, the rest of it lying in an unknown neighbour.
+///
+/// It over-approximates: the neighbour is unconstrained, anchors and boundary nodes are dropped, and a quantifier cut by an edge is relaxed to match zero repetitions. A `false` answer is therefore proof that no match overlaps the form and reaches past an edge; a `true` answer proves nothing.
+pub struct StraddleProbes {
+    probes: Vec<Probe>,
+}
+
+/// The pattern as one segment per node, anchors and boundary nodes dropped; `Err` for alpha variables, a quantifier over several nodes, a pattern that can match no segment, or one over [`STRADDLE_MAX_NODES`].
+fn flatten_for_straddle(
+    g: &Grammar,
+    table: TableId,
+    pattern: &Pattern,
+) -> Result<Vec<PatternNode>, MatchCompileError> {
+    let refuse = |why: &str| Err(MatchCompileError(format!("straddle not modelled: {why}")));
+    let chardefs = &g.char_tables[table.0 as usize];
+    let is_boundary =
+        |id: pg_grammar_model::chardef::CharDefId| chardefs.get(id).kind() == CharDefKind::Boundary;
+    let mut out = Vec::new();
+    for node in &pattern.nodes {
+        match node {
+            PatternNode::Anchor(_) => {}
+            PatternNode::Segments { shape, .. } => {
+                for (_, kind, cd, _) in shape.shape.interior() {
+                    if kind == NodeKind::Segment {
+                        out.push(PatternNode::CharDef(pg_grammar_model::chardef::CharDefId(
+                            cd,
+                        )));
+                    }
+                }
+            }
+            PatternNode::CharDef(id) => {
+                if !is_boundary(*id) {
+                    out.push(node.clone());
+                }
+            }
+            PatternNode::Context(c) => {
+                if !c.vars.is_empty() {
+                    return refuse("alpha variable");
+                }
+                out.push(node.clone());
+            }
+            PatternNode::Quantifier { children, .. } => {
+                let single = match children.as_slice() {
+                    [PatternNode::Context(c)] => c.vars.is_empty(),
+                    [PatternNode::CharDef(id)] => !is_boundary(*id),
+                    _ => false,
+                };
+                if !single {
+                    return refuse("quantifier over several nodes");
+                }
+                out.push(node.clone());
+            }
+        }
+    }
+    let nullable = out
+        .iter()
+        .all(|n| matches!(n, PatternNode::Quantifier { min: 0, .. }));
+    if out.is_empty() || nullable {
+        return refuse("pattern can match no segment");
+    }
+    if out.len() > STRADDLE_MAX_NODES {
+        return refuse("pattern too long");
+    }
+    Ok(out)
+}
+
+/// A quantifier that may match no repetition; any other node unchanged.
+fn relaxed(node: &PatternNode) -> PatternNode {
+    match node {
+        PatternNode::Quantifier { max, children, .. } => PatternNode::Quantifier {
+            min: 0,
+            max: *max,
+            children: children.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Compiles the probes of `pattern`, a pattern the grammar itself holds (not one parsed from text with feature bundles, whose classes are not in the grammar) for forms segmented with `table`: for each run of nodes `i..=j` other than the whole pattern, that run alone must match a span of the form that reaches the left edge when nodes precede it and the right edge when nodes follow it.
+pub fn compile_straddle(
+    g: &Grammar,
+    table: TableId,
+    pattern: &Pattern,
+) -> Result<StraddleProbes, MatchCompileError> {
+    let flat = flatten_for_straddle(g, table, pattern)?;
+    let m = flat.len();
+    let is_quantifier = |n: &PatternNode| matches!(n, PatternNode::Quantifier { .. });
+    let mut probes = Vec::new();
+    for i in 0..m {
+        for j in i..m {
+            // Each end of the run is either cut by the edge (so more of the pattern lies beyond it) or not; a quantifier at the pattern's own end may also be cut with nothing of the pattern beyond it.
+            let left_cuts: &[bool] = if i > 0 {
+                &[true]
+            } else if is_quantifier(&flat[0]) {
+                &[false, true]
+            } else {
+                &[false]
+            };
+            let right_cuts: &[bool] = if j < m - 1 {
+                &[true]
+            } else if is_quantifier(&flat[m - 1]) {
+                &[false, true]
+            } else {
+                &[false]
+            };
+            for &left_cut in left_cuts {
+                for &right_cut in right_cuts {
+                    if !left_cut && !right_cut && i == 0 && j == m - 1 {
+                        continue;
+                    }
+                    let mut nodes = flat[i..=j].to_vec();
+                    if left_cut && is_quantifier(&nodes[0]) {
+                        nodes[0] = relaxed(&nodes[0]);
+                    }
+                    let last = nodes.len() - 1;
+                    if right_cut && is_quantifier(&nodes[last]) {
+                        nodes[last] = relaxed(&nodes[last]);
+                    }
+                    probes.push(Probe {
+                        matcher: compile_match(
+                            g,
+                            table,
+                            &ParsedPattern {
+                                target: Pattern { nodes },
+                                environment: None,
+                                synthetic_classes: Vec::new(),
+                            },
+                        )?,
+                        at_left_edge: left_cut,
+                        at_right_edge: right_cut,
+                    });
+                }
+            }
+        }
+    }
+    Ok(StraddleProbes { probes })
+}
+
+impl StraddleProbes {
+    /// Whether the pattern could match with part of it inside `shape` and part beyond an edge of it.
+    pub fn may_straddle(&self, g: &Grammar, shape: &Shape) -> bool {
+        let n = shape
+            .interior()
+            .filter(|(_, kind, _, _)| *kind == NodeKind::Segment)
+            .count();
+        self.probes.iter().any(|p| {
+            p.matcher.matches(g, shape).iter().any(|m| {
+                m.start < m.end
+                    && (!p.at_left_edge || m.start == 0)
+                    && (!p.at_right_edge || m.end == n)
+            })
+        })
+    }
 }
 
 #[cfg(test)]
