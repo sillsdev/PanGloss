@@ -119,6 +119,48 @@ Without `trace` a surface is `{surface, derivations}`. The attribution runs insi
 
 `stopReason` is `seed_product_exceeds_budget`, `work_limit`, `deadline`, `trace_limit` or `seed_limit`, or `null` when `complete` is `true`. Any stop sets `complete: false` and still returns the seeds finished so far, including the seed in which the cap hit (its surfaces may be incomplete); they are not the full set. Request errors (`bad_request`, `request_too_large`, `unsupported_schema_version`, `unsupported_msa_class`, `unsupported_form_selection`, `authored_identity_unavailable`, `unknown_entry`, `unknown_msa`, `msa_not_owned_by_entry`, `ambiguous_identity`) are `error` responses; a cap is never an error.
 
+## Op `match`: pattern text over a word list
+
+`interfaces.serveOps.match` in `pangloss --describe` declares the op, its constructs, error codes, statuses, stop reasons and limits; a binary without that key lacks the op. It is additive and does not change the protocol version.
+
+```json
+{"id":"m1","op":"match","pattern":"#[Stop]([V])*","words":["aba","kuŋ"],"boundaryMarker":"+","maxWords":100000,"maxMatchesPerWord":1000}
+```
+
+- `pattern` (string, at most 4096 bytes) is HermitCrab pattern text. `words` (array of strings) or `wordsFile` (path, one word per line, blank lines skipped) gives the words; send exactly one. `boundaryMarker`, `maxWords` (default 100000, at most 1000000), `maxMatchesPerWord` (default 1000, at most 100000), `maxWork` (matcher work units per word; default 50,000,000, at most the server's `--work-cap`) and `wordTimeoutMs` (per-word wall clock, at most 600000; default the server's `--word-timeout-ms`, else 10000) are optional. A field the op does not know is refused with `bad_request`, as for `generate`.
+- Words are segmented with the surface character-definition table `parse` uses (the last stratum's), through `segment`. The matcher is the synthesis environment matcher (subsumption matching, optional boundary nodes), so an unanchored pattern returns every span.
+
+Pattern text, with whitespace between items ignored:
+
+| Item | Meaning |
+|---|---|
+| `[Name]` | a natural class of the grammar, by name (or xml id) |
+| `/ŋk/` | literal segments, segmented against the surface table |
+| `( items )` | optional |
+| `( items )*` | optional and repeated |
+| `#` | word edge: leading `#` anchors the start, trailing `#` the end |
+| `+` | morpheme boundary; needs `boundaryMarker` |
+
+Gated, each a typed `unsupported_construct` (`construct` is `featureBundle`, `alphaVariable` or `environment`) until conformance fixtures exist: `[+voice -son]`, `[αback]`, `target / left _ right`. Feature names inside a bundle are checked first, so an unknown one is `unknown_feature`.
+
+Without `boundaryMarker`, words carry no boundaries: a pattern with `+` is refused with `boundary_needs_marked_input`, and a word containing a boundary character is `unsegmentable` (`reason: boundary_in_unmarked_word`). With `"boundaryMarker":"+"` (which must be a boundary character definition of the surface table, else `unknown_boundary_marker`) the words are pre-cut, `+` matches the marker, and the marker is not a segment: it takes no segment index and no offsets. A marker with no `+` in the pattern is transparent, as boundaries are in synthesis.
+
+Result:
+
+```json
+{"id":"m1","type":"result","op":"match","complete":true,"stopReason":null,"words":[
+ {"word":"aba","status":"ok","matches":[{"segments":[0,1],"offsets":[0,1],"left":[0,0],"right":[1,3]}]},
+ {"word":"axa","status":"unsegmentable","matches":[],"at":{"charIndex":1,"offset":1},"reason":"no_character_definition"}]}
+```
+
+- `words` is in request order. `segments` is half-open `[start,end)` over the word's segments, from 0; `offsets` are half-open UTF-8 byte offsets into the word (into its NFD form, given as `normalized`, when the word is not NFD). `left` and `right` are the segment ranges before and after the match. `matches` is sorted and has no duplicates.
+- `status` is `ok`, `unsegmentable` or `incomplete`. An unsegmentable word is reported, counted, and does not make the response incomplete.
+- Every word runs under its own work budget and deadline. A word that exhausts either is `incomplete` with `stop: "work_limit"` or `"deadline"` and no matches (partial spans are dropped), the response is `complete:false` with that `stopReason` (the first), and the remaining words still run. `work_limit` is deterministic; `deadline` is wall-clock and is the one nondeterministic stop.
+- Zero-width matches: a pattern whose every item is optional (`([V])*`, `#([V])*`, `#`) can match the empty string, so it reports an empty match `[p,p]` at every segment position its `#` anchors allow (`offsets` and `right` follow from `p`), beside its non-empty matches. `+` alone reports the zero-width span at each boundary; an unanchored pattern with a required item reports none.
+- `unsegmentable` words carry `reason`: `no_character_definition` (with `at`), `boundary_in_unmarked_word` (the request has no `boundaryMarker`), or `unexpected_boundary` (the request has one, and the word holds a different boundary character, such as the synthetic `.`).
+- A match cap never truncates silently: past `maxMatchesPerWord` the word is `incomplete` with `stop: "match_cap"` and keeps its first sorted matches; past 1,000,000 matches in one response the rest are `incomplete` with `stop: "total_match_cap"`. Either sets `complete:false` and `stopReason` (the first).
+- Errors (the request never ran, with the extra fields shown): `pattern_parse` (`token`, `offset`, `expected`), `unknown_natural_class` and `unknown_feature` (`name`, `offset`, `near`), `unsupported_construct` (`construct`, `offset`), `boundary_needs_marked_input` (`offset`), `unknown_boundary_marker`, `too_many_words` (`words`, `maxWords`), `words_file_unreadable` (`path`), `bad_request` (including an unknown request field), `pattern_compile_failed`, `internal`. Pattern offsets are UTF-8 byte offsets into `pattern`.
+
 ## Closing stdin
 
 End of input on stdin exits 0 immediately, even in the middle of a parse: the in-flight and any queued requests are abandoned and get no response. Because the exit is immediate, an abrupt EOF can leave a partial last line on stdout; a host must discard an unterminated final line. Send `shutdown` for a graceful exit that answers `bye` after the current request.

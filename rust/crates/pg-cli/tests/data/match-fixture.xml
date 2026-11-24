@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic grammar for the serve match tests: stops, vowels, nasals, one boundary. -->
+<HermitCrabInput>
+  <Language>
+    <Name>MatchFixture</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featVoice">
+        <Name>voice</Name>
+        <Symbols><Symbol id="vPos">+voi</Symbol><Symbol id="vNeg">-voi</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="c0">
+          <Representations><Representation>p</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vNeg" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c1">
+          <Representations><Representation>b</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c2">
+          <Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vNeg" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c3">
+          <Representations><Representation>d</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c4">
+          <Representations><Representation>k</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vNeg" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c5">
+          <Representations><Representation>g</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c6">
+          <Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c7">
+          <Representations><Representation>i</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c8">
+          <Representations><Representation>u</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c9">
+          <Representations><Representation>n</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+        <SegmentDefinition id="c10">
+          <Representations><Representation>ŋ</Representation></Representations>
+          <FeatureValue feature="featVoice" symbolValues="vPos" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+        <BoundaryDefinition id="bEq"><Representations><Representation>=</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncV"><Name>V</Name>
+        <Segment segment="c6" />
+        <Segment segment="c7" />
+        <Segment segment="c8" />
+      </SegmentNaturalClass>
+      <SegmentNaturalClass id="ncStop"><Name>Stop</Name>
+        <Segment segment="c0" />
+        <Segment segment="c1" />
+        <Segment segment="c2" />
+        <Segment segment="c3" />
+        <Segment segment="c4" />
+        <Segment segment="c5" />
+      </SegmentNaturalClass>
+      <FeatureNaturalClass id="ncVoiced"><Name>Voiced</Name>
+        <FeatureValue feature="featVoice" symbolValues="vPos" />
+      </FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eRoot" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aRoot"><PhoneticShape>aba</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>ROOT</MorphemeId>
+            <Gloss>root</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

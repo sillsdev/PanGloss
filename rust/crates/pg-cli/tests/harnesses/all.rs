@@ -40,6 +40,8 @@ mod inferred_segment_engine_parity_gate;
 mod recipe_optimize_continuation;
 #[path = "../serve_generate.rs"]
 mod serve_generate;
+#[path = "../serve_match.rs"]
+mod serve_match;
 #[path = "../serve_protocol.rs"]
 mod serve_protocol;
 #[cfg(target_os = "linux")]

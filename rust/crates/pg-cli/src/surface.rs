@@ -255,7 +255,10 @@ fn interfaces() -> InterfacesDescribe {
             expect_guid_choices: true,
             kinds: pg_parse::why_not::FailureKind::answered(),
         },
-        serve_ops: serde_json::json!({"generate": crate::serve_generate::describe()}),
+        serve_ops: serde_json::json!({
+            "generate": crate::serve_generate::describe(),
+            "match": crate::serve_match::describe(),
+        }),
     }
 }
 
