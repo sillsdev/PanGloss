@@ -26,7 +26,8 @@ relevant branch tree before claiming a fixture or fix does not exist.
 
 ## 2. Separate correctness from efficiency
 
-HC-Rust may be faster or leaner without changing observable parses. Every optimization needs an
+HC-Rust may be faster or leaner without changing observable parses. A speedup also takes the full checklist in
+`.claude/skills/land-an-optimization/SKILL.md` (Machine issue, breakage analysis, every grammar, recalibrate). Every optimization needs an
 argument covering both lost valid parses and admitted invalid parses, plus discriminating evidence.
 Fewer rule attempts, confirmation of surviving candidates, or matching finite samples alone cannot
 prove complete recall. Per-feature widening must account for correlations between alternatives.

@@ -22,6 +22,13 @@ should change, open or reuse a Machine issue with the evidence, then propose a f
 never keep a behavioural improvement unreported in Rust alone. A difference planned to stay gets an entry under
 `docs/divergences/`; a fix or speedup still to be done is a GitHub issue, not an entry.
 
+**Landing an optimization** (a memo, cache, prefilter, search reorganisation or any change that makes analysis or synthesis cheaper
+without meaning to change results) takes four steps beyond identity on samples; put all four in the brief and load
+`.claude/skills/land-an-optimization/SKILL.md`: (1) open a `sillsdev/machine` issue labelled `Hermit Crab` + `performance` and port the fix
+after validation, with the `conformance` lead; (2) write the breakage analysis and add edge-case fixtures where conformance lacks coverage;
+(3) run every grammar we have plus conformance, checking for lost, gained or reordered analyses and words newly capped or newly finishing;
+(4) run instruction-compare (on Windows via `herdr-x run win` when you are in WSL), then `retune-parser-work`.
+
 Scope: the hierarchy governs only constructs a real FieldWorks project can create (`HCLoader.cs` emits them from FLEx data, or `HCParser.cs` reads them from FieldWorks' parser settings); hand-written-XML-only constructs are out of scope (`docs/adr/0014-fieldworks-producible-scope.md`).
 
 The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
@@ -106,7 +113,8 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **A long command that is NOT a managed build should be a background job**, so the harness notifies
   on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663
   words and was read as "the corpus".*
-- **Every algorithm improvement gets a before/after instruction comparison**, per grammar:
+- **Every algorithm improvement gets a before/after instruction comparison** (step 4 of
+  `.claude/skills/land-an-optimization/SKILL.md`), per grammar:
   `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`. Its verdict comes from a 95% interval
   and a 0.5% minimum effect; INCONCLUSIVE (exit 11) means rerun with more `-Repeats`, not GO. Run the
   instrument check, a binary against itself that must read neither GO nor regression, once per
@@ -238,6 +246,7 @@ to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` a
 `fix-a-grammar` — a slow, refused, oversized or incomplete grammar.
 `dead-end-census` — the standing first lever for "language X is too slow".
 `code-comments` — comment and doc-comment policy.
+`land-an-optimization` — a memo, cache, speedup or work reduction: Machine issue, breakage analysis, every grammar, recalibrate.
 `retune-parser-work` — after a parser change gets a GO from `instruction-compare`: do the parser-work weights still fit.
 
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
