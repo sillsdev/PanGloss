@@ -47,20 +47,22 @@ replay, as `.claude/skills/conformance-grammars/SKILL.md` says. A risk without a
 ## 3. All grammars
 
 Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -Mode conformance-test -Scope all`).
-- Where they are: the five corpus grammars in `rust/tools/corpus-manifest.json` (files under `samples/data/`, untracked; set
-  `PANGLOSS_CORPUS_ROOT` to share one copy), the calibration sets in `rust/tools/calibration/manifest.json`, and the reference
-  corpora in `docs/benchmark-matrix.md`.
-- That manifest is committed and has no local entries. Every other grammar (CEB, Swahili, Tamil and other lane projects) goes in a
-  local manifest in scratch, never committed (format in the header of `rust/tools/retune-parser-work.ps1`), and the lead's brief lists
-  each grammar and word-list path. The PR names any grammar not run, with the reason. Never commit an absolute home path or
-  real-language data.
-- Build Before and After release binaries from separate worktrees: `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode build -Package pg-cli`
-  in each, then copy each `pangloss` out of its target directory. Run both through `pg.ps1 -Mode run` (`batch --threads 1`) over the
-  same word lists, with `--word-timeout-ms`.
-- Compare with `python rust/tools/parse_compare.py before.tsv after.tsv --multiset --show 20`. Pass means every word IDENTICAL.
-  - MULTISET_EQUAL is a reorder: a failure. SET_EQUAL and DIFFERENT fail. STATUS_DIFF (TIMEOUT, SKIPPED, error) fails.
-  - CAPPED: list each word's before and after status, then rerun the CAP words at a raised `--work-cap` so no partial result is compared;
-    a word newly capped or newly finishing is a finding to explain.
+- Where they are, and the exact commands for sweep runs, timings and the Windows steps: `.claude/skills/land-an-optimization/sweep.md`.
+  The five corpus grammars are in `rust/tools/corpus-manifest.json`; the calibration sets come from the conformance suite; every other
+  grammar (CEB, Swahili, Tamil, lane projects) goes in a local manifest in scratch, never committed. The PR names any grammar not run,
+  with the reason. Never commit an absolute home path or real-language data.
+- One core, one run (owner rule): the sweep runs one grammar at a time, `--threads=1`, one process, under `nice -n 19 ionice -c3`,
+  never beside another sweep run. Run `stile admit --jobs 1` before every build and build with `-Jobs 1`. Parallel runs spoil the CPU
+  column and the box.
+- Build Before and After release binaries from separate worktrees (`sweep.md`, "Build"), then run the bare binaries over the same word lists.
+- Compare with `python rust/tools/parse_compare.py before.tsv after.tsv --multiset --show 20`. Pass means every word IDENTICAL, and
+  the table counts SKIPPED words per grammar (they compare nothing).
+  - MULTISET_EQUAL is a reorder: a failure. SET_EQUAL and DIFFERENT fail.
+  - STATUS_DIFF: rerun each such word on both sides at a long timeout and raised caps until the statuses settle (`sweep.md`, "Settling a
+    status difference"). TIMEOUT is wall clock, so load and the speedup alone create TIMEOUT to ok or MEMCAP rows. Treat MEMCAP as CAP.
+    A word that stays different after the raised rerun, other than the expected CAP-versus-MEMCAP race, is a finding.
+  - Default caps cap nothing, so also rerun a lowered `--work-cap` pass on a grammar with heavy words and list newly finishing words.
+    A cap order change (Before CAP at the work cap, After MEMCAP at the memory ceiling, fewer steps) is the expected form; say so.
   - A drop on any grammar blocks landing until explained.
 - Report the speedup per grammar, as instructions (step 4), not wall time.
 
@@ -70,18 +72,20 @@ Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -M
 2. If it reaches the parser (the path rule in `.claude/skills/retune-parser-work/SKILL.md`), run that skill so the parser-work
    weights still fit; recalibrate if it says so.
 
-Constraints: instruction-compare needs HermitCrab XML (convert a `.fwdata` first), and it refuses a grammar where any word's status or
-signature differs between the binaries, so a change that legitimately alters a word cannot be compared on it. A justified subset
-(the words both builds finish, with the exclusion counted) is acceptable only when step 3 already explained every difference; say so in the PR.
+Constraints: instruction-compare takes `.fwdata` and XML grammars as they are, but refuses a word list with any SKIPPED row, and refuses
+a grammar where any word's status or signature differs between the binaries. Give it ok-both words (status ok on both sides, work at
+least 1000), strided to about 100M work, with the exclusion counted; that subset is acceptable only when step 3 already explained every
+difference; say so in the PR. Reading verdicts:
+- Mixed verdicts are normal: a grammar whose words the change never reaches reads NO-GO (no change); report it, do not retry.
+- INCONCLUSIVE: rerun that list with `-Repeats 15`.
+- The control (Before against Before) must not read GO or NO-GO (regression); NO-GO (no change) is expected.
+- retune-parser-work takes over an hour and repeats its own callgrind compare; pass `-PairResult` and `-ControlResult` only from runs on retune's own manifest and samples (it binds them by grammar file name and count alone).
 
 ### When instruction-compare cannot run on this machine
 
 The verdict needs the Windows counters (`docs/design/parse-cost.md`, "Where instructions are measured"). Do not skip the step and
-do not report WSL callgrind as the verdict. From WSL, place the run on Windows:
-- Push the branch, fetch it in the Windows PanGloss clone (a worktree there for Before and one for After), and build both with
-  `herdr-x run win --cwd <windows worktree> --wait -- 'pwsh -NoProfile -File rust/tools/pg.ps1 -Mode build -Package pg-cli'`.
-- Run `rust/tools/instruction-compare.ps1` the same way, with the Windows paths of the binaries, grammars and word lists. It refuses
-  when the counters are missing; the setup is `rust/tools/pmc-setup.ps1` (`docs/design/parse-cost.md`).
+do not report WSL callgrind as the verdict. From WSL, place the run on Windows with `herdr-x run win` and the steps in
+`sweep.md` ("Windows"). One Windows run at a time: the lock is machine-wide.
 - If Windows is unreachable, say so in the PR, give the WSL callgrind result labelled provisional, and leave the PR draft.
 - `retune-parser-work` runs on Linux and WSL as is.
 
@@ -90,6 +94,6 @@ do not report WSL callgrind as the verdict. From WSL, place the run on Windows:
 - [ ] Not a new memo or cache outside the CLAUDE.md exception, or the owner approved it and CLAUDE.md says so.
 - [ ] `sillsdev/machine` issue labelled `Hermit Crab` and `performance`, linked; hand-off design file posted for the `conformance` lead.
 - [ ] Breakage list answered per item, with fixtures added or gaps named.
-- [ ] Every grammar compared: every word IDENTICAL under `--multiset`; CAP words rerun; grammars not run named with reasons; speedup per grammar.
+- [ ] Every grammar compared: every word IDENTICAL under `--multiset`; STATUS_DIFF and CAP words rerun at raised caps; SKIPPED counted; grammars not run named with reasons; speedup per grammar.
 - [ ] instruction-compare verdict from the Windows counters; retune-parser-work run or skipped by its path rule.
 - [ ] `pg.ps1 -Mode preland` exits 0 in the rebased branch's worktree.
