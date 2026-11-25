@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Family blocking in forward generation. famF holds A (aa) and B (aat); suffix T appends t, so A+T
+     and B have the same surface aat and B (a family relative) blocks A+T. C# parsing reports B twice (the lookup
+     and the blocked A+T derivation); PanGloss reports it once.
+     C# Morpher.GenerateWords(A, [T]) returns B's word aat; PanGloss returned nothing (#423). -->
+<HermitCrabInput>
+  <Language>
+    <Name>FamilyBlockedGeneration</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cb"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Families>
+      <Family id="famF">F</Family>
+    </Families>
+    <Strata>
+      <Stratum characterDefinitionTable="t" morphologicalRuleOrder="unordered" morphologicalRules="mT">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mT" requiredPartsOfSpeech="posN">
+            <Name>T</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="sT">
+                <MorphologicalInput>
+                  <PhoneticSequence id="xT"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="xT" />
+                  <InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>T</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eA" partOfSpeech="posN" family="famF"><Allomorphs><Allomorph id="aA"><PhoneticShape>aa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>A</MorphemeId></LexicalEntry>
+          <LexicalEntry id="eB" partOfSpeech="posN" family="famF"><Allomorphs><Allomorph id="aB"><PhoneticShape>aat</PhoneticShape></Allomorph></Allomorphs><MorphemeId>B</MorphemeId></LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

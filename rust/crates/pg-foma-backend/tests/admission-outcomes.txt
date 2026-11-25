@@ -23,6 +23,7 @@ machine:edge-cases/boundary-first-in-narrowing-lhs-strrep	TunedSurfaceProbed	ora
 machine:edge-cases/boundary-leftover-in-narrowing-lhs-strrep	TunedSurfaceProbed	refused
 machine:edge-cases/boundary-mid-in-narrowing-lhs-strrep	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/boundary-narrowing-probe	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/category-limited-phonological-rule	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/chained-output-feature-override-loss	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/change-epenthesis-prefix-deletion-chain	TunedSurfaceProbed	refused
 machine:edge-cases/circumfix-conditioned-halves	TunedSurfaceProbed	oracle_exact
@@ -45,6 +46,13 @@ machine:edge-cases/compound-allomorph-identity-separated	TunedSurfaceProbed	orac
 machine:edge-cases/compound-max-applications	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/compounding-breadth	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/compounding-non-recursive	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/convergent-affix-multiple-application	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/convergent-alpha-assimilation-homophonous	TunedSurfaceProbed	refused
+machine:edge-cases/convergent-clitic-stratum-homophonous	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/convergent-compound-homophonous-suffixes	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/convergent-deletion-optional-reduplication	TunedSurfaceProbed	refused
+machine:edge-cases/convergent-homophonous-suffix-reduplication	TunedSurfaceProbed	refused
+machine:edge-cases/convergent-zero-derivation-identity	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/copy-agreement-featureless-redup	TunedSurfaceProbed	refused
 machine:edge-cases/cross-stem-material-determination	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/deep-optional-affix-nesting	TunedSurfaceProbed	oracle_exact
@@ -62,7 +70,6 @@ machine:edge-cases/epenthesis-then-swap-keeps-its-edge-before-suffix	TunedSurfac
 machine:edge-cases/epenthesis-then-swap-with-root-keeps-its-edge	TunedSurfaceProbed	refused
 machine:edge-cases/expansion-interposed-optional	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/expansion-overlapping-targets	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/family-blocked-generation	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/feature-gating-breadth	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/feature-rule-before-merge	TunedSurfaceProbed	refused
 machine:edge-cases/featureless-literal-target	TunedSurfaceProbed	refused
@@ -145,10 +152,6 @@ machine:edge-cases/partial-rule-infixed-material	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/partial-rule-truncated-material	TunedSurfaceProbed	refused
 machine:edge-cases/partial-rule-wrapped-material	TunedSurfaceProbed	refused
 machine:edge-cases/pattern-root-required-environment	TunedSurfaceProbed	refused
-machine:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
-machine:edge-cases/prefix-required-environment-after-epenthesis-later-compound	TunedSurfaceProbed	refused
-machine:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/process-morphology-in-place-mutation	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/quantified-alpha-bounded-ltr-left	TunedSurfaceProbed	refused
 machine:edge-cases/quantified-alpha-bounded-ltr-right	TunedSurfaceProbed	refused
@@ -259,6 +262,7 @@ staging:edge-cases/compound-allomorph-identity-affix-reuse	TunedSurfaceProbed	or
 staging:edge-cases/cross-subrule-feeding	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/cross-table-root-respelling	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/do-not-use-for-parsing-flag-ignored	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/family-blocked-generation	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/feature-system-breadth	TunedSurfaceProbed	refused
 staging:edge-cases/featureless-modify-from-input	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/featureless-segment-class-rewrite	TunedSurfaceProbed	refused
@@ -291,6 +295,10 @@ staging:edge-cases/per-site-alpha-rewrite-rtl	TunedSurfaceProbed	refused
 staging:edge-cases/permissive-intermediate-class	TunedSurfaceProbed	refused
 staging:edge-cases/permissive-multisegment-output	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/pos-scoped-deletion-blocks-metathesis	TunedSurfaceProbed	refused
+staging:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+staging:edge-cases/prefix-required-environment-after-epenthesis-later-compound	TunedSurfaceProbed	refused
+staging:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/realizational-reduplication-no-proposal-route	TunedSurfaceProbed	refused
 staging:edge-cases/rewrite-analysis-feature-neutralization	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rewrite-default-environment	TunedSurfaceProbed	oracle_exact

@@ -89,12 +89,12 @@
       "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R2. Delete when machine#649 lands and the suite row is flipped."
     },
     {
-      "fixture": "edge-cases/family-blocked-generation",
+      "fixture": "staging:edge-cases/family-blocked-generation",
       "word": "aat",
       "upstream": "[\"B|aat\", \"B|aat\"]",
       "pangloss": "[\"B|aat\"]",
       "divergence": "134",
-      "note": "hc.dll reports B twice for aat: the plain lookup of B and the blocked A+T, whose fresh B seed is not value-equal to the looked-up one. PanGloss deduplicates by WordKey and reports B once. Delete if PanGloss ever reports both or the suite row changes."
+      "note": "hc.dll reports B twice for aat: the plain lookup of B and the blocked A+T, whose fresh B seed is not value-equal to the looked-up one. PanGloss deduplicates by WordKey and reports B once. The fixture is staged because the suite retired it at df2b0e7. Delete if PanGloss ever reports both or the staged row changes."
     }
   ]
 }

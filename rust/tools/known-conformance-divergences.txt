@@ -23,8 +23,10 @@ edge-cases/simultaneous-epenthesis-cascade
 # oracle-conformance-known-divergences.json.
 edge-cases/metathesis-deletion-restores-segment-between-switches
 
-# edge-cases/family-blocked-generation -- hc.dll reports B twice for `aat` (the plain lookup of B and the
+# staging:edge-cases/family-blocked-generation -- hc.dll reports B twice for `aat` (the plain lookup of B and the
 # blocked A+T, whose fresh B seed is not value-equal to the looked-up one); PanGloss deduplicates by WordKey
-# and reports B once. Planned difference: docs/divergences/134-blocked-seed-duplicates-the-lookup.md; the gate's
-# per-word record is in oracle-conformance-known-divergences.json.
-edge-cases/family-blocked-generation
+# and reports B once. The suite retired the fixture at df2b0e7, so PanGloss keeps it in conformance-staging/ with
+# the oracle's rows. Planned difference: docs/divergences/134-blocked-seed-duplicates-the-lookup.md; the gate's
+# per-word record is `pangloss_expectations` in oracle-conformance-known-divergences.json.
+# This line is inert: the C# driver grades only the suite, so the JSON expectation is the live record.
+staging:edge-cases/family-blocked-generation
