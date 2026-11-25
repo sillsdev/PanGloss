@@ -60,9 +60,37 @@
               { "type": "null" },
               { "$ref": "#/$defs/morphSpans" }
             ]
+          },
+          "signature": {
+            "description": "Present only with batch --query-fields: the morph signatures joined by +.",
+            "type": "string",
+            "minLength": 1
           }
         }
       }
+    },
+    "readingCount": {
+      "description": "Present only with batch --query-fields: analyses plus unavailable readings.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure": {
+      "description": "Present only with batch --query-fields: null when the word has a reading, else why it has none.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "workSteps", "workCap"],
+          "properties": {
+            "status": {
+              "enum": ["noParse", "workCap", "captureCap", "memoryCap", "timeout", "invalidShape"]
+            },
+            "workSteps": { "type": ["integer", "null"], "minimum": 0 },
+            "workCap": { "type": ["integer", "null"], "minimum": 1 }
+          }
+        }
+      ]
     },
     "unavailable": {
       "type": "array",
@@ -201,6 +229,18 @@
             "string",
             "null"
           ]
+        },
+        "entry": {
+          "description": "Present only with batch --query-fields: the source LexEntry guid, null for a morph with no lexical entry.",
+          "anyOf": [
+            { "$ref": "#/$defs/guid" },
+            { "type": "null" }
+          ]
+        },
+        "signature": {
+          "description": "Present only with batch --query-fields: entry:msa[:inflType], with - for a missing entry.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }

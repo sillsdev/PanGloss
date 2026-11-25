@@ -1,5 +1,7 @@
 //! Tests the CLI parser and batch command integration.
-use super::{load_grammar, run_batch, write_parse_analysis_row, WorkCap, DEFAULT_WORK_CAP};
+use super::{
+    load_grammar, run_batch, run_batch_counted, write_parse_analysis_row, WorkCap, DEFAULT_WORK_CAP,
+};
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -2075,4 +2077,256 @@ fn retire_of_the_only_affix_in_an_obligatory_slot_reparses_the_bare_stems() {
     );
     assert_eq!(report[0]["status"], "gained", "{}", report[0]);
     assert_eq!(report[0]["reparsed"], true);
+}
+
+fn without_timing(rows: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    rows.iter()
+        .cloned()
+        .map(|mut row| {
+            row.as_object_mut().unwrap().remove("elapsedMs");
+            row
+        })
+        .collect()
+}
+
+#[test]
+fn query_fields_are_opt_in_and_name_entry_signature_and_failure() {
+    let fixture = fwdata_fixture_with_k();
+    let plain = run_batch_sidecar_path("qf-plain", &fixture, "kad\nkat\n", &[]);
+    assert!(plain[0].get("readingCount").is_none() && plain[0].get("failure").is_none());
+    assert!(plain[0]["analyses"][0]["morphs"][0]
+        .get("signature")
+        .is_none());
+    let rows = run_batch_sidecar_path("qf", &fixture, "kad\nkat\n", &["--query-fields"]);
+    let morph = &rows[0]["analyses"][0]["morphs"][0];
+    assert_eq!(rows[0]["readingCount"], 1);
+    assert_eq!(rows[0]["failure"], serde_json::Value::Null);
+    assert_eq!(morph["form"], plain[0]["analyses"][0]["morphs"][0]["form"]);
+    assert_eq!(morph["entry"], "00000000-0000-0000-0000-000000000030");
+    let signature = format!(
+        "{}:{}",
+        morph["entry"].as_str().unwrap(),
+        morph["msa"].as_str().unwrap()
+    );
+    assert_eq!(morph["signature"], signature.as_str());
+    assert_eq!(rows[0]["analyses"][0]["signature"], signature.as_str());
+    assert_eq!(rows[1]["readingCount"], 0);
+    assert_eq!(
+        rows[1]["failure"],
+        serde_json::json!({"status": "noParse", "workSteps": rows[1]["failure"]["workSteps"], "workCap": 5_000_000_000u64})
+    );
+    let capped = run_batch_sidecar_path(
+        "qf-cap",
+        &fixture,
+        "kad\n",
+        &["--query-fields", "--work-cap", "1"],
+    );
+    assert_eq!(capped[0]["capped"], true);
+    assert_eq!(capped[0]["failure"]["status"], "workCap");
+    assert_eq!(capped[0]["failure"]["workCap"], 1);
+}
+
+#[test]
+fn query_fields_are_refused_without_a_sidecar() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("qf-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let error = run_batch(&[
+        fixture.to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--query-fields".to_string(),
+    ])
+    .expect_err("refused");
+    assert!(
+        error.contains("--query-fields requires --analyses"),
+        "{error}"
+    );
+}
+
+/// Signatures come from source guids only, so they repeat across thread counts and give a circumfix's halves one signature.
+#[test]
+fn query_fields_are_deterministic_across_threads_and_share_a_circumfix_signature() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-circumfix-pairings",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let args = ["--query-fields", "--morph-spans"];
+    let one = run_batch_sidecar_path(
+        "qf-t1",
+        &project,
+        "tagaka\ntogaki\nzzz\n",
+        &[&args[..], &["--threads", "1"]].concat(),
+    );
+    let four = run_batch_sidecar_path(
+        "qf-t4",
+        &project,
+        "tagaka\ntogaki\nzzz\n",
+        &[&args[..], &["--threads", "4"]].concat(),
+    );
+    assert_eq!(without_timing(&one), without_timing(&four));
+    let readings: Vec<&serde_json::Value> = one
+        .iter()
+        .flat_map(|r| r["analyses"].as_array().unwrap())
+        .collect();
+    assert!(!readings.is_empty());
+    let mut halves = 0;
+    for reading in readings {
+        let morphs = reading["morphs"].as_array().unwrap();
+        for (i, a) in morphs.iter().enumerate() {
+            for b in &morphs[i + 1..] {
+                if a["entry"].is_string() && a["entry"] == b["entry"] && a["form"] != b["form"] {
+                    assert_eq!(a["signature"], b["signature"]);
+                    halves += 1;
+                }
+            }
+        }
+    }
+    assert!(halves > 0, "the fixture should give a circumfix reading");
+}
+
+struct CacheRun {
+    parsed: usize,
+    tsv: String,
+    sidecar: String,
+}
+
+fn cached_run(
+    dir: &std::path::Path,
+    grammar: &std::path::Path,
+    words: &str,
+    extra: &[&str],
+) -> CacheRun {
+    let words_path = dir.join("words.txt");
+    fs::write(&words_path, words).unwrap();
+    let mut args: Vec<String> = vec![
+        grammar.to_string_lossy().into_owned(),
+        words_path.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--analyses".to_string(),
+        dir.join("a.jsonl").to_string_lossy().into_owned(),
+        "--result-cache".to_string(),
+        dir.join("cache").to_string_lossy().into_owned(),
+    ];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    let parsed = run_batch_counted(&args).unwrap_or_else(|e| panic!("run_batch failed: {e}"));
+    CacheRun {
+        parsed,
+        tsv: fs::read_to_string(dir.join("out.tsv")).unwrap(),
+        sidecar: fs::read_to_string(dir.join("a.jsonl")).unwrap(),
+    }
+}
+
+#[test]
+fn result_cache_replays_unchanged_rows_and_misses_when_anything_that_changes_output_does() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache");
+    let cold = cached_run(
+        &dir,
+        &fixture,
+        "kad\nkat\nkad\n",
+        &["--query-fields", "--threads", "1"],
+    );
+    assert_eq!(cold.parsed, 2, "a repeated word is parsed once");
+    let plain = run_batch_sidecar_path(
+        "cache-plain",
+        &fixture,
+        "kad\nkat\nkad\n",
+        &["--query-fields"],
+    );
+    let cached_rows: Vec<serde_json::Value> = cold
+        .sidecar
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(without_timing(&cached_rows), without_timing(&plain));
+    assert_eq!(cold.tsv.lines().count(), 3);
+    // Same bytes, no parse, whatever the thread count.
+    for threads in ["1", "4"] {
+        let warm = cached_run(
+            &dir,
+            &fixture,
+            "kad\nkat\nkad\n",
+            &["--query-fields", "--threads", threads],
+        );
+        assert_eq!(warm.parsed, 0);
+        assert_eq!((&warm.tsv, &warm.sidecar), (&cold.tsv, &cold.sidecar));
+    }
+    // A new word parses only itself, and a reordered list reindexes.
+    let more = cached_run(&dir, &fixture, "kat\nkats\nkad\n", &["--query-fields"]);
+    assert_eq!(more.parsed, 1);
+    assert!(more.tsv.starts_with("0\tkat\t"));
+    let back = cached_run(&dir, &fixture, "kats\n", &["--query-fields"]);
+    assert_eq!(back.parsed, 0);
+    // Each option that changes the output is a miss.
+    for changed in [
+        vec![],
+        vec!["--query-fields", "--work-cap", "7"],
+        vec!["--query-fields", "--word-mem-cap-mib", "50"],
+        vec!["--query-fields", "--morph-spans"],
+        vec!["--query-fields", "--guess=false"],
+        vec!["--query-fields", "--work-columns"],
+        vec!["--query-fields", "--always-enforce-final-templates=true"],
+    ] {
+        let run = cached_run(&dir, &fixture, "kad\n", &changed);
+        assert_eq!(run.parsed, 1, "{changed:?} must miss");
+        let again = cached_run(&dir, &fixture, "kad\n", &changed);
+        assert_eq!(again.parsed, 0, "{changed:?} must then hit");
+    }
+    // The grammar's content, not its path or time, is the key.
+    let edited = dir.join("edited.fwdata");
+    fs::write(
+        &edited,
+        format!("{}\n", fs::read_to_string(&fixture).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        cached_run(&dir, &edited, "kad\n", &["--query-fields"]).parsed,
+        1
+    );
+    let copy = dir.join("copy.fwdata");
+    fs::copy(&fixture, &copy).unwrap();
+    assert_eq!(
+        cached_run(&dir, &copy, "kad\n", &["--query-fields"]).parsed,
+        0
+    );
+}
+
+#[test]
+fn result_cache_is_refused_where_rows_cannot_be_replayed_and_is_size_bounded() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let base = |extra: &[&str]| -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            dir.join("out.tsv").to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            dir.join("a.jsonl").to_string_lossy().into_owned(),
+            "--result-cache".to_string(),
+            dir.join("cache").to_string_lossy().into_owned(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    for extra in [
+        ["--stats"],
+        ["--partials=1"],
+        ["--cost-column"],
+        ["--prefilter=on"],
+    ] {
+        assert!(run_batch(&base(&extra)).is_err(), "{extra:?}");
+    }
+    // A least recently used grammar's directory goes once the bound is passed.
+    let old = dir.join("cache").join("old-key");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("seg-1.jsonl"), vec![b'x'; 2 << 20]).unwrap();
+    run_batch(&base(&["--result-cache-max-mib", "1"])).unwrap();
+    assert!(!old.exists());
+    let kept = fs::read_dir(dir.join("cache")).unwrap().count();
+    assert_eq!(kept, 1);
 }
