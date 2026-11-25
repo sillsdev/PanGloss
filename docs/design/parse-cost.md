@@ -136,6 +136,8 @@ process. Callgrind counts user-mode instructions of a Linux build, and the Windo
 what the kernel runs for the process. So "instructions" has no single level across the two, and a cost
 weight fitted to callgrind is in callgrind's units.
 
+The lock is machine-wide: one instruction-compare run at a time. The word list must hold only ok words (no SKIPPED rows); a short list that reads INCONCLUSIVE is rerun with `-Repeats 15`. Commands: `.claude/skills/land-an-optimization/sweep.md`.
+
 The script does not need an elevated shell. It starts and stops a trace through two scheduled tasks
 that hold the elevation:
 

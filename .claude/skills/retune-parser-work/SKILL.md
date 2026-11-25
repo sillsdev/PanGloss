@@ -58,6 +58,8 @@ cost cannot see it; the weights then move only if the refit says so.
 4. Run it, one managed job at a time, with `-SaveDir <scratch>` so a rerun reuses the saved counts and
    instruction-compare output:
    `pwsh -NoProfile -File rust/tools/retune-parser-work.ps1 -Manifest <manifest> -Before <old> -After <new> -SaveDir <scratch>`.
+   The callgrind verify takes over 45 minutes (6 of 7 grammars unfinished in a sweep). Pass `-PairResult` and `-ControlResult` (saved stdout of
+   Windows instruction-compare runs made on this manifest's grammars and samples; the tool trusts them by grammar file name and count alone) to skip it. One job, one core, under `nice -n 19 ionice -c3`.
    It verifies with instruction-compare and a no-change control, refits on the fit set from per-word
    Valgrind instructions, scores old and new weights on the held-out set, and decides. Plan about an hour
    for the default seven grammars (Cebuano alone is about 13 minutes per cache-simulation run). It is slow:
