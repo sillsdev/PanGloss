@@ -4,9 +4,10 @@ use std::collections::HashSet;
 
 use pg_conformance_fixtures::require_fixture;
 use pg_featstruct::FeatureStruct;
-use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId};
+use pg_grammar_model::model::{AllomorphOwner, Grammar, LexEntryId, MRuleId, MorphRuleDef};
 use pg_parse::morpher::{ParseSpans, TracedGenerateLimits};
 use pg_parse::{project_parse_analysis_with_morphemes, GenMorpheme, Morpher, ParseOptions};
+use unicode_normalization::UnicodeNormalization;
 
 /// The fixture's grammar with synthetic source GUIDs, which an XML grammar lacks and the FieldWorks projection needs; circumfix allomorphs get two forms.
 fn load(fixture: (&str, &str)) -> Grammar {
@@ -60,6 +61,8 @@ fn runs(list: &[(usize, usize)]) -> Got {
 /// One reading: its morphs' ids in surface order and their spans.
 struct Reading {
     morph_ids: Vec<String>,
+    /// The grammar morpheme behind each of `morph_ids`.
+    morphemes: Vec<u32>,
     spans: ParseSpans,
 }
 
@@ -179,6 +182,7 @@ fn readings(g: &Grammar, word: &str) -> Vec<Reading> {
                 .ok()?
                 .morphemes;
             Some(Reading {
+                morphemes: ids.clone(),
                 morph_ids: ids
                     .iter()
                     .map(|&id| {
@@ -214,7 +218,7 @@ fn reading(fixture: (&str, &str), word: &str, morphs: &[&str]) -> Reading {
     // Homophonous readings of one morph set must agree.
     for other in &found[1..] {
         assert_eq!(
-            other.spans, found[0].spans,
+            other.spans.spans, found[0].spans.spans,
             "{word}: readings of {morphs:?} disagree"
         );
     }
@@ -391,33 +395,128 @@ fn spans_are_not_tracked_unless_asked() {
     assert!(spans.is_empty());
 }
 
-fn seed_of(g: &Grammar, signature: &str) -> Option<(LexEntryId, Vec<GenMorpheme>)> {
-    let tokens: Vec<&str> = signature.split('|').next()?.split('+').collect();
-    let mut root = None;
-    let mut others = Vec::new();
-    for token in tokens {
-        let entry = g
-            .entries
-            .iter()
-            .position(|e| g.morphemes[e.morpheme.0 as usize].morph_id.as_deref() == Some(token));
-        let rule = g.mrules.iter().position(|r| {
-            r.morpheme()
-                .is_some_and(|m| g.morphemes[m.0 as usize].morph_id.as_deref() == Some(token))
-        });
-        match (entry, rule) {
-            (Some(e), None) if root.is_none() => root = Some(LexEntryId(e as u32)),
-            (None, Some(r)) => others.push(GenMorpheme::Rule(MRuleId(r as u32))),
-            _ => return None,
-        }
-    }
-    Some((root?, others))
+/// How a reading's seed order was found.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SeedOrder {
+    /// The reading's own unapplied rules, outermost first.
+    Derivation,
+    /// No rule order matched the reading; prefixes left to right, then suffixes right to left.
+    Position,
 }
 
-/// Every answer `generate` gives for `word` from `signature`'s seed, as per-morph-id results.
-fn generate_answers(g: &Grammar, signature: &str, word: &str) -> Vec<Vec<(String, Got)>> {
-    let Some((root, others)) = seed_of(g, signature) else {
-        return Vec::new();
+/// The seed `generate` takes for `r`: the head root, then its morphemes in the reading's own unapplication order, outermost first.
+/// docs/generation.md:37 says only that the order is not surface order; the positional fallback is a heuristic and is counted.
+fn seed_of(g: &Grammar, r: &Reading) -> Option<(LexEntryId, Vec<GenMorpheme>, SeedOrder)> {
+    if let Some((root, seed)) = derivation_seed(g, r) {
+        return Some((root, seed, SeedOrder::Derivation));
+    }
+    let entry_of = |m: u32| g.entries.iter().position(|e| e.morpheme.0 == m);
+    let roots: Vec<usize> = (0..r.morphemes.len())
+        .filter(|&i| entry_of(r.morphemes[i]).is_some())
+        .collect();
+    let [root_at] = roots[..] else {
+        return None;
     };
+    let mut seed = Vec::new();
+    for (i, &m) in r.morphemes.iter().enumerate() {
+        if i != root_at {
+            seed.push((i, GenMorpheme::Rule(rule_of_morpheme(g, m)?)));
+        }
+    }
+    // Prefixes are outer the further left they stand, suffixes the further right.
+    let (mut prefixes, suffixes): (Vec<_>, Vec<_>) =
+        seed.into_iter().partition(|(i, _)| *i < root_at);
+    prefixes.extend(suffixes.into_iter().rev());
+    let seed = prefixes.into_iter().map(|(_, m)| m).collect();
+    Some((
+        LexEntryId(entry_of(r.morphemes[root_at])? as u32),
+        seed,
+        SeedOrder::Position,
+    ))
+}
+
+fn rule_of_morpheme(g: &Grammar, morpheme: u32) -> Option<MRuleId> {
+    g.mrules
+        .iter()
+        .position(|r| r.morpheme().is_some_and(|m| m.0 == morpheme))
+        .map(|i| MRuleId(i as u32))
+}
+
+/// How many compounding rules the reading unapplied; a compounding rule is no morpheme.
+fn compounding_steps(g: &Grammar, r: &Reading) -> usize {
+    r.spans
+        .unapplied
+        .iter()
+        .filter(|(rule, _)| rule.is_some_and(|rule| g.mrules[rule.0 as usize].morpheme().is_none()))
+        .count()
+}
+
+/// The `steps` non-head roots, when all one entry so the trail can say which compounding step took which; an infixed head is one root in two runs.
+fn non_head_roots(
+    g: &Grammar,
+    r: &Reading,
+    head: LexEntryId,
+    steps: usize,
+) -> Option<Vec<LexEntryId>> {
+    let mut roots: Vec<LexEntryId> = r
+        .morphemes
+        .iter()
+        .filter_map(|&m| g.entries.iter().position(|e| e.morpheme.0 == m))
+        .map(|e| LexEntryId(e as u32))
+        .collect();
+    roots.remove(roots.iter().position(|&e| e == head)?);
+    while roots.len() > steps {
+        roots.remove(roots.iter().position(|&e| e == head)?);
+    }
+    (roots.len() == steps && roots.windows(2).all(|w| w[0] == w[1])).then_some(roots)
+}
+
+/// The head root and the reading's own unapplied steps, when together they account for exactly the reading's morphemes.
+fn derivation_seed(g: &Grammar, r: &Reading) -> Option<(LexEntryId, Vec<GenMorpheme>)> {
+    let AllomorphOwner::Root(root, _) = g.allomorph_owners[r.spans.head?.0 as usize] else {
+        return None;
+    };
+    let mut covered = vec![g.entries[root.0 as usize].morpheme.0];
+    let compounding = compounding_steps(g, r);
+    let mut non_heads = non_head_roots(g, r, root, compounding)?;
+    let mut seed = Vec::new();
+    for &(rule, _) in &r.spans.unapplied {
+        let affix = rule.and_then(|rule| Some((rule, g.mrules[rule.0 as usize].morpheme()?)));
+        if let Some((rule, morpheme)) = affix {
+            covered.push(morpheme.0);
+            seed.push(GenMorpheme::Rule(rule));
+            continue;
+        }
+        // A compounding rule is no morpheme and its trail slot does not name the non-head root; the reading's other roots do.
+        let non_head = non_heads.pop()?;
+        covered.push(g.entries[non_head.0 as usize].morpheme.0);
+        seed.push(GenMorpheme::NonHead(non_head));
+    }
+    if !non_heads.is_empty() {
+        return None;
+    }
+    // A realizational rule never occupies a trail slot, so the trail cannot place it; it is unapplied first.
+    let mut realizational = Vec::new();
+    for &m in &r.morphemes {
+        if let Some(rule) = rule_of_morpheme(g, m) {
+            if matches!(g.mrules[rule.0 as usize], MorphRuleDef::Realizational(_)) {
+                covered.push(m);
+                realizational.push(GenMorpheme::Rule(rule));
+            }
+        }
+    }
+    let mut have = r.morphemes.clone();
+    have.sort();
+    have.dedup();
+    covered.sort();
+    covered.dedup();
+    realizational.extend(seed);
+    (have == covered).then_some((root, realizational))
+}
+
+/// Every answer `generate` gives from `r`'s seed. It renders each segment's first spelling, so the word it makes is matched to the surface the reading's own spans index, not to the input spelling.
+fn generate_answers(g: &Grammar, r: &Reading) -> Option<GenerateAnswers> {
+    let (root, others, order) = seed_of(g, r)?;
     let morpher = Morpher::new(g, usize::MAX);
     let outcome = morpher.generate_words_traced(
         root,
@@ -430,40 +529,152 @@ fn generate_answers(g: &Grammar, signature: &str, word: &str) -> Vec<Vec<(String
             max_trace_nodes: Some(200_000),
         },
     );
-    let mut answers = Vec::new();
+    let mut found = GenerateAnswers {
+        answers: Vec::new(),
+        surface: false,
+        order,
+        generated: Vec::new(),
+    };
     for seed in &outcome.seeds {
-        for surface in seed.surfaces.iter().filter(|s| s.surface == word) {
+        found
+            .generated
+            .extend(seed.surfaces.iter().map(|s| s.surface.clone()));
+        for surface in seed
+            .surfaces
+            .iter()
+            .filter(|s| s.surface.nfd().collect::<String>() == r.spans.surface)
+        {
+            found.surface = true;
             for analysis in &surface.morph_spans {
-                answers.push(
-                    seed.items
-                        .iter()
-                        .zip(&analysis.spans.morphemes)
-                        .map(|(item, m)| {
-                            let id = g.morphemes[item.morpheme.unwrap().0 as usize]
-                                .morph_id
-                                .clone()
-                                .unwrap_or_default();
-                            let got = match (&m.spans, &m.reason) {
-                                (Some(list), _) => {
-                                    Got::Runs(list.iter().map(|s| s.segments).collect())
-                                }
-                                (None, Some(r)) => Got::Null(r.code),
-                                _ => unreachable!(),
-                            };
-                            (id, got)
-                        })
-                        .collect(),
-                );
+                let mut answer: Vec<(String, Got)> = Vec::new();
+                for (item, m) in seed.items.iter().zip(&analysis.spans.morphemes) {
+                    let id = g.morphemes[item.morpheme.unwrap().0 as usize]
+                        .morph_id
+                        .clone()
+                        .unwrap_or_default();
+                    let got = match (&m.spans, &m.reason) {
+                        (Some(list), _) => Got::Runs(list.iter().map(|s| s.segments).collect()),
+                        (None, Some(r)) => Got::Null(r.code),
+                        _ => unreachable!(),
+                    };
+                    // One entry per morph id, as `Reading::merged` gives: every run together, or the first typed null.
+                    match answer.iter_mut().find(|(other, _)| *other == id) {
+                        None => answer.push((id, got)),
+                        Some((_, Got::Null(_))) => {}
+                        Some((_, mine @ Got::Runs(_))) => match got {
+                            Got::Runs(more) => {
+                                let Got::Runs(all) = mine else { unreachable!() };
+                                all.extend(more);
+                                all.sort();
+                            }
+                            null => *mine = null,
+                        },
+                    }
+                }
+                found.answers.push(answer);
             }
         }
     }
-    answers
+    Some(found)
+}
+
+/// What `generate` gave for one reading's seed.
+struct GenerateAnswers {
+    /// One per derivation of the word with spans.
+    answers: Vec<Vec<(String, Got)>>,
+    /// Whether any seed produced the word at all.
+    surface: bool,
+    order: SeedOrder,
+    /// Every surface the seed generated, for the report.
+    generated: Vec<String>,
+}
+
+/// Why the gate cannot compare a reading, each with a ratchet pinned to the suite at `conformance.commit`: a new one fails the gate.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum Exclusion {
+    /// The trail names the non-head roots of two or more compounding steps in no order.
+    OrderedCompounds,
+    /// A realizational rule fires only for a seed carrying its realizational features, and this gate seeds none.
+    Realizational,
+}
+
+impl Exclusion {
+    const fn bound(self) -> usize {
+        match self {
+            Exclusion::OrderedCompounds => 75,
+            Exclusion::Realizational => 3,
+        }
+    }
+}
+
+/// The named predicate that explains a reading the gate did not compare, or `None` when nothing does.
+fn exclusion(g: &Grammar, r: &Reading) -> Option<Exclusion> {
+    if compounding_steps(g, r) >= 2 {
+        return Some(Exclusion::OrderedCompounds);
+    }
+    let realizational = r.morphemes.iter().any(|&m| {
+        rule_of_morpheme(g, m)
+            .is_some_and(|rule| matches!(g.mrules[rule.0 as usize], MorphRuleDef::Realizational(_)))
+    });
+    realizational.then_some(Exclusion::Realizational)
+}
+
+/// What a sweep saw.
+#[derive(Default)]
+struct Sweep {
+    compared: usize,
+    nulls: usize,
+    /// Compared with the positional seed because no rule order matched the reading.
+    position_seeds: Vec<String>,
+    /// No seed could be built; `exclusions` names those a predicate explains.
+    unseedable: Vec<String>,
+    /// A seed was built and `generate` never produced the word.
+    no_surface: Vec<String>,
+    /// `generate` produced the word but gave no spans for it.
+    surface_without_spans: Vec<String>,
+    excluded: std::collections::BTreeMap<Exclusion, usize>,
+}
+
+/// Compares every reading of `word` with `generate`'s answers; a reading it cannot reproduce is counted, not dropped.
+fn compare_word(label: &str, g: &Grammar, word: &str, sweep: &mut Sweep) {
+    for r in readings(g, word) {
+        r.assert_invariants(&format!("{label}: {word}"));
+        let found = generate_answers(g, &r);
+        let line = format!(
+            "{label}: {word}: {} generated {:?}",
+            r.morph_ids.join("+"),
+            found.as_ref().map(|f| &f.generated)
+        );
+        let bucket = match &found {
+            None => &mut sweep.unseedable,
+            Some(f) if !f.surface => &mut sweep.no_surface,
+            Some(f) if f.answers.is_empty() => &mut sweep.surface_without_spans,
+            Some(f) => {
+                if f.order == SeedOrder::Position {
+                    sweep.position_seeds.push(line);
+                }
+                check(
+                    label,
+                    word,
+                    &r,
+                    &f.answers,
+                    &mut sweep.compared,
+                    &mut sweep.nulls,
+                );
+                continue;
+            }
+        };
+        match exclusion(g, &r) {
+            Some(reason) => *sweep.excluded.entry(reason).or_default() += 1,
+            None => bucket.push(line),
+        }
+    }
 }
 
 /// For every fixture word with a parse, each reading's spans equal an answer `generate` gives for the same morphs.
 #[test]
 fn batch_spans_equal_generate_spans_on_every_fixture_parse() {
-    let (mut compared, mut nulls) = (0, 0);
+    let mut sweep = Sweep::default();
     for fixture in
         pg_conformance_fixtures::discover_scoped(pg_conformance_fixtures::ConformanceScope::All)
     {
@@ -474,63 +685,132 @@ fn batch_spans_equal_generate_spans_on_every_fixture_parse() {
         let words: Vec<String> = yaml.words.iter().map(|e| e.word.clone()).collect();
         let g = guid_grammar(&fixture, &words);
         for entry in &yaml.words {
-            if !entry.parses.iter().any(|p| !p.guess) {
-                continue;
-            }
-            for r in readings(&g, &entry.word) {
-                r.assert_invariants(&format!("{}: {}", fixture.label(), entry.word));
-                let signature = r.unique_ids().join("+");
-                let answers = generate_answers(&g, &signature, &entry.word);
-                if answers.is_empty() {
-                    let rotated = generate_rotations(&g, &r, &entry.word);
-                    if rotated.is_empty() {
-                        continue;
-                    }
-                    check(
-                        &fixture.label(),
-                        &entry.word,
-                        &r,
-                        &rotated,
-                        &mut compared,
-                        &mut nulls,
-                    );
-                } else {
-                    check(
-                        &fixture.label(),
-                        &entry.word,
-                        &r,
-                        &answers,
-                        &mut compared,
-                        &mut nulls,
-                    );
-                }
+            if entry.parses.iter().any(|p| !p.guess) {
+                compare_word(&fixture.label(), &g, &entry.word, &mut sweep);
             }
         }
+    }
+    eprintln!(
+        "compared {} ({} with a typed null, {} positional seeds); excluded {:?}; unexplained: {} unseedable, {} no surface, {} surface without spans",
+        sweep.compared,
+        sweep.nulls,
+        sweep.position_seeds.len(),
+        sweep.excluded,
+        sweep.unseedable.len(),
+        sweep.no_surface.len(),
+        sweep.surface_without_spans.len()
+    );
+    let unexplained = |name: &str, list: &[String]| {
+        assert!(
+            list.is_empty(),
+            "{name}: {} readings the gate did not compare:\n{}",
+            list.len(),
+            list.join("\n")
+        );
+    };
+    unexplained(
+        "positional seeds (no rule order matched)",
+        &sweep.position_seeds,
+    );
+    unexplained("unseedable", &sweep.unseedable);
+    unexplained("generate made no such surface", &sweep.no_surface);
+    unexplained("surface without spans", &sweep.surface_without_spans);
+    for (exclusion, count) in &sweep.excluded {
+        assert!(
+            *count <= exclusion.bound(),
+            "{exclusion:?}: {count} readings excluded, bound {}",
+            exclusion.bound()
+        );
     }
     assert!(
-        compared > 100,
-        "expected a large sweep, compared {compared}"
+        sweep.compared > 100,
+        "expected a large sweep, compared {}",
+        sweep.compared
     );
-    eprintln!("compared {compared} readings, {nulls} with a typed null");
 }
 
-/// The seed names its root first; try each morph as the root.
-fn generate_rotations(g: &Grammar, r: &Reading, word: &str) -> Vec<Vec<(String, Got)>> {
-    let ids = r.unique_ids();
-    for root in 0..ids.len() {
-        let mut order = vec![ids[root].clone()];
-        order.extend(
-            ids.iter()
-                .enumerate()
-                .filter(|(i, _)| *i != root)
-                .map(|(_, id)| id.clone()),
-        );
-        let answers = generate_answers(g, &order.join("+"), word);
-        if !answers.is_empty() {
-            return answers;
-        }
-    }
-    Vec::new()
+/// An invented grammar over a root `bak` (posN); `rules` are suffix or prefix definitions and `order` their ids.
+fn synthetic_grammar(rules: &[String], order: &str) -> Grammar {
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput><Language><Name>Synthetic</Name>
+<PartsOfSpeech><PartOfSpeech id="posN"><Name>noun</Name></PartOfSpeech><PartOfSpeech id="posV"><Name>verb</Name></PartOfSpeech></PartsOfSpeech>
+<CharacterDefinitionTable id="table1"><Name>Main</Name><SegmentDefinitions>
+<SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cP"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+</SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses><FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+<Strata><Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="{order}"><Name>Main</Name>
+<MorphologicalRuleDefinitions>{}</MorphologicalRuleDefinitions>
+<LexicalEntries><LexicalEntry id="ROOT" partOfSpeech="posN"><Allomorphs><Allomorph id="ROOT_bak"><PhoneticShape>bak</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ROOT</MorphemeId><Gloss>ROOT</Gloss></LexicalEntry></LexicalEntries>
+</Stratum></Strata></Language></HermitCrabInput>"#,
+        rules.concat()
+    );
+    with_guids(
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("test grammar failed to load: {e}")),
+        &HashSet::new(),
+    )
+}
+
+/// One affix rule that inserts `shape` after (`prefix` false) or before the input, taking `from` to `to`.
+fn affix(id: &str, from: &str, to: &str, shape: &str, prefix: bool) -> String {
+    let copy = format!(r#"<CopyFromInput index="{id}_s" />"#);
+    let insert =
+        format!(r#"<InsertSegments><PhoneticShape>{shape}</PhoneticShape></InsertSegments>"#);
+    let output = if prefix {
+        format!("{insert}{copy}")
+    } else {
+        format!("{copy}{insert}")
+    };
+    format!(
+        r#"<MorphologicalRule id="{id}" requiredPartsOfSpeech="{from}" outputPartOfSpeech="{to}"><Name>{id}</Name><MorphologicalSubrules><MorphologicalSubrule id="{id}_sub"><MorphologicalInput><PhoneticSequence id="{id}_s"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput>{output}</MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>{id}</MorphemeId></MorphologicalRule>"#
+    )
+}
+
+/// Two suffixes spelled alike are accepted in either order; each reading's spans must match the derivation of its own order.
+#[test]
+fn homophonous_affixes_are_compared_against_their_own_order() {
+    let g = synthetic_grammar(
+        &[
+            affix("SFX1", "posN", "posN", "a", false),
+            affix("SFX2", "posN", "posN", "a", false),
+        ],
+        "SFX1 SFX2",
+    );
+    let mut sweep = Sweep::default();
+    compare_word("synthetic", &g, "bakaa", &mut sweep);
+    assert!(sweep.unseedable.is_empty() && sweep.no_surface.is_empty());
+    assert!(
+        sweep.position_seeds.is_empty(),
+        "{:?}",
+        sweep.position_seeds
+    );
+    assert_eq!(sweep.compared, 2, "both orders are readings of bakaa");
+}
+
+/// A derivational prefix applies before an inflectional suffix that needs its output, so the suffix is the outer morpheme although a prefix stands left of the root.
+#[test]
+fn a_prefix_applied_before_a_suffix_is_seeded_by_derivation_order() {
+    let g = synthetic_grammar(
+        &[
+            affix("PFX", "posN", "posV", "p", true),
+            affix("SFX", "posV", "posV", "s", false),
+        ],
+        "PFX SFX",
+    );
+    let mut sweep = Sweep::default();
+    compare_word("synthetic", &g, "pbaks", &mut sweep);
+    assert!(
+        sweep.position_seeds.is_empty(),
+        "{:?}",
+        sweep.position_seeds
+    );
+    assert!(sweep.unseedable.is_empty() && sweep.no_surface.is_empty());
+    assert_eq!(sweep.compared, 1);
 }
 
 fn check(
@@ -551,7 +831,10 @@ fn check(
             answer
                 .iter()
                 .find(|(other, _)| other == id)
-                .is_some_and(|(_, theirs)| theirs == got)
+                .is_some_and(|(_, theirs)| {
+                    // `generate` does not attribute a morpheme applied twice, and says so; batch gives each application its run.
+                    theirs == got || *theirs == Got::Null("repeated_morpheme")
+                })
         })
     });
     assert!(

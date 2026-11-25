@@ -25,6 +25,13 @@ pub struct ParseSpans {
     /// The surface in NFD; `offsets` index it.
     pub surface: String,
     pub spans: SurfaceSpans,
+    /// What this analysis unapplied, outermost first, which is the order `generate` takes its morphemes in: a rule, or a compounding non-head's allomorph.
+    pub unapplied: Vec<(
+        Option<pg_grammar_model::model::MRuleId>,
+        Option<pg_grammar_model::model::AllomorphId>,
+    )>,
+    /// The head root's allomorph.
+    pub head: Option<pg_grammar_model::model::AllomorphId>,
 }
 
 impl Morpher<'_> {
@@ -67,6 +74,13 @@ impl Morpher<'_> {
         Some(ParseSpans {
             surface: surface.nfd().collect(),
             spans,
+            unapplied: word
+                .trail
+                .rules()
+                .into_iter()
+                .zip(word.trail.allomorphs())
+                .collect(),
+            head: word.root_allomorph,
         })
     }
 
