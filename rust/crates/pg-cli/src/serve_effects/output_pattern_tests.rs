@@ -638,6 +638,44 @@ fn a_featureless_self_interacting_rule_is_flagged() {
     assert!(strict.misses.is_empty());
 }
 
+/// A later rule is a `laterRewrite` only when its target can accept a segment the pattern's nodes accept: one on unrelated segments leaves the row unaltered, one that rewrites the written segment flags it.
+#[test]
+fn a_later_rule_alters_the_output_only_when_it_touches_its_segments() {
+    for (text, altered) in [
+        (
+            include_str!("../../tests/data/effects-output-later-unrelated.xml"),
+            false,
+        ),
+        (
+            include_str!("../../tests/data/effects-output-later-touch.xml"),
+            true,
+        ),
+    ] {
+        let g = pg_grammar::load(text).expect("loads");
+        let table = g.strata[0].table;
+        let mut row = rule_text(&g, &g.prules[0], 0, table);
+        row.with_alteration(&g, 0, 0);
+        assert_eq!(
+            row.output_match_pattern.as_deref(),
+            Some("/d/ / /a/ _"),
+            "{:?}",
+            row.output_unprintable
+        );
+        assert_eq!(
+            row.output_may_be_altered,
+            Some(altered),
+            "{:?}",
+            row.output_altered_reasons
+        );
+        if altered {
+            assert_eq!(
+                row.output_altered_reasons,
+                vec![("laterRewrite", Some("prY".to_string()))]
+            );
+        }
+    }
+}
+
 /// Counts, over every rewrite subrule of the project in `PG_COUNT_FWDATA`, the rows that are altered and self-interacting (run by hand: `-- --ignored --nocapture`).
 #[test]
 #[ignore = "needs a project path in PG_COUNT_FWDATA"]
@@ -656,6 +694,11 @@ fn count_flags_on_a_project() {
                 *tally.entry("rows".into()).or_default() += 1;
                 if t.output_match_pattern.is_none() {
                     *tally.entry("no output pattern".into()).or_default() += 1;
+                    for (part, reason) in &t.output_unprintable {
+                        *tally
+                            .entry(format!("unprintable {part} {reason}"))
+                            .or_default() += 1;
+                    }
                     continue;
                 }
                 if t.output_may_be_altered == Some(true) {

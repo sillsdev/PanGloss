@@ -48,6 +48,10 @@ pub struct RuleText {
     pub output_altered_reasons: Vec<(&'static str, Option<String>)>,
     /// The match constraint of each node the output pattern covers (full lane vectors): the first `output_target_len` are the target's, the rest the environment's.
     pub output_covered: Vec<Vec<u64>>,
+    /// The segments each covered node accepts, where the node names segments (see `accepted_segments`); parallel to `output_covered`.
+    pub output_covered_sets: Vec<Option<Vec<usize>>>,
+    /// The character table those segment sets index.
+    pub output_table: Option<TableId>,
     /// How many of `output_covered` are the output target's nodes.
     pub output_target_len: usize,
     /// Whether the output pattern holds a word edge.
@@ -168,8 +172,30 @@ pub fn rule_text(
                     format!("{target} / {env}")
                 });
                 out.output_target_len = covered.len();
+                let chardefs = &g.char_tables[stratum_table.0 as usize];
+                let mut rhs_nodes = Vec::new();
+                flatten(&sub.rhs.nodes, &mut rhs_nodes);
+                let mut sets: Vec<Option<Vec<usize>>> = (0..covered.len())
+                    .map(|i| {
+                        let node = rhs_nodes
+                            .get(i)
+                            .filter(|_| rhs_nodes.len() == covered.len())?;
+                        let named = named_segments(g, node)?;
+                        named
+                            .iter()
+                            .all(|cd| chardefs.unifiable_cds(*cd).is_none())
+                            .then(|| named.iter().map(|cd| cd.0 as usize).collect())
+                    })
+                    .collect();
                 out.output_covered = covered;
-                out.output_covered.extend(env_lanes(g, stratum_table, sub));
+                let env_nodes = env_nodes(sub);
+                for n in env_nodes {
+                    let lanes = crate::rewrite::node_full_lanes(g, chardefs, n);
+                    sets.push(accepted_segments(g, chardefs, n, &lanes));
+                    out.output_covered.push(lanes);
+                }
+                out.output_covered_sets = sets;
+                out.output_table = Some(stratum_table);
                 out.output_has_edge = [&r.lhs]
                     .into_iter()
                     .chain(sub.left_env.as_ref())
@@ -189,6 +215,18 @@ pub fn rule_text(
     out
 }
 
+/// The char defs a segment-naming node (a literal or a segment-list class) names; `None` for a feature class and other nodes.
+fn named_segments(g: &Grammar, node: &PatternNode) -> Option<Vec<CharDefId>> {
+    match node {
+        PatternNode::CharDef(cd) => Some(vec![*cd]),
+        PatternNode::Context(sc) => match &g.natural_classes[sc.nat_class.0 as usize].kind {
+            NaturalClassKind::Segments(segs) => Some(segs.clone()),
+            NaturalClassKind::Feature(_) => None,
+        },
+        _ => None,
+    }
+}
+
 /// The segments of `table` a segment-naming node accepts, `None` for a feature class (decided by lanes). A grammar with no authored features matches a literal by its char def and a segment-list class by its members, so there the set is exactly those; otherwise the engine's lane test over the table decides.
 fn accepted_segments(
     g: &Grammar,
@@ -196,14 +234,7 @@ fn accepted_segments(
     node: &PatternNode,
     lanes: &[u64],
 ) -> Option<Vec<usize>> {
-    let named: Vec<CharDefId> = match node {
-        PatternNode::CharDef(cd) => vec![*cd],
-        PatternNode::Context(sc) => match &g.natural_classes[sc.nat_class.0 as usize].kind {
-            NaturalClassKind::Segments(segs) => segs.clone(),
-            NaturalClassKind::Feature(_) => return None,
-        },
-        _ => return None,
-    };
+    let named = named_segments(g, node)?;
     if named.iter().all(|cd| table.unifiable_cds(*cd).is_none()) {
         return Some(named.iter().map(|cd| cd.0 as usize).collect());
     }
@@ -215,6 +246,15 @@ fn accepted_segments(
             .map(|(id, _)| id.0 as usize)
             .collect(),
     )
+}
+
+/// Whether two nodes can accept one segment: their lanes meet and, when both name segments, their segment sets share one.
+fn nodes_meet(a: (&[u64], Option<&Vec<usize>>), b: (&[u64], Option<&Vec<usize>>)) -> bool {
+    a.0.iter().zip(b.0).all(|(x, y)| x & y != 0)
+        && match (a.1, b.1) {
+            (Some(x), Some(y)) => x.iter().any(|i| y.contains(i)),
+            _ => true,
+        }
 }
 
 /// Whether what the rule rewrites or writes (any subrule: they share one pass) could satisfy a node of any subrule's environment, or an insertion or length change has an environment side of two or more nodes. Conservative: segment nodes meet when a segment satisfies both, feature classes when their lanes meet.
@@ -250,13 +290,7 @@ fn self_interaction(g: &Grammar, table: TableId, rule: &RewriteRuleDef) -> bool 
         }
         env.extend(sides.iter().flatten().map(|n| seen(n)));
     }
-    let meets = |a: &Seen, b: &Seen| {
-        a.0.iter().zip(&b.0).all(|(x, y)| x & y != 0)
-            && match (&a.1, &b.1) {
-                (Some(x), Some(y)) => x.iter().any(|i| y.contains(i)),
-                _ => true,
-            }
-    };
+    let meets = |a: &Seen, b: &Seen| nodes_meet((&a.0, a.1.as_ref()), (&b.0, b.1.as_ref()));
     // Sites of a target of two or more nodes can overlap one another.
     let overlapping = lhs
         .iter()
@@ -319,20 +353,58 @@ impl RuleText {
                     PhonRuleDef::Rewrite(r) => (&r.xml_id, &r.lhs),
                     PhonRuleDef::Metathesis(r) => (&r.xml_id, &r.pattern),
                 };
+                let chardefs = &g.char_tables[st.table.0 as usize];
+                let same_table = self.output_table == Some(st.table);
+                let covered: Vec<(&[u64], Option<&Vec<usize>>)> = self
+                    .output_covered
+                    .iter()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        let set = self.output_covered_sets.get(i).and_then(|s| s.as_ref());
+                        (l.as_slice(), set.filter(|_| same_table))
+                    })
+                    .collect();
+                let seen = |n: &PatternNode| {
+                    let lanes = crate::rewrite::node_full_lanes(g, chardefs, n);
+                    let set = accepted_segments(g, chardefs, n, &lanes);
+                    (lanes, set)
+                };
                 let mut nodes = Vec::new();
                 flatten(&targets.nodes, &mut nodes);
                 if nodes.is_empty() {
-                    if self.output_covered.len() >= 2 || self.output_has_edge {
+                    let lands = self.output_has_edge
+                        || match rule {
+                            PhonRuleDef::Rewrite(r) => r.subrules.iter().any(|sub| {
+                                let side = |p: Option<&Pattern>, last: bool| -> Option<(Vec<u64>, Option<Vec<usize>>)> {
+                                    let p = p?;
+                                    if p.nodes.iter().any(|n| !matches!(n, PatternNode::Context(_) | PatternNode::CharDef(_))) {
+                                        return None;
+                                    }
+                                    let n = if last { p.nodes.last() } else { p.nodes.first() }?;
+                                    Some(seen(n))
+                                };
+                                let left = side(sub.left_env.as_ref(), true);
+                                let right = side(sub.right_env.as_ref(), false);
+                                let ok = |s: &Option<(Vec<u64>, Option<Vec<usize>>)>, c: &(&[u64], Option<&Vec<usize>>)| {
+                                    s.as_ref().is_none_or(|(l, set)| nodes_meet((l, set.as_ref()), *c))
+                                };
+                                covered.iter().enumerate().any(|(i, ci)| {
+                                    ok(&left, ci)
+                                        && covered.iter().enumerate().any(|(j, cj)| i != j && ok(&right, cj))
+                                })
+                            }),
+                            PhonRuleDef::Metathesis(_) => self.output_covered.len() >= 2,
+                        };
+                    if lands {
                         reasons.push((OUTPUT_ALTERED_REASONS[2], Some(id.to_string())));
                     }
                     continue;
                 }
                 let hits = nodes.iter().any(|n| {
-                    let lanes =
-                        crate::rewrite::node_full_lanes(g, &g.char_tables[st.table.0 as usize], n);
-                    self.output_covered
+                    let (lanes, set) = seen(n);
+                    covered
                         .iter()
-                        .any(|c| c.iter().zip(&lanes).all(|(a, b)| a & b != 0))
+                        .any(|c| nodes_meet((&lanes, set.as_ref()), *c))
                 });
                 if hits {
                     reasons.push((OUTPUT_ALTERED_REASONS[1], Some(id.to_string())));
@@ -398,8 +470,8 @@ fn flatten<'a>(nodes: &'a [PatternNode], out: &mut Vec<&'a PatternNode>) {
     }
 }
 
-/// The match constraint of each environment node of `sub`.
-fn env_lanes(g: &Grammar, table: TableId, sub: &RewriteSubruleDef) -> Vec<Vec<u64>> {
+/// The environment nodes of `sub`, left then right.
+fn env_nodes(sub: &RewriteSubruleDef) -> Vec<&PatternNode> {
     let mut nodes = Vec::new();
     for p in [sub.left_env.as_ref(), sub.right_env.as_ref()]
         .into_iter()
@@ -408,9 +480,6 @@ fn env_lanes(g: &Grammar, table: TableId, sub: &RewriteSubruleDef) -> Vec<Vec<u6
         flatten(&p.nodes, &mut nodes);
     }
     nodes
-        .into_iter()
-        .map(|n| crate::rewrite::node_full_lanes(g, &g.char_tables[table.0 as usize], n))
-        .collect()
 }
 
 /// The alpha variables the environment binds, with their features.

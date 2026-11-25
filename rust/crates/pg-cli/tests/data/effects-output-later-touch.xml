@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Attack</Name>
+    <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+    
+    <CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions><SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition><SegmentDefinition id="cD"><Representations><Representation>d</Representation></Representations></SegmentDefinition><SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition><SegmentDefinition id="cG"><Representations><Representation>g</Representation></Representations></SegmentDefinition></SegmentDefinitions>
+      <BoundaryDefinitions><BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses><SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cA" /></SegmentNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prX" multipleApplicationOrder="leftToRightIterative"><Name>prX</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="cT" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cD" /></PhoneticSequence></PhoneticOutput><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cA" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule><PhonologicalRule id="prY" multipleApplicationOrder="simultaneous"><Name>prY</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="cD" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cK" /></PhoneticSequence></PhoneticOutput><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cA" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prX prY"><Name>Main</Name><LexicalEntries><LexicalEntry id="e0" partOfSpeech="posN"><Allomorphs><Allomorph id="a0"><PhoneticShape>ttt</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R0</MorphemeId><Gloss>r0</Gloss></LexicalEntry><LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>dtt</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R1</MorphemeId><Gloss>r1</Gloss></LexicalEntry><LexicalEntry id="e2" partOfSpeech="posN"><Allomorphs><Allomorph id="a2"><PhoneticShape>da</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R2</MorphemeId><Gloss>r2</Gloss></LexicalEntry><LexicalEntry id="e3" partOfSpeech="posN"><Allomorphs><Allomorph id="a3"><PhoneticShape>aa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R3</MorphemeId><Gloss>r3</Gloss></LexicalEntry><LexicalEntry id="e4" partOfSpeech="posN"><Allomorphs><Allomorph id="a4"><PhoneticShape>ata</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R4</MorphemeId><Gloss>r4</Gloss></LexicalEntry><LexicalEntry id="e5" partOfSpeech="posN"><Allomorphs><Allomorph id="a5"><PhoneticShape>ta</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R5</MorphemeId><Gloss>r5</Gloss></LexicalEntry><LexicalEntry id="e6" partOfSpeech="posN"><Allomorphs><Allomorph id="a6"><PhoneticShape>tat</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R6</MorphemeId><Gloss>r6</Gloss></LexicalEntry><LexicalEntry id="e7" partOfSpeech="posN"><Allomorphs><Allomorph id="a7"><PhoneticShape>dt</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R7</MorphemeId><Gloss>r7</Gloss></LexicalEntry></LexicalEntries></Stratum></Strata>
+  </Language>
+</HermitCrabInput>
