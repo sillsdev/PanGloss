@@ -28,6 +28,7 @@ See `README.md` for the full status table and the kind definitions.
 | `TraversalMethodBase.Advance`; `AnalysisMetathesisRuleSpec.ApplyRhs` (zip of the switch captures) | 132 |
 | `SynthesisMetathesisRuleSpec.ApplyRhs` (`newMorphAnn`); `AnnotationList.FindDepthFirst` | 133 |
 | `Word.cs` (`CheckBlocking`, `ValueEquals`); `Morpher.cs` (`SynthesizeSequential`) | 134 |
+| `HCLoader.cs` (no read of `HC/AffixRules`); `AffixProcessRule.cs` (`MaxApplicationCount`); `XmlLanguageLoader.cs` (`multipleApplication`) | 135 |
 
 ## By Rust module
 
@@ -53,6 +54,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-rules/src/metathesis.rs` (`analyze_with_pattern`) | 132 |
 | `pg-rules/src/metathesis.rs` (`synthesize_with_permutation`); `pg-rules/src/word.rs` (`reorder_morphs`) | 133 |
 | `pg-rules/src/word.rs` (`WordKey`); `pg-parse/src/morpher.rs` (`dedup_key`) | 134 |
+| `pg-fwdata/src/parser_params.rs` (`HC/AffixRules`); `pg-grammar/src/compile/affixes.rs` (`max_apps` lookup) | 135 |
 | `pg-rules/src/stratum.rs` (`state_key`) | 024, 045 |
 | `pg_foma::recipe_accuracy`, `pg_foma::parity::IdentityDivergence` | 028 |
 
@@ -72,6 +74,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-parse/tests/csharp_port_rewrite.rs` (`unspecified_feature_satisfies_a_minus_*`); `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` | 129 |
 | `pg-parse/tests/metathesis_match_order.rs`; staged `metathesis-deletion-restores-segment-between-switches`, `pos-scoped-deletion-blocks-metathesis` | 132 |
 | `pg-parse/tests/optional_run_tilings.rs`; `pg-fst/tests/canonical_tilings.rs`; `pg-fst/tests/feasibility_prune.rs`; `pg-rules/src/morph/optional_runs.rs` (unit tests) | 130 |
+| `pg-grammar/tests/affix_max_applications.rs`; staged `affix-multiple-application` | 135 |
 
 ## Provisional-definition seams
 
