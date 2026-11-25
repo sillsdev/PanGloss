@@ -88,6 +88,7 @@ mod alloc_trace;
 mod analyze_text_cmd;
 mod batch_prefilter;
 mod batch_spans;
+mod retire;
 #[cfg(test)]
 mod test_support;
 
@@ -519,7 +520,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -1628,6 +1629,8 @@ fn run_batch_impl(
     let mut work_columns = false;
     let mut partials: u8 = 0;
     let mut morph_spans = false;
+    let mut retire_arg: Option<Vec<String>> = None;
+    let mut retire_out_arg: Option<String> = None;
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
     let mut flush_each_word = true;
@@ -1724,6 +1727,19 @@ fn run_batch_impl(
                 guess_arg = Some(parse_guess_flag(s)?)
             }
             "--morph-spans" => morph_spans = true,
+            "--retire" => {
+                let v = it.next().ok_or("--retire requires a value")?;
+                retire_arg = Some(retire::parse_ids(v)?);
+            }
+            s if s.starts_with("--retire=") => {
+                retire_arg = Some(retire::parse_ids(&s["--retire=".len()..])?);
+            }
+            "--retire-out" => {
+                retire_out_arg = Some(it.next().ok_or("--retire-out requires a value")?.clone());
+            }
+            s if s.starts_with("--retire-out=") => {
+                retire_out_arg = Some(s["--retire-out=".len()..].to_string());
+            }
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
             "--no-flush" => flush_each_word = false,
@@ -1786,7 +1802,7 @@ fn run_batch_impl(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1874,6 +1890,25 @@ fn run_batch_impl(
             || prefilter_mode != batch_prefilter::PrefilterMode::Off)
     {
         return Err("--morph-spans requires --analyses and cannot be combined with --stats, --partials, --engine fst, a diagnostic run or --prefilter".into());
+    }
+    if retire_arg.is_some() != retire_out_arg.is_some() {
+        return Err("--retire and --retire-out go together".into());
+    }
+    if retire_arg.is_some()
+        && (analyses_path_arg.is_some()
+            || stats_requested
+            || partials != 0
+            || engine.is_some()
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || start_idx != 0
+            || work_columns
+            || cost_column
+            || !flush_each_word
+            || phase_marks
+            || cache_path_arg.is_some())
+    {
+        return Err("--retire cannot be combined with --analyses, --stats, --partials, --engine, --start, --prefilter, --work-columns, --cost-column, --no-flush, --phase-marks, --cache or a diagnostic run".into());
     }
     if cost_column && stats_requested {
         return Err(
@@ -1979,6 +2014,33 @@ fn run_batch_impl(
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
         .collect();
+    if let (Some(ids), Some(retire_out)) = (&retire_arg, &retire_out_arg) {
+        let out_key = path_key(std::path::Path::new(retire_out));
+        for (label, path) in [
+            ("grammar", grammar_path),
+            ("word list", words_path),
+            ("TSV output", out_path),
+        ] {
+            if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+                return Err(format!(
+                    "--retire-out path cannot overwrite {label} path: {retire_out}"
+                ));
+            }
+        }
+        let settings = retire::Settings {
+            words: &words,
+            threads,
+            work_cap: work_cap.as_morpher_cap(),
+            capture_cap,
+            word_mem_cap,
+            word_timeout: word_timeout_ms.map(Duration::from_millis),
+            always_enforce_final_templates,
+            guess,
+        };
+        let counts = retire::run(grammar_path, &grammar, ids, &settings, retire_out)?;
+        eprintln!("RETIRE\t{counts:?}");
+        return Ok(());
+    }
     let mut diagnostic_run = if let Some(options) = diagnostic {
         let identity = diagnostic::identity(
             &grammar,

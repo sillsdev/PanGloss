@@ -385,6 +385,16 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "add per-morph surface spans (morphSpans) to each --analyses reading; requires --analyses, off the prefilter, stats and fst paths",
     },
     FlagSpec {
+        name: "--retire",
+        takes_value: true,
+        summary: "comma-separated entry or allomorph guids: what-if-retire; parse with them deleted in memory and write one pangloss-retire/v1 row per word to --retire-out; needs a .fwdata, .fwbackup or snapshot .json grammar",
+    },
+    FlagSpec {
+        name: "--retire-out",
+        takes_value: true,
+        summary: "the pangloss-retire/v1 JSONL report path for --retire; <out.tsv> is not written",
+    },
+    FlagSpec {
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",
