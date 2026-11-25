@@ -261,6 +261,7 @@ fn interfaces() -> InterfacesDescribe {
             "effects": crate::serve_effects::describe(),
             "inventory": crate::serve_inventory::describe(),
             "match": crate::serve_match::describe(),
+            "shadowedAllomorphs": crate::serve_shadowed::describe(),
         }),
     }
 }

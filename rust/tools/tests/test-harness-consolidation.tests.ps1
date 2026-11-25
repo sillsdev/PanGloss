@@ -107,7 +107,7 @@ $crateSpecs = @(
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
             'csharp_port_generation.rs', 'csharp_port_lex_entry.rs', 'csharp_port_metathesis.rs',
-            'csharp_port_morpher.rs', 'csharp_port_rewrite.rs', 'disjunctive_recheck_gate.rs',
+            'csharp_port_morpher.rs', 'csharp_port_rewrite.rs', 'disjunctive_recheck_gate.rs', 'shadowed_allomorphs_gate.rs',
             'batch_morph_spans.rs', 'do_not_parse.rs', 'exact_analysis_fs_recall.rs', 'generate_morph_spans.rs', 'free_fluctuation_gate.rs', 'guesser_gate.rs',
             'final_template_pruning_gate.rs', 'final_template_partial_root_gate.rs', 'required_slot_shadow_gate.rs',
             'lexical_lookup_matched_allomorph.rs', 'lexical_pattern_trie_exclusion_gate.rs', 'loader_n3_pattern_shapes_gate.rs',
@@ -151,7 +151,7 @@ $crateSpecs = @(
             'stats_manifest_roundtrip.rs',
             'diagnostic_trace.rs',
             'analyze_text_cli.rs', 'authored_generate_request.rs', 'batch_engine.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'stats_memory.rs', 'reserved_word_boundary.rs', 'slotted_suffix_left_environment.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
-            'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'cost_cli.rs', 'cost_measurement.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'grammar_health_artifacts.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'serve_effects.rs', 'serve_generate.rs', 'serve_inventory.rs', 'serve_match.rs', 'serve_protocol.rs', 'skills_never_instruct_bare_cargo.rs', 'wide_table_segment_identity.rs', 'why_not_cli.rs')
+            'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'cost_cli.rs', 'cost_measurement.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'grammar_health_artifacts.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'serve_effects.rs', 'serve_generate.rs', 'serve_inventory.rs', 'serve_match.rs', 'serve_protocol.rs', 'serve_shadowed.rs', 'skills_never_instruct_bare_cargo.rs', 'wide_table_segment_identity.rs', 'why_not_cli.rs')
     }
     @{
         Name = 'pg-conformance-fixtures'

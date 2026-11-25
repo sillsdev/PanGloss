@@ -48,6 +48,8 @@ mod serve_inventory;
 mod serve_match;
 #[path = "../serve_protocol.rs"]
 mod serve_protocol;
+#[path = "../serve_shadowed.rs"]
+mod serve_shadowed;
 #[cfg(target_os = "linux")]
 #[path = "../stats_memory.rs"]
 mod stats_memory;

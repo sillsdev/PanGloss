@@ -334,7 +334,12 @@ fn stem_name_gate_reason(
 }
 
 /// Walks every adjacent pair between `i` and `j`, unlike `morph.rs::free_fluctuates_with`'s adjacent-only callers; `i == j` is vacuously true.
-fn free_fluctuates<T>(allos: &[T], i: usize, j: usize, eq: impl Fn(&T, &T) -> bool) -> bool {
+pub(crate) fn free_fluctuates<T>(
+    allos: &[T],
+    i: usize,
+    j: usize,
+    eq: impl Fn(&T, &T) -> bool,
+) -> bool {
     let (lo, hi) = if i < j { (i, j) } else { (j, i) };
     (lo..hi).all(|k| eq(&allos[k], &allos[k + 1]))
 }

@@ -90,6 +90,8 @@ mod required_slot_shadow_gate;
 mod restricted_parse_gate;
 #[path = "../root_trie_gate.rs"]
 mod root_trie_gate;
+#[path = "../shadowed_allomorphs_gate.rs"]
+mod shadowed_allomorphs_gate;
 #[path = "../stats_collector_gate.rs"]
 mod stats_collector_gate;
 #[path = "../supplied_overlay.rs"]

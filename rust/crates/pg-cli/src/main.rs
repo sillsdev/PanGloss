@@ -170,6 +170,7 @@ mod serve_effects;
 mod serve_generate;
 mod serve_inventory;
 mod serve_match;
+mod serve_shadowed;
 mod stats_cmd;
 mod stats_manifest;
 mod stored_analysis_health;
