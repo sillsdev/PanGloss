@@ -56,6 +56,7 @@ version. It does not depend on thread count, machine or load. `cost` repeats exa
 
 - A `CAP` row is deterministic: the same inputs stop at the same point with the same counts. On a
   work-cap stop, `work_steps` is at least the work cap and at most the cap plus one sixteenth of it. A word whose `work_steps` is within the cap never stops.
+- **Analysis match memo.** Within one word, a repeated analysis-side allomorph match on an identical shape is answered from a hard-capped memo (10 MiB of real heap bytes per word, counted against `--word-mem-cap-mib` as optional state (at most an eighth of it, yielding to the search, so `MEMCAP` outcomes do not change), least-hit entries evicted; interim, see #481). A hit is charged one work unit plus one per output shape, and an entry is stored only when the search it replaces cost more than that, so a hit never costs more than the miss and `--work-cap` still bounds the word. `work_steps` and `cost` are therefore lower than before for words that repeat matches, and a word that used to stop at `CAP` can now finish; a word that completed without the memo never stops with it. Parses that finish are unchanged. Eviction is deterministic, so the counts still repeat exactly.
 - A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its
   `work_steps` and partial result depend on how fast this computer ran. Never compare a TIMEOUT
   row's count across runs.

@@ -445,3 +445,58 @@ fn content_hash_matches_the_dense_column_hash() {
     s.unresolved_variables.hash(&mut old);
     assert_eq!(s.column_hash(), old.finish().max(1));
 }
+
+#[test]
+fn heap_bytes_names_every_shape_data_field() {
+    // Adding a ShapeData field breaks this destructure until heap_bytes is told whether it owns heap.
+    let mut builder = ShapeBuilder::with_features(2);
+    builder.push_segment_with_lanes(10, &[1, 2]);
+    builder.push_segment_with_lanes_and_set(&[0, 0], CdSet::Members(CdBits::from_ids([3, 70])));
+    builder.set_generated_full(1, &[2, 3]);
+    builder.set_unresolved_variables(1, &[4]);
+    let shape = builder.finish();
+    let ShapeData {
+        content_hash: _,
+        kinds,
+        char_defs,
+        flags,
+        feat_width: _,
+        feat_lanes,
+        cd_sets,
+        generated_full,
+        unresolved_variables,
+    } = &*shape.data;
+    let columns = [
+        (kinds.len() * size_of::<NodeKind>(), kinds.len()),
+        (char_defs.len() * size_of::<u32>(), char_defs.len()),
+        (flags.len() * size_of::<NodeFlags>(), flags.len()),
+        (feat_lanes.len() * size_of::<u64>(), feat_lanes.len()),
+        (cd_sets.len() * size_of::<(u32, CdSet)>(), cd_sets.len()),
+        (
+            generated_full.len() * size_of::<(u32, u32)>(),
+            generated_full.len(),
+        ),
+        (
+            unresolved_variables.len() * size_of::<(u32, u32)>(),
+            unresolved_variables.len(),
+        ),
+    ];
+    let chunk = |bytes: usize| (bytes + 8 + 15) & !15usize;
+    let owned: usize = columns
+        .iter()
+        .filter(|(_, len)| *len > 0)
+        .map(|(bytes, _)| chunk(*bytes).max(32) + 16)
+        .sum();
+    let block = chunk(2 * size_of::<usize>() + size_of::<ShapeData>());
+    let spilled: usize = cd_sets
+        .iter()
+        .map(|(_, set)| match set {
+            CdSet::Members(bits) if bits.0.spilled() => {
+                chunk(bits.0.capacity() * size_of::<u64>()).max(32)
+            }
+            _ => 0,
+        })
+        .sum();
+    assert!(spilled > 0, "the fixture must own a spilled set");
+    assert_eq!(shape.heap_bytes(), block + owned + spilled);
+}

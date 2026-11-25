@@ -343,6 +343,44 @@ impl Shape {
         )
     }
 
+    /// Identifies the shared allocation: equal for clones of one shape, distinct for live shapes that are merely equal.
+    pub fn allocation_id(&self) -> usize {
+        Arc::as_ptr(&self.data) as usize
+    }
+
+    /// Heap bytes this shape's allocations take: the shared block, each non-empty column and each spilled set, rounded as a 64-bit glibc chunk (8-byte header, 16-byte steps, 32 minimum). Never below the allocator's chunks and at most one 16-byte step per column above them, unlike the loose [`Shape::heap_bytes_upper_bound`]; counts the shared block in full even when other shapes point at it.
+    pub fn heap_bytes(&self) -> usize {
+        fn chunk(bytes: usize) -> usize {
+            if bytes == 0 {
+                0
+            } else {
+                (bytes.saturating_add(8 + 15) & !15).max(32)
+            }
+        }
+        // A column shrunk in place by `into_boxed_slice` can keep up to one 16-byte step more, so each is charged that slack.
+        fn column<T>(len: usize) -> usize {
+            match chunk(len.saturating_mul(std::mem::size_of::<T>())) {
+                0 => 0,
+                bytes => bytes + 16,
+            }
+        }
+        let spilled = self.cd_sets.iter().fold(0, |total, (_, set)| match set {
+            CdSet::Members(bits) if bits.0.spilled() => {
+                total + chunk(bits.0.capacity() * std::mem::size_of::<u64>())
+            }
+            _ => total,
+        });
+        chunk(2 * std::mem::size_of::<usize>() + std::mem::size_of::<ShapeData>())
+            + column::<NodeKind>(self.kinds.len())
+            + column::<u32>(self.char_defs.len())
+            + column::<NodeFlags>(self.flags.len())
+            + column::<u64>(self.feat_lanes.len())
+            + column::<(u32, CdSet)>(self.cd_sets.len())
+            + column::<(u32, u32)>(self.generated_full.len())
+            + column::<(u32, u32)>(self.unresolved_variables.len())
+            + spilled
+    }
+
     /// Conservative heap allocation charge for a cloned shape, including allocator overhead.
     pub fn heap_bytes_upper_bound(&self) -> usize {
         fn allocation(bytes: usize) -> usize {

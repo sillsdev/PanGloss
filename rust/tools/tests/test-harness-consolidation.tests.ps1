@@ -123,11 +123,11 @@ $crateSpecs = @(
     @{
         Name = 'pg-rules'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-rules'
-        MinTargets = 4
-        MaxTargets = 4
+        MinTargets = 5
+        MaxTargets = 5
         ExpectedSourceNames = @(
             'alpha_gate.rs', 'analysis_syn_fs_gate.rs', 'fst_probe.rs',
-            'guessed_root_validity_gate.rs', 'max_apps_gate.rs', 'metathesis_gate.rs',
+            'guessed_root_validity_gate.rs', 'match_memo_heap.rs', 'max_apps_gate.rs', 'metathesis_gate.rs',
             'morph_gate.rs', 'mpr_allocation.rs', 'non_head_root_filter_gate.rs', 'nonhead_resolution_gate.rs',
             'p7_segments_union_census.rs', 'part1_checkpoint.rs',
             'redup_and_free_fluctuation_gate.rs', 'rewrite_gate.rs', 'rule_text_gate.rs', 'stats_gate.rs',
