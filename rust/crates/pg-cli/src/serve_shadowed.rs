@@ -35,11 +35,11 @@ pub(crate) fn describe() -> Value {
         "rowFields": ROW_FIELDS,
         "blockerFields": ["allomorphId", "xmlKey", "index"],
         "reasons": REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
-        "deadContinuationFields": ["entryId", "entryGuid", "morphemeId", "allomorphId", "xmlKey", "index", "form", "continuation", "reasons", "features", "affixRules", "acceptingRules", "blockedBy"],
+        "deadContinuationFields": ["entryId", "entryGuid", "morphemeId", "allomorphId", "xmlKey", "index", "form", "continuation", "reasons", "features", "affixRules", "acceptingRules", "blockedBy", "neighbourRejections", "viaConverter"],
         "continuations": ["proven", "maybe", "live"],
         "deadContinuationReasons": DEAD_REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
         "blockedByFields": ["kind", "names", "allomorphs", "rules"],
-        "deadContinuationContract": "deadContinuations lists root allomorphs after which no affix can attach, because every affix allomorph's required or excluded rule features (inflection class) or required stem name rejects the entry as it stands before its first affix. proven also needs the allomorph unable to stand as a bare word (bound, or every environment needs a neighbouring segment and no phonological rule inserts segments) and no compounding rule; otherwise maybe. Rule-level conditions other than those are ignored, which can only make an affix look attachable. live rows appear with includeSelectable",
+        "deadContinuationContract": "deadContinuations lists root allomorphs after which no affix can attach, because every affix allomorph's required or excluded rule features (inflection class) or required stem name rejects the entry as it stands before its first affix. proven also needs the allomorph unable to stand as a bare word (bound, or every environment needs a neighbouring segment and no phonological rule inserts segments) and no compounding rule; otherwise maybe. Rule-level conditions other than those are ignored, which can only make an affix look attachable. live rows appear with includeSelectable, except a live row with neighbourRejections: an allomorph whose environment needs a following segment, where affixes that could supply it reject the entry's rule features or stem name (blockedBy shape) while others accept; viaConverter says an accepting null affix changes the rule features, so those affixes may still be reached after it",
         "contract": "shadowed is proven: no word is parsed or generated with this alternate, because an earlier alternate of the same morpheme is eligible wherever this one is and does not free-fluctuate with it. maybe_shadowed names what was not proven. Proofs use only identical or empty conditions, never a guess; a condition the engine does not model is never counted as covered. The report changes no parse",
     })
 }
@@ -57,6 +57,12 @@ fn morph_id(g: &Grammar, morpheme: MorphemeId) -> Option<&str> {
     g.morphemes
         .get(morpheme.0 as usize)
         .and_then(|m| m.morph_id.as_deref())
+}
+
+fn blocking_json(v: &[pg_rules::dead::BlockingCount]) -> Vec<Value> {
+    v.iter()
+        .map(|b| json!({"kind": b.blocking.kind, "names": b.blocking.names, "allomorphs": b.allomorphs, "rules": b.rules}))
+        .collect()
 }
 
 /// Answers one `shadowedAllomorphs` request.
@@ -159,7 +165,10 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             Continuation::Maybe => 1,
             Continuation::Live => 2,
         }] += 1;
-        if row.verdict == Continuation::Live && !include_selectable {
+        if row.verdict == Continuation::Live
+            && row.neighbour_rejections.is_empty()
+            && !include_selectable
+        {
             continue;
         }
         let def = &g.entries[row.entry.0 as usize];
@@ -176,12 +185,9 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             "features": row.features,
             "affixRules": row.rules,
             "acceptingRules": row.accepting_rules,
-            "blockedBy": row.blocked_by.iter().map(|b| json!({
-                "kind": b.blocking.kind,
-                "names": b.blocking.names,
-                "allomorphs": b.allomorphs,
-                "rules": b.rules,
-            })).collect::<Vec<_>>(),
+            "blockedBy": blocking_json(&row.blocked_by),
+            "neighbourRejections": blocking_json(&row.neighbour_rejections),
+            "viaConverter": row.via_converter,
         }));
     }
     json!({

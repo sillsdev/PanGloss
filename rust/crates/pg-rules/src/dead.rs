@@ -5,8 +5,8 @@
 use std::collections::BTreeMap;
 
 use pg_grammar_model::model::{
-    mpr_excluded_ok, mpr_required_ok, AllomorphId, Grammar, LexEntryId, MRuleId, MprSet,
-    PatternNode, PhonRuleDef, RootAllomorphDef, StemNameId,
+    mpr_excluded_ok, mpr_required_ok, AffixAllomorphDef, AllomorphId, Grammar, LexEntryId, MRuleId,
+    MprSet, NaturalClassKind, OutputAction, PatternNode, PhonRuleDef, RootAllomorphDef, StemNameId,
 };
 
 /// What follows the root allomorph.
@@ -38,8 +38,10 @@ pub const COMPOUNDING_PRESENT: &str = "compounding_present";
 pub const BOUND_ROOT: &str = "bound_root";
 /// `Proven` because every environment needs a neighbouring segment a bare word lacks.
 pub const NEEDS_NEIGHBOUR: &str = "environment_needs_neighbour";
+/// `Maybe` because the allomorph needs a following segment that only class-rejected affixes can supply.
+pub const NEEDS_REJECTED_SUPPLIER: &str = "environment_needs_class_rejected_neighbour";
 /// Every reason code, with the meaning a host shows.
-pub const REASONS: [(&str, &str); 4] = [
+pub const REASONS: [(&str, &str); 5] = [
     (
         MAY_STAND_BARE,
         "no affix accepts it, but nothing stops the allomorph standing as a bare word",
@@ -55,6 +57,10 @@ pub const REASONS: [(&str, &str); 4] = [
     (
         NEEDS_NEIGHBOUR,
         "every environment of the allomorph requires a segment beside it, which a bare word lacks",
+    ),
+    (
+        NEEDS_REJECTED_SUPPLIER,
+        "affixes attach, but every environment of the allomorph needs a following segment and each suffix that could start with it rejects the entry's features or stem name; text-based, so only maybe",
     ),
 ];
 
@@ -90,6 +96,10 @@ pub struct DeadRow {
     pub accepting_rules: usize,
     /// The most common blocking requirements, most frequent first; empty when `Live`.
     pub blocked_by: Vec<BlockingCount>,
+    /// For an allomorph that needs a following segment: the requirements that turn away affixes that could supply it, even when other affixes accept the entry.
+    pub neighbour_rejections: Vec<BlockingCount>,
+    /// Whether an accepting null affix changes the entry's rule features, so the rejecting affixes may be reached after it.
+    pub via_converter: bool,
 }
 
 fn names(g: &Grammar, set: &MprSet) -> Vec<String> {
@@ -167,6 +177,157 @@ fn rejection(
     Some(out)
 }
 
+/// The text a first right-context node asks for, or `None` when it is not a literal segment set.
+fn first_right_texts(g: &Grammar, a: &RootAllomorphDef) -> Option<Vec<String>> {
+    if a.environments.is_empty() || g.char_tables.len() != 1 {
+        return None;
+    }
+    let table = &g.char_tables[0];
+    let mut out = Vec::new();
+    for e in &a.environments {
+        let first = e.right.as_ref().filter(|_| e.require)?.nodes.first()?;
+        match first {
+            PatternNode::CharDef(id) => out.extend(table.get(*id).representations().to_vec()),
+            PatternNode::Segments { shape, .. } => out.push(shape.text.clone()),
+            PatternNode::Context(c) => match &g.natural_classes.get(c.nat_class.0 as usize)?.kind {
+                NaturalClassKind::Segments(ids) => {
+                    for id in ids {
+                        out.extend(table.get(*id).representations().to_vec());
+                    }
+                }
+                NaturalClassKind::Feature(_) => return None,
+            },
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// Whether an affix allomorph may put material next to the stem that starts one of `texts`; unknown shapes and any that change rule features may.
+fn may_supply(a: &AffixAllomorphDef, texts: &[String]) -> bool {
+    if !a.out_mpr.is_empty() {
+        return true;
+    }
+    match a.rhs.as_slice() {
+        [OutputAction::Copy(_), OutputAction::InsertSegments { shape, .. }] => {
+            let ins = shape.text.trim_start_matches('+');
+            !ins.is_empty()
+                && texts
+                    .iter()
+                    .any(|t| ins.starts_with(t.as_str()) || t.starts_with(ins))
+        }
+        [OutputAction::InsertSegments { .. }, OutputAction::Copy(_)] | [OutputAction::Copy(_)] => {
+            false
+        }
+        _ => true,
+    }
+}
+
+/// The requirement that turns one affix allomorph away from an entry, or `None` when it accepts.
+fn turned_away(
+    g: &Grammar,
+    rule: MRuleId,
+    a: &AffixAllomorphDef,
+    have: &MprSet,
+    stem: Option<StemNameId>,
+) -> Option<Blocking> {
+    if let pg_grammar_model::model::MorphRuleDef::AffixProcess(p) = &g.mrules[rule.0 as usize] {
+        if p.required_stem_name.is_some() && p.required_stem_name != stem {
+            let id = p.required_stem_name.map_or(0, |s| s.0);
+            return Some(Blocking {
+                kind: "stem_name",
+                names: vec![g.stem_names[id as usize].xml_id.clone()],
+            });
+        }
+    }
+    if !mpr_required_ok(&g.mpr_groups, &a.required_mpr, have) {
+        Some(Blocking {
+            kind: "required_mpr",
+            names: names(g, &a.required_mpr),
+        })
+    } else if !mpr_excluded_ok(&g.mpr_groups, &a.excluded_mpr, have) {
+        Some(Blocking {
+            kind: "excluded_mpr",
+            names: names(g, &a.excluded_mpr),
+        })
+    } else {
+        None
+    }
+}
+
+/// What the affixes beside an allomorph that needs a following segment do with the entry.
+struct Neighbour {
+    /// Requirements that turned away affix allomorphs which could supply the segment.
+    rejected: Tally,
+    /// Affix allomorphs that could supply it and accept the entry.
+    accepted: usize,
+    /// An accepting null affix changes the rule features, so a rejecting affix may still be reached after it.
+    converter: bool,
+}
+
+fn neighbour(
+    g: &Grammar,
+    affix_rules: &[MRuleId],
+    entry: &pg_grammar_model::model::LexEntryDef,
+    a: &RootAllomorphDef,
+) -> Option<Neighbour> {
+    let texts = first_right_texts(g, a)?;
+    let mut n = Neighbour {
+        rejected: Tally::new(),
+        accepted: 0,
+        converter: false,
+    };
+    for &rule in affix_rules {
+        let mut seen = Vec::new();
+        for x in g.mrules[rule.0 as usize].affix_allomorphs()? {
+            let blocked = turned_away(g, rule, x, &entry.mpr, a.stem_name);
+            if blocked.is_none() && !x.out_mpr.is_empty() && is_null_shape(x) {
+                n.converter = true;
+            }
+            if !may_supply(x, &texts) {
+                continue;
+            }
+            match blocked {
+                None => n.accepted += 1,
+                Some(b) => {
+                    let t = n.rejected.entry(b.clone()).or_default();
+                    t.0 += 1;
+                    if !seen.contains(&b) {
+                        t.1 += 1;
+                        seen.push(b);
+                    }
+                }
+            }
+        }
+    }
+    Some(n)
+}
+
+/// An affix allomorph that adds no segments.
+fn is_null_shape(a: &AffixAllomorphDef) -> bool {
+    match a.rhs.as_slice() {
+        [OutputAction::Copy(_)] => true,
+        [OutputAction::Copy(_), OutputAction::InsertSegments { shape, .. }] => {
+            shape.text.trim_start_matches('+').is_empty()
+        }
+        _ => false,
+    }
+}
+
+fn counts(t: &Tally) -> Vec<BlockingCount> {
+    let mut v: Vec<BlockingCount> = t
+        .iter()
+        .map(|(b, (allomorphs, rules))| BlockingCount {
+            blocking: b.clone(),
+            allomorphs: *allomorphs,
+            rules: *rules,
+        })
+        .collect();
+    v.sort_by_key(|x| std::cmp::Reverse(x.allomorphs));
+    v.truncate(5);
+    v
+}
+
 /// Blocking requirement to (allomorphs stopped, rules stopped).
 type Tally = BTreeMap<Blocking, (usize, usize)>;
 
@@ -209,7 +370,19 @@ pub fn dead_continuations(g: &Grammar) -> Vec<DeadRow> {
                 }
                 (accepting, tally)
             });
-            let (verdict, reasons) = if *accepting > 0 || affix_rules.is_empty() {
+            let near = if *accepting > 0 && !compounding {
+                neighbour(g, &affix_rules, entry, a)
+            } else {
+                None
+            };
+            let dead_by_supplier = near.as_ref().is_some_and(|n| n.accepted == 0);
+            let tally = match &near {
+                Some(n) if dead_by_supplier => &n.rejected,
+                _ => tally,
+            };
+            let (verdict, reasons) = if dead_by_supplier {
+                (Continuation::Maybe, vec![NEEDS_REJECTED_SUPPLIER])
+            } else if *accepting > 0 || affix_rules.is_empty() {
                 (Continuation::Live, Vec::new())
             } else if compounding {
                 (Continuation::Maybe, vec![COMPOUNDING_PRESENT])
@@ -220,20 +393,13 @@ pub fn dead_continuations(g: &Grammar) -> Vec<DeadRow> {
             } else {
                 (Continuation::Maybe, vec![MAY_STAND_BARE])
             };
-            let mut blocked_by: Vec<BlockingCount> = if verdict == Continuation::Live {
+            let blocked_by = if verdict == Continuation::Live {
                 Vec::new()
             } else {
-                tally
-                    .iter()
-                    .map(|(b, (allomorphs, rules))| BlockingCount {
-                        blocking: b.clone(),
-                        allomorphs: *allomorphs,
-                        rules: *rules,
-                    })
-                    .collect()
+                counts(tally)
             };
-            blocked_by.sort_by_key(|x| std::cmp::Reverse(x.allomorphs));
-            blocked_by.truncate(5);
+            let neighbour_rejections = near.as_ref().map_or_else(Vec::new, |n| counts(&n.rejected));
+            let via_converter = near.as_ref().is_some_and(|n| n.converter);
             out.push(DeadRow {
                 entry: LexEntryId(e as u32),
                 allomorph: a.id,
@@ -244,6 +410,8 @@ pub fn dead_continuations(g: &Grammar) -> Vec<DeadRow> {
                 rules: affix_rules.len(),
                 accepting_rules: *accepting,
                 blocked_by,
+                neighbour_rejections,
+                via_converter,
             });
         }
     }

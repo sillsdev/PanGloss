@@ -356,6 +356,99 @@ fn a_vc_a_root_is_dead_without_the_converter_and_live_with_it() {
     assert_eq!(blocked.features, ["VC-A"]);
 }
 
+#[test]
+fn a_root_needing_a_following_i_is_maybe_dead_while_every_i_affix_rejects_its_class() {
+    let build = |converter: bool| {
+        let mut rules = vec![
+            rule(
+                "APPL",
+                &[sub(
+                    "appl",
+                    r#"requiredMPRFeatures="vcB""#,
+                    ANY,
+                    "",
+                    "i",
+                    "",
+                )],
+            ),
+            rule("PASS", &[sub("w", "", ANY, "", "w", "")]),
+        ];
+        let mut ids = "APPL PASS";
+        if converter {
+            rules.push(rule(
+                "CONV",
+                &[sub(
+                    "conv",
+                    r#"requiredMPRFeatures="vcA""#,
+                    ANY,
+                    r#"MPRFeatures="vcB""#,
+                    "k",
+                    "",
+                )],
+            ));
+            ids = "APPL PASS CONV";
+        }
+        grammar(
+            &rules,
+            ids,
+            &[entry(
+                "eA",
+                r#"ruleFeatures="vcA""#,
+                &[("bal", ""), ("ba", RIGHT_I)],
+            )],
+        )
+    };
+    assert_eq!(
+        dead_of(&build(false), "eA"),
+        [
+            ("bal".into(), Continuation::Live),
+            ("ba".into(), Continuation::Maybe)
+        ]
+    );
+    let blocked = dead_continuations(&build(false))
+        .into_iter()
+        .find(|r| r.verdict == Continuation::Maybe)
+        .unwrap();
+    assert_eq!(
+        blocked.reasons,
+        ["environment_needs_class_rejected_neighbour"]
+    );
+    assert_eq!(blocked.blocked_by[0].blocking.names, ["VC-B"]);
+    assert_eq!(
+        dead_of(&build(true), "eA"),
+        [
+            ("bal".into(), Continuation::Live),
+            ("ba".into(), Continuation::Live)
+        ]
+    );
+}
+
+#[test]
+fn an_ungated_i_suffix_keeps_the_root_live_but_the_gated_one_is_reported() {
+    let g = grammar(
+        &[
+            rule(
+                "APPL",
+                &[sub(
+                    "appl",
+                    r#"requiredMPRFeatures="vcB""#,
+                    ANY,
+                    "",
+                    "i",
+                    "",
+                )],
+            ),
+            rule("IK", &[sub("ik", "", ANY, "", "ik", "")]),
+        ],
+        "APPL IK",
+        &[entry("eA", r#"ruleFeatures="vcA""#, &[("ba", RIGHT_I)])],
+    );
+    let row = dead_continuations(&g).into_iter().next().unwrap();
+    assert_eq!(row.verdict, Continuation::Live);
+    assert_eq!(row.neighbour_rejections[0].blocking.names, ["VC-B"]);
+    assert!(!row.via_converter);
+}
+
 /// Every allomorph a fixture word's parses or generations select.
 fn selected_by(g: &Grammar, words: &[String]) -> HashSet<u32> {
     let morpher = Morpher::new(g, 200_000);
