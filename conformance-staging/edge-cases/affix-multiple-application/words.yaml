@@ -1,4 +1,4 @@
-# oracle-provenance: pangloss (HC-Rust) transcription, then replayed on the C# founding oracle (hc-conformance self-check, pin cache 1ddef2bd): all words PASS.
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd (words transcribed from pangloss batch, then replayed on the C# oracle via hc-conformance self-check: all 15 PASS)
 # What this pins: HC's per-rule multipleApplication (XmlLanguageLoader.cs:868-870, default 1 at
 # AffixProcessRule.cs:28) on a derivational affix. A Swahili-shaped verb takes CAUS (-ish) and APPL (-el)
 # up to twice each, in that rule order; CTL (-ox) keeps the default and applies once. The negative rows

@@ -15,4 +15,4 @@ Graduation is blocked on FieldWorks: `fieldworks_producible` stays `false` until
 ParserParameters key `HC/AffixRules/AffixRule[@guid][@maxApps]` (motif#436 slice 3). The suite refuses
 `false` fixtures, so do not graduate before that lands.
 
-Upstream PR: (none yet)
+upstream: not-producible: row 22 FieldWorks' HCLoader does not yet read the affix maxApps key, so `multipleApplication` stays 1 on an affix rule
