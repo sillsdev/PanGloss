@@ -1,8 +1,8 @@
-//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way.
+//! Parses the `<ParserParameters><HC>...</HC></ParserParameters>` XML blob FieldWorks stores as a string into a `ParserParameters` value, matching `HCLoader`'s constructor: `<HC>` may be entirely absent (e.g. an XAmple-configured project), `notOnClitics` then defaults true, `<CompoundRules>` is a sibling of `<HC>`, not nested inside it, and `<ActiveParser>`/`<XAmple>` are siblings read the same way, and `<HC><AffixRules>` (per-affix `maxApps`, keyed by MSA guid) is nested inside `<HC>`.
 
 use pg_snapshot::{
-    ActiveParser, CompoundRuleMaxApplications, FwClass, FwObjectRef, ParserParameters, Warning,
-    XAmpleParameters,
+    ActiveParser, AffixRuleMaxApplications, CompoundRuleMaxApplications, FwClass, FwObjectRef,
+    ParserParameters, Warning, XAmpleParameters,
 };
 
 use crate::node::parse_full_document;
@@ -209,6 +209,8 @@ pub fn parse_with_issues(
         })
         .unwrap_or_default();
 
+    let affix_rule_max_applications = hc_affix_rule_max_applications(hc, &mut issues);
+
     Ok((
         ParserParameters {
             not_on_clitics,
@@ -222,6 +224,7 @@ pub fn parse_with_issues(
             guess_roots,
             strata,
             compound_rule_max_applications,
+            affix_rule_max_applications,
             active_parser,
             xample,
         },
@@ -231,6 +234,114 @@ pub fn parse_with_issues(
             hc_fields: hc_fields_present,
             xample_fields: xample_fields_present,
         },
+    ))
+}
+
+/// Largest per-affix application count FieldWorks' `HCLoader.MaxAffixApplicationCount` accepts.
+const MAX_AFFIX_APPLICATION_COUNT: i32 = 10;
+
+/// `<HC><AffixRules><AffixRule guid maxApps>`, read like `HCLoader`'s constructor: both attributes must parse (`Guid.TryParse`, `int.TryParse` with `NumberStyles.Integer` and the invariant culture) or the entry is skipped and the affix applies once (warning `INVALID_PARSER_PARAMETER`); a parsed count is clamped to 1..=10 (so 0, negatives and 1 mean once, and a count above 10 is 10, with a warning); a repeated guid takes the last valid entry. Only counts above 1 are stored.
+fn hc_affix_rule_max_applications(
+    hc: Option<&crate::node::Node>,
+    issues: &mut Vec<Warning>,
+) -> Vec<AffixRuleMaxApplications> {
+    let Some(rules) = hc.and_then(|hc| hc.child("AffixRules")) else {
+        return Vec::new();
+    };
+    // Guid -> clamped count, in first-seen order; a later valid entry for the same guid replaces the earlier (C# dictionary assignment).
+    let mut counts: Vec<(String, i32)> = Vec::new();
+    for rule in rules.children_named("AffixRule") {
+        let raw_guid = rule.attr("guid").unwrap_or("");
+        let raw = rule.attr("maxApps").unwrap_or("");
+        let warn = |what: &str, issues: &mut Vec<Warning>| {
+            issues.push(
+                Warning::new(
+                    codes::INVALID_PARSER_PARAMETER,
+                    format!(
+                        "Parser parameter 'HC.AffixRules' entry {raw_guid:?} has {what} (maxApps {raw:?}); {}",
+                        if what.starts_with("a count above") {
+                            "the affix applies at most 10 times."
+                        } else {
+                            "the entry is skipped and the affix applies once."
+                        }
+                    ),
+                )
+                .with_subject(
+                    FwObjectRef::new(FwClass::Project)
+                        .project_settings()
+                        .field("HC.AffixRules"),
+                ),
+            );
+        };
+        let Some(guid) = dotnet_guid(raw_guid) else {
+            warn("no parseable guid", issues);
+            continue;
+        };
+        let Some(n) = dotnet_int(raw) else {
+            warn("an invalid count", issues);
+            continue;
+        };
+        if n > MAX_AFFIX_APPLICATION_COUNT {
+            warn("a count above 10", issues);
+        }
+        let n = n.clamp(1, MAX_AFFIX_APPLICATION_COUNT);
+        match counts.iter_mut().find(|(g, _)| *g == guid) {
+            Some(entry) => entry.1 = n,
+            None => counts.push((guid, n)),
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(msa, n)| AffixRuleMaxApplications {
+            msa,
+            max_applications: n as u32,
+        })
+        .collect()
+}
+
+/// C# `int.TryParse(s, NumberStyles.Integer, InvariantCulture)`: optional surrounding white space (U+0009..U+000D, U+0020), one leading sign, ASCII digits, 32-bit signed.
+fn dotnet_int(raw: &str) -> Option<i32> {
+    let t = raw.trim_matches(|c: char| matches!(c, '\t'..='\r' | ' '));
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse::<i32>().ok()
+}
+
+/// C# `Guid.TryParse` for the common formats (`D` hyphenated, `N` 32 digits, `B` braces, `P` parentheses; surrounding white space ignored), returned as lowercase hyphenated text.
+fn dotnet_guid(raw: &str) -> Option<String> {
+    let t = raw.trim_matches(|c: char| matches!(c, '\t'..='\r' | ' '));
+    let inner = if let Some(i) = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')) {
+        i
+    } else if let Some(i) = t.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+        i
+    } else {
+        t
+    };
+    let hex: String = if inner.len() == 36 {
+        let b = inner.as_bytes();
+        if [8, 13, 18, 23].iter().any(|&i| b[i] != b'-') {
+            return None;
+        }
+        inner.chars().filter(|&c| c != '-').collect()
+    } else if inner.len() == 32 && !t.starts_with(['{', '(']) {
+        inner.to_string()
+    } else {
+        return None;
+    };
+    if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let h = hex.to_ascii_lowercase();
+    Some(format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
     ))
 }
 

@@ -71,10 +71,10 @@ pub use lexicon::{
     AffixProcess, Allomorph, EntryRef, EqualMsas, LexEntry, Lexicon, Msa, RuleMapping, Sense,
 };
 pub use morphology::{
-    ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixSlot, AffixTemplate,
-    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,
-    ExceptionFeature, InflectionClass, LexEntryInflType, MorphType, Morphology, ParserParameters,
-    PartOfSpeech, StemName, XAmpleParameters,
+    ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixRuleMaxApplications,
+    AffixSlot, AffixTemplate, CompoundConstituentRequirement, CompoundOutcome, CompoundRule,
+    CompoundRuleMaxApplications, ExceptionFeature, InflectionClass, LexEntryInflType, MorphType,
+    Morphology, ParserParameters, PartOfSpeech, StemName, XAmpleParameters,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,

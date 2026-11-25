@@ -45,11 +45,11 @@ impl Bucket {
 
 // Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
 
-// oracle_exact 162: the suite fixture edge-cases/disjunctive-folded-env-blocks adds one exact cell.
+// oracle_exact 163: the suite fixture edge-cases/affix-multiple-application (graduated at pin 0cc9787) adds one exact cell.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 162,
+        oracle_exact: 163,
         compiles_but_misses: 0,
         refused: 166,
         unmeasurable: 0,

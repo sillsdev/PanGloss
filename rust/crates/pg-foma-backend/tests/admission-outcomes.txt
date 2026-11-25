@@ -7,6 +7,7 @@ machine:edge-cases/adhoc-prohibition-variant-enclitic-first	TunedSurfaceProbed	o
 machine:edge-cases/adhoc-prohibition-variant-main-first-enclitic	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-variant-msa-copies	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-whynot	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/affix-multiple-application	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/alias-output-0-literal	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-0-singleton	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-1-literal	TunedSurfaceProbed	refused
