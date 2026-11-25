@@ -1,9 +1,9 @@
-//! The match memo's real heap peak, read from the allocator, stays under its cap and tracks its own accounting.
+//! The shape graph's real heap bytes and peak, read from the allocator, stay inside its own accounting.
 #![cfg(all(target_os = "linux", target_env = "gnu"))]
 
 use pg_fst::work::WorkBudget;
-use pg_grammar_model::model::AllomorphId;
-use pg_rules::morph::match_memo::{MatchMemo, DEFAULT_CAP_BYTES};
+use pg_grammar_model::model::{AllomorphId, MRuleId};
+use pg_rules::shape_graph::ShapeGraph;
 use pg_shape::{Shape, ShapeBuilder};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -76,42 +76,50 @@ struct Measured {
     accounted: usize,
     real: usize,
     peak: usize,
-    entries: usize,
+    nodes: usize,
+    rows: usize,
 }
 
-/// Fill a memo of this cap with `keys` matches and read its accounted bytes, real bytes and real peak.
-fn fill(cap: usize, keys: u32) -> Measured {
+/// Record `keys` shapes' rows for three rules each, two with two output edges and one empty, and read the graph's accounted bytes, real bytes and real peak. The shapes are built as they are recorded and held only by the graph, so their heap counts as the graph's.
+fn fill(work: WorkBudget, keys: u32) -> (Measured, ShapeGraph) {
     let before = live();
     PEAK.with(|peak| peak.set(before));
-    let memo = MatchMemo::with_cap(WorkBudget::new(usize::MAX), cap);
+    let graph = ShapeGraph::new(work);
     let mut peak_accounted = 0;
     for key in 0..keys {
         let input = shape(key);
-        let outputs = [shape(key + 1_000_000), shape(key + 2_000_000)];
-        for _ in 0..2 {
-            memo.insert(AllomorphId(key % 7), true, &input, &outputs, false, 100);
+        let edges = [
+            (Some(AllomorphId(0)), shape(key + 1_000_000)),
+            (Some(AllomorphId(1)), shape(key + 2_000_000)),
+        ];
+        for rule in 0..3 {
+            let edges: &[_] = if rule == 2 { &[] } else { &edges };
+            if graph
+                .record(MRuleId(rule), true, &input, edges, 100)
+                .is_none()
+            {
+                break;
+            }
         }
-        peak_accounted = peak_accounted.max(memo.bytes());
+        peak_accounted = peak_accounted.max(graph.bytes());
     }
-    assert!(
-        peak_accounted <= cap,
-        "accounted {peak_accounted} passed the cap {cap}"
-    );
     let measured = Measured {
-        accounted: memo.bytes(),
+        accounted: graph.bytes(),
         real: (live() - before) as usize,
         peak: (PEAK.with(Cell::get) - before) as usize,
-        entries: memo.len(),
+        nodes: graph.nodes(),
+        rows: graph.rows(),
     };
     println!(
-        "cap {cap}: {} entries, accounted {}, real {}, real peak {}",
-        measured.entries, measured.accounted, measured.real, measured.peak
+        "{} nodes, {} rows: accounted {}, real {}, real peak {}",
+        measured.nodes, measured.rows, measured.accounted, measured.real, measured.peak
     );
-    measured
+    assert!(peak_accounted >= measured.accounted);
+    (measured, graph)
 }
 
-fn check(m: &Measured, cap: usize) {
-    assert!(m.peak <= cap, "real peak {} passed the cap {cap}", m.peak);
+/// The accounting covers what the allocator holds, and does not overstate it by much.
+fn check(m: &Measured) {
     assert!(
         m.real <= m.accounted,
         "under-counted: real {} over accounted {}",
@@ -127,31 +135,44 @@ fn check(m: &Measured, cap: usize) {
 }
 
 #[test]
-fn a_filled_memo_stays_under_the_default_cap_and_tracks_the_allocator() {
-    let m = fill(DEFAULT_CAP_BYTES, 2_000);
-    assert_eq!(m.entries, 2_000, "the fill must not evict");
-    check(&m, DEFAULT_CAP_BYTES);
-}
-
-#[test]
-fn an_evicting_memo_stays_under_a_small_cap_through_every_resize() {
-    for cap in [200 * 1024, 1024 * 1024] {
-        let m = fill(cap, 6_000);
-        assert!(m.entries < 6_000, "the fill must evict at cap {cap}");
-        assert!(
-            m.entries > 10,
-            "cap {cap} left room for only {} entries",
-            m.entries
-        );
-        check(&m, cap);
+fn a_filled_graph_tracks_the_allocator_at_several_sizes() {
+    for keys in [3, 40, 700, 4_000] {
+        let (m, _graph) = fill(WorkBudget::new(usize::MAX), keys);
+        assert_eq!(m.rows, keys as usize * 3, "nothing is refused or evicted");
+        check(&m);
     }
 }
 
 #[test]
-fn an_evicting_memo_stays_under_the_default_cap() {
-    let m = fill(DEFAULT_CAP_BYTES, 16_000);
-    assert!(m.entries < 16_000, "the fill must evict at the default cap");
-    check(&m, DEFAULT_CAP_BYTES);
+fn the_real_peak_stays_inside_the_accounting_through_every_resize() {
+    for keys in [5, 100, 3_000] {
+        let (m, _graph) = fill(WorkBudget::new(usize::MAX), keys);
+        assert!(
+            m.peak <= m.accounted,
+            "real peak {} passed accounted {}",
+            m.peak,
+            m.accounted
+        );
+    }
+}
+
+#[test]
+fn a_graph_under_a_word_allowance_stays_in_its_share_then_drops_itself() {
+    let allowance = 8 * 400 * 1024;
+    let work = WorkBudget::new(usize::MAX).with_word_cap(Some(allowance));
+    let (m, graph) = fill(work.clone(), 6_000);
+    assert!(graph.is_dead(), "the fill must reach the share");
+    assert_eq!(m.accounted, 0, "a dropped graph holds nothing");
+    assert!(
+        m.real < 64 * 1024,
+        "real bytes left after the drop: {}",
+        m.real
+    );
+    drop(graph);
+    assert!(
+        work.try_charge_optional(allowance),
+        "dropping releases the charge"
+    );
 }
 
 #[test]

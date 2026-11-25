@@ -24,6 +24,8 @@ struct State {
     word_capped: Cell<bool>,
     /// Bytes optional state holds that the search's own charges may overrun.
     word_optional: Cell<usize>,
+    /// Units a reservation adds to `used`: one, or zero while work is suspended.
+    step: Cell<usize>,
 }
 
 // The parser-work meter excludes the size of its own per-word memory instrumentation.
@@ -68,6 +70,7 @@ impl WorkBudget {
             word_retained: Cell::new(0),
             word_capped: Cell::new(false),
             word_optional: Cell::new(0),
+            step: Cell::new(1),
         }));
         pg_cost::discount_bytes(
             std::mem::size_of::<State>() - std::mem::size_of::<WorkStateBeforeWordMeter>(),
@@ -214,8 +217,18 @@ impl WorkBudget {
         if stopped {
             return false;
         }
-        self.0.used.set(self.0.used.get().saturating_add(1));
+        self.0
+            .used
+            .set(self.0.used.get().saturating_add(self.0.step.get()));
         true
+    }
+
+    /// Run synchronous work that reserves units without spending any, until the guard drops: a caller that has already paid a stored cost for work it must still carry out, so an observer sees every event of the real search while the total stays that of the stored cost. Reservations still check the stops.
+    pub fn suspend(&self) -> SuspendedWork {
+        SuspendedWork {
+            budget: self.clone(),
+            previous: self.0.step.replace(0),
+        }
     }
 
     /// A poll at the cap latches exhaustion even when the last reservation succeeded.
@@ -332,6 +345,19 @@ impl Drop for WordMemory {
         if let Some(budget) = &self.budget {
             budget.release_word(self.bytes);
         }
+    }
+}
+
+/// Spending resumes when this drops; see `WorkBudget::suspend`.
+#[must_use]
+pub struct SuspendedWork {
+    budget: WorkBudget,
+    previous: usize,
+}
+
+impl Drop for SuspendedWork {
+    fn drop(&mut self) {
+        self.budget.0.step.set(self.previous);
     }
 }
 

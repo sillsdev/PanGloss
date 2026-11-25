@@ -37,19 +37,17 @@ use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF
 
 use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
 use crate::observations::{Decision, MprGateOwner, Recorder};
+use crate::shape_graph::{consult, Consult, ShapeGraph};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
 use crate::trace::{FailureReason, TraceHandle, TraceMode, TraceSink};
 use crate::word::{MorphGroup, MorphLayout, MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-pub use match_memo::MatchMemo;
-
 pub(crate) mod edge_index;
 mod edge_prefilter;
 #[cfg(test)]
 mod gate_tests;
-pub mod match_memo;
 mod merge_captures;
 mod optional_runs;
 #[cfg(test)]
@@ -454,7 +452,7 @@ pub(crate) fn analyze_cached(
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
@@ -462,13 +460,14 @@ pub(crate) fn analyze_cached(
                 mstats,
                 ana_affix_cached(
                     g,
+                    mrid,
                     word,
                     def,
                     cache,
                     mstats,
                     prune_disagreeing_copies,
                     None,
-                    memo
+                    graph
                 )
             )
         }
@@ -483,12 +482,13 @@ pub(crate) fn analyze_cached(
                 mstats,
                 ana_realizational_cached(
                     g,
+                    mrid,
                     word,
                     def,
                     cache,
                     mstats,
                     prune_disagreeing_copies,
-                    memo
+                    graph
                 )
             )
         }
@@ -509,7 +509,7 @@ pub(crate) fn analyze_cached_with_root_filter(
     root_filter: NonHeadRootFilter,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
@@ -517,13 +517,14 @@ pub(crate) fn analyze_cached_with_root_filter(
                 mstats,
                 ana_affix_cached(
                     g,
+                    mrid,
                     word,
                     def,
                     cache,
                     mstats,
                     prune_disagreeing_copies,
                     None,
-                    memo
+                    graph
                 )
             )
         }
@@ -538,12 +539,13 @@ pub(crate) fn analyze_cached_with_root_filter(
                 mstats,
                 ana_realizational_cached(
                     g,
+                    mrid,
                     word,
                     def,
                     cache,
                     mstats,
                     prune_disagreeing_copies,
-                    memo
+                    graph
                 )
             )
         }
@@ -605,7 +607,7 @@ pub(crate) fn analyze_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     let mode = trace.mode();
     if let (Some(recorder), MorphRuleDef::AffixProcess(def)) = (mode.recorder(), rule) {
@@ -613,13 +615,14 @@ pub(crate) fn analyze_cached_traced(
             mstats,
             ana_affix_cached(
                 g,
+                mrid,
                 word,
                 def,
                 cache,
                 mstats,
                 prune_disagreeing_copies,
                 Some(recorder),
-                memo
+                graph
             )
         );
     }
@@ -632,7 +635,7 @@ pub(crate) fn analyze_cached_traced(
             cache,
             mstats,
             prune_disagreeing_copies,
-            memo,
+            graph,
         );
     }
     match rule {
@@ -648,7 +651,7 @@ pub(crate) fn analyze_cached_traced(
                 trace,
                 parent,
                 prune_disagreeing_copies,
-                memo,
+                graph,
             )
         ),
         MorphRuleDef::Compounding(def) => {
@@ -669,7 +672,7 @@ pub(crate) fn analyze_cached_traced(
                 trace,
                 parent,
                 prune_disagreeing_copies,
-                memo,
+                graph,
             )
         ),
     }
@@ -688,7 +691,7 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
         return analyze_cached_with_root_filter(
@@ -700,7 +703,7 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
             root_filter,
             mstats,
             prune_disagreeing_copies,
-            memo,
+            graph,
         );
     }
     match rule {
@@ -716,7 +719,7 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
                 trace,
                 parent,
                 prune_disagreeing_copies,
-                memo,
+                graph,
             )
         ),
         MorphRuleDef::Compounding(def) => with_mrule_stats!(
@@ -745,7 +748,7 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
                 trace,
                 parent,
                 prune_disagreeing_copies,
-                memo,
+                graph,
             )
         ),
     }
@@ -762,7 +765,7 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     let mstats = if COLLECT_STATS { mstats } else { None };
     let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
@@ -776,6 +779,15 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
         );
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    // A trace reads every allomorph's events, so a stored row only sets the charge here.
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, true) {
+        Consult::Run(run) => run,
+        Consult::Stopped => {
+            record_interrupted_mrule_attempt(mstats, 0);
+            return Vec::new();
+        }
+        Consult::Replay(_) => unreachable!("an observed application re-runs the match"),
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -816,7 +828,6 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
                 &new_syn,
                 prune_disagreeing_copies,
                 None,
-                memo,
             )
         };
         for mut w in matches {
@@ -836,6 +847,7 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
         }
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
@@ -850,7 +862,7 @@ fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
@@ -863,6 +875,11 @@ fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
         );
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, true) {
+        Consult::Run(run) => run,
+        Consult::Stopped => return Vec::new(),
+        Consult::Replay(_) => unreachable!("an observed application re-runs the match"),
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -890,7 +907,6 @@ fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
                 &node_of,
                 &real_fs,
                 prune_disagreeing_copies,
-                memo,
             )
         };
         for mut w in matches {
@@ -910,6 +926,7 @@ fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
         }
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
@@ -3466,7 +3483,6 @@ fn ana_affix<const COLLECT_STATS: bool>(
             &new_syn,
             prune_disagreeing_copies,
             None,
-            None,
         ));
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -3479,19 +3495,34 @@ fn ana_affix<const COLLECT_STATS: bool>(
 #[allow(clippy::too_many_arguments)]
 fn ana_affix_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
+    mrid: MRuleId,
     word: &Word,
     rule: &AffixProcessRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
     recorder: Option<&dyn Recorder>,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     let mstats = if COLLECT_STATS { mstats } else { None };
     let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
     let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    let observed = recorder.is_some() || mstats.is_some();
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, observed) {
+        Consult::Replay(row) => {
+            return row.words(word, |w, allomorph| {
+                w.syn_fs = new_syn.clone();
+                w.analysis_allomorph = allomorph;
+            });
+        }
+        Consult::Stopped => {
+            record_interrupted_mrule_attempt(mstats, 0);
+            return Vec::new();
+        }
+        Consult::Run(run) => run,
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -3535,13 +3566,13 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
             &new_syn,
             prune_disagreeing_copies,
             recorder,
-            memo,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
@@ -3757,37 +3788,7 @@ fn ana_allomorph_matches(
     carry: impl Fn(&mut Word),
     prune_disagreeing_copies: bool,
     recorder: Option<&dyn Recorder>,
-    memo: Option<&MatchMemo>,
 ) -> Vec<Word> {
-    if let Some(memo) = memo {
-        if let Some((shapes, no_match)) = memo.get(allo.id, prune_disagreeing_copies, &word.shape) {
-            if let (Some(recorder), true) = (recorder, no_match) {
-                if pg_fst::work::active_budget()
-                    .is_none_or(|budget| !budget.capped() && !budget.timed_out())
-                {
-                    recorder.record_at(
-                        word,
-                        Decision::MorphPatternNoMatch {
-                            allomorph: allo.id,
-                            table,
-                            analysis: true,
-                        },
-                    );
-                }
-            }
-            return shapes
-                .into_iter()
-                .map(|shape| {
-                    let mut w = word.clone();
-                    w.shape = shape;
-                    carry(&mut w);
-                    w
-                })
-                .collect();
-        }
-    }
-    let budget = memo.and_then(|_| pg_fst::work::active_budget());
-    let work_before = budget.as_ref().map_or(0, |b| b.used());
     // Named once, and only for an allomorph that matches at all: most never do.
     let mut parts: Option<Vec<(String, &Pattern)>> = None;
     let mut allo_out: Vec<Word> = Vec::new();
@@ -3805,9 +3806,8 @@ fn ana_allomorph_matches(
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
     let matches = transduce.all_matches();
-    let no_match = matches.is_empty();
     if let Some(recorder) = recorder {
-        if no_match
+        if matches.is_empty()
             && pg_fst::work::active_budget()
                 .is_none_or(|budget| !budget.capped() && !budget.timed_out())
         {
@@ -3853,18 +3853,6 @@ fn ana_allomorph_matches(
         carry(&mut w);
         push_remove_duplicates(&mut allo_out, w);
     }
-    if let Some(memo) = memo {
-        let search_work = budget.as_ref().map_or(0, |b| b.used() - work_before);
-        let shapes: Vec<Shape> = allo_out.iter().map(|w| w.shape.clone()).collect();
-        memo.insert(
-            allo.id,
-            prune_disagreeing_copies,
-            &word.shape,
-            &shapes,
-            no_match,
-            search_work,
-        );
-    }
     allo_out
 }
 
@@ -3881,7 +3869,6 @@ fn ana_affix_allomorph(
     new_syn: &FeatureStruct,
     prune_disagreeing_copies: bool,
     recorder: Option<&dyn Recorder>,
-    memo: Option<&MatchMemo>,
 ) -> Vec<Word> {
     ana_allomorph_matches(
         g,
@@ -3898,7 +3885,6 @@ fn ana_affix_allomorph(
         },
         prune_disagreeing_copies,
         recorder,
-        memo,
     )
 }
 
@@ -3963,7 +3949,6 @@ fn ana_realizational<const COLLECT_STATS: bool>(
             &node_of,
             &real_fs,
             prune_disagreeing_copies,
-            None,
         ));
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -3973,19 +3958,34 @@ fn ana_realizational<const COLLECT_STATS: bool>(
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_realizational`.
+#[allow(clippy::too_many_arguments)]
 fn ana_realizational_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
+    mrid: MRuleId,
     word: &Word,
     rule: &RealizationalRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    let run = match consult(
+        graph,
+        mrid,
+        prune_disagreeing_copies,
+        &word.shape,
+        mstats.is_some(),
+    ) {
+        Consult::Replay(row) => {
+            return row.words(word, |w, _| w.real_fs = real_fs.clone());
+        }
+        Consult::Stopped => return Vec::new(),
+        Consult::Run(run) => run,
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -4013,13 +4013,13 @@ fn ana_realizational_cached<const COLLECT_STATS: bool>(
             &node_of,
             &real_fs,
             prune_disagreeing_copies,
-            memo,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
@@ -4036,7 +4036,6 @@ fn ana_realizational_allomorph(
     node_of: &[usize],
     real_fs: &FeatureStruct,
     prune_disagreeing_copies: bool,
-    memo: Option<&MatchMemo>,
 ) -> Vec<Word> {
     ana_allomorph_matches(
         g,
@@ -4050,7 +4049,6 @@ fn ana_realizational_allomorph(
         |w| w.real_fs = real_fs.clone(),
         prune_disagreeing_copies,
         None,
-        memo,
     )
 }
 

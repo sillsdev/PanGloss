@@ -30,8 +30,8 @@ name = "mpr_allocation"
 path = "tests/mpr_allocation.rs"
 
 [[test]]
-name = "match_memo_heap"
-path = "tests/match_memo_heap.rs"
+name = "shape_graph_heap"
+path = "tests/shape_graph_heap.rs"
 
 [[test]]
 name = "trail_cost"
