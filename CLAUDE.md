@@ -27,7 +27,7 @@ without meaning to change results) takes four steps beyond identity on samples; 
 `.claude/skills/land-an-optimization/SKILL.md`: (1) open a `sillsdev/machine` issue labelled `Hermit Crab` + `performance` and port the fix
 after validation, with the `conformance` lead; (2) write the breakage analysis and add edge-case fixtures where conformance lacks coverage;
 (3) run every grammar we have plus conformance, checking for lost, gained or reordered analyses and words newly capped or newly finishing;
-(4) run instruction-compare (on Windows via `herdr-x run win` when you are in WSL), then `retune-parser-work`.
+(4) run instruction-compare (on Windows via `herdr-x run win` when you are in WSL), then `retune-parser-work`. A memo or cache beyond the root-trie exception needs owner approval first.
 
 Scope: the hierarchy governs only constructs a real FieldWorks project can create (`HCLoader.cs` emits them from FLEx data, or `HCParser.cs` reads them from FieldWorks' parser settings); hand-written-XML-only constructs are out of scope (`docs/adr/0014-fieldworks-producible-scope.md`).
 
