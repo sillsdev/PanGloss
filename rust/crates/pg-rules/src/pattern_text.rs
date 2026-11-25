@@ -517,7 +517,7 @@ pub fn boundary_char_def(table: &CharDefTable, marker: &str) -> Option<CharDefId
 }
 
 /// Every `reason` a [`PatternPrinter`] refusal can carry.
-pub const UNPRINTABLE_REASONS: [&str; 16] = [
+pub const UNPRINTABLE_REASONS: [&str; 23] = [
     "stratum_table_differs",
     "segment_not_writable",
     "segment_not_in_surface_table",
@@ -534,6 +534,13 @@ pub const UNPRINTABLE_REASONS: [&str; 16] = [
     "unknown_class",
     "rule_not_printed",
     "metathesis",
+    "environment_not_printed",
+    "output_not_single_class",
+    "alpha_not_in_environment",
+    "boundary_rewrite",
+    "rhs_node_kind",
+    "lhs_node_kind",
+    "output_underspecified_segments",
 ];
 
 /// A pattern the match text cannot say exactly; the code is one of [`UNPRINTABLE_REASONS`].
@@ -728,6 +735,28 @@ impl<'a> PatternPrinter<'a> {
         let NaturalClassKind::Feature(pairs) = &class.kind else {
             return Err(Unprintable("class_not_writable"));
         };
+        self.bundle(pairs, &sc.vars)
+    }
+
+    /// Prints a feature bundle of single-sign `pairs` and alpha `vars`, rolling the printer back on refusal.
+    pub fn print_bundle(
+        &mut self,
+        pairs: &[(FlatIndex, SymbolBits)],
+        vars: &[AlphaVar],
+    ) -> Result<String, Unprintable> {
+        let letters = self.letters.clone();
+        let out = self.bundle(pairs, vars);
+        if out.is_err() {
+            self.letters = letters;
+        }
+        out
+    }
+
+    fn bundle(
+        &mut self,
+        pairs: &[(FlatIndex, SymbolBits)],
+        vars: &[AlphaVar],
+    ) -> Result<String, Unprintable> {
         let phon = &self.g.phon_features;
         let mut words = Vec::new();
         for (flat, bits) in pairs {
@@ -741,10 +770,10 @@ impl<'a> PatternPrinter<'a> {
                 _ => return Err(Unprintable("feature_value")),
             }
         }
-        for v in &sc.vars {
+        for v in vars {
             let name = self.feature_name(v.feature)?;
             if pairs.iter().any(|(f, _)| *f == v.feature)
-                || sc.vars.iter().filter(|w| w.feature == v.feature).count() > 1
+                || vars.iter().filter(|w| w.feature == v.feature).count() > 1
             {
                 return Err(Unprintable("feature_value"));
             }

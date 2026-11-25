@@ -671,3 +671,28 @@ fn a_rule_row_carries_its_match_text_and_its_non_local_verdict() {
     // `kat` has a `t` after a vowel; `kad` has none.
     assert_eq!((spans(0), spans(1)), (1, 0), "{m}");
 }
+
+#[test]
+fn a_rule_row_carries_the_pattern_of_its_own_output() {
+    let mut s = Server::start();
+    let r = s.effects(kat(), json!({}));
+    let e = &r["effects"][0];
+    assert_eq!(e["outputMatchPattern"], "/d/ / [V] _", "{e}");
+    assert_eq!(e["outputUnprintable"], json!([]));
+    assert_eq!(e["outputMayBeAltered"], false, "{e}");
+    assert_eq!(e["outputMayBeAlteredReasons"], json!([]));
+    // `matchPattern` finds input sites (kat); the output pattern finds the rewritten word (kad).
+    let found = |s: &mut Server, pattern: &str| -> Vec<usize> {
+        let m =
+            s.ask(json!({"id": "m1", "op": "match", "pattern": pattern, "words": ["kat", "kad"]}));
+        assert_eq!(m["type"], "result", "{m}");
+        (0..2)
+            .map(|i| m["words"][i]["matches"].as_array().unwrap().len())
+            .collect()
+    };
+    assert_eq!(found(&mut s, e["matchPattern"].as_str().unwrap()), [1, 0]);
+    assert_eq!(
+        found(&mut s, e["outputMatchPattern"].as_str().unwrap()),
+        [0, 1]
+    );
+}
