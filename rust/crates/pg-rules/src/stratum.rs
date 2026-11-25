@@ -321,8 +321,8 @@ pub struct WordBudget {
     work: pg_fst::work::WorkBudget,
     work_cap: usize,
     analysis_capped: Cell<bool>,
-    /// Analysis matches already computed for this word; see `crate::morph::MatchMemo`.
-    match_memo: crate::morph::MatchMemo,
+    /// This word's unapplication graph over shapes; see `crate::shape_graph`.
+    shape_graph: crate::shape_graph::ShapeGraph,
 }
 
 /// The reserve is this fraction of the work cap; it sits on top of the cap, for confirming candidates analysis had already found.
@@ -347,7 +347,7 @@ impl WordBudget {
     fn with_reserve(work_cap: usize, reserve: usize) -> Self {
         let work = pg_fst::work::WorkBudget::new(work_cap.saturating_add(reserve));
         Self {
-            match_memo: crate::morph::MatchMemo::new(work.clone()),
+            shape_graph: crate::shape_graph::ShapeGraph::new(work.clone()),
             work,
             work_cap,
             analysis_capped: Cell::new(false),
@@ -381,15 +381,9 @@ impl WordBudget {
         self.work.retained_capped()
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_match_memo_cap(mut self, cap: usize) -> Self {
-        self.match_memo = crate::morph::MatchMemo::with_cap(self.work.clone(), cap);
-        self
-    }
-
-    /// The word's analysis match memo.
-    pub(crate) fn match_memo(&self) -> &crate::morph::MatchMemo {
-        &self.match_memo
+    /// The word's shape graph.
+    pub(crate) fn shape_graph(&self) -> &crate::shape_graph::ShapeGraph {
+        &self.shape_graph
     }
 
     pub fn enter(&self) -> pg_fst::work::WorkScope {
@@ -459,7 +453,7 @@ mod required_slot_lookahead_tests;
 mod required_slot_order_tests;
 
 #[cfg(test)]
-mod match_memo_tests;
+mod shape_graph_tests;
 
 #[cfg(test)]
 mod word_budget_tests;
@@ -1087,7 +1081,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
-                    Some(self.budget.match_memo()),
+                    Some(self.budget.shape_graph()),
                 ),
                 None => morph::analyze_with_root_filter_stats(
                     self.g,
@@ -1109,7 +1103,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
-                    Some(self.budget.match_memo()),
+                    Some(self.budget.shape_graph()),
                 ),
                 None => {
                     morph::analyze_stats(self.g, w, rule, mstats, self.cfg.prune_disagreeing_copies)

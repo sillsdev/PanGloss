@@ -112,3 +112,20 @@ fn the_cap_is_exact_between_clock_reads() {
     assert_eq!(granted, DEADLINE_POLL_INTERVAL + 3);
     assert!(budget.capped());
 }
+
+#[test]
+fn suspended_reservations_check_the_stops_but_spend_nothing_until_the_guard_drops() {
+    let budget = WorkBudget::new(3);
+    assert!(budget.consume());
+    {
+        let _suspended = budget.suspend();
+        for _ in 0..50 {
+            assert!(budget.consume());
+        }
+        assert_eq!(budget.used(), 1);
+    }
+    assert!(budget.consume());
+    assert!(budget.consume());
+    assert!(!budget.consume());
+    assert_eq!(budget.used(), 3);
+}

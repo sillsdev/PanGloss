@@ -1,10 +1,10 @@
 use super::*;
-use crate::morph::match_memo::test_disable;
+use crate::shape_graph::test_disable;
 
 const XML: &str = r#"
 <HermitCrabInput>
   <Language>
-    <Name>MatchMemoGate</Name>
+    <Name>ShapeGraphGate</Name>
     <PartsOfSpeech><PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
@@ -63,7 +63,7 @@ const XML: &str = r#"
 const REAL_XML: &str = r#"
 <HermitCrabInput>
   <Language>
-    <Name>MatchMemoGate</Name>
+    <Name>ShapeGraphGate</Name>
     <HeadFeatures><SymbolicFeature id="tense"><Name>Tense</Name><Symbols><Symbol id="past">Past</Symbol><Symbol id="present">Present</Symbol><Symbol id="future">Future</Symbol></Symbols></SymbolicFeature></HeadFeatures><PartsOfSpeech><PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
@@ -127,36 +127,25 @@ struct Run {
     work: usize,
 }
 
-fn run(g: &Grammar, cache: &RuleCache, text: &str, memo_on: bool) -> Run {
-    run_with(g, cache, text, memo_on, usize::MAX, None)
+fn run(g: &Grammar, cache: &RuleCache, text: &str, graph_on: bool) -> Run {
+    run_with(g, cache, text, graph_on, usize::MAX)
 }
 
-fn run_with(
-    g: &Grammar,
-    cache: &RuleCache,
-    text: &str,
-    memo_on: bool,
-    work_cap: usize,
-    memo_cap: Option<usize>,
-) -> Run {
-    run_metered(g, cache, text, memo_on, work_cap, memo_cap, None)
+fn run_with(g: &Grammar, cache: &RuleCache, text: &str, graph_on: bool, work_cap: usize) -> Run {
+    run_metered(g, cache, text, graph_on, work_cap, None)
 }
 
 fn run_metered(
     g: &Grammar,
     cache: &RuleCache,
     text: &str,
-    memo_on: bool,
+    graph_on: bool,
     work_cap: usize,
-    memo_cap: Option<usize>,
     word_cap: Option<usize>,
 ) -> Run {
-    test_disable(!memo_on);
+    test_disable(!graph_on);
     let shape = pg_grammar_model::segment::segment(&g.char_tables[0], text).expect("word segments");
-    let mut budget = WordBudget::new(work_cap).with_word_cap(word_cap);
-    if let Some(cap) = memo_cap {
-        budget = budget.with_match_memo_cap(cap);
-    }
+    let budget = WordBudget::new(work_cap).with_word_cap(word_cap);
     let out = analyze_stratum_filtered(
         g,
         StratumId(0),
@@ -171,19 +160,19 @@ fn run_metered(
         words: format!("{:?}", out.words),
         capped: out.capped,
         word_capped: budget.word_capped(),
-        hits: budget.match_memo().hits(),
+        hits: budget.shape_graph().hits(),
         work: budget.work_steps(),
     }
 }
 
 fn fixture() -> (Grammar, RuleCache) {
-    let g = pg_grammar::load(XML).expect("memo grammar loads");
+    let g = pg_grammar::load(XML).expect("graph grammar loads");
     let cache = RuleCache::build(&g);
     (g, cache)
 }
 
 #[test]
-fn memo_hits_leave_the_analyses_and_their_order_identical_and_cost_less_work() {
+fn graph_hits_leave_the_analyses_and_their_order_identical_and_cost_less_work() {
     let (g, cache) = fixture();
     let text = "mimimimimimimimimitd";
     let off = run(&g, &cache, text, false);
@@ -192,7 +181,7 @@ fn memo_hits_leave_the_analyses_and_their_order_identical_and_cost_less_work() {
     assert_eq!(off.hits, 0);
     assert!(
         on.hits > 0,
-        "the fixture must reach a real memo hit, or the comparison proves nothing"
+        "the fixture must reach a real graph hit, or the comparison proves nothing"
     );
     assert!(
         off.words.matches("Word {").count() > 1,
@@ -203,7 +192,7 @@ fn memo_hits_leave_the_analyses_and_their_order_identical_and_cost_less_work() {
 }
 
 #[test]
-fn memo_is_keyed_by_the_rule_not_only_the_shape() {
+fn the_graph_is_keyed_by_the_rule_not_only_the_shape() {
     let (g, cache) = fixture();
     for text in [
         "dmimimimimimimimid",
@@ -217,54 +206,20 @@ fn memo_is_keyed_by_the_rule_not_only_the_shape() {
 }
 
 #[test]
-fn eviction_keeps_the_analyses_and_their_order_identical() {
-    let (g, cache) = fixture();
-    let text = "mimimimimimimimimitd";
-    let off = run(&g, &cache, text, false);
-    let roomy = run(&g, &cache, text, true);
-    let floor = crate::morph::match_memo::SEEN_TABLE_BYTES;
-    let mut evicted_at_least_once = false;
-    let mut still_hit = false;
-    for room in [0, 2, 4, 8, 16, 32] {
-        let tight = run_with(
-            &g,
-            &cache,
-            text,
-            true,
-            usize::MAX,
-            Some(floor * 6 / 5 + room * 1_500),
-        );
-        assert_eq!(tight.words, off.words, "room {room}");
-        assert!(!tight.capped);
-        assert!(tight.work <= off.work);
-        evicted_at_least_once |= tight.hits < roomy.hits;
-        still_hit |= tight.hits > 0;
-    }
-    assert!(
-        still_hit,
-        "a small memo must still hit, or the cap leaves no room"
-    );
-    assert!(
-        evicted_at_least_once,
-        "a tight memo must lose hits, or eviction was not exercised"
-    );
-}
-
-#[test]
-fn the_memo_never_caps_a_word_the_base_completes_and_a_capped_run_repeats() {
+fn the_graph_never_caps_a_word_the_base_completes_and_a_capped_run_repeats() {
     let (g, cache) = fixture();
     for text in ["mimimimimimimimimitd", "dmimimimimimimimidd"] {
         let full = run(&g, &cache, text, false);
         assert!(!full.capped);
         let step = (full.work / 80).max(1);
         for cap in (1..=full.work + step).step_by(step) {
-            let off = run_with(&g, &cache, text, false, cap, None);
-            let on = run_with(&g, &cache, text, true, cap, None);
+            let off = run_with(&g, &cache, text, false, cap);
+            let on = run_with(&g, &cache, text, true, cap);
             if !off.capped {
                 assert!(!on.capped, "{text} at {cap}");
                 assert_eq!(on.words, off.words, "{text} at {cap}");
             }
-            let again = run_with(&g, &cache, text, true, cap, None);
+            let again = run_with(&g, &cache, text, true, cap);
             assert_eq!(
                 (again.words, again.capped, again.work),
                 (on.words, on.capped, on.work)
@@ -274,8 +229,8 @@ fn the_memo_never_caps_a_word_the_base_completes_and_a_capped_run_repeats() {
 }
 
 #[test]
-fn a_realizational_rule_reaches_a_memo_hit_with_identical_output() {
-    let g = pg_grammar::load(REAL_XML).expect("realizational memo grammar loads");
+fn a_realizational_rule_reaches_a_graph_hit_with_identical_output() {
+    let g = pg_grammar::load(REAL_XML).expect("realizational graph grammar loads");
     let cache = RuleCache::build(&g);
     let mut hits = 0;
     for text in [
@@ -291,16 +246,15 @@ fn a_realizational_rule_reaches_a_memo_hit_with_identical_output() {
     }
     assert!(
         hits > 0,
-        "no realizational memo hit; the fixture proves nothing"
+        "no realizational graph hit; the fixture proves nothing"
     );
 }
 
 #[test]
-fn the_memo_leaves_the_word_memory_cap_where_the_base_puts_it() {
+fn the_graph_leaves_the_word_memory_cap_where_the_base_puts_it() {
     let (g, cache) = fixture();
     let text = "mimimimimimimimimitd";
-    let metered =
-        |on: bool, cap: usize| run_metered(&g, &cache, text, on, usize::MAX, None, Some(cap));
+    let metered = |on: bool, cap: usize| run_metered(&g, &cache, text, on, usize::MAX, Some(cap));
     // The smallest word cap the base completes under: its retained peak.
     let (mut low, mut high) = (1usize, 1usize << 30);
     assert!(
@@ -319,7 +273,7 @@ fn the_memo_leaves_the_word_memory_cap_where_the_base_puts_it() {
     let peak = high;
     assert!(
         metered(true, peak + peak / 16).hits > 0,
-        "a memo hit just above the peak"
+        "a graph hit just above the peak"
     );
     let mut hit_somewhere = false;
     for cap in (peak / 2..=peak * 2)
@@ -340,6 +294,6 @@ fn the_memo_leaves_the_word_memory_cap_where_the_base_puts_it() {
     }
     assert!(
         hit_somewhere,
-        "the memo must serve a hit under some uncapped word cap"
+        "the graph must serve a hit under some uncapped word cap"
     );
 }

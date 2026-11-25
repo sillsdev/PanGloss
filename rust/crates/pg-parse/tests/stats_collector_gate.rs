@@ -850,7 +850,7 @@ fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
             ("katibɯd", 876, 336),
             ("katibɯt", 647, 238),
             ("pur", 327, 148),
-            ("gas", 636, 95),
+            ("gas", 587, 95),
         ],
         "(word, work_steps, SUM(fact.work))"
     );
