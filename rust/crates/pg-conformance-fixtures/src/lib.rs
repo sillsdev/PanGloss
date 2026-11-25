@@ -543,7 +543,7 @@ pub fn parse_upstream_baseline(text: &str) -> std::collections::BTreeSet<String>
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PanglossExpectation {
-    /// `category/name`.
+    /// `category/name` of a suite fixture, or `staging:category/name` of a staged one.
     pub fixture: String,
     pub word: String,
     /// The suite row as the gate renders it ([`OracleMismatch::expected`]).
@@ -573,19 +573,21 @@ pub fn parse_pangloss_expectations(json: &str) -> Result<Vec<PanglossExpectation
         .map_err(|e| format!("known-divergences file: {e}"))
 }
 
-/// The index of the expectation that excuses `mismatch` from fixture `fixture_id`. Only a pinned
-/// fixture can be excused: a staged copy carries PanGloss's own rows, so it must match outright.
+/// The index of the expectation that excuses `mismatch` from fixture `fixture_id`. A suite
+/// fixture matches an entry keyed `category/name`; a staged fixture matches only an entry keyed
+/// `staging:category/name`, and the two never match each other's entries.
 pub fn pangloss_expectation_for(
     expectations: &[PanglossExpectation],
     root: Root,
     fixture_id: &str,
     mismatch: &OracleMismatch,
 ) -> Option<usize> {
-    if root != Root::Machine {
-        return None;
-    }
+    let key = match root {
+        Root::Machine => fixture_id.to_string(),
+        Root::Staging => format!("staging:{fixture_id}"),
+    };
     expectations.iter().position(|e| {
-        e.fixture == fixture_id
+        e.fixture == key
             && e.word == mismatch.word
             && e.upstream == mismatch.expected
             && e.pangloss == mismatch.got
@@ -600,15 +602,19 @@ pub fn pangloss_expectation_violations(
     used: &[bool],
     fixtures: &[FixtureRef],
 ) -> Vec<(String, String, &'static str)> {
-    let id = |f: &FixtureRef| format!("{}/{}", f.category, f.name);
+    let plain = |f: &FixtureRef| format!("{}/{}", f.category, f.name);
+    let staged_key = |f: &FixtureRef| format!("staging:{}", plain(f));
     expectations
         .iter()
         .zip(used)
         .filter_map(|(e, &used)| {
-            let pinned = fixtures
-                .iter()
-                .any(|f| f.root == Root::Machine && id(f) == e.fixture);
-            let reason = if !fixtures.iter().any(|f| id(f) == e.fixture) {
+            let keyed = |f: &FixtureRef| match f.root {
+                Root::Machine => plain(f) == e.fixture,
+                Root::Staging => staged_key(f) == e.fixture,
+            };
+            let discovered = fixtures.iter().any(|f| plain(f) == e.fixture || keyed(f));
+            let pinned = fixtures.iter().any(keyed);
+            let reason = if !discovered {
                 "names no discovered fixture"
             } else if pinned && !used {
                 "the pinned fixture no longer shows this mismatch; delete the entry"

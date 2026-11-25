@@ -953,3 +953,69 @@ fn staging_upstream_gate_paths() {
     let v = staging_upstream_violations(&[bad], &Default::default());
     assert!(v[0].1.starts_with("cannot read STAGING.md"), "{v:?}");
 }
+
+fn staging_expectation(fixture: &str) -> PanglossExpectation {
+    PanglossExpectation {
+        fixture: fixture.to_string(),
+        word: "aat".into(),
+        upstream: "[\"B|aat\", \"B|aat\"]".into(),
+        pangloss: "[\"B|aat\"]".into(),
+        divergence: "134".into(),
+        note: String::new(),
+    }
+}
+
+fn staging_mismatch() -> OracleMismatch {
+    OracleMismatch {
+        word: "aat".into(),
+        what: "analysis multiset mismatch",
+        got: "[\"B|aat\"]".into(),
+        expected: "[\"B|aat\", \"B|aat\"]".into(),
+    }
+}
+
+fn family_fixture(root: Root) -> FixtureRef {
+    FixtureRef {
+        root,
+        category: "edge-cases".into(),
+        name: "family-blocked-generation".into(),
+        dir: PathBuf::new(),
+    }
+}
+
+#[test]
+fn a_staging_key_matches_only_the_staging_root() {
+    let id = "edge-cases/family-blocked-generation";
+    let staged = [staging_expectation(&format!("staging:{id}"))];
+    let m = staging_mismatch();
+    assert_eq!(
+        pangloss_expectation_for(&staged, Root::Staging, id, &m),
+        Some(0)
+    );
+    assert_eq!(
+        pangloss_expectation_for(&staged, Root::Machine, id, &m),
+        None
+    );
+    let plain = [staging_expectation(id)];
+    assert_eq!(
+        pangloss_expectation_for(&plain, Root::Staging, id, &m),
+        None
+    );
+}
+
+#[test]
+fn an_unused_staging_key_is_stale_only_against_its_staged_fixture() {
+    let staged = [staging_expectation(
+        "staging:edge-cases/family-blocked-generation",
+    )];
+    let stale = |fixtures: &[FixtureRef], used: bool| {
+        pangloss_expectation_violations(&staged, &[used], fixtures).len()
+    };
+    assert_eq!(stale(&[family_fixture(Root::Staging)], false), 1);
+    assert_eq!(stale(&[family_fixture(Root::Staging)], true), 0);
+    assert_eq!(
+        stale(&[family_fixture(Root::Machine)], false),
+        1,
+        "a suite fixture never satisfies a staging key"
+    );
+}
