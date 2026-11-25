@@ -1,11 +1,14 @@
 //! The edge environment test of serve op `effects`: whether a rule's environment can be met across a morph's left or right edge by any segment the grammar lets stand there.
 //! Every unproven route is an `unknown` reason and never a ruling out; see `docs/formats/serve-protocol.md`.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use pg_grammar::model::{Grammar, MorphRuleDef, OutputAction, PhonRuleDef, TableId};
-use pg_rules::edge_env::{flatten, inventory, isolate, placements, FlatPattern, NodeTests};
-use pg_rules::edge_env::{Neighbours, Seg};
+use pg_rules::edge_env::{
+    flatten, flatten_all, inventory, isolate, placements, written_at, FlatPattern, NodeTests,
+    Placements,
+};
+use pg_rules::edge_env::{Neighbours, Seg, Shape};
 
 use super::{segments_of, AllomorphForm, LhsVerdict, RuleItem};
 
@@ -68,15 +71,14 @@ pub(super) struct EdgeAnswer {
 pub(super) struct Row<'a> {
     pub form: &'a AllomorphForm,
     pub segments: Option<&'a [Seg]>,
-    pub item_index: usize,
     pub item: &'a RuleItem,
     /// The row's left-hand-side verdict.
     pub verdict: &'a LhsVerdict,
-    /// An earlier rule or an affix may have changed the form.
-    pub fed: Option<&'static str>,
+    /// Some affix modifies stem material before the phonology runs.
+    pub modifies_stem: bool,
 }
 
-type Compiled = Result<(FlatPattern, NodeTests), &'static str>;
+type Compiled = Result<Vec<(FlatPattern, NodeTests)>, &'static str>;
 
 pub(super) struct EdgeContext {
     table: TableId,
@@ -88,11 +90,24 @@ pub(super) struct EdgeContext {
     pool_text: Vec<String>,
     before: Vec<usize>,
     after: Vec<usize>,
-    /// For each item, whether an earlier rule may change a neighbour's edge segment.
-    unstable: Vec<bool>,
     compiled: HashMap<(usize, usize), Compiled>,
-    /// The target of each rewrite rule as node tests; `None` when it is not modelled.
-    targets: HashMap<usize, Option<NodeTests>>,
+    morpheme_stratum: usize,
+    /// The distinct phonological rules in application order.
+    steps: Vec<Step>,
+    step_of: HashMap<usize, usize>,
+    /// What each neighbour set holds before each step: before, after, anywhere; `None` once a step may do more than rewrite one segment to another.
+    neighbour_sets: Vec<[Option<Vec<Seg>>; 3]>,
+    written_memo: HashMap<(usize, usize, Vec<Shape>), Option<Vec<Seg>>>,
+    /// The segments one form segment may hold before a step.
+    form_memo: HashMap<(String, usize), Option<Vec<Seg>>>,
+}
+
+/// One phonological rule as the edge test sees it.
+struct Step {
+    prule: usize,
+    stratum: usize,
+    /// The target as node tests; `None` when the rule is not a modelled rewrite rule.
+    tests: Option<NodeTests>,
 }
 
 /// Whether the form's edges are the edges of one contiguous run, with the stem (if any) wholly on one side.
@@ -104,7 +119,7 @@ pub(super) fn usable(form: &AllomorphForm) -> bool {
 }
 
 impl EdgeContext {
-    pub(super) fn new(g: &Grammar, items: &[RuleItem]) -> EdgeContext {
+    pub(super) fn new(g: &Grammar, items: &[RuleItem], morpheme_stratum: usize) -> EdgeContext {
         let table = g.strata.first().map_or(TableId(0), |s| s.table);
         let mut ctx = EdgeContext {
             table,
@@ -114,9 +129,13 @@ impl EdgeContext {
             pool_text: Vec::new(),
             before: Vec::new(),
             after: Vec::new(),
-            unstable: vec![false; items.len()],
             compiled: HashMap::new(),
-            targets: HashMap::new(),
+            morpheme_stratum,
+            steps: Vec::new(),
+            step_of: HashMap::new(),
+            neighbour_sets: Vec::new(),
+            written_memo: HashMap::new(),
+            form_memo: HashMap::new(),
         };
         // Morphemes added after a stratum's rules ran would interleave with them; FieldWorks keeps its rules in the last stratum that has morphology.
         let last_morphology = g.strata.iter().rposition(|s| {
@@ -147,7 +166,8 @@ impl EdgeContext {
         let all: Vec<usize> = (0..ctx.pool.len()).collect();
         let (mut before, mut after) = (BTreeSet::new(), BTreeSet::new());
         // Any end the grammar cannot name, and guessed roots, may be any segment of the inventory.
-        let (mut before_open, mut after_open) = (g.guess_roots, g.guess_roots);
+        let guess = g.guess_roots;
+        let (mut before_open, mut after_open) = (guess, guess);
         let mut copy_open = false;
         let mut lexicon: BTreeSet<usize> = BTreeSet::new();
         let mut add =
@@ -279,68 +299,139 @@ impl EdgeContext {
             after.into_iter().collect()
         };
         for item in items.iter().filter(|i| i.unlisted.is_none()) {
-            ctx.targets.entry(item.prule).or_insert_with(|| {
-                let PhonRuleDef::Rewrite(rule) = &g.prules[item.prule] else {
-                    return None;
-                };
-                let flat = flatten(g, table, None, &rule.lhs, None).ok()?;
-                flat.compile(g, table).ok()
+            if ctx.step_of.contains_key(&item.prule) {
+                continue;
+            }
+            let modelled = match &g.prules[item.prule] {
+                PhonRuleDef::Rewrite(rule) => flatten(g, table, None, &rule.lhs, None)
+                    .ok()
+                    .and_then(|flat| flat.compile(g, table).ok()),
+                _ => None,
+            };
+            ctx.step_of.insert(item.prule, ctx.steps.len());
+            ctx.steps.push(Step {
+                prule: item.prule,
+                stratum: item.stratum,
+                tests: modelled,
             });
         }
-        ctx.unstable = ctx.unstable_prefixes(g, items);
+        let pick = |ctx: &EdgeContext, ids: &[usize]| -> Vec<Seg> {
+            ids.iter().map(|i| ctx.pool[*i].clone()).collect()
+        };
+        let mut sets = [
+            Some(pick(&ctx, &ctx.before)),
+            Some(pick(&ctx, &ctx.after)),
+            Some(ctx.pool.clone()),
+        ];
+        for j in 0..ctx.steps.len() {
+            ctx.neighbour_sets.push(sets.clone());
+            for set in &mut sets {
+                *set = set.take().and_then(|s| ctx.advance(g, j, &s, false));
+            }
+        }
+        ctx.neighbour_sets.push(sets);
         ctx
     }
 
-    /// For each item, whether a rule before it could change a segment that may stand at a morph's edge: a rule not provably unable to touch one (its target accepts one, is empty, is a metathesis, or is not modelled).
-    fn unstable_prefixes(&self, g: &Grammar, items: &[RuleItem]) -> Vec<bool> {
-        let neighbours: Vec<&Seg> = self
-            .before
-            .iter()
-            .chain(&self.after)
-            .map(|i| &self.pool[*i])
-            .collect();
-        let mut memo: HashMap<usize, bool> = HashMap::new();
-        // The subrules of one rule are alternatives of a single application, so a rule counts only for the rules after it.
-        let (mut running, mut pending, mut last) = (false, false, None);
-        let mut out = Vec::with_capacity(items.len());
-        for item in items {
-            if item.unlisted.is_some() {
-                out.push(running);
-                continue;
-            }
-            if last != Some(item.prule) {
-                running |= pending;
-                pending = false;
-                last = Some(item.prule);
-            }
-            out.push(running);
-            let inert = *memo.entry(item.prule).or_insert_with(|| {
-                self.targets.get(&item.prule).is_some_and(|tests| {
-                    tests.as_ref().is_some_and(|tests| {
-                        !neighbours.iter().any(|seg| tests.any_node_accepts(g, seg))
-                    })
-                })
-            });
-            pending |= !inert;
+    /// What `step` leaves of `set`: each segment a target node accepts also may become what the rule writes there, with the rest of the target filled by any segment that can stand there (environments ignored); `None` when the rule writes a different length or is not modelled.
+    fn advance(&mut self, g: &Grammar, step: usize, set: &[Seg], form: bool) -> Option<Vec<Seg>> {
+        if form && self.steps[step].stratum < self.morpheme_stratum {
+            return Some(set.to_vec());
         }
+        let prule = self.steps[step].prule;
+        let n = self.steps[step].tests.as_ref()?.len();
+        let far: Vec<Seg> = self.neighbour_sets[step][2].clone()?;
+        let mut out = set.to_vec();
+        let mut seen: HashSet<Shape> = out.iter().map(|s| s.shape().clone()).collect();
+        let mut frontier = set.to_vec();
+        while !frontier.is_empty() {
+            let mut next = Vec::new();
+            for seg in &frontier {
+                for at in 0..n {
+                    let tests = self.steps[step].tests.as_ref()?;
+                    if !tests.accepts(g, at, seg) {
+                        continue;
+                    }
+                    // The other target nodes may sit on any segment that fits them.
+                    let fits: Vec<Vec<&Seg>> = (0..n)
+                        .map(|node| {
+                            if node == at {
+                                vec![seg]
+                            } else {
+                                far.iter().filter(|s| tests.accepts(g, node, s)).collect()
+                            }
+                        })
+                        .collect();
+                    let total = fits
+                        .iter()
+                        .try_fold(1usize, |acc, f| acc.checked_mul(f.len()))?;
+                    if total > 4096 {
+                        return None;
+                    }
+                    let mut index = vec![0usize; n];
+                    'combos: for _ in 0..total {
+                        let window: Vec<&Seg> = (0..n).map(|k| fits[k][index[k]]).collect();
+                        for new in self.written_by(g, prule, &window, at)? {
+                            if seen.insert(new.shape().clone()) {
+                                out.push(new.clone());
+                                next.push(new);
+                            }
+                        }
+                        for k in 0..n {
+                            index[k] += 1;
+                            if index[k] < fits[k].len() {
+                                continue 'combos;
+                            }
+                            index[k] = 0;
+                        }
+                    }
+                }
+            }
+            if out.len() > 2000 {
+                return None;
+            }
+            frontier = next;
+        }
+        Some(out)
+    }
+
+    fn written_by(
+        &mut self,
+        g: &Grammar,
+        prule: usize,
+        window: &[&Seg],
+        at: usize,
+    ) -> Option<Vec<Seg>> {
+        let key = (
+            prule,
+            at,
+            window.iter().map(|s| s.shape().clone()).collect::<Vec<_>>(),
+        );
+        if let Some(hit) = self.written_memo.get(&key) {
+            return hit.clone();
+        }
+        let PhonRuleDef::Rewrite(rule) = &g.prules[prule] else {
+            return None;
+        };
+        let out = written_at(g, self.table, rule, window, at);
+        self.written_memo.insert(key, out.clone());
         out
     }
 
-    /// Whether the rule provably cannot change any of the form's segments: it is a modelled rewrite rule whose target accepts none of them.
-    pub(super) fn inert_on_form(
-        &self,
-        g: &Grammar,
-        item: &RuleItem,
-        segments: Option<&[Seg]>,
-    ) -> bool {
-        let Some(segments) = segments else {
-            return false;
+    /// What a form segment may hold before `step`, after the earlier rules of the morpheme's strata.
+    fn form_closure(&mut self, g: &Grammar, text: &str, step: usize) -> Option<Vec<Seg>> {
+        let key = (text.to_string(), step);
+        if let Some(hit) = self.form_memo.get(&key) {
+            return hit.clone();
+        }
+        let before = if step == 0 {
+            isolate(g, self.table, text).map(|s| vec![s])
+        } else {
+            let prior = self.form_closure(g, text, step - 1)?;
+            self.advance(g, step - 1, &prior, true)
         };
-        self.targets.get(&item.prule).is_some_and(|tests| {
-            tests
-                .as_ref()
-                .is_some_and(|tests| !segments.iter().any(|seg| tests.any_node_accepts(g, seg)))
-        })
+        self.form_memo.insert(key, before.clone());
+        before
     }
 
     /// The texts of the segments that may stand before and after a morph.
@@ -368,10 +459,9 @@ impl EdgeContext {
         let Row {
             form,
             segments,
-            item_index,
             item,
             verdict,
-            fed,
+            modifies_stem,
         } = *row;
         let unknown = |reason: &'static str| EdgeAnswer {
             edges: edges
@@ -401,14 +491,13 @@ impl EdgeContext {
                 | "empty_lhs_epenthesis"
                 | "lhs_match_budget"
                 | "form_not_segmentable_in_stratum"
-                | "form_partly_unmodelled"
-                | "may_be_fed"),
+                | "form_partly_unmodelled"),
             ) => return unknown(reason),
             LhsVerdict::Listed(_) | LhsVerdict::Deadline => return unknown("rule_not_compiled"),
             _ => {}
         }
-        if let Some(reason) = fed {
-            return unknown(reason);
+        if modifies_stem {
+            return unknown("affix_modifies_stem");
         }
         let PhonRuleDef::Rewrite(rule) = &g.prules[item.prule] else {
             return unknown("metathesis");
@@ -425,43 +514,64 @@ impl EdgeContext {
         if form_segs.is_empty() {
             return unknown("null_form");
         }
-        if self.unstable[item_index] {
-            return unknown("neighbour_may_change");
+        let step = self.step_of[&item.prule];
+        let mut variants: Vec<Vec<Seg>> = Vec::with_capacity(form.segments.len());
+        for text in &form.segments {
+            match self.form_closure(g, text, step) {
+                Some(v) => variants.push(v),
+                None => return unknown("may_be_fed"),
+            }
         }
+        let [Some(before_set), Some(after_set), Some(far_set)] = self.neighbour_sets[step].clone()
+        else {
+            return unknown("neighbour_may_change");
+        };
         let table = self.table;
         let compiled = self
             .compiled
             .entry((item.prule, item.sub_index))
             .or_insert_with(|| {
                 let sub = rule.subrules.get(item.sub_index);
-                let flat = flatten(
+                flatten_all(
                     g,
                     table,
                     sub.and_then(|s| s.left_env.as_ref()),
                     &rule.lhs,
                     sub.and_then(|s| s.right_env.as_ref()),
-                )?;
-                let tests = flat.compile(g, table)?;
-                Ok((flat, tests))
+                )?
+                .into_iter()
+                .map(|flat| flat.compile(g, table).map(|tests| (flat, tests)))
+                .collect()
             });
-        let (flat, tests) = match compiled {
-            Ok(pair) => pair,
+        let patterns = match compiled {
+            Ok(patterns) => patterns,
             Err(reason) => return unknown(reason),
         };
-        let before: Vec<&Seg> = self.before.iter().map(|i| &self.pool[*i]).collect();
-        let after: Vec<&Seg> = self.after.iter().map(|i| &self.pool[*i]).collect();
-        let anywhere: Vec<&Seg> = self.pool.iter().collect();
-        let found = placements(
-            g,
-            flat,
-            tests,
-            form_segs,
-            &Neighbours {
-                before: &before,
-                after: &after,
-                anywhere: &anywhere,
-            },
-        );
+        let before: Vec<&Seg> = before_set.iter().collect();
+        let after: Vec<&Seg> = after_set.iter().collect();
+        let anywhere: Vec<&Seg> = far_set.iter().collect();
+        let form_variants: Vec<Vec<&Seg>> = variants.iter().map(|v| v.iter().collect()).collect();
+        let mut found = Placements {
+            inside: false,
+            left: false,
+            right: false,
+        };
+        for (flat, tests) in patterns.iter() {
+            let one = placements(
+                g,
+                flat,
+                tests,
+                &form_variants,
+                &Neighbours {
+                    before: &before,
+                    after: &after,
+                    anywhere: &anywhere,
+                },
+            );
+            found.inside |= one.inside;
+            found.left |= one.left;
+            found.right |= one.right;
+        }
         EdgeAnswer {
             edges: edges
                 .iter()

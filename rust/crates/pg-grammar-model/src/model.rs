@@ -411,7 +411,7 @@ pub struct SkippedPhonRule {
 }
 
 /// `<PhonologicalRule>` → C# `RewriteRule`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RewriteRuleDef {
     pub xml_id: String,
     pub name: Option<String>,
@@ -423,7 +423,7 @@ pub struct RewriteRuleDef {
     pub subrules: Vec<RewriteSubruleDef>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RewriteSubruleDef {
     /// `requiredPartsOfSpeech` as a POS symbol set (C# builds `FS{POS: set}`; empty = no
     /// constraint — attribute absent).

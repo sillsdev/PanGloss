@@ -787,13 +787,11 @@ pub(crate) fn handle(
                     .any(|a| a.rhs.iter().any(|x| matches!(x, OutputAction::Modify(..))))
             })
     });
-    let mut edge_ctx = edge::EdgeContext::new(g, &items);
+    let mut edge_ctx = edge::EdgeContext::new(g, &items, morpheme_stratum);
     'scan: for (form_index, form) in forms.iter().enumerate() {
         let mut feeding = Feeding::new(modifies_stem);
         let form_segments = edge_ctx.form_segments(g, form);
-        // A rule before this one that is not provably unable to touch the form's own segments.
-        let (mut form_unstable, mut pending_unstable, mut last_prule) = (false, false, None);
-        for (item_index, item) in items.iter().enumerate() {
+        for item in &items {
             if units >= max_work {
                 stop = Some("work_limit");
                 break 'scan;
@@ -807,18 +805,6 @@ pub(crate) fn handle(
                 stop = Some("deadline");
                 break 'scan;
             }
-            if item.unlisted.is_none() && last_prule != Some(item.prule) {
-                form_unstable |= pending_unstable;
-                pending_unstable = false;
-                last_prule = Some(item.prule);
-            }
-            let fed = if form_unstable {
-                Some("may_be_fed")
-            } else if modifies_stem {
-                Some("affix_modifies_stem")
-            } else {
-                None
-            };
             let verdict = feeding.apply(
                 verdict,
                 item.unlisted.is_none() && item.stratum >= morpheme_stratum,
@@ -838,19 +824,12 @@ pub(crate) fn handle(
                 &edge::Row {
                     form,
                     segments: form_segments.as_deref(),
-                    item_index,
                     item,
                     verdict: &verdict,
-                    fed,
+                    modifies_stem,
                 },
                 &edges,
             );
-            if item.unlisted.is_none()
-                && item.stratum >= morpheme_stratum
-                && !edge_ctx.inert_on_form(g, item, form_segments.as_deref())
-            {
-                pending_unstable = true;
-            }
             for edge in &edges {
                 let mut effect = json!({
                     "rule": item.rule,
@@ -1855,11 +1834,12 @@ mod tests {
     fn edge_sweep_grammar(
         label: &str,
         g: &Grammar,
+        pipeline: bool,
         checked: &mut usize,
         violations: &mut Vec<String>,
     ) {
         let items = rule_items(g);
-        let mut ctx = edge::EdgeContext::new(g, &items);
+        let mut ctx = edge::EdgeContext::new(g, &items, 0);
         let (before, after) = ctx.neighbour_texts();
         let mut roots: Vec<String> = g
             .entries
@@ -1870,7 +1850,11 @@ mod tests {
         roots.sort();
         roots.dedup();
         roots.truncate(25);
-        for (item_index, item) in items.iter().enumerate() {
+        if pipeline {
+            // The feeder grammars' affix is not an entry's allomorph.
+            roots.push("t".into());
+        }
+        for item in &items {
             let table = g.strata[item.stratum].table;
             let PhonRuleDef::Rewrite(rule) = &g.prules[item.prule] else {
                 continue;
@@ -1909,10 +1893,9 @@ mod tests {
                     &edge::Row {
                         form: &form,
                         segments: segments.as_deref(),
-                        item_index,
                         item,
                         verdict: &verdict,
-                        fed: None,
+                        modifies_stem: false,
                     },
                     &["left", "right"],
                 );
@@ -1945,12 +1928,38 @@ mod tests {
                                 word,
                             )
                             .expect("the parts segmented");
+                            // With `pipeline`, the rules before this one in its stratum run first.
+                            let earlier: Vec<&PhonRuleDef> = if pipeline {
+                                g.strata[item.stratum]
+                                    .prules
+                                    .iter()
+                                    .take_while(|p| p.0 as usize != item.prule)
+                                    .map(|p| &g.prules[p.0 as usize])
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            };
                             let out =
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    pg_rules::rewrite::synthesize(g, rule, &input)
+                                    let mut now = input.clone();
+                                    for earlier in earlier {
+                                        if let PhonRuleDef::Rewrite(r) = earlier {
+                                            if let Some(next) =
+                                                pg_rules::rewrite::synthesize(g, r, &now)
+                                                    .last()
+                                                    .cloned()
+                                            {
+                                                now = next;
+                                            }
+                                        }
+                                    }
+                                    // No output means the rule left the word as it was.
+                                    pg_rules::rewrite::synthesize(g, rule, &now)
+                                        .last()
+                                        .cloned()
+                                        .unwrap_or(now)
                                 }))
-                                .ok()
-                                .and_then(|o| o.last().cloned());
+                                .ok();
                             (input, out)
                         };
                         let ((input, out), (alone_in, alone_out)) = (run(&word), run(&alone_word));
@@ -1990,7 +1999,22 @@ mod tests {
             let Ok(g) = std::panic::catch_unwind(|| fixture.load_grammar()) else {
                 continue;
             };
-            edge_sweep_grammar(&fixture.name, &g, &mut checked, &mut violations);
+            edge_sweep_grammar(&fixture.name, &g, false, &mut checked, &mut violations);
+        }
+        // Grammars where an earlier rule feeds a later rule's environment.
+        for written in ["/a/", "/k/"] {
+            let before = checked;
+            edge_sweep_grammar(
+                &format!("feeder {written}"),
+                &feeder_grammar(written),
+                true,
+                &mut checked,
+                &mut violations,
+            );
+            assert!(
+                checked > before,
+                "the feeder grammar {written} claimed no edge"
+            );
         }
         violations.sort();
         violations.dedup();
@@ -2099,6 +2123,68 @@ mod tests {
         );
     }
 
+    /// The vowel-less grammar of the last scenario above, with an earlier rule `n -> <written>` that can turn the root's final `n` into something else.
+    fn feeder_grammar(written: &str) -> Grammar {
+        let mut g = load_text(
+            &FWDATA
+                .replacen(r#"<AUni ws="fx">s</AUni>"#, r#"<AUni ws="fx">t</AUni>"#, 1)
+                .replace(
+                    r#"<AUni ws="fx">ranna</AUni>"#,
+                    r#"<AUni ws="fx">rann</AUni>"#,
+                ),
+        );
+        let table = g.strata[0].table;
+        let pattern = |g: &Grammar, text: &str| {
+            let chars = &g.char_tables[table.0 as usize];
+            pg_rules::pattern_text::parse_pattern(
+                g,
+                chars,
+                text,
+                pg_rules::pattern_text::boundary_char_def(chars, "+"),
+            )
+            .unwrap()
+            .target
+        };
+        let mut feeder = voicing_rule(&mut g).clone();
+        feeder.name = Some("Feeder".into());
+        feeder.lhs = pattern(&g, "/n/");
+        feeder.subrules.truncate(1);
+        feeder.subrules[0].rhs = pattern(&g, written);
+        feeder.subrules[0].left_env = None;
+        feeder.subrules[0].right_env = None;
+        let voicing_id = g
+            .prules
+            .iter()
+            .position(
+                |r| matches!(r, PhonRuleDef::Rewrite(r) if r.name.as_deref() == Some("Voicing")),
+            )
+            .unwrap() as u32;
+        g.prules.push(PhonRuleDef::Rewrite(feeder));
+        let new_id = pg_grammar::model::PRuleId(g.prules.len() as u32 - 1);
+        for stratum in &mut g.strata {
+            if let Some(at) = stratum.prules.iter().position(|p| p.0 == voicing_id) {
+                stratum.prules.insert(at, new_id);
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn an_earlier_rule_that_writes_a_vowel_keeps_the_left_edge_open() {
+        // `n -> a` can make the root end in a vowel, which the `t` needs on its left.
+        let g = feeder_grammar("/a/");
+        let row = voicing(&g, AFFIX);
+        assert_eq!(edge_entry(&row, "left")["status"], "notRuledOut", "{row}");
+    }
+
+    #[test]
+    fn an_earlier_rule_that_writes_no_vowel_does_not_open_the_left_edge() {
+        // `n -> k` writes a consonant: the neighbour still cannot be the vowel.
+        let g = feeder_grammar("/k/");
+        let row = voicing(&g, AFFIX);
+        assert_eq!(row["notAtEdges"], json!(["left", "right"]), "{row}");
+    }
+
     #[test]
     fn a_not_on_form_row_is_not_at_either_edge() {
         let g = load_closed();
@@ -2143,11 +2229,14 @@ mod tests {
             let rule = voicing_rule(&mut g);
             rule.subrules[0].left_env.as_ref().unwrap().nodes[0].clone()
         };
-        // An optional group in the environment.
+        // An optional group is expanded, so the row is no longer unknown for that reason.
         let mut g = load_closed();
         voicing_rule(&mut g).subrules[0].left_env =
             Some(group(vec![class_node.clone()], 0, Some(1)));
-        assert_unknown(&voicing(&g, KAT), "optional_or_repeated_group");
+        assert_ne!(
+            edge_entry(&voicing(&g, KAT), "left")["reason"],
+            "optional_or_repeated_group"
+        );
         // A repeated group.
         let mut g = load_closed();
         voicing_rule(&mut g).subrules[0].left_env = Some(group(vec![class_node.clone()], 1, None));
