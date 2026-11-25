@@ -321,6 +321,8 @@ pub struct WordBudget {
     work: pg_fst::work::WorkBudget,
     work_cap: usize,
     analysis_capped: Cell<bool>,
+    /// Analysis matches already computed for this word; see `crate::morph::MatchMemo`.
+    match_memo: crate::morph::MatchMemo,
 }
 
 /// The reserve is this fraction of the work cap; it sits on top of the cap, for confirming candidates analysis had already found.
@@ -343,8 +345,10 @@ impl WordBudget {
     }
 
     fn with_reserve(work_cap: usize, reserve: usize) -> Self {
+        let work = pg_fst::work::WorkBudget::new(work_cap.saturating_add(reserve));
         Self {
-            work: pg_fst::work::WorkBudget::new(work_cap.saturating_add(reserve)),
+            match_memo: crate::morph::MatchMemo::new(work.clone()),
+            work,
             work_cap,
             analysis_capped: Cell::new(false),
         }
@@ -375,6 +379,17 @@ impl WordBudget {
     /// Whether the retained-capture ceiling, rather than the step cap, stopped the search. `capped()` is also true then.
     pub fn capture_capped(&self) -> bool {
         self.work.retained_capped()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_match_memo_cap(mut self, cap: usize) -> Self {
+        self.match_memo = crate::morph::MatchMemo::with_cap(self.work.clone(), cap);
+        self
+    }
+
+    /// The word's analysis match memo.
+    pub(crate) fn match_memo(&self) -> &crate::morph::MatchMemo {
+        &self.match_memo
     }
 
     pub fn enter(&self) -> pg_fst::work::WorkScope {
@@ -442,6 +457,9 @@ mod required_slot_check;
 mod required_slot_lookahead_tests;
 #[cfg(test)]
 mod required_slot_order_tests;
+
+#[cfg(test)]
+mod match_memo_tests;
 
 #[cfg(test)]
 mod word_budget_tests;
@@ -1069,6 +1087,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
+                    Some(self.budget.match_memo()),
                 ),
                 None => morph::analyze_with_root_filter_stats(
                     self.g,
@@ -1090,6 +1109,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
+                    Some(self.budget.match_memo()),
                 ),
                 None => {
                     morph::analyze_stats(self.g, w, rule, mstats, self.cfg.prune_disagreeing_copies)

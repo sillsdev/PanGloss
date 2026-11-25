@@ -22,6 +22,8 @@ struct State {
     word_cap: Cell<Option<usize>>,
     word_retained: Cell<usize>,
     word_capped: Cell<bool>,
+    /// Bytes optional state holds that the search's own charges may overrun.
+    word_optional: Cell<usize>,
 }
 
 // The parser-work meter excludes the size of its own per-word memory instrumentation.
@@ -65,6 +67,7 @@ impl WorkBudget {
             word_cap: Cell::new(None),
             word_retained: Cell::new(0),
             word_capped: Cell::new(false),
+            word_optional: Cell::new(0),
         }));
         pg_cost::discount_bytes(
             std::mem::size_of::<State>() - std::mem::size_of::<WorkStateBeforeWordMeter>(),
@@ -76,6 +79,11 @@ impl WorkBudget {
     pub fn with_word_cap(self, cap: Option<usize>) -> Self {
         self.0.word_cap.set(cap);
         self
+    }
+
+    /// The per-word parser-state ceiling, if one is set.
+    pub fn word_cap(&self) -> Option<usize> {
+        self.0.word_cap.get()
     }
 
     /// Reserve counted bytes before retaining parser state.
@@ -91,6 +99,40 @@ impl WorkBudget {
         }
         self.0.word_retained.set(total);
         true
+    }
+
+    /// Reserve bytes for optional state that yields to the search: `charge_word` ignores them, so they never change whether a word hits the ceiling. A refusal leaves the search running.
+    pub fn try_charge_optional(&self, bytes: usize) -> bool {
+        let total = self
+            .0
+            .word_retained
+            .get()
+            .saturating_add(self.0.word_optional.get())
+            .saturating_add(bytes);
+        if self.0.word_capped.get() || self.0.word_cap.get().is_some_and(|cap| total > cap) {
+            return false;
+        }
+        self.0.word_optional.set(self.0.word_optional.get() + bytes);
+        true
+    }
+
+    /// Return bytes reserved with `try_charge_optional`.
+    pub fn release_optional(&self, bytes: usize) {
+        self.0.word_optional.set(
+            self.0
+                .word_optional
+                .get()
+                .checked_sub(bytes)
+                .expect("optional memory released more bytes than were reserved"),
+        );
+    }
+
+    /// Ceiling bytes the search's own retained state leaves free (`None` when unmetered).
+    pub fn word_headroom(&self) -> Option<usize> {
+        self.0
+            .word_cap
+            .get()
+            .map(|cap| cap.saturating_sub(self.0.word_retained.get()))
     }
 
     /// Return counted bytes when the corresponding parser state is dropped.

@@ -82,12 +82,12 @@ fn analyze_path(g: &Grammar, word: &Word, stats: &StatsCollector, path: usize, i
     let cache = RuleCache::build(g);
     let outputs = match path {
         0 => analyze_stats(g, word, rule, ctx, false),
-        1 => analyze_cached(g, id, word, rule, &cache, ctx, false),
+        1 => analyze_cached(g, id, word, rule, &cache, ctx, false, None),
         2 => {
             let trace = TreeTraceSink::new();
             let parent = trace.analyze_word(word);
             let outputs =
-                analyze_cached_traced(g, id, word, rule, &cache, ctx, &trace, parent, false);
+                analyze_cached_traced(g, id, word, rule, &cache, ctx, &trace, parent, false, None);
             assert!(trace.is_tracing());
             outputs
         }
