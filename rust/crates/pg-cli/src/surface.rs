@@ -395,6 +395,21 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "the pangloss-retire/v1 JSONL report path for --retire; <out.tsv> is not written",
     },
     FlagSpec {
+        name: "--query-fields",
+        takes_value: false,
+        summary: "add readingCount, a typed failure, and per-morph entry and signature (plus a reading signature) to each --analyses row; requires --analyses",
+    },
+    FlagSpec {
+        name: "--result-cache",
+        takes_value: true,
+        summary: "<dir>|auto: replay rows of an unchanged grammar, options and word from a size-capped cache; requires --analyses, refuses --stats, --cache, --partials, --start, --prefilter, --engine, --cost-column, --phase-marks and --trace-*; refuses an <out.tsv> or --analyses path that is the grammar or word list; keyed by the grammar bytes and the running executable's bytes",
+    },
+    FlagSpec {
+        name: "--result-cache-max-mib",
+        takes_value: true,
+        summary: "cache size bound in MiB (default 256); least recently used grammars are evicted",
+    },
+    FlagSpec {
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",

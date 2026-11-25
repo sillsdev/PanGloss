@@ -70,6 +70,36 @@ The spans come from the synthesized word that verified the reading, through the 
 - A word with a truncation, an ambiguous reduplication copy or a compound has every morph null with the reason above.
 - Readings under `unavailable` have no spans.
 
+## Query fields (opt-in)
+
+`pangloss batch ... --analyses analyses.jsonl --query-fields` adds members for corpus queries. Without the flag they are absent and rows keep their exact bytes; the flag is refused without `--analyses` and with `--engine fst`. A consumer that rejects unknown members must accept them before it passes the flag. They combine with `--morph-spans`.
+
+```json
+{"schema":"fieldworks-parse-analysis/v1","index":0,"word":"kad","elapsedMs":3,"capped":false,"timedOut":false,"invalidShape":false,"analyses":[{"morphs":[{"form":"...","msa":"...","inflType":null,"guessedString":null,"entry":"<entry guid>","signature":"<entry guid>:<msa guid>"}],"signature":"<entry guid>:<msa guid>"}],"unavailable":[],"readingCount":1,"failure":null}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `readingCount` | Row. `analyses` plus `unavailable`: every reading the parser returned, projected or not. |
+| `failure` | Row. `null` when `readingCount` is above 0; otherwise `{status, workSteps, workCap}` for a word with no reading. |
+| `failure.status` | `noParse` (the search finished inside its budget and found nothing; the TSV says `ok` with signature `-`), `workCap` (stopped at `--work-cap`), `captureCap` (stopped at `--capture-cap-mib`), `memoryCap` (stopped at `--word-mem-cap-mib`), `timeout` (`--word-timeout-ms`), `invalidShape` (the word did not segment). Checked in the order `invalidShape`, `timeout`, `memoryCap`, `captureCap`, `workCap`, `noParse`. A capped or timed-out word that still has a reading has `failure: null`; read `capped` and `timedOut`. |
+| `failure.workSteps`, `workCap` | Work steps spent, and the cap in force (`null` when unbounded). `workSteps` is `null` for `timeout`, which depends on the clock. |
+| `morphs[].entry` | The source LexEntry guid of the morph's lexical entry, `null` for a morph with no lexical entry. For a variant, `entry` is the variant's own entry, while `msa` belongs to the main entry, which is also a dependency of the reading: a consumer that retires or edits the main entry must treat variant readings as depending on it. |
+| `morphs[].signature` | `entry:msa`, or `entry:msa:inflType` for a variant-specific morph; `-` stands for a missing entry. |
+| `signature` | Reading. The morph signatures joined by `+`, in morph order. |
+
+**Stable.** A signature is built only from source guids, never from compiler ordinals, spelling, `form` or search order. It is therefore identical across re-runs, thread counts, work caps and any grammar edit that does not delete or re-create that entry or MSA object. The `form` guid is deliberately left out, so two allomorphs of one entry give one signature, and an entry whose form is edited keeps its signature. A reading's signature depends on morph order, which is significant. Two readings with the same signature are duplicates for counting. A guessed morph carries the entry and MSA of the lexical pattern that guessed it.
+
+## Result cache (opt-in)
+
+`--result-cache <dir|auto>` replays rows instead of parsing a word again. It needs `--analyses`; `auto` is `$XDG_CACHE_HOME`, else `~/.cache`, else `%LOCALAPPDATA%`, then `pangloss/batch-results`. The whole cache directory is bounded by `--result-cache-max-mib N` (default 256 MiB): after each run the least recently used grammar directories are removed until it fits, and a run whose new rows would push its own grammar past the bound stores nothing. The key is the grammar's bytes, the crate version, the SHA-256 of the running executable and every option token except the three paths, `--threads`, `--no-flush` and the cache flags, so a rebuilt or locally modified binary starts a new key. A grammar that changes while a run is in flight stores nothing. A failed cache write warns and the outputs are still written. `.tmp` segments left by a killed run are removed after an hour.
+
+- **Key.** SHA-256 over the grammar file's bytes, the PanGloss version and the running executable's SHA-256 (the executable hash), and every command-line option except the three paths, `--threads`, `--no-flush` and the cache flags. A new key is a miss; one changed option, one changed byte of the grammar or a new build misses every word. The grammar path and its mtime play no part.
+- **Rows.** The stored TSV row (with its `elapsed_ms` as first measured) and the sidecar row, replayed with the new index. A word that appears twice is parsed once. A `timedOut` row is returned but never stored.
+- **Differences from an uncached run.** No `STARTED` lines, no `LOADTIME`, no grammar load when every word hits, and `elapsedMs` is the first run's. A line `RESULTCACHE hit_rows=.. parsed_rows=..` goes to stderr.
+- **Bound.** Each grammar-and-options key is a directory of segment files; after a run the least recently used key directories are removed until the cache fits, never the one just used. A run whose new rows would push its own key over the bound is not stored.
+- **Refused with.** `--stats`, `--cache`, `--partials`, `--start`, `--prefilter`, `--engine`, `--cost-column`, `--phase-marks` and `--trace-*`.
+
 ## Comparison and provenance
 
 Approved-analysis correctness is positive subset matching: every approved morphology must be found; extra parser readings do not constitute failure. Exact parser conformance instead compares the complete multiset. Neither comparison may infer complete search from the number of findings.

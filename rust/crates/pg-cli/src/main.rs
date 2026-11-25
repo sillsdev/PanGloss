@@ -87,6 +87,8 @@
 mod alloc_trace;
 mod analyze_text_cmd;
 mod batch_prefilter;
+mod batch_query;
+mod batch_result_cache;
 mod batch_spans;
 mod retire;
 #[cfg(test)]
@@ -231,10 +233,12 @@ struct ParseAnalysisBatchRow {
     timed_out: bool,
     #[serde(rename = "invalidShape")]
     invalid_shape: bool,
-    analyses: Vec<ReadingRow>,
+    analyses: Vec<ReadingOut>,
     unavailable: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     completion: Option<engine::Completion>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    query: Option<batch_query::RowFields>,
 }
 
 /// One reading; `morphSpans` is present only under `--morph-spans`, and the flattened `morphs` keep their own key order.
@@ -246,23 +250,42 @@ struct ReadingRow {
     morph_spans: Option<serde_json::Value>,
 }
 
+/// A reading as written: the plain v1 shape, or the `--query-fields` shape with entry and signature members.
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+enum ReadingOut {
+    Plain(ReadingRow),
+    Query(batch_query::QueryReading),
+}
+
 fn projected_analyses(
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
     morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
-) -> (Vec<ReadingRow>, Vec<String>) {
+    query: bool,
+) -> (Vec<ReadingOut>, Vec<String>) {
     if outcome.invalid_shape {
         return (Vec::new(), Vec::new());
     }
     let mut analyses = Vec::with_capacity(outcome.structured.len());
     let mut unavailable = Vec::new();
     for (index, analysis) in outcome.structured.iter().enumerate() {
+        let spans =
+            morph_spans.map(|spans| batch_spans::render(spans.get(index).and_then(Option::as_ref)));
+        if query {
+            match pg_parse::parse_morph::project_parse_analysis_with_morphemes(analysis, grammar) {
+                Ok(projected) => analyses.push(ReadingOut::Query(batch_query::reading(
+                    analysis, projected, grammar, spans,
+                ))),
+                Err(error) => unavailable.push(error.to_string()),
+            }
+            continue;
+        }
         match project_parse_analysis(analysis, grammar) {
-            Ok(projected) => analyses.push(ReadingRow {
+            Ok(projected) => analyses.push(ReadingOut::Plain(ReadingRow {
                 analysis: projected,
-                morph_spans: morph_spans
-                    .map(|spans| batch_spans::render(spans.get(index).and_then(Option::as_ref))),
-            }),
+                morph_spans: spans,
+            })),
             Err(error) => unavailable.push(error.to_string()),
         }
     }
@@ -280,7 +303,9 @@ fn write_parse_analysis_row<W: Write>(
     grammar: &Grammar,
     engine: Option<engine::Engine>,
 ) -> std::io::Result<()> {
-    write_parse_analysis_row_spans(w, index, word, elapsed_ms, outcome, grammar, engine, None)
+    write_parse_analysis_row_spans(
+        w, index, word, elapsed_ms, outcome, grammar, engine, None, None,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -293,8 +318,12 @@ fn write_parse_analysis_row_spans<W: Write>(
     grammar: &Grammar,
     engine: Option<engine::Engine>,
     morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
+    query: Option<batch_query::QueryFields>,
 ) -> std::io::Result<()> {
-    let (analyses, unavailable) = projected_analyses(outcome, grammar, morph_spans);
+    let (analyses, unavailable) =
+        projected_analyses(outcome, grammar, morph_spans, query.is_some());
+    let query =
+        query.map(|fields| batch_query::row_fields(fields, outcome, &analyses, &unavailable));
     let row = ParseAnalysisBatchRow {
         schema: PARSE_ANALYSIS_PROFILE,
         index,
@@ -306,6 +335,7 @@ fn write_parse_analysis_row_spans<W: Write>(
         analyses,
         unavailable,
         completion: engine.map(|engine| engine::Completion::new(engine, outcome)),
+        query,
     };
     serde_json::to_writer(&mut *w, &row)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -348,6 +378,23 @@ fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     {
         false
     }
+}
+
+/// Refuses a TSV output path that would overwrite the grammar or the word list.
+pub(crate) fn reject_tsv_path_collisions(
+    grammar_path: &str,
+    words_path: &str,
+    out_path: &str,
+) -> Result<(), String> {
+    let out_key = path_key(std::path::Path::new(out_path));
+    for (label, path) in [("grammar", grammar_path), ("word list", words_path)] {
+        if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+            return Err(format!(
+                "<out.tsv> path cannot overwrite {label} path: {out_path}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reject_analysis_path_collisions(
@@ -520,7 +567,7 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
@@ -1597,6 +1644,9 @@ fn run_batch_with_counter(
     args: &[String],
     parse_counter: &BatchParseCounter,
 ) -> Result<(), String> {
+    if batch_result_cache::requested(args) {
+        return batch_result_cache::run(args, parse_counter);
+    }
     diagnostic::with_options(args, |args, diagnostic| {
         run_batch_impl(args, parse_counter, diagnostic)
     })
@@ -1631,6 +1681,7 @@ fn run_batch_impl(
     let mut morph_spans = false;
     let mut retire_arg: Option<Vec<String>> = None;
     let mut retire_out_arg: Option<String> = None;
+    let mut query_fields_flag = false;
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
     let mut flush_each_word = true;
@@ -1740,6 +1791,7 @@ fn run_batch_impl(
             s if s.starts_with("--retire-out=") => {
                 retire_out_arg = Some(s["--retire-out=".len()..].to_string());
             }
+            "--query-fields" => query_fields_flag = true,
             "--work-columns" => work_columns = true,
             "--cost-column" => cost_column = true,
             "--no-flush" => flush_each_word = false,
@@ -1802,7 +1854,7 @@ fn run_batch_impl(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1910,6 +1962,12 @@ fn run_batch_impl(
     {
         return Err("--retire cannot be combined with --analyses, --stats, --partials, --engine, --start, --prefilter, --work-columns, --cost-column, --no-flush, --phase-marks, --cache or a diagnostic run".into());
     }
+    if query_fields_flag && (analyses_path_arg.is_none() || engine == Some(engine::Engine::Fst)) {
+        return Err(
+            "--query-fields requires --analyses and cannot be combined with --engine fst".into(),
+        );
+    }
+    let query_fields = query_fields_flag.then(|| batch_query::QueryFields::new(&work_cap));
     if cost_column && stats_requested {
         return Err(
             "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
@@ -2467,6 +2525,7 @@ fn run_batch_impl(
                     &grammar,
                     engine,
                     morph_spans.then_some(row_spans.as_slice()),
+                    query_fields,
                 )
                 .map_err(|e| e.to_string())?;
             }
@@ -2612,6 +2671,7 @@ fn run_batch_impl(
                     &grammar,
                     engine,
                     spans.as_deref(),
+                    query_fields,
                 )
                 .map_err(|e| e.to_string())?;
             }
