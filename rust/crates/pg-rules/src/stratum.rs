@@ -918,7 +918,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     fn max_apps(&self, id: MRuleId) -> u32 {
-        self.g.mrules[id.0 as usize].max_apps()
+        u32::from(self.g.mrules[id.0 as usize].max_apps())
     }
 
     /// True once the shared budget is exhausted; delegates to the shared `WordBudget`.
@@ -1003,7 +1003,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return Vec::new();
         }
         // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
-        if w.trail.count_of(id) >= rule.max_apps() {
+        if w.trail.count_of(id) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
         if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {

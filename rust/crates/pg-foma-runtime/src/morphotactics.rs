@@ -157,7 +157,7 @@ pub struct ChainState {
     pub mid: Vec<(u16, u8)>,
     pub template_entry_disabled: bool,
     /// Applications by stable `Grammar::mrules` ordinal.
-    pub applications: Vec<u32>,
+    pub applications: Vec<u16>,
 }
 
 impl ChainState {
@@ -241,11 +241,11 @@ pub struct MorphotacticIndex {
     rule_slot_sites: FxHashMap<MRuleId, Vec<(u16, u8)>>,
     templates: Vec<TemplateInfo>,
     /// Authored `multipleApplication`, using the model's default of one.
-    rule_application_bounds: Vec<u32>,
+    rule_application_bounds: Vec<u16>,
 }
 
 impl MorphotacticIndex {
-    fn next_applications(&self, state: &ChainState, rule: MRuleId) -> Option<Vec<u32>> {
+    fn next_applications(&self, state: &ChainState, rule: MRuleId) -> Option<Vec<u16>> {
         let rule_index = rule.0 as usize;
         let current = *state.applications.get(rule_index)?;
         let bound = *self.rule_application_bounds.get(rule_index)?;

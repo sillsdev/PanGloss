@@ -1236,7 +1236,7 @@ fn compounding_max_depth(g: &Grammar, r: MRuleId) -> usize {
         })
         .collect();
 
-    let max_apps_of = |mid: MRuleId| -> u32 {
+    let max_apps_of = |mid: MRuleId| -> u16 {
         compounding_rules
             .iter()
             .find(|&&(id, _)| id == mid)

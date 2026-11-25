@@ -237,7 +237,10 @@ pub fn parse_with_issues(
     ))
 }
 
-/// `<HC><AffixRules><AffixRule guid maxApps>`: a count above 1 is kept up to `i32::MAX` (C# `int.TryParse`, whitespace and a sign allowed); 1 or less means absent; FieldWorks ignores a missing guid or an unparsable count silently, and the warning here never changes the parse.
+/// Largest per-affix application count FieldWorks' `HCLoader.MaxAffixApplicationCount` accepts.
+const MAX_AFFIX_APPLICATION_COUNT: i32 = 10;
+
+/// `<HC><AffixRules><AffixRule guid maxApps>`, read like `HCLoader`'s constructor: both attributes must parse (`Guid.TryParse`, `int.TryParse` with `NumberStyles.Integer` and the invariant culture) or the entry is skipped and the affix applies once (warning `INVALID_PARSER_PARAMETER`); a parsed count is clamped to 1..=10 (so 0, negatives and 1 mean once, and a count above 10 is 10, with a warning); a repeated guid takes the last valid entry. Only counts above 1 are stored.
 fn hc_affix_rule_max_applications(
     hc: Option<&crate::node::Node>,
     issues: &mut Vec<Warning>,
@@ -245,16 +248,22 @@ fn hc_affix_rule_max_applications(
     let Some(rules) = hc.and_then(|hc| hc.child("AffixRules")) else {
         return Vec::new();
     };
-    let mut out: Vec<AffixRuleMaxApplications> = Vec::new();
+    // Guid -> clamped count, in first-seen order; a later valid entry for the same guid replaces the earlier (C# dictionary assignment).
+    let mut counts: Vec<(String, i32)> = Vec::new();
     for rule in rules.children_named("AffixRule") {
-        let guid = rule.attr("guid").map(str::trim).unwrap_or("");
-        let raw = rule.attr("maxApps").map(str::trim).unwrap_or("");
-        let invalid = |what: &str, issues: &mut Vec<Warning>| {
+        let raw_guid = rule.attr("guid").unwrap_or("");
+        let raw = rule.attr("maxApps").unwrap_or("");
+        let warn = |what: &str, issues: &mut Vec<Warning>| {
             issues.push(
                 Warning::new(
                     codes::INVALID_PARSER_PARAMETER,
                     format!(
-                        "Parser parameter 'HC.AffixRules' entry {guid:?} has {what} (maxApps {raw:?}); the affix applies at most once."
+                        "Parser parameter 'HC.AffixRules' entry {raw_guid:?} has {what} (maxApps {raw:?}); {}",
+                        if what.starts_with("a count above") {
+                            "the affix applies at most 10 times."
+                        } else {
+                            "the entry is skipped and the affix applies once."
+                        }
                     ),
                 )
                 .with_subject(
@@ -264,25 +273,76 @@ fn hc_affix_rule_max_applications(
                 ),
             );
         };
-        if guid.is_empty() {
-            invalid("no guid", issues);
+        let Some(guid) = dotnet_guid(raw_guid) else {
+            warn("no parseable guid", issues);
             continue;
+        };
+        let Some(n) = dotnet_int(raw) else {
+            warn("an invalid count", issues);
+            continue;
+        };
+        if n > MAX_AFFIX_APPLICATION_COUNT {
+            warn("a count above 10", issues);
         }
-        match raw.parse::<i32>() {
-            Ok(n) if n <= 1 => {}
-            Ok(n) => {
-                // A repeated guid is a no-op for C# (the first match wins), so the first entry wins here too.
-                if !out.iter().any(|e| e.msa == guid) {
-                    out.push(AffixRuleMaxApplications {
-                        msa: guid.to_string(),
-                        max_applications: n as u32,
-                    });
-                }
-            }
-            Err(_) => invalid("an invalid count", issues),
+        let n = n.clamp(1, MAX_AFFIX_APPLICATION_COUNT);
+        match counts.iter_mut().find(|(g, _)| *g == guid) {
+            Some(entry) => entry.1 = n,
+            None => counts.push((guid, n)),
         }
     }
-    out
+    counts
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(msa, n)| AffixRuleMaxApplications {
+            msa,
+            max_applications: n as u32,
+        })
+        .collect()
+}
+
+/// C# `int.TryParse(s, NumberStyles.Integer, InvariantCulture)`: optional surrounding white space (U+0009..U+000D, U+0020), one leading sign, ASCII digits, 32-bit signed.
+fn dotnet_int(raw: &str) -> Option<i32> {
+    let t = raw.trim_matches(|c: char| matches!(c, '\t'..='\r' | ' '));
+    let digits = t.strip_prefix(['+', '-']).unwrap_or(t);
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse::<i32>().ok()
+}
+
+/// C# `Guid.TryParse` for the common formats (`D` hyphenated, `N` 32 digits, `B` braces, `P` parentheses; surrounding white space ignored), returned as lowercase hyphenated text.
+fn dotnet_guid(raw: &str) -> Option<String> {
+    let t = raw.trim_matches(|c: char| matches!(c, '\t'..='\r' | ' '));
+    let inner = if let Some(i) = t.strip_prefix('{').and_then(|x| x.strip_suffix('}')) {
+        i
+    } else if let Some(i) = t.strip_prefix('(').and_then(|x| x.strip_suffix(')')) {
+        i
+    } else {
+        t
+    };
+    let hex: String = if inner.len() == 36 {
+        let b = inner.as_bytes();
+        if [8, 13, 18, 23].iter().any(|&i| b[i] != b'-') {
+            return None;
+        }
+        inner.chars().filter(|&c| c != '-').collect()
+    } else if inner.len() == 32 && !t.starts_with(['{', '(']) {
+        inner.to_string()
+    } else {
+        return None;
+    };
+    if hex.len() != 32 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let h = hex.to_ascii_lowercase();
+    Some(format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    ))
 }
 
 /// `HCParser.LoadParser` reads `<HC><DelReapps>` as `(int) element` with default 0; a negative value stops the C# loop after one pass exactly like 0, so it is stored as 0.

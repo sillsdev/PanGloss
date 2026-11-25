@@ -74,7 +74,7 @@ See `README.md` for the full status table and the kind definitions.
 | `pg-parse/tests/csharp_port_rewrite.rs` (`unspecified_feature_satisfies_a_minus_*`); `pg-rules/tests/rewrite_gate.rs`; staged `unspecified-feature-minus-environment`, `unspecified-feature-minus-target` | 129 |
 | `pg-parse/tests/metathesis_match_order.rs`; staged `metathesis-deletion-restores-segment-between-switches`, `pos-scoped-deletion-blocks-metathesis` | 132 |
 | `pg-parse/tests/optional_run_tilings.rs`; `pg-fst/tests/canonical_tilings.rs`; `pg-fst/tests/feasibility_prune.rs`; `pg-rules/src/morph/optional_runs.rs` (unit tests) | 130 |
-| `pg-grammar/tests/affix_max_applications.rs`; staged `affix-multiple-application` | 135 |
+| `pg-grammar/tests/affix_max_applications.rs`; suite `affix-multiple-application` | 135 |
 
 ## Provisional-definition seams
 

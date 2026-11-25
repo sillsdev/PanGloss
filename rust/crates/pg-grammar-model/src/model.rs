@@ -609,17 +609,17 @@ pub enum MorphRuleDef {
 
 impl MorphRuleDef {
     /// `multipleApplication` cap (C# `MaxApplicationCount`), regardless of rule kind. `AffixProcess`
-    /// and `Compounding` carry their own `max_apps: u32` (DTD default `1`); `RealizationalRule` has
+    /// and `Compounding` carry their own `max_apps: u16` (DTD default `1`); `RealizationalRule` has
     /// no such field or gate at all in C# (`RealizationalAffixProcessRule`/`SynthesisRealizational
     /// AffixProcessRule`/`AnalysisRealizationalAffixProcessRule` never reference `MaxApplicationCount`
     /// or check an unapplication count), so it reports `u16::MAX` — every real word's per-rule
     /// unapplication count is far below that, making the `apply_one_mrule` gate a practical no-op,
     /// matching C#'s unconditional application.
-    pub fn max_apps(&self) -> u32 {
+    pub fn max_apps(&self) -> u16 {
         match self {
             MorphRuleDef::AffixProcess(def) => def.max_apps,
             MorphRuleDef::Compounding(def) => def.max_apps,
-            MorphRuleDef::Realizational(_) => u32::from(u16::MAX),
+            MorphRuleDef::Realizational(_) => u16::MAX,
         }
     }
 
@@ -701,7 +701,7 @@ pub struct AffixProcessRuleDef {
     pub blockable: bool,
     pub partial_reason: Option<PartialMorphemeReason>,
     /// `multipleApplication` attr; C# default `MaxApplicationCount = 1`.
-    pub max_apps: u32,
+    pub max_apps: u16,
     /// `{POS, head, foot}` requirement FS (interned; empty FS if nothing declared).
     pub required_syn_fs: FsId,
     /// Output FS priority-unioned onto the word on (un)application.
@@ -794,7 +794,7 @@ pub struct CompoundingRuleDef {
     pub source_guid: Option<String>,
     pub name: Option<String>,
     pub blockable: bool,
-    pub max_apps: u32,
+    pub max_apps: u16,
     pub head_required_syn_fs: FsId,
     pub non_head_required_syn_fs: FsId,
     pub out_syn_fs: FsId,

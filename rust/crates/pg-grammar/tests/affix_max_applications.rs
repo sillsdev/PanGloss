@@ -262,12 +262,32 @@ fn a_template_slot_rule_is_visited_once_whatever_its_count() {
     );
 }
 
+/// FieldWorks' `HCLoader` clamps the count to 10; the compile step bounds a hand-authored snapshot the same way.
 #[test]
-fn a_count_above_sixty_five_thousand_is_not_capped() {
-    let grammar = pg_grammar::compile_project(&snapshot(&[("msa-caus", 2_147_483_647)]))
-        .expect("must compile")
-        .0;
-    assert!(grammar.mrules.iter().any(|r| r.max_apps() == 2_147_483_647));
+fn a_count_above_ten_is_clamped_to_ten() {
+    let max_of = |count: u32| {
+        pg_grammar::compile_project(&snapshot(&[("msa-caus", count)]))
+            .expect("must compile")
+            .0
+            .mrules
+            .iter()
+            .map(|r| r.max_apps())
+            .max()
+            .unwrap()
+    };
+    assert_eq!(max_of(10), 10);
+    assert_eq!(max_of(11), 10);
+    assert_eq!(max_of(2_147_483_647), 10);
+}
+
+#[test]
+fn ten_applications_parse_and_the_eleventh_does_not() {
+    let word = |n: usize| format!("kat{}", "ish".repeat(n));
+    for count in [10, 11, 70_000] {
+        let counts = [("msa-caus", count)];
+        assert_eq!(parse_count(&counts, &word(10)), 1, "count {count}");
+        assert_eq!(parse_count(&counts, &word(11)), 0, "count {count}");
+    }
 }
 
 #[test]

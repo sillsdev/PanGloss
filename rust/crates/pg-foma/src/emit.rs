@@ -1849,7 +1849,7 @@ pub fn deriv_chain_depth(g: &Grammar, rules: &[MRuleId]) -> usize {
         .iter()
         .map(|&mid| match &g.mrules[mid.0 as usize] {
             MorphRuleDef::Realizational(_) => 1,
-            rule => rule.max_apps().max(1) as usize,
+            rule => usize::from(rule.max_apps().max(1)),
         })
         .sum();
     sum.max(DERIV_DEPTH_MIN)

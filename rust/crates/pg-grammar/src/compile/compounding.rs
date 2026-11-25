@@ -49,7 +49,7 @@ pub(crate) fn build(
             .compound_rule_max_applications
             .iter()
             .find(|m| m.compound_rule == rule.guid())
-            .map(|m| m.max_applications)
+            .map(|m| m.max_applications as u16)
             .unwrap_or(1);
         match rule {
             CompoundRule::Endocentric {
@@ -205,7 +205,7 @@ fn build_endo(
     left: &CompoundConstituentRequirement,
     right: &CompoundConstituentRequirement,
     overriding: &CompoundOutcome,
-    max_apps: u32,
+    max_apps: u16,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Result<Option<MRuleId>, GrammarError> {
@@ -300,7 +300,7 @@ fn build_exo(
     left: &CompoundConstituentRequirement,
     right: &CompoundConstituentRequirement,
     to: &CompoundOutcome,
-    max_apps: u32,
+    max_apps: u16,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Result<Vec<MRuleId>, GrammarError> {

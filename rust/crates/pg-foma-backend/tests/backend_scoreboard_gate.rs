@@ -45,7 +45,7 @@ impl Bucket {
 
 // Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
 
-// oracle_exact 163: the staged fixture edge-cases/affix-multiple-application adds one exact cell.
+// oracle_exact 163: the suite fixture edge-cases/affix-multiple-application (graduated at pin 0cc9787) adds one exact cell.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {

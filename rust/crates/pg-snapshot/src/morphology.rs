@@ -454,7 +454,7 @@ pub struct ParserParameters {
     /// (HCLoader.cs:1894, `int maxApps = 1;`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub compound_rule_max_applications: Vec<CompoundRuleMaxApplications>,
-    /// ← `<HC><AffixRules><AffixRule guid maxApps>`, keyed by the affix MSA guid; loaded into HC `multipleApplication`. Only counts above 1 are stored: absent means 1.
+    /// ← `<HC><AffixRules><AffixRule guid maxApps>`, keyed by the affix MSA guid; loaded into HC `multipleApplication`, clamped to 1..=10 like FieldWorks' `HCLoader`. Only counts above 1 are stored: absent means 1.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub affix_rule_max_applications: Vec<AffixRuleMaxApplications>,
     #[serde(default)]
@@ -508,7 +508,7 @@ pub struct CompoundRuleMaxApplications {
     pub max_applications: u32,
 }
 
-/// One affix MSA's maximum application count (always above 1).
+/// One affix MSA's maximum application count (2..=10).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AffixRuleMaxApplications {
