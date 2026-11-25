@@ -269,3 +269,19 @@ fn a_count_above_sixty_five_thousand_is_not_capped() {
         .0;
     assert!(grammar.mrules.iter().any(|r| r.max_apps() == 2_147_483_647));
 }
+
+#[test]
+fn with_merge_msas_off_each_equal_msa_applies_its_own_count() {
+    let unmerged = |counts: &[(&str, u32)]| {
+        let mut s = merged_snapshot(counts);
+        s.morphology.parser_parameters.merge_msas = false;
+        s
+    };
+    assert_eq!(parse_snapshot(&unmerged(&[]), "katishishish"), 0);
+    assert!(parse_snapshot(&unmerged(&[("msa-caus-b", 2)]), "katishishish") > 0);
+    assert_eq!(
+        parse_snapshot(&merged_snapshot(&[("msa-caus-b", 2)]), "katishishish"),
+        0,
+        "merged, the non-representative count is dropped"
+    );
+}
