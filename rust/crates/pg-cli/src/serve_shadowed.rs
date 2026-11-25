@@ -15,14 +15,15 @@ const VERSION: u32 = 1;
 const KNOWN_FIELDS: [&str; 3] = ["id", "op", "includeSelectable"];
 const ERROR_CODES: [&str; 2] = ["bad_request", "internal"];
 const VERDICTS: [&str; 3] = ["shadowed", "maybe_shadowed", "selectable"];
-const ROW_FIELDS: [&str; 16] = [
+const ROW_FIELDS: [&str; 17] = [
     "kind",
     "morphemeId",
     "entryId",
     "entryGuid",
     "ruleName",
     "msaGuid",
-    "sourceAllomorphGuid",
+    "sourceAllomorphGuids",
+    "removableGuids",
     "environments",
     "allomorphId",
     "xmlKey",
@@ -45,12 +46,12 @@ pub(crate) fn describe() -> Value {
         "rowFields": ROW_FIELDS,
         "blockerFields": ["allomorphId", "xmlKey", "index"],
         "reasons": REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
-        "deadContinuationFields": ["entryId", "entryGuid", "msaGuid", "sourceAllomorphGuid", "environments", "siblings", "morphemeId", "allomorphId", "xmlKey", "index", "form", "continuation", "reasons", "features", "affixRules", "acceptingRules", "blockedBy", "neighbourRejections", "viaConverter"],
+        "deadContinuationFields": ["entryId", "entryGuid", "msaGuid", "sourceAllomorphGuids", "removableGuids", "environments", "siblings", "morphemeId", "allomorphId", "xmlKey", "index", "form", "continuation", "reasons", "features", "affixRules", "acceptingRules", "blockedBy", "neighbourRejections", "viaConverter"],
         "continuations": ["proven", "maybe", "live"],
         "deadContinuationReasons": DEAD_REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
         "blockedByFields": ["kind", "names", "allomorphs", "rules"],
         "deadContinuationContract": "deadContinuations lists root allomorphs after which no affix can attach, because every affix allomorph's required or excluded rule features (inflection class) or required stem name rejects the entry as it stands before its first affix. proven also needs the allomorph unable to stand as a bare word (bound, or every environment needs a neighbouring segment and no phonological rule inserts segments) and no compounding rule; otherwise maybe. Rule-level conditions other than those are ignored, which can only make an affix look attachable. live rows appear with includeSelectable, except a live row with neighbourRejections: an allomorph whose environment needs a following segment, where affixes that could supply it reject the entry's rule features or stem name (blockedBy shape) while others accept; neighbourRejections is an upper bound (any affix that changes rule features, or has an unmodelled shape, counts as a possible supplier; the inserted text is compared with the environment's text, ignoring phonology) and lists only the five most frequent requirements; viaConverter says some affix whose inserted shape has no real segment (a null affix, +∅) accepts the entry and changes its rule features, so the rejecting affixes may be reached after it; the converter's own input pattern and environments are not checked, so it may not apply to this allomorph",
-        "contract": "A row is one HC allomorph: one environment pass of one MSA of a FieldWorks allomorph. shadowed and proven are reported only when every HC copy of the same source allomorph (sourceAllomorphGuid, the xmlKey prefix before #) is shadowed or proven; otherwise the row is maybe_shadowed or maybe with reason source_allomorph_selectable_elsewhere or source_allomorph_live_elsewhere, and siblings lists the copies that are not. shadowed is proven: no word is parsed or generated with this alternate, because an earlier alternate of the same morpheme is eligible wherever this one is and does not free-fluctuate with it. maybe_shadowed names what was not proven. Proofs use only identical or empty conditions, never a guess; a condition the engine does not model is never counted as covered. The report changes no parse",
+        "contract": "A row is one HC allomorph: one environment pass of one MSA of a FieldWorks allomorph. shadowed and proven are reported only when every HC copy containing at least one of the row's sourceAllomorphGuids (a circumfix copy contains a prefix and a suffix guid) is shadowed or proven, and removableGuids names the guids for which that holds; a row with none is downgraded to maybe_shadowed or maybe with reason source_allomorph_selectable_elsewhere or source_allomorph_live_elsewhere, and siblings lists the copies that are not. shadowed is proven: no word is parsed or generated with this alternate, because an earlier alternate of the same morpheme is eligible wherever this one is and does not free-fluctuate with it. maybe_shadowed names what was not proven. Proofs use only identical or empty conditions, never a guess; a condition the engine does not model is never counted as covered. The report changes no parse",
     })
 }
 
@@ -135,16 +136,17 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             }
         };
         for alt in &morpheme.alternates {
-            let siblings = if alt.verdict == Verdict::Shadowed {
-                copies.live_siblings(alt.allomorph, |a| shadowed.contains(&a))
+            let (removable, siblings) = if alt.verdict == Verdict::Shadowed {
+                copies.removable(alt.allomorph, |a| shadowed.contains(&a))
             } else {
-                Vec::new()
+                (Vec::new(), Vec::new())
             };
-            let (verdict, mut reasons) = if siblings.is_empty() {
-                (alt.verdict, alt.reasons.clone())
-            } else {
-                (Verdict::MaybeShadowed, vec![SHADOW_ELSEWHERE])
-            };
+            let (verdict, mut reasons) =
+                if alt.verdict != Verdict::Shadowed || !removable.is_empty() {
+                    (alt.verdict, alt.reasons.clone())
+                } else {
+                    (Verdict::MaybeShadowed, vec![SHADOW_ELSEWHERE])
+                };
             reasons.dedup();
             let slot = match verdict {
                 Verdict::Shadowed => 0,
@@ -176,7 +178,8 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
                 "entryGuid": entry_guid,
                 "ruleName": rule_name,
                 "msaGuid": msa_guid,
-                "sourceAllomorphGuid": copies.source_guid(alt.allomorph),
+                "sourceAllomorphGuids": copies.guids(alt.allomorph),
+                "removableGuids": removable,
                 "environments": copies.environments(alt.allomorph),
                 "allomorphId": alt.allomorph.0,
                 "xmlKey": g.allomorph_xml_key(alt.allomorph),
@@ -198,12 +201,12 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
     let mut dead = Vec::new();
     let mut dead_counts = [0usize; 3];
     for row in dead_report {
-        let siblings = if row.verdict == Continuation::Proven {
-            copies.live_siblings(row.allomorph, |a| proven.contains(&a))
+        let (removable, siblings) = if row.verdict == Continuation::Proven {
+            copies.removable(row.allomorph, |a| proven.contains(&a))
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
-        let (verdict, reasons) = if siblings.is_empty() {
+        let (verdict, reasons) = if row.verdict != Continuation::Proven || !removable.is_empty() {
             (row.verdict, row.reasons.clone())
         } else {
             (Continuation::Maybe, vec![DEAD_ELSEWHERE])
@@ -228,7 +231,8 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             "entryId": def.authored_id,
             "entryGuid": def.source_guid,
             "msaGuid": msa,
-            "sourceAllomorphGuid": copies.source_guid(row.allomorph),
+            "sourceAllomorphGuids": copies.guids(row.allomorph),
+            "removableGuids": removable,
             "environments": copies.environments(row.allomorph),
             "morphemeId": morph_id(g, def.morpheme),
             "allomorphId": row.allomorph.0,
@@ -256,43 +260,43 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
     })
 }
 
-/// The HC copies of each source allomorph: one per environment pass and per MSA, keyed `guid#n`.
+/// The HC copies of each source allomorph: one per environment pass and per MSA; a circumfix copy contains two guids and sits in both groups.
 struct Copies<'a> {
     g: &'a Grammar,
-    by_source: HashMap<String, Vec<AllomorphId>>,
+    by_guid: HashMap<String, Vec<AllomorphId>>,
 }
 
 impl<'a> Copies<'a> {
     fn new(g: &'a Grammar) -> Self {
-        let mut by_source: HashMap<String, Vec<AllomorphId>> = HashMap::new();
+        let mut c = Copies {
+            g,
+            by_guid: HashMap::new(),
+        };
         for i in 0..g.allomorph_owners.len() {
             let id = AllomorphId(i as u32);
-            if let Some(key) = g.allomorph_xml_key(id) {
-                by_source
-                    .entry(key.split('#').next().unwrap_or(key).to_string())
-                    .or_default()
-                    .push(id);
+            for guid in c.guids(id) {
+                c.by_guid.entry(guid).or_default().push(id);
             }
         }
-        Copies { g, by_source }
+        c
     }
 
-    fn group(&self, id: AllomorphId) -> &[AllomorphId] {
+    /// The FieldWorks forms a copy contains; without recorded guids, the key before its last `#`.
+    fn guids(&self, id: AllomorphId) -> Vec<String> {
+        let recorded: Vec<String> = self
+            .g
+            .allomorph_sources
+            .get(id.0 as usize)
+            .map(|s| s.form_guids.iter().flatten().cloned().collect())
+            .unwrap_or_default();
+        if !recorded.is_empty() {
+            return recorded;
+        }
         self.g
             .allomorph_xml_key(id)
-            .and_then(|k| self.by_source.get(k.split('#').next().unwrap_or(k)))
-            .map_or(&[], |v| v.as_slice())
-    }
-
-    fn source_guid(&self, id: AllomorphId) -> Option<&str> {
-        self.g
-            .allomorph_sources
-            .get(id.0 as usize)?
-            .form_guids
-            .iter()
-            .flatten()
-            .next()
-            .map(String::as_str)
+            .map(|k| k.rsplit_once('#').map_or(k, |(p, _)| p).to_string())
+            .into_iter()
+            .collect()
     }
 
     fn form_text(&self, id: AllomorphId) -> Option<String> {
@@ -328,18 +332,88 @@ impl<'a> Copies<'a> {
         })
     }
 
-    /// The other copies of the same source allomorph that are not proven (`proven` says which are); empty when all are.
-    fn live_siblings(&self, id: AllomorphId, proven: impl Fn(AllomorphId) -> bool) -> Vec<Value> {
-        self.group(id)
-            .iter()
-            .filter(|&&c| c != id && !proven(c))
-            .map(|&c| {
+    /// The guids of `id` every copy of which agrees (removable), and the disagreeing copies that keep the others from being removable.
+    fn removable(
+        &self,
+        id: AllomorphId,
+        agrees: impl Fn(AllomorphId) -> bool,
+    ) -> (Vec<String>, Vec<Value>) {
+        let mut removable = Vec::new();
+        let mut blocking: Vec<AllomorphId> = Vec::new();
+        for guid in self.guids(id) {
+            let others: Vec<AllomorphId> = self.by_guid.get(&guid).map_or_else(Vec::new, |v| {
+                v.iter()
+                    .copied()
+                    .filter(|&c| c != id && !agrees(c))
+                    .collect()
+            });
+            if others.is_empty() {
+                removable.push(guid);
+            } else {
+                for c in others {
+                    if !blocking.contains(&c) {
+                        blocking.push(c);
+                    }
+                }
+            }
+        }
+        let siblings = blocking
+            .into_iter()
+            .map(|c| {
                 json!({
                     "allomorphId": c.0,
                     "xmlKey": self.g.allomorph_xml_key(c),
                     "environments": self.environments(c),
                 })
             })
-            .collect()
+            .collect();
+        (removable, siblings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A circumfix copy (prefix p, suffix s) sits in both guids' groups: p stays because the other copy of p is live.
+    #[test]
+    fn a_circumfix_copy_is_removable_only_for_the_guid_all_its_copies_agree_on() {
+        let xml = include_str!("../tests/data/shadowed-passes-fixture.xml");
+        let mut g = pg_grammar::load(xml).expect("fixture loads");
+        let id_of = |g: &Grammar, key: &str| {
+            (0..g.allomorph_owners.len())
+                .map(|i| AllomorphId(i as u32))
+                .find(|&a| g.allomorph_xml_key(a) == Some(key))
+                .unwrap()
+        };
+        // z#0 is shadowed and z#1 selectable: pair them as (p, s2) and (p, s1).
+        for (key, guids) in [("z#0", ["p", "s2"]), ("z#1", ["p", "s1"])] {
+            let id = id_of(&g, key);
+            g.allomorph_sources[id.0 as usize].form_guids =
+                guids.iter().map(|x| Some(x.to_string())).collect();
+        }
+        let r = handle(&g, &json!("c"), &Map::new());
+        let row = r["alternates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["xmlKey"] == "z#0")
+            .unwrap();
+        assert_eq!(row["verdict"], "shadowed", "{row}");
+        assert_eq!(row["sourceAllomorphGuids"], json!(["p", "s2"]));
+        assert_eq!(row["removableGuids"], json!(["s2"]));
+        assert_eq!(row["siblings"][0]["xmlKey"], "z#1");
+        // Both copies now claim only p: the live copy keeps it from being removable.
+        let id = id_of(&g, "z#0");
+        g.allomorph_sources[id.0 as usize].form_guids = vec![Some("p".into())];
+        let r = handle(&g, &json!("c"), &Map::new());
+        let row = r["alternates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["xmlKey"] == "z#0")
+            .unwrap();
+        assert_eq!(row["verdict"], "maybe_shadowed", "{row}");
+        assert_eq!(row["removableGuids"], json!([]));
     }
 }
