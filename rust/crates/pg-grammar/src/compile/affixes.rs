@@ -493,7 +493,7 @@ pub(crate) fn build_affix_rule(
         .affix_rule_max_applications
         .iter()
         .find(|m| m.msa == msa_guid)
-        .map_or(1, |m| m.max_applications as u16);
+        .map_or(1, |m| m.max_applications);
     acc.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
             morpheme,

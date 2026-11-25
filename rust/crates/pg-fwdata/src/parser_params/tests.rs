@@ -441,16 +441,38 @@ fn affix_rule_max_apps_loads_counts_above_one_and_ignores_one() {
 }
 
 #[test]
-fn affix_rule_max_apps_invalid_values_warn_and_fall_back_to_one() {
+fn affix_rule_max_apps_parses_like_csharp_int_try_parse() {
+    let count = |v: &str| {
+        let xml = format!(
+            "<ParserParameters><HC><AffixRules><AffixRule guid=\"a\" maxApps=\"{v}\"/></AffixRules></HC></ParserParameters>"
+        );
+        let (p, issues, _) = parse_with_issues(Some(&xml)).unwrap();
+        (
+            p.affix_rule_max_applications
+                .first()
+                .map(|e| e.max_applications),
+            issues.len(),
+        )
+    };
+    assert_eq!(count("70000"), (Some(70000), 0));
+    assert_eq!(count("2147483647"), (Some(2147483647), 0));
+    assert_eq!(count("2147483648"), (None, 1));
+    assert_eq!(count(" 2 "), (Some(2), 0));
+    assert_eq!(count("+2"), (Some(2), 0));
+    assert_eq!(count("0"), (None, 0));
+    assert_eq!(count("-1"), (None, 0));
+    assert_eq!(count("two"), (None, 1));
+    assert_eq!(count(""), (None, 1));
+}
+
+#[test]
+fn affix_rule_max_apps_missing_guid_warns_and_is_ignored() {
     let (p, issues, _) = parse_with_issues(Some(
-        "<ParserParameters><HC><AffixRules>\
-         <AffixRule guid=\"a1\" maxApps=\"two\"/><AffixRule guid=\"a2\" maxApps=\"70000\"/>\
-         <AffixRule maxApps=\"2\"/><AffixRule guid=\"a4\"/>\
-         </AffixRules></HC></ParserParameters>",
+        "<ParserParameters><HC><AffixRules><AffixRule maxApps=\"2\"/><AffixRule guid=\"a4\"/></AffixRules></HC></ParserParameters>",
     ))
     .unwrap();
     assert!(p.affix_rule_max_applications.is_empty());
-    assert_eq!(issues.len(), 4, "{issues:?}");
+    assert_eq!(issues.len(), 2, "{issues:?}");
 }
 
 #[test]

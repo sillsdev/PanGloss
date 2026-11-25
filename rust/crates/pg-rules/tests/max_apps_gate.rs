@@ -88,7 +88,7 @@ fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomor
 }
 
 /// A single-allomorph suffix rule whose LHS is `nc_any+`, so it still matches its own unapplied output.
-fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u16) -> MorphRuleDef {
+fn self_matching_suffix_rule(g: &Grammar, morpheme: u32, seg: &str, max_apps: u32) -> MorphRuleDef {
     MorphRuleDef::AffixProcess(AffixProcessRuleDef {
         morpheme: MorphemeId(morpheme),
         name: None,

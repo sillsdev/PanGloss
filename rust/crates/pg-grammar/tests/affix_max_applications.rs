@@ -1,7 +1,9 @@
 //! `<HC><AffixRules>` maxApps loads into an affix rule's `multipleApplication` (C# `AffixProcessRule.MaxApplicationCount`, default 1).
 
-use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa, Sense};
-use pg_snapshot::morphology::{AffixRuleMaxApplications, MorphType, Morphology, PartOfSpeech};
+use pg_snapshot::lexicon::{Allomorph, EqualMsas, LexEntry, Lexicon, Msa, Sense};
+use pg_snapshot::morphology::{
+    AffixRuleMaxApplications, AffixSlot, AffixTemplate, MorphType, Morphology, PartOfSpeech,
+};
 use pg_snapshot::phonology::{BoundaryMarker, Phoneme, Phonology};
 use pg_snapshot::project::Project;
 use pg_snapshot::{FeatureSystems, Snapshot, WsForm};
@@ -172,4 +174,98 @@ fn a_count_applies_only_to_its_own_msa() {
     let counts = [("msa-caus", 2)];
     assert_eq!(parse_count(&counts, "katishish"), 1);
     assert_eq!(parse_count(&counts, "katelel"), 0);
+}
+
+fn parse_snapshot(snapshot: &Snapshot, word: &str) -> usize {
+    let grammar = pg_grammar::compile_project(snapshot)
+        .expect("must compile")
+        .0;
+    pg_parse::Morpher::new(&grammar, usize::MAX)
+        .parse_word(word)
+        .structured
+        .len()
+}
+
+/// `-ish` carries two equal MSAs; only `msa-caus` has a sense, so it is the merged representative.
+fn merged_snapshot(counts: &[(&str, u32)]) -> Snapshot {
+    let mut s = snapshot(counts);
+    let caus = s
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|e| e.guid == "caus")
+        .unwrap();
+    caus.msas.push(deriv("msa-caus-b"));
+    let eq = |a: &str, b: &str| EqualMsas {
+        msa: a.to_string(),
+        equal_to: vec![b.to_string()],
+    };
+    s.lexicon.msa_equality = Some(vec![
+        eq("msa-caus", "msa-caus-b"),
+        eq("msa-caus-b", "msa-caus"),
+    ]);
+    s
+}
+
+#[test]
+fn a_merged_msa_takes_the_count_authored_on_its_representative_only() {
+    assert_eq!(
+        parse_snapshot(&merged_snapshot(&[("msa-caus", 2)]), "katishish"),
+        1
+    );
+    assert_eq!(
+        parse_snapshot(&merged_snapshot(&[("msa-caus-b", 2)]), "katishish"),
+        0,
+        "a count on the non-representative equal MSA is never looked up"
+    );
+}
+
+/// `-el` becomes an inflectional affix filling the only slot of a verb template.
+fn template_snapshot(counts: &[(&str, u32)]) -> Snapshot {
+    let mut s = snapshot(counts);
+    s.morphology.parts_of_speech[0].affix_slots = vec![AffixSlot {
+        guid: "slot-1".to_string(),
+        name: "slot".to_string(),
+        optional: false,
+    }];
+    s.morphology.parts_of_speech[0].affix_templates = vec![AffixTemplate {
+        guid: "tpl-1".to_string(),
+        name: "tpl".to_string(),
+        disabled: false,
+        prefix_slots: Vec::new(),
+        suffix_slots: vec!["slot-1".to_string()],
+        is_final: true,
+    }];
+    let appl = s
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|e| e.guid == "appl")
+        .unwrap();
+    appl.msas = vec![Msa::Inflectional {
+        guid: "msa-appl".to_string(),
+        part_of_speech: Some("pos-v".to_string()),
+        slots: vec!["slot-1".to_string()],
+        features: None,
+        exception_features: Vec::new(),
+    }];
+    s
+}
+
+#[test]
+fn a_template_slot_rule_is_visited_once_whatever_its_count() {
+    assert_eq!(parse_snapshot(&template_snapshot(&[]), "katel"), 1);
+    assert_eq!(
+        parse_snapshot(&template_snapshot(&[("msa-appl", 2)]), "katelel"),
+        0,
+        "a slot applies its rule once; the count does not repeat the slot"
+    );
+}
+
+#[test]
+fn a_count_above_sixty_five_thousand_is_not_capped() {
+    let grammar = pg_grammar::compile_project(&snapshot(&[("msa-caus", 2_147_483_647)]))
+        .expect("must compile")
+        .0;
+    assert!(grammar.mrules.iter().any(|r| r.max_apps() == 2_147_483_647));
 }

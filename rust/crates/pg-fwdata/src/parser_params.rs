@@ -237,7 +237,7 @@ pub fn parse_with_issues(
     ))
 }
 
-/// `<HC><AffixRules><AffixRule guid maxApps>`: a count above 1 is kept; 1 or less means absent; a missing guid or a non-integer or out-of-range count warns and falls back to 1.
+/// `<HC><AffixRules><AffixRule guid maxApps>`: a count above 1 is kept up to `i32::MAX` (C# `int.TryParse`, whitespace and a sign allowed); 1 or less means absent; FieldWorks ignores a missing guid or an unparsable count silently, and the warning here never changes the parse.
 fn hc_affix_rule_max_applications(
     hc: Option<&crate::node::Node>,
     issues: &mut Vec<Warning>,
@@ -268,9 +268,9 @@ fn hc_affix_rule_max_applications(
             invalid("no guid", issues);
             continue;
         }
-        match raw.parse::<i64>() {
+        match raw.parse::<i32>() {
             Ok(n) if n <= 1 => {}
-            Ok(n) if n <= i64::from(u16::MAX) => {
+            Ok(n) => {
                 // A repeated guid is a no-op for C# (the first match wins), so the first entry wins here too.
                 if !out.iter().any(|e| e.msa == guid) {
                     out.push(AffixRuleMaxApplications {
@@ -279,7 +279,7 @@ fn hc_affix_rule_max_applications(
                     });
                 }
             }
-            _ => invalid("an invalid count", issues),
+            Err(_) => invalid("an invalid count", issues),
         }
     }
     out
