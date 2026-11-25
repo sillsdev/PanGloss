@@ -50,8 +50,14 @@ pub(crate) fn requested(args: &[String]) -> bool {
 fn default_root() -> Result<PathBuf, String> {
     let base = match std::env::var_os("XDG_CACHE_HOME").filter(|v| !v.is_empty()) {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(std::env::var_os("HOME").ok_or("--result-cache auto needs HOME")?)
-            .join(".cache"),
+        None => match std::env::var_os("HOME").filter(|v| !v.is_empty()) {
+            Some(home) => PathBuf::from(home).join(".cache"),
+            None => PathBuf::from(
+                std::env::var_os("LOCALAPPDATA")
+                    .filter(|v| !v.is_empty())
+                    .ok_or("--result-cache auto needs XDG_CACHE_HOME, HOME or LOCALAPPDATA")?,
+            ),
+        },
     };
     Ok(base.join("pangloss").join("batch-results"))
 }
@@ -113,11 +119,14 @@ fn plan(args: &[String]) -> Result<Plan<'_>, String> {
             key_tokens.push(arg.clone());
         }
     }
+    let analyses = analyses.ok_or("--result-cache requires --analyses")?;
+    crate::reject_analysis_path_collisions(grammar, words, out, &analyses, None)?;
+    crate::reject_tsv_path_collisions(grammar, words, out)?;
     Ok(Plan {
         grammar,
         words,
         out,
-        analyses: analyses.ok_or("--result-cache requires --analyses")?,
+        analyses,
         root: root.ok_or("--result-cache requires a directory or auto")?,
         max_bytes: max_mib.saturating_mul(1 << 20),
         inner,
@@ -129,21 +138,39 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The key covers the grammar's content, the build and every option that is not a path or a thread count.
-fn cache_key(grammar: &str, key_tokens: &[String]) -> Result<String, String> {
+/// SHA-256 of the grammar file's current bytes.
+fn grammar_digest(grammar: &str) -> Result<String, String> {
     let bytes = fs::read(grammar).map_err(|e| format!("--result-cache reads {grammar}: {e}"))?;
+    Ok(hex(&Sha256::digest(&bytes)))
+}
+
+/// SHA-256 of the running executable, so a rebuilt or locally modified binary never replays another build's rows.
+fn executable_digest() -> Result<String, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("--result-cache cannot locate the running executable: {e}"))?;
+    let bytes =
+        fs::read(&exe).map_err(|e| format!("--result-cache reads {}: {e}", exe.display()))?;
+    Ok(hex(&Sha256::digest(&bytes)))
+}
+
+/// The key covers the grammar's content, the executable's content and every option that is not a path or a thread count.
+pub(crate) fn cache_key(
+    grammar_digest: &str,
+    executable_digest: &str,
+    key_tokens: &[String],
+) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"pangloss-batch-result-cache/1\n");
+    hasher.update(b"pangloss-batch-result-cache/2\n");
     hasher.update(env!("CARGO_PKG_VERSION"));
     hasher.update(b"\n");
-    hasher.update(env!("PANGLOSS_BUILD_REVISION"));
+    hasher.update(executable_digest);
     hasher.update(b"\n");
-    hasher.update(hex(&Sha256::digest(&bytes)));
+    hasher.update(grammar_digest);
     for token in key_tokens {
         hasher.update(b"\n");
         hasher.update(token);
     }
-    Ok(hex(&hasher.finalize()))
+    hex(&hasher.finalize())
 }
 
 fn segments(dir: &Path) -> Vec<PathBuf> {
@@ -156,6 +183,24 @@ fn segments(dir: &Path) -> Vec<PathBuf> {
         .collect();
     found.sort();
     found
+}
+
+/// Removes `.tmp` segments a killed run left behind, once they are an hour old.
+fn sweep_stale_tmp(dir: &Path) {
+    let hour = std::time::Duration::from_secs(3600);
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let stale = path.extension().is_some_and(|x| x == "tmp")
+            && entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > hour);
+        if stale {
+            let _ = fs::remove_file(path);
+        }
+    }
 }
 
 fn load(dir: &Path) -> (HashMap<String, Entry>, Vec<PathBuf>) {
@@ -231,10 +276,12 @@ fn split_analysis(line: &str) -> Option<(usize, &str)> {
 
 pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result<(), String> {
     let plan = plan(args)?;
-    let key = cache_key(plan.grammar, &plan.key_tokens)?;
+    let grammar_before = grammar_digest(plan.grammar)?;
+    let key = cache_key(&grammar_before, &executable_digest()?, &plan.key_tokens);
     let dir = plan.root.join(&key);
     fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
     let _ = fs::write(dir.join(".used"), b"");
+    sweep_stale_tmp(&dir);
     let source = fs::read_to_string(plan.words).map_err(|e| format!("read {}: {e}", plan.words))?;
     let words: Vec<String> = source
         .lines()
@@ -244,14 +291,14 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
     let (cached, old_files) = load(&dir);
     let mut have: HashMap<String, Entry> = HashMap::new();
     let mut misses: Vec<&String> = Vec::new();
+    let mut miss_set: std::collections::HashSet<&String> = std::collections::HashSet::new();
     for word in &words {
         if let Some(entry) = cached.get(word) {
             have.insert(word.clone(), entry.clone());
-        } else if !have.contains_key(word) && !misses.contains(&word) {
+        } else if miss_set.insert(word) {
             misses.push(word);
         }
     }
-    let miss_set: std::collections::HashSet<&String> = misses.iter().copied().collect();
     let mut fresh: Vec<Entry> = Vec::new();
     if !misses.is_empty() {
         let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -328,6 +375,12 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
         words.len() - parsed_rows,
         fresh.len()
     );
+    if !fresh.is_empty() && grammar_digest(plan.grammar)? != grammar_before {
+        eprintln!(
+            "RESULTCACHE\tskipped: the grammar changed during the run, so nothing was stored"
+        );
+        fresh.clear();
+    }
     if !fresh.is_empty() {
         let refs: Vec<&Entry> = fresh.iter().collect();
         let name = format!(
@@ -337,7 +390,18 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_nanos())
         );
-        let size = write_segment(&dir, &refs, &name)?;
+        let size = match write_segment(&dir, &refs, &name) {
+            Ok(size) => size,
+            Err(e) => {
+                let _ = fs::remove_file(dir.join(format!("{name}.tmp")));
+                eprintln!(
+                    "RESULTCACHE\twarning: could not store {} rows: {e}",
+                    refs.len()
+                );
+                evict(&plan.root, &dir, plan.max_bytes);
+                return Ok(());
+            }
+        };
         if dir_size(&dir) > plan.max_bytes {
             let _ = fs::remove_file(dir.join(format!("{name}.jsonl")));
             eprintln!("RESULTCACHE\tskipped: {size} new bytes exceed --result-cache-max-mib");

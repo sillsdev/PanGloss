@@ -380,6 +380,23 @@ fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     }
 }
 
+/// Refuses a TSV output path that would overwrite the grammar or the word list.
+pub(crate) fn reject_tsv_path_collisions(
+    grammar_path: &str,
+    words_path: &str,
+    out_path: &str,
+) -> Result<(), String> {
+    let out_key = path_key(std::path::Path::new(out_path));
+    for (label, path) in [("grammar", grammar_path), ("word list", words_path)] {
+        if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+            return Err(format!(
+                "<out.tsv> path cannot overwrite {label} path: {out_path}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn reject_analysis_path_collisions(
     grammar_path: &str,
     words_path: &str,

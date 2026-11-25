@@ -2330,3 +2330,85 @@ fn result_cache_is_refused_where_rows_cannot_be_replayed_and_is_size_bounded() {
     let kept = fs::read_dir(dir.join("cache")).unwrap().count();
     assert_eq!(kept, 1);
 }
+
+/// A variant's morph names the variant's own entry, while its `msa` is the main entry's.
+#[test]
+fn query_fields_entry_of_a_variant_is_the_variant_and_its_msa_is_the_main_entrys() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-variant-msa-copies",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let rows = run_batch_sidecar_path("qf-variant", &project, "da\ndi\n", &["--query-fields"]);
+    let first_morph = |row: &serde_json::Value| -> Vec<(String, String)> {
+        row["analyses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                let m = &r["morphs"][0];
+                (
+                    m["entry"].as_str().expect("entry").to_string(),
+                    m["msa"].as_str().expect("msa").to_string(),
+                )
+            })
+            .collect()
+    };
+    let (main, variant) = (first_morph(&rows[0]), first_morph(&rows[1]));
+    assert!(!main.is_empty() && !variant.is_empty());
+    for (entry, msa) in &variant {
+        assert!(
+            main.iter().all(|(main_entry, _)| main_entry != entry),
+            "the variant has its own entry"
+        );
+        assert!(
+            main.iter().any(|(_, main_msa)| main_msa == msa),
+            "the variant's msa is the main entry's"
+        );
+    }
+}
+
+/// A cached run refuses to overwrite the grammar or the word list, like an uncached one.
+#[test]
+fn result_cache_refuses_outputs_that_would_overwrite_inputs() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-collide");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let cache = dir.join("cache");
+    let run = |out: &std::path::Path, analyses: &std::path::Path| {
+        run_batch_counted(&[
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            out.to_string_lossy().into_owned(),
+            "--analyses".into(),
+            analyses.to_string_lossy().into_owned(),
+            "--result-cache".into(),
+            cache.to_string_lossy().into_owned(),
+        ])
+    };
+    let before = fs::read(&fixture).unwrap();
+    for (out, analyses) in [
+        (dir.join("o.tsv"), fixture.clone()),
+        (dir.join("o.tsv"), words.clone()),
+        (fixture.clone(), dir.join("a.jsonl")),
+        (words.clone(), dir.join("a.jsonl")),
+        (dir.join("same"), dir.join("same")),
+    ] {
+        let error = run(&out, &analyses).expect_err("must refuse");
+        assert!(error.contains("cannot overwrite"), "{error}");
+    }
+    assert_eq!(fs::read(&fixture).unwrap(), before);
+    assert_eq!(fs::read_to_string(&words).unwrap(), "kat\n");
+}
+
+/// The key follows the executable's and the grammar's bytes and every option.
+#[test]
+fn result_cache_key_changes_with_the_executable_the_grammar_and_the_options() {
+    let key = crate::batch_result_cache::cache_key;
+    let base = key("g1", "exe1", &["--morph-spans".to_string()]);
+    assert_eq!(base, key("g1", "exe1", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g1", "exe2", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g2", "exe1", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g1", "exe1", &[]));
+}

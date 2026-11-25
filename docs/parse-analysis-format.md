@@ -84,7 +84,7 @@ The spans come from the synthesized word that verified the reading, through the 
 | `failure` | Row. `null` when `readingCount` is above 0; otherwise `{status, workSteps, workCap}` for a word with no reading. |
 | `failure.status` | `noParse` (the search finished inside its budget and found nothing; the TSV says `ok` with signature `-`), `workCap` (stopped at `--work-cap`), `captureCap` (stopped at `--capture-cap-mib`), `memoryCap` (stopped at `--word-mem-cap-mib`), `timeout` (`--word-timeout-ms`), `invalidShape` (the word did not segment). Checked in the order `invalidShape`, `timeout`, `memoryCap`, `captureCap`, `workCap`, `noParse`. A capped or timed-out word that still has a reading has `failure: null`; read `capped` and `timedOut`. |
 | `failure.workSteps`, `workCap` | Work steps spent, and the cap in force (`null` when unbounded). `workSteps` is `null` for `timeout`, which depends on the clock. |
-| `morphs[].entry` | The source LexEntry guid of the morph's lexical entry, `null` for a morph with no lexical entry. |
+| `morphs[].entry` | The source LexEntry guid of the morph's lexical entry, `null` for a morph with no lexical entry. For a variant, `entry` is the variant's own entry, while `msa` belongs to the main entry, which is also a dependency of the reading: a consumer that retires or edits the main entry must treat variant readings as depending on it. |
 | `morphs[].signature` | `entry:msa`, or `entry:msa:inflType` for a variant-specific morph; `-` stands for a missing entry. |
 | `signature` | Reading. The morph signatures joined by `+`, in morph order. |
 
@@ -92,7 +92,7 @@ The spans come from the synthesized word that verified the reading, through the 
 
 ## Result cache (opt-in)
 
-`--result-cache <dir|auto>` replays rows instead of parsing a word again. It needs `--analyses`; `auto` is `$XDG_CACHE_HOME` or `~/.cache`, then `pangloss/batch-results`. `--result-cache-max-mib N` (default 2048) bounds it.
+`--result-cache <dir|auto>` replays rows instead of parsing a word again. It needs `--analyses`; `auto` is `$XDG_CACHE_HOME`, else `~/.cache`, else `%LOCALAPPDATA%`, then `pangloss/batch-results`. The whole cache directory is bounded by `--result-cache-max-mib N` (default 2048 MiB): after each run the least recently used grammar directories are removed until it fits, and a run whose new rows would push its own grammar past the bound stores nothing. The key is the grammar's bytes, the crate version, the SHA-256 of the running executable and every option token except the three paths, `--threads`, `--no-flush` and the cache flags, so a rebuilt or locally modified binary starts a new key. A grammar that changes while a run is in flight stores nothing. A failed cache write warns and the outputs are still written. `.tmp` segments left by a killed run are removed after an hour.
 
 - **Key.** SHA-256 over the grammar file's bytes, the PanGloss version and build revision, and every command-line option except the three paths, `--threads`, `--no-flush` and the cache flags. A new key is a miss; one changed option, one changed byte of the grammar or a new build misses every word. The grammar path and its mtime play no part.
 - **Rows.** The stored TSV row (with its `elapsed_ms` as first measured) and the sidecar row, replayed with the new index. A word that appears twice is parsed once. A `timedOut` row is returned but never stored.

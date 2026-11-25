@@ -402,7 +402,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--result-cache",
         takes_value: true,
-        summary: "<dir>|auto: replay rows of an unchanged grammar, options and word from a size-capped cache; requires --analyses, refuses --stats, --partials, --start, --prefilter, --engine and --trace-*",
+        summary: "<dir>|auto: replay rows of an unchanged grammar, options and word from a size-capped cache; requires --analyses, refuses --stats, --cache, --partials, --start, --prefilter, --engine, --cost-column, --phase-marks and --trace-*; refuses an <out.tsv> or --analyses path that is the grammar or word list; keyed by the grammar bytes and the running executable's bytes",
     },
     FlagSpec {
         name: "--result-cache-max-mib",
