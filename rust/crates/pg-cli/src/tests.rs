@@ -1631,13 +1631,44 @@ fn grammar_copy_without(grammar: &std::path::Path, ids: &[&str]) -> std::path::P
     } else {
         pg_fwdata::import_file_lean(grammar).unwrap().0
     };
+    let mut gone: Vec<String> = Vec::new();
+    for entry in snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| ids.contains(&e.guid.as_str()))
+    {
+        gone.push(entry.guid.clone());
+        gone.extend(entry.allomorphs.iter().map(|a| a.guid.clone()));
+        gone.extend(entry.msas.iter().map(|m| m.guid().to_string()));
+    }
     snapshot
         .lexicon
         .entries
         .retain(|e| !ids.contains(&e.guid.as_str()));
     for entry in &mut snapshot.lexicon.entries {
+        gone.extend(
+            entry
+                .allomorphs
+                .iter()
+                .filter(|a| ids.contains(&a.guid.as_str()))
+                .map(|a| a.guid.clone()),
+        );
         entry.allomorphs.retain(|a| !ids.contains(&a.guid.as_str()));
     }
+    // FieldWorks deleting an item removes it from every ad hoc prohibition, and a prohibition left without a key or other item goes too.
+    snapshot.morphology.adhoc_prohibitions.retain_mut(|rule| {
+        let (primary, others) = match rule {
+            pg_snapshot::AdhocProhibition::Allomorph {
+                primary, others, ..
+            }
+            | pg_snapshot::AdhocProhibition::Morpheme {
+                primary, others, ..
+            } => (primary, others),
+        };
+        others.retain(|o| !gone.contains(o));
+        !gone.contains(primary) && !others.is_empty()
+    });
     let path = scratch_dir("retire-oracle-copy").join("without.json");
     fs::write(&path, snapshot.to_json()).unwrap();
     path
@@ -1649,17 +1680,13 @@ fn assert_retire_matches_deleted_copy(
     grammar: &std::path::Path,
     words: &[String],
     ids: &[&str],
-) -> Option<Vec<serde_json::Value>> {
+) -> Vec<serde_json::Value> {
     let baseline = analysed_readings(tag, grammar, words).expect("baseline parse");
     let copy = grammar_copy_without(grammar, ids);
-    let deleted = analysed_readings(tag, &copy, words);
-    let report = retire_report(tag, grammar, words, &ids.join(","));
-    let (deleted, report) = match (deleted, report) {
-        (Ok(deleted), Ok(report)) => (deleted, report),
-        // A deletion the importer refuses (a dangling reference) must be refused by both.
-        (Err(_), Err(_)) => return None,
-        (deleted, report) => panic!("{tag} {ids:?}: deleted copy {deleted:?}, --retire {report:?}"),
-    };
+    let deleted = analysed_readings(tag, &copy, words)
+        .unwrap_or_else(|e| panic!("{tag} {ids:?}: deleted copy failed: {e}"));
+    let report = retire_report(tag, grammar, words, &ids.join(","))
+        .unwrap_or_else(|e| panic!("{tag} {ids:?}: --retire failed: {e}"));
     assert_eq!(report.len(), words.len());
     for (i, row) in report.iter().enumerate() {
         let lost: Vec<_> = baseline[i].difference(&deleted[i]).cloned().collect();
@@ -1686,7 +1713,7 @@ fn assert_retire_matches_deleted_copy(
         assert_eq!(readings("lost"), lost.into_iter().collect(), "{ctx}");
         assert_eq!(readings("gained"), gained.into_iter().collect(), "{ctx}");
     }
-    Some(report)
+    report
 }
 
 #[test]
@@ -1708,13 +1735,9 @@ fn retire_matches_a_real_parse_with_each_entry_deleted() {
             .iter()
             .map(|e| e.guid.clone())
             .collect();
-        let (mut changed, mut refused) = (0, 0);
+        let mut changed = 0;
         for entry in &entries {
-            let Some(report) = assert_retire_matches_deleted_copy(name, &project, &words, &[entry])
-            else {
-                refused += 1;
-                continue;
-            };
+            let report = assert_retire_matches_deleted_copy(name, &project, &words, &[entry]);
             changed += report.iter().filter(|r| r["status"] != "unchanged").count();
         }
         let both: Vec<&str> = entries.iter().take(2).map(String::as_str).collect();
@@ -1723,7 +1746,6 @@ fn retire_matches_a_real_parse_with_each_entry_deleted() {
             changed > 0,
             "{name}: retiring entries should change some word"
         );
-        assert!(refused < entries.len(), "{name}: every deletion refused");
     }
 }
 
@@ -1740,12 +1762,10 @@ fn retire_reports_lost_words_with_the_retired_entry_as_cause() {
         .entries;
     let mut lost = 0;
     for entry in &entries {
-        let Ok(rows) = retire_report("retire-cause", &project, &words, &entry.guid) else {
-            continue;
-        };
+        let rows = retire_report("retire-cause", &project, &words, &entry.guid).unwrap();
         for row in rows.iter().filter(|r| r["status"] == "lost") {
             lost += 1;
-            assert_eq!(row["cause"]["kind"], "no-alternative-chain", "{row}");
+            assert_eq!(row["cause"]["kind"], "no-alternative-reading", "{row}");
             assert_eq!(
                 row["cause"]["via"],
                 serde_json::json!([entry.guid]),
@@ -1810,9 +1830,12 @@ fn retire_of_an_earlier_allomorph_unblocks_the_later_one() {
         &grammar,
         &words,
         &["00000000-0000-0000-0000-0000000000e2"],
-    )
-    .expect("allomorph deletion compiles");
+    );
     assert_eq!(report[0]["status"], "lost");
+    assert_eq!(
+        report[0]["cause"]["via"],
+        serde_json::json!(["00000000-0000-0000-0000-0000000000e2"])
+    );
     assert_eq!(report[1]["status"], "gained");
     assert_eq!(report[1]["reparsed"], true);
 }
@@ -1827,4 +1850,117 @@ fn retire_refuses_what_it_cannot_evaluate() {
     assert!(err.contains("neither an entry nor an allomorph"), "{err}");
     let err = retire_report("retire-xml", &fixture.grammar_path(), &words, "x").unwrap_err();
     assert!(err.contains("entry guids"), "{err}");
+}
+
+#[test]
+fn retire_of_entries_named_by_ad_hoc_prohibitions_drops_the_reference_and_parses() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = fixture_words(&fixture);
+    let snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let named: std::collections::BTreeSet<String> = snapshot
+        .morphology
+        .adhoc_prohibitions
+        .iter()
+        .flat_map(|rule| match rule {
+            pg_snapshot::AdhocProhibition::Allomorph {
+                primary, others, ..
+            }
+            | pg_snapshot::AdhocProhibition::Morpheme {
+                primary, others, ..
+            } => std::iter::once(primary)
+                .chain(others.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        })
+        .collect();
+    let owners: Vec<String> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| {
+            e.allomorphs.iter().any(|a| named.contains(&a.guid))
+                || e.msas.iter().any(|m| named.contains(m.guid()))
+        })
+        .map(|e| e.guid.clone())
+        .collect();
+    assert!(
+        !owners.is_empty(),
+        "the fixture names entries in prohibitions"
+    );
+    for owner in &owners {
+        assert_retire_matches_deleted_copy("retire-adhoc", &project, &words, &[owner]);
+    }
+    let allomorph = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .flat_map(|e| e.allomorphs.iter())
+        .find(|a| named.contains(&a.guid))
+        .map(|a| a.guid.clone());
+    if let Some(allomorph) = allomorph {
+        assert_retire_matches_deleted_copy("retire-adhoc-allo", &project, &words, &[&allomorph]);
+    }
+}
+
+#[test]
+fn retire_out_refuses_the_grammar_the_word_list_and_the_tsv() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let guid = pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries[0]
+        .guid
+        .clone();
+    let dir = scratch_dir("retire-collide");
+    let grammar_copy = dir.join("grammar.fwdata");
+    fs::copy(&project, &grammar_copy).unwrap();
+    let words = dir.join("words.txt");
+    fs::write(&words, "da\n").unwrap();
+    let tsv = dir.join("out.tsv");
+    let before = fs::read(&grammar_copy).unwrap();
+    for (label, target) in [
+        ("grammar", grammar_copy.clone()),
+        ("word list", words.clone()),
+        ("TSV output", tsv.clone()),
+        ("grammar", dir.join("sub/../grammar.fwdata")),
+    ] {
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let args: Vec<String> = [
+            grammar_copy.to_str().unwrap(),
+            words.to_str().unwrap(),
+            tsv.to_str().unwrap(),
+            "--retire",
+            &guid,
+            "--retire-out",
+            target.to_str().unwrap(),
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let err = run_batch(&args).unwrap_err();
+        assert!(err.contains(&format!("cannot overwrite {label}")), "{err}");
+    }
+    assert_eq!(fs::read(&grammar_copy).unwrap(), before);
+    assert_eq!(fs::read_to_string(&words).unwrap(), "da\n");
+}
+
+#[test]
+fn retire_cannot_compare_a_word_with_an_unprojectable_reading() {
+    let parsed = |unprojected| crate::retire::Parsed {
+        readings: Vec::new(),
+        incomplete: false,
+        unprojected,
+    };
+    let (_, lost, gained, reason) = crate::retire::compare(&parsed(0), Some(&parsed(1)));
+    assert!(lost.is_empty() && gained.is_empty());
+    assert!(reason.is_some_and(|r| r.contains("cannot be projected")));
+    let (_, _, _, reason) = crate::retire::compare(&parsed(1), Some(&parsed(0)));
+    assert!(reason.is_some());
+    let (_, _, _, reason) = crate::retire::compare(&parsed(0), Some(&parsed(0)));
+    assert!(reason.is_none());
 }

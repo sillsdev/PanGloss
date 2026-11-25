@@ -1901,9 +1901,14 @@ fn run_batch_impl(
             || engine.is_some()
             || diagnostic.is_some()
             || prefilter_mode != batch_prefilter::PrefilterMode::Off
-            || start_idx != 0)
+            || start_idx != 0
+            || work_columns
+            || cost_column
+            || !flush_each_word
+            || phase_marks
+            || cache_path_arg.is_some())
     {
-        return Err("--retire cannot be combined with --analyses, --stats, --partials, --engine, --start, --prefilter or a diagnostic run".into());
+        return Err("--retire cannot be combined with --analyses, --stats, --partials, --engine, --start, --prefilter, --work-columns, --cost-column, --no-flush, --phase-marks, --cache or a diagnostic run".into());
     }
     if cost_column && stats_requested {
         return Err(
@@ -2010,6 +2015,18 @@ fn run_batch_impl(
         .filter(|w| !w.is_empty())
         .collect();
     if let (Some(ids), Some(retire_out)) = (&retire_arg, &retire_out_arg) {
+        let out_key = path_key(std::path::Path::new(retire_out));
+        for (label, path) in [
+            ("grammar", grammar_path),
+            ("word list", words_path),
+            ("TSV output", out_path),
+        ] {
+            if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+                return Err(format!(
+                    "--retire-out path cannot overwrite {label} path: {retire_out}"
+                ));
+            }
+        }
         let settings = retire::Settings {
             words: &words,
             threads,

@@ -14,12 +14,13 @@
     "retiredReadings": { "type": "integer", "minimum": 0 },
     "lost": { "type": "array", "items": { "$ref": "#/$defs/reading" } },
     "gained": { "type": "array", "items": { "$ref": "#/$defs/reading" } },
+    "reason": { "type": "string" },
     "cause": {
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "via"],
       "properties": {
-        "kind": { "enum": ["no-alternative-chain", "alternative-route"] },
+        "kind": { "enum": ["no-alternative-reading", "alternative-route", "replaced"] },
         "via": { "type": "array", "items": { "type": "string" } }
       }
     }

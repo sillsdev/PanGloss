@@ -31,10 +31,10 @@ pub(crate) struct Reading {
 }
 
 /// One word's parse, reduced to what the comparison needs.
-struct Parsed {
-    readings: Vec<Reading>,
-    incomplete: bool,
-    unprojected: usize,
+pub(crate) struct Parsed {
+    pub(crate) readings: Vec<Reading>,
+    pub(crate) incomplete: bool,
+    pub(crate) unprojected: usize,
 }
 
 #[derive(Serialize)]
@@ -58,29 +58,43 @@ struct Row<'a> {
     gained: Vec<Reading>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cause: Option<Cause>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
 }
+
+const CAPPED: &str = "a parse hit a work, memory, capture or time cap";
+const UNPROJECTABLE: &str = "a reading cannot be projected, so it cannot be compared";
 
 fn guid_eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
-/// The snapshot with each entry, or allomorph, named by `ids` deleted; errors on an id that names neither.
+/// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither.
 pub(crate) fn retire_from_snapshot(
     snapshot: &mut pg_snapshot::Snapshot,
     ids: &[String],
 ) -> Result<bool, String> {
     let mut allomorph_retired = false;
+    let mut gone: BTreeSet<String> = BTreeSet::new();
     for id in ids {
+        if gone.contains(&id.to_ascii_lowercase()) {
+            continue;
+        }
         let entries = &mut snapshot.lexicon.entries;
         if let Some(at) = entries.iter().position(|e| guid_eq(&e.guid, id)) {
-            entries.remove(at);
+            let entry = entries.remove(at);
+            gone.insert(entry.guid.to_ascii_lowercase());
+            gone.extend(entry.allomorphs.iter().map(|a| a.guid.to_ascii_lowercase()));
+            gone.extend(entry.msas.iter().map(|m| m.guid().to_ascii_lowercase()));
             continue;
         }
         let mut found = false;
         for entry in entries.iter_mut() {
-            let before = entry.allomorphs.len();
+            for allomorph in entry.allomorphs.iter().filter(|a| guid_eq(&a.guid, id)) {
+                gone.insert(allomorph.guid.to_ascii_lowercase());
+                found = true;
+            }
             entry.allomorphs.retain(|a| !guid_eq(&a.guid, id));
-            found |= entry.allomorphs.len() != before;
         }
         if !found {
             return Err(format!(
@@ -89,7 +103,44 @@ pub(crate) fn retire_from_snapshot(
         }
         allomorph_retired = true;
     }
+    drop_adhoc_references(snapshot, &gone);
     Ok(allomorph_retired)
+}
+
+/// Removes retired guids from ad hoc prohibitions, dropping those that lose their primary or every other item, and their group memberships.
+fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<String>) {
+    use pg_snapshot::AdhocProhibition;
+    let hit = |g: &String| gone.contains(&g.to_ascii_lowercase());
+    let mut dropped: BTreeSet<String> = BTreeSet::new();
+    snapshot.morphology.adhoc_prohibitions.retain_mut(|rule| {
+        let (guid, primary, others) = match rule {
+            AdhocProhibition::Allomorph {
+                guid,
+                primary,
+                others,
+                ..
+            }
+            | AdhocProhibition::Morpheme {
+                guid,
+                primary,
+                others,
+                ..
+            } => (guid, primary, others),
+        };
+        others.retain(|o| !hit(o));
+        let keep = !hit(primary) && !others.is_empty();
+        if !keep {
+            dropped.insert(guid.to_ascii_lowercase());
+        }
+        keep
+    });
+    if let Some(groups) = &mut snapshot.morphology.adhoc_prohibition_groups {
+        for group in groups {
+            group
+                .members
+                .retain(|m| !dropped.contains(&m.to_ascii_lowercase()));
+        }
+    }
 }
 
 /// The retired grammar, whether an allomorph was retired, and the owning entry of every allomorph and MSA guid of the original.
@@ -144,13 +195,12 @@ fn load_retired(
 }
 
 fn parse_all(grammar: &Grammar, s: &Settings<'_>, words: &[&String]) -> Vec<Parsed> {
-    let mut morpher = Morpher::new(grammar, s.work_cap)
+    let morpher = Morpher::new(grammar, s.work_cap)
         .with_capture_cap(s.capture_cap)
         .with_word_mem_cap(s.word_mem_cap)
         .with_word_timeout(s.word_timeout)
         .with_always_enforce_final_templates(s.always_enforce_final_templates)
         .with_guess_roots(s.guess);
-    let _ = &mut morpher;
     let opts = morpher.project_parse_options();
     let owned: Vec<String> = words.iter().map(|w| (*w).clone()).collect();
     crate::parse_batch_in_order(&owned, s.threads, |_, word| {
@@ -249,29 +299,10 @@ pub(crate) fn run(
         let b = &base[index];
         let a = after.remove(&index);
         let reparsed = a.is_some();
-        let (retired_readings, lost, gained, incomplete) = match &a {
-            None => (b.readings.len(), Vec::new(), Vec::new(), b.incomplete),
-            Some(a) => {
-                let bk: BTreeSet<String> = b.readings.iter().map(key).collect();
-                let ak: BTreeSet<String> = a.readings.iter().map(key).collect();
-                let lost = b
-                    .readings
-                    .iter()
-                    .filter(|r| !ak.contains(&key(r)))
-                    .cloned()
-                    .collect();
-                let gained = a
-                    .readings
-                    .iter()
-                    .filter(|r| !bk.contains(&key(r)))
-                    .cloned()
-                    .collect();
-                (a.readings.len(), lost, gained, b.incomplete || a.incomplete)
-            }
-        };
+        let (retired_readings, lost, gained, reason) = compare(b, a.as_ref());
         let lost: Vec<Reading> = dedup(lost);
         let gained: Vec<Reading> = dedup(gained);
-        let status = if incomplete {
+        let status = if reason.is_some() {
             "incomplete"
         } else if !lost.is_empty() && !gained.is_empty() {
             "changed"
@@ -285,19 +316,21 @@ pub(crate) fn run(
             "unchanged"
         };
         let cause = matches!(status, "lost" | "reduced" | "changed").then(|| Cause {
-            kind: if status == "lost" {
-                "no-alternative-chain"
-            } else {
-                "alternative-route"
+            kind: match status {
+                "lost" => "no-alternative-reading",
+                "changed" if retired_readings == gained.len() => "replaced",
+                _ => "alternative-route",
             },
             via: lost
                 .iter()
                 .flat_map(|r| {
-                    r.entries
-                        .iter()
-                        .filter(|e| ids.iter().any(|i| guid_eq(e, i)))
+                    let named = r.entries.iter().cloned();
+                    let forms = r.morphs.iter().filter_map(|m| m.form.clone());
+                    named
+                        .chain(forms)
+                        .filter(|g| ids.iter().any(|i| guid_eq(g, i)))
                 })
-                .cloned()
+                .map(|g| g.to_ascii_lowercase())
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect(),
@@ -314,12 +347,50 @@ pub(crate) fn run(
             lost,
             gained,
             cause,
+            reason,
         };
         serde_json::to_writer(&mut w, &row).map_err(|e| e.to_string())?;
         w.write_all(b"\n").map_err(|e| e.to_string())?;
     }
     w.flush().map_err(|e| e.to_string())?;
     Ok(counts)
+}
+
+/// The retired reading count, the readings lost and gained, and why no verdict is possible; `after` is `None` for a word that was not re-parsed.
+pub(crate) fn compare(
+    b: &Parsed,
+    after: Option<&Parsed>,
+) -> (usize, Vec<Reading>, Vec<Reading>, Option<&'static str>) {
+    let Some(a) = after else {
+        return (
+            b.readings.len(),
+            Vec::new(),
+            Vec::new(),
+            b.incomplete.then_some(CAPPED),
+        );
+    };
+    let bk: BTreeSet<String> = b.readings.iter().map(key).collect();
+    let ak: BTreeSet<String> = a.readings.iter().map(key).collect();
+    let lost = b
+        .readings
+        .iter()
+        .filter(|r| !ak.contains(&key(r)))
+        .cloned()
+        .collect();
+    let gained = a
+        .readings
+        .iter()
+        .filter(|r| !bk.contains(&key(r)))
+        .cloned()
+        .collect();
+    let reason = if b.incomplete || a.incomplete {
+        Some(CAPPED)
+    } else if b.unprojected > 0 || a.unprojected > 0 {
+        Some(UNPROJECTABLE)
+    } else {
+        None
+    };
+    (a.readings.len(), lost, gained, reason)
 }
 
 fn dedup(readings: Vec<Reading>) -> Vec<Reading> {
@@ -337,7 +408,12 @@ pub(crate) fn parse_ids(value: &str) -> Result<Vec<String>, String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .collect();
+        .fold(Vec::new(), |mut ids: Vec<String>, id| {
+            if !ids.iter().any(|seen| guid_eq(seen, &id)) {
+                ids.push(id);
+            }
+            ids
+        });
     if ids.is_empty() {
         return Err("--retire requires at least one guid".into());
     }
