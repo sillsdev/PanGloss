@@ -49,8 +49,11 @@ pub const SYN_UNDECIDED: &str = "required_features_subsumption_undecided";
 pub const STEM_NAME_UNDECIDED: &str = "stem_name_overlap_undecided";
 pub const CO_OCCURRENCE_UNMODELED: &str = "blocker_co_occurrence_unmodeled";
 
+/// `MaybeShadowed` because another copy of the same FieldWorks allomorph is not shadowed.
+pub const SOURCE_ELSEWHERE: &str = "source_allomorph_selectable_elsewhere";
+
 /// Every reason code, with the meaning a host shows.
-pub const REASONS: [(&str, &str); 8] = [
+pub const REASONS: [(&str, &str); 9] = [
     (UNCONSTRAINED_EARLIER, "an earlier alternate has no environment and no condition, so it is eligible wherever this one is"),
     (CONDITIONS_COVER, "every condition of this alternate implies the earlier alternate's conditions"),
     (ENVIRONMENT_UNDECIDED, "the earlier alternate's environments are not shown to follow from this one's"),
@@ -58,6 +61,7 @@ pub const REASONS: [(&str, &str); 8] = [
     (MPR_UNDECIDED, "the rule-feature requirements differ and the cover is not shown"),
     (SYN_UNDECIDED, "the required syntactic features differ and the cover is not shown"),
     (STEM_NAME_UNDECIDED, "the stem names share a region, so which words pass each is not decided"),
+    (SOURCE_ELSEWHERE, "another copy of the same FieldWorks allomorph (another environment pass or MSA) is not shadowed, so removing the allomorph would lose words"),
     (CO_OCCURRENCE_UNMODELED, "the earlier alternate has co-occurrence rules, which this version does not model"),
 ];
 

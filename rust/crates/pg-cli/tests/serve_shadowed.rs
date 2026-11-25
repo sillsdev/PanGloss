@@ -16,8 +16,13 @@ struct Server {
 
 impl Server {
     fn start() -> Server {
-        let project =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/shadowed-fixture.xml");
+        Server::start_with("shadowed-fixture.xml")
+    }
+
+    fn start_with(fixture: &str) -> Server {
+        let project = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data")
+            .join(fixture);
         let mut child = Command::new(BIN)
             .args(["serve", "--project"])
             .arg(project)
@@ -138,10 +143,7 @@ fn describe_declares_the_op() {
         k
     };
     for row in r["alternates"].as_array().unwrap() {
-        let mut want = declared(&decl["rowFields"]);
-        want.push("reasons".into());
-        want.sort();
-        assert_eq!(keys(row), want, "{row}");
+        assert_eq!(keys(row), declared(&decl["rowFields"]), "{row}");
     }
     for row in r["deadContinuations"].as_array().unwrap() {
         assert_eq!(
@@ -150,4 +152,62 @@ fn describe_declares_the_op() {
             "{row}"
         );
     }
+}
+
+#[test]
+fn a_source_allomorph_is_proven_only_when_every_copy_is() {
+    let mut s = Server::start_with("shadowed-passes-fixture.xml");
+    let r = s.ask(json!({"id": "p", "op": "shadowedAllomorphs", "includeSelectable": true}));
+    let row = |key: &str| {
+        r["alternates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["xmlKey"] == key)
+            .unwrap_or_else(|| panic!("no row {key}: {r}"))
+    };
+    // `z#0` is covered by `s`, but its sibling pass `z#1` (another input pattern) is not.
+    assert_eq!(row("z#0")["verdict"], "maybe_shadowed");
+    assert_eq!(
+        row("z#0")["reasons"],
+        json!(["source_allomorph_selectable_elsewhere"])
+    );
+    assert_eq!(row("z#0")["siblings"][0]["xmlKey"], "z#1");
+    assert_eq!(row("z#1")["verdict"], "selectable");
+    // Both passes of `y` are covered, so the source allomorph is removable.
+    assert_eq!(row("y#0")["verdict"], "shadowed");
+    assert_eq!(row("y#1")["verdict"], "shadowed");
+    assert_eq!(row("y#0")["siblings"], json!([]));
+
+    let dead = r["deadContinuations"].as_array().unwrap();
+    let copy = |key: &str| dead.iter().find(|d| d["xmlKey"] == key).unwrap();
+    assert_eq!(copy("g#1")["continuation"], "live");
+    assert_eq!(copy("g#0")["continuation"], "maybe");
+    assert_eq!(
+        copy("g#0")["reasons"],
+        json!(["source_allomorph_live_elsewhere"])
+    );
+    assert_eq!(copy("g#0")["siblings"][0]["xmlKey"], "g#1");
+    assert_eq!(r["deadCounts"]["proven"], 0);
+}
+
+#[test]
+fn a_covered_copy_beside_a_live_copy_is_not_removable() {
+    // The shape C# hc.dll parses `damz` through `/ m _` (the `z_1` copy), so `z` must not be shadowed.
+    let mut s = Server::start_with("shadowed-copies-fixture.xml");
+    let r = s.ask(json!({"id": "c", "op": "shadowedAllomorphs", "includeSelectable": true}));
+    let rows: Vec<&Value> = r["alternates"].as_array().unwrap().iter().collect();
+    assert!(
+        rows.iter()
+            .all(|a| a["verdict"] != "shadowed" || a["xmlKey"] != "z_0"),
+        "{r}"
+    );
+    assert!(
+        r["deadContinuations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["continuation"] != "proven"),
+        "{r}"
+    );
 }

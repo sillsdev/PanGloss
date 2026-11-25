@@ -21,6 +21,13 @@ fn sub(id: &str, in_attr: &str, lhs: &str, out_attr: &str, shape: &str, env: &st
     )
 }
 
+/// A prefix subrule: the inserted shape comes before the copied input.
+fn psub(id: &str, in_attr: &str, lhs: &str, out_attr: &str, shape: &str) -> String {
+    format!(
+        r#"<MorphologicalSubrule id="{id}"><MorphologicalInput {in_attr}><PhoneticSequence id="{id}_s">{lhs}</PhoneticSequence></MorphologicalInput><MorphologicalOutput {out_attr}><InsertSegments><PhoneticShape>{shape}</PhoneticShape></InsertSegments><CopyFromInput index="{id}_s" /></MorphologicalOutput></MorphologicalSubrule>"#
+    )
+}
+
 fn rule(id: &str, subs: &[String]) -> String {
     format!(
         r#"<MorphologicalRule id="{id}" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot"><Name>{id}</Name><MorphologicalSubrules>{}</MorphologicalSubrules><MorphemeId>{id}</MorphemeId></MorphologicalRule>"#,
@@ -447,6 +454,36 @@ fn an_ungated_i_suffix_keeps_the_root_live_but_the_gated_one_is_reported() {
     assert_eq!(row.verdict, Continuation::Live);
     assert_eq!(row.neighbour_rejections[0].blocking.names, ["VC-B"]);
     assert!(!row.via_converter);
+}
+
+#[test]
+fn a_null_converter_on_either_side_marks_the_root_via_converter() {
+    let appl = rule(
+        "APPL",
+        &[sub(
+            "appl",
+            r#"requiredMPRFeatures="vcB""#,
+            ANY,
+            "",
+            "i",
+            "",
+        )],
+    );
+    let ik = rule("IK", &[sub("ik", "", ANY, "", "ik", "")]);
+    let entries = [entry("eA", r#"ruleFeatures="vcA""#, &[("ba", RIGHT_I)])];
+    let in_a = r#"requiredMPRFeatures="vcA""#;
+    let to_b = r#"MPRFeatures="vcB""#;
+    for conv in [
+        rule("CONV", &[sub("conv", in_a, ANY, to_b, "", "")]),
+        rule("CONV", &[psub("conv", in_a, ANY, to_b, "")]),
+    ] {
+        let g = grammar(&[appl.clone(), ik.clone(), conv], "APPL IK CONV", &entries);
+        let row = dead_continuations(&g).into_iter().next().unwrap();
+        assert_eq!(row.verdict, Continuation::Live);
+        assert!(row.via_converter);
+    }
+    let no_conv = grammar(&[appl, ik], "APPL IK", &entries);
+    assert!(!dead_continuations(&no_conv)[0].via_converter);
 }
 
 /// Every allomorph a fixture word's parses or generations select.

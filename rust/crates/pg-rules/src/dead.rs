@@ -40,8 +40,10 @@ pub const BOUND_ROOT: &str = "bound_root";
 pub const NEEDS_NEIGHBOUR: &str = "environment_needs_neighbour";
 /// `Maybe` because the allomorph needs a following segment that only class-rejected affixes can supply.
 pub const NEEDS_REJECTED_SUPPLIER: &str = "environment_needs_class_rejected_neighbour";
+/// `Maybe` because another copy of the same FieldWorks allomorph is not proven dead.
+pub const SOURCE_ELSEWHERE: &str = "source_allomorph_live_elsewhere";
 /// Every reason code, with the meaning a host shows.
-pub const REASONS: [(&str, &str); 5] = [
+pub const REASONS: [(&str, &str); 6] = [
     (
         MAY_STAND_BARE,
         "no affix accepts it, but nothing stops the allomorph standing as a bare word",
@@ -57,6 +59,10 @@ pub const REASONS: [(&str, &str); 5] = [
     (
         NEEDS_NEIGHBOUR,
         "every environment of the allomorph requires a segment beside it, which a bare word lacks",
+    ),
+    (
+        SOURCE_ELSEWHERE,
+        "another copy of the same FieldWorks allomorph (another MSA of the entry) is not proven dead, so removing the allomorph would lose words",
     ),
     (
         NEEDS_REJECTED_SUPPLIER,
@@ -210,17 +216,24 @@ fn may_supply(a: &AffixAllomorphDef, texts: &[String]) -> bool {
     }
     match a.rhs.as_slice() {
         [OutputAction::Copy(_), OutputAction::InsertSegments { shape, .. }] => {
+            if !has_segment(&shape.shape) {
+                return false;
+            }
             let ins = shape.text.trim_start_matches('+');
-            !ins.is_empty()
-                && texts
-                    .iter()
-                    .any(|t| ins.starts_with(t.as_str()) || t.starts_with(ins))
+            texts
+                .iter()
+                .any(|t| ins.starts_with(t.as_str()) || t.starts_with(ins))
         }
         [OutputAction::InsertSegments { .. }, OutputAction::Copy(_)] | [OutputAction::Copy(_)] => {
             false
         }
         _ => true,
     }
+}
+
+/// Whether a shape holds a real segment, as opposed to only boundary markers (a FieldWorks null affix inserts `+∅`).
+fn has_segment(shape: &pg_shape::Shape) -> bool {
+    (0..shape.len()).any(|i| shape.kind(i) == pg_shape::NodeKind::Segment)
 }
 
 /// The requirement that turns one affix allomorph away from an entry, or `None` when it accepts.
@@ -303,12 +316,13 @@ fn neighbour(
     Some(n)
 }
 
-/// An affix allomorph that adds no segments.
+/// An affix allomorph that adds no real segments, whichever side it would attach on.
 fn is_null_shape(a: &AffixAllomorphDef) -> bool {
     match a.rhs.as_slice() {
         [OutputAction::Copy(_)] => true,
-        [OutputAction::Copy(_), OutputAction::InsertSegments { shape, .. }] => {
-            shape.text.trim_start_matches('+').is_empty()
+        [OutputAction::Copy(_), OutputAction::InsertSegments { shape, .. }]
+        | [OutputAction::InsertSegments { shape, .. }, OutputAction::Copy(_)] => {
+            !has_segment(&shape.shape)
         }
         _ => false,
     }
