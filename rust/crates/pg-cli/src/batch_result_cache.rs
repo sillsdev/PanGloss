@@ -6,7 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-const DEFAULT_MAX_MIB: u64 = 2048;
+const DEFAULT_MAX_MIB: u64 = 256;
 const MAX_SEGMENTS: usize = 16;
 const ROW_PREFIX_HEAD: &str = "{\"schema\":\"fieldworks-parse-analysis/v1\",\"index\":";
 
@@ -268,6 +268,13 @@ fn evict(root: &Path, keep: &Path, max_bytes: u64) {
     }
 }
 
+/// Removes a key directory that holds no stored rows, so a run that stored nothing leaves nothing.
+fn drop_if_empty(dir: &Path) {
+    if segments(dir).is_empty() {
+        let _ = fs::remove_dir_all(dir);
+    }
+}
+
 fn split_analysis(line: &str) -> Option<(usize, &str)> {
     let rest = line.strip_prefix(ROW_PREFIX_HEAD)?;
     let (index, tail) = rest.split_once(',')?;
@@ -398,6 +405,7 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
                     "RESULTCACHE\twarning: could not store {} rows: {e}",
                     refs.len()
                 );
+                drop_if_empty(&dir);
                 evict(&plan.root, &dir, plan.max_bytes);
                 return Ok(());
             }
@@ -415,6 +423,7 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
             }
         }
     }
+    drop_if_empty(&dir);
     evict(&plan.root, &dir, plan.max_bytes);
     Ok(())
 }

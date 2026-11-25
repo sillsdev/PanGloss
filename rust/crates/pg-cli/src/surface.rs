@@ -407,7 +407,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--result-cache-max-mib",
         takes_value: true,
-        summary: "cache size bound in MiB (default 2048); least recently used grammars are evicted",
+        summary: "cache size bound in MiB (default 256); least recently used grammars are evicted",
     },
     FlagSpec {
         name: "--guess",
