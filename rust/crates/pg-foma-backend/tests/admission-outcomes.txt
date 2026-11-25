@@ -7,6 +7,7 @@ machine:edge-cases/adhoc-prohibition-variant-enclitic-first	TunedSurfaceProbed	o
 machine:edge-cases/adhoc-prohibition-variant-main-first-enclitic	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-variant-msa-copies	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/adhoc-prohibition-whynot	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/affix-multiple-application	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/alias-output-0-literal	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-0-singleton	TunedSurfaceProbed	refused
 machine:edge-cases/alias-output-1-literal	TunedSurfaceProbed	refused
@@ -245,7 +246,6 @@ machine:languages/suffixing-extension-slot-ordering	TunedSurfaceProbed	refused
 machine:languages/suffixing-vowel-harmony	TunedSurfaceProbed	refused
 machine:languages/templatic-root-modification	TunedSurfaceProbed	refused
 staging:edge-cases/adjacent-nullable-copies	TunedSurfaceProbed	refused
-machine:edge-cases/affix-multiple-application	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/backend-gated-generic	TunedSurfaceProbed	refused
 staging:edge-cases/backend-ordered-generic	TunedSurfaceProbed	refused
 staging:edge-cases/backend-strata-generic	TunedSurfaceProbed	refused
