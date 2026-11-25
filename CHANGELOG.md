@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.35.0
+
+Released 2026-11-25.
 
 - Analysis matching is shared across the parent paths of one word through a per-word shape graph (#481, replacing #477's match memo): when several unapplication paths reach the same shape, a rule's patterns are matched once and every later arrival reads the stored row. It is a bounded per-word table keyed by shape and rule id (rows are at most distinct shapes times rules; nothing is evicted and no entry waits for a second miss), covers affix and realizational rules and not compounding, and, under a word memory cap, is charged in real heap bytes to the word memory meter as optional state (at most an eighth of `--word-mem-cap-mib`; without a cap there is no byte charge and only the work cap bounds it; it never changes whether a word is `MEMCAP`, and a refused charge drops it for the rest of the word). **Work counts and capped outcomes change:** `work_steps` falls for words that repeat matches (a row read is charged one unit plus one per output, never more than the search that made the row), and words that used to stop at `CAP` may now finish; a word that completes without the graph never caps with it. Parses that complete are identical, in the same order. See `docs/formats/batch-tsv.md`.
 - `shadowedAllomorphs` docs and `--describe` now say to act only on `removableGuids`, never on another guid in `sourceAllomorphGuids`, and that `proven` verdicts are not yet replayed against C# HC.
