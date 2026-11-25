@@ -13,7 +13,7 @@ A FieldWorks project can set `<ParserParameters><HC><AffixRules><AffixRule guid=
 | FieldWorks `HCLoader` | Released builds do not read the key, so every affix rule keeps 1. PR #1263 reads it and clamps the count to 1..10. |
 | PanGloss | Reads the key exactly as PR #1263 does and loads the clamped N into the rule's `multipleApplication`; absent or 1 means 1. |
 
-A project that sets the key to N > 1 (up to 10) parses words that stack that affix more than once in PanGloss; FLEx's own parser stops at one application. A rule left at the default parses identically. The engine is not the odd one out: C# HermitCrab itself supports the count, and the staged fixture's C# self-check agrees with PanGloss through the HC XML grammar. The gap closes when PR #1263 merges and the oracle build includes it; this entry is then retired.
+A project that sets the key to N > 1 (up to 10) parses words that stack that affix more than once in PanGloss; FLEx's own parser stops at one application. A rule left at the default parses identically. The engine is not the odd one out: C# HermitCrab itself supports the count, and the suite fixture's C# replay agrees with PanGloss through the HC XML grammar. The gap closes when PR #1263 merges and the oracle build includes it; this entry is then retired.
 
 ## Two pinned behaviours
 
