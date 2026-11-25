@@ -4,7 +4,7 @@
 
 The grammar must be a `.fwdata`, `.fwbackup` or snapshot `.json`; an HC XML grammar has no entry guids and is refused. `<out.tsv>` is not written. `--retire` is refused with `--analyses`, `--stats`, `--partials`, `--engine`, `--start`, `--prefilter` and a diagnostic run. An id that is neither an entry guid nor an allomorph (`MoForm`) guid is an error.
 
-Which words are re-parsed on the retired grammar: when only entries are retired, every word whose baseline readings include a retired entry, plus every word whose baseline was capped, timed out or had a reading that could not be projected. Words outside that set are reported `unchanged` with `reparsed: false`. When an allomorph is retired, every word is re-parsed (a blocked word has no reading to name the blocker). The baseline is always parsed in full, in process.
+Which words are re-parsed on the retired grammar: when only entries are retired, every word whose baseline readings include a retired entry, plus every word whose baseline was capped, timed out or had a reading that could not be projected. Words outside that set are reported `unchanged` with `reparsed: false`. When an allomorph is retired, or an ad hoc prohibition that names a retired item keeps other members and so becomes stricter (it fires only when all its other items co-occur), every word is re-parsed: a blocked or newly blocked word has no reading to name the cause. The baseline is always parsed in full, in process.
 
 ## Row
 

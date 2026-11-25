@@ -1964,3 +1964,77 @@ fn retire_cannot_compare_a_word_with_an_unprojectable_reading() {
     let (_, _, _, reason) = crate::retire::compare(&parsed(0), Some(&parsed(0)));
     assert!(reason.is_none());
 }
+
+/// The stem-msa-copies grammar with its prohibitions replaced by one that keeps `ta` away from the co-occurrence of `da` and `ba`.
+fn multi_member_prohibition_snapshot(morpheme_level: bool) -> (std::path::PathBuf, String, String) {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let mut snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let find = |form: &str| {
+        snapshot
+            .lexicon
+            .entries
+            .iter()
+            .find(|e| e.allomorphs[0].forms.iter().any(|f| f.form == form))
+            .unwrap_or_else(|| panic!("entry {form}"))
+            .clone()
+    };
+    let (ta, da, ba) = (find("ta"), find("da"), find("ba"));
+    let pick = |e: &pg_snapshot::LexEntry| {
+        if morpheme_level {
+            e.msas[0].guid().to_string()
+        } else {
+            e.allomorphs[0].guid.clone()
+        }
+    };
+    let (primary, others) = (pick(&ta), vec![pick(&da), pick(&ba)]);
+    let guid = "00000000-0000-0000-0000-0000000000a1".to_string();
+    snapshot.morphology.adhoc_prohibitions = vec![if morpheme_level {
+        pg_snapshot::AdhocProhibition::Morpheme {
+            guid,
+            disabled: false,
+            primary,
+            others,
+            adjacency: pg_snapshot::Adjacency::Anywhere,
+        }
+    } else {
+        pg_snapshot::AdhocProhibition::Allomorph {
+            guid,
+            disabled: false,
+            primary,
+            others,
+            adjacency: pg_snapshot::Adjacency::Anywhere,
+        }
+    }];
+    snapshot.morphology.adhoc_prohibition_groups = None;
+    let path = scratch_dir("retire-multi").join(format!("multi-{morpheme_level}.json"));
+    fs::write(&path, snapshot.to_json()).unwrap();
+    (path, da.guid.clone(), da.allomorphs[0].guid.clone())
+}
+
+#[test]
+fn retire_that_shrinks_a_surviving_prohibition_reparses_words_that_never_used_the_item() {
+    let words: Vec<String> = ["taba", "tada", "ta", "da", "ba", "tadaba", "tabada"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for morpheme_level in [false, true] {
+        let (grammar, da_entry, da_allomorph) = multi_member_prohibition_snapshot(morpheme_level);
+        let baseline = analysed_readings("retire-multi-base", &grammar, &words).unwrap();
+        assert!(!baseline[0].is_empty(), "taba parses before the retire");
+        // An allomorph retire leaves a morpheme-level prohibition's MSA reference intact.
+        let ids = if morpheme_level {
+            vec![da_entry]
+        } else {
+            vec![da_entry, da_allomorph]
+        };
+        for id in ids {
+            let tag = format!("retire-multi-{morpheme_level}");
+            let report = assert_retire_matches_deleted_copy(&tag, &grammar, &words, &[&id]);
+            // The shrunk prohibition fires on ta+ba alone, so taba is lost though it never used da.
+            assert_eq!(report[0]["status"], "lost", "{}", report[0]);
+            assert_eq!(report[0]["reparsed"], true);
+        }
+    }
+}

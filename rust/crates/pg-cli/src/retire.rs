@@ -69,7 +69,7 @@ fn guid_eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
-/// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither.
+/// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither; true when every word needs a re-parse, because an allomorph was retired or a surviving prohibition shrank and got stricter.
 pub(crate) fn retire_from_snapshot(
     snapshot: &mut pg_snapshot::Snapshot,
     ids: &[String],
@@ -103,15 +103,16 @@ pub(crate) fn retire_from_snapshot(
         }
         allomorph_retired = true;
     }
-    drop_adhoc_references(snapshot, &gone);
-    Ok(allomorph_retired)
+    let tightened = drop_adhoc_references(snapshot, &gone);
+    Ok(allomorph_retired || tightened)
 }
 
 /// Removes retired guids from ad hoc prohibitions, dropping those that lose their primary or every other item, and their group memberships.
-fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<String>) {
+fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<String>) -> bool {
     use pg_snapshot::AdhocProhibition;
     let hit = |g: &String| gone.contains(&g.to_ascii_lowercase());
     let mut dropped: BTreeSet<String> = BTreeSet::new();
+    let mut tightened = false;
     snapshot.morphology.adhoc_prohibitions.retain_mut(|rule| {
         let (guid, primary, others) = match rule {
             AdhocProhibition::Allomorph {
@@ -127,8 +128,11 @@ fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<S
                 ..
             } => (guid, primary, others),
         };
+        let before = others.len();
         others.retain(|o| !hit(o));
         let keep = !hit(primary) && !others.is_empty();
+        // A rule fires only when all its others co-occur, so one fewer makes it stricter on words that never used the retired item.
+        tightened |= keep && others.len() != before;
         if !keep {
             dropped.insert(guid.to_ascii_lowercase());
         }
@@ -141,6 +145,7 @@ fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<S
                 .retain(|m| !dropped.contains(&m.to_ascii_lowercase()));
         }
     }
+    tightened
 }
 
 /// The retired grammar, whether an allomorph was retired, and the owning entry of every allomorph and MSA guid of the original.
@@ -271,15 +276,15 @@ pub(crate) fn run(
     settings: &Settings<'_>,
     out_path: &str,
 ) -> Result<BTreeMap<&'static str, usize>, String> {
-    let (retired, allomorph_retired, form_owner) = load_retired(grammar_path, ids)?;
+    let (retired, reparse_all, form_owner) = load_retired(grammar_path, ids)?;
     let all: Vec<&String> = settings.words.iter().collect();
     let mut base = parse_all(baseline, settings, &all);
     base.iter_mut()
         .for_each(|p| add_form_owners(p, &form_owner));
-    // An allomorph's removal can unblock a word that has no reading to name it, so only entry retirement narrows the re-parse.
+    // An allomorph retire can unblock a word, and a shrunk prohibition can block one, with no reading to name either, so only a plain entry retire narrows the re-parse.
     let candidates: Vec<usize> = (0..base.len())
         .filter(|&i| {
-            allomorph_retired
+            reparse_all
                 || base[i].incomplete
                 || base[i].unprojected > 0
                 || base[i].readings.iter().any(|r| uses(r, ids))
