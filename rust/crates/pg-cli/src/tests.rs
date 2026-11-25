@@ -2038,3 +2038,41 @@ fn retire_that_shrinks_a_surviving_prohibition_reparses_words_that_never_used_th
         }
     }
 }
+
+#[test]
+fn retire_of_the_only_affix_in_an_obligatory_slot_reparses_the_bare_stems() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "empty-required-template-slot");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let mut snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let slot = "469a6957-8f7a-4ecc-bbf4-434978045a96";
+    let mut flipped = false;
+    for pos in &mut snapshot.morphology.parts_of_speech {
+        for s in pos.affix_slots.iter_mut().filter(|s| s.guid == slot) {
+            s.optional = false;
+            flipped = true;
+        }
+    }
+    assert!(flipped, "the suffix slot exists");
+    let grammar = scratch_dir("retire-slot").join("slot.json");
+    fs::write(&grammar, snapshot.to_json()).unwrap();
+    let words: Vec<String> = ["monu", "monua", "amonu"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let baseline = analysed_readings("retire-slot-base", &grammar, &words).unwrap();
+    assert!(
+        baseline[0].is_empty(),
+        "the required slot blocks the bare stem"
+    );
+    assert!(!baseline[1].is_empty());
+    // The retired affix was the slot's only filler, so the compiler drops the slot and the bare stem parses.
+    let report = assert_retire_matches_deleted_copy(
+        "retire-slot",
+        &grammar,
+        &words,
+        &["08d86318-7f90-43bf-8629-b859e36bd67d"],
+    );
+    assert_eq!(report[0]["status"], "gained", "{}", report[0]);
+    assert_eq!(report[0]["reparsed"], true);
+}

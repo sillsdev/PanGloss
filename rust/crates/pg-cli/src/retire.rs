@@ -69,7 +69,7 @@ fn guid_eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
-/// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither; true when every word needs a re-parse, because an allomorph was retired or a surviving prohibition shrank and got stricter.
+/// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither, and the ad hoc prohibition references to it dropped; true when an allomorph was retired.
 pub(crate) fn retire_from_snapshot(
     snapshot: &mut pg_snapshot::Snapshot,
     ids: &[String],
@@ -103,16 +103,15 @@ pub(crate) fn retire_from_snapshot(
         }
         allomorph_retired = true;
     }
-    let tightened = drop_adhoc_references(snapshot, &gone);
-    Ok(allomorph_retired || tightened)
+    drop_adhoc_references(snapshot, &gone);
+    Ok(allomorph_retired)
 }
 
 /// Removes retired guids from ad hoc prohibitions, dropping those that lose their primary or every other item, and their group memberships.
-fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<String>) -> bool {
+fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<String>) {
     use pg_snapshot::AdhocProhibition;
     let hit = |g: &String| gone.contains(&g.to_ascii_lowercase());
     let mut dropped: BTreeSet<String> = BTreeSet::new();
-    let mut tightened = false;
     snapshot.morphology.adhoc_prohibitions.retain_mut(|rule| {
         let (guid, primary, others) = match rule {
             AdhocProhibition::Allomorph {
@@ -128,11 +127,8 @@ fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<S
                 ..
             } => (guid, primary, others),
         };
-        let before = others.len();
         others.retain(|o| !hit(o));
         let keep = !hit(primary) && !others.is_empty();
-        // A rule fires only when all its others co-occur, so one fewer makes it stricter on words that never used the retired item.
-        tightened |= keep && others.len() != before;
         if !keep {
             dropped.insert(guid.to_ascii_lowercase());
         }
@@ -145,10 +141,111 @@ fn drop_adhoc_references(snapshot: &mut pg_snapshot::Snapshot, gone: &BTreeSet<S
                 .retain(|m| !dropped.contains(&m.to_ascii_lowercase()));
         }
     }
-    tightened
 }
 
-/// The retired grammar, whether an allomorph was retired, and the owning entry of every allomorph and MSA guid of the original.
+/// The snapshot as JSON without the lexical entries, which is what a retire must leave untouched.
+fn without_lexicon(snapshot: &pg_snapshot::Snapshot) -> serde_json::Value {
+    let mut value = serde_json::to_value(snapshot).expect("snapshot serializes");
+    if let Some(root) = value.as_object_mut() {
+        root.remove("conversionProvenance");
+        if let Some(lexicon) = root.get_mut("lexicon").and_then(|l| l.as_object_mut()) {
+            lexicon.remove("entries");
+        }
+    }
+    value
+}
+
+/// Every affix-like rule keyed by its owning entry, MSA and form guids, and the kept rule keys of each stratum and template slot, with the rules in `only` (when given) the only ones kept.
+fn structure(grammar: &Grammar, only: Option<&BTreeSet<String>>) -> (BTreeSet<String>, String) {
+    let keys: Vec<Option<String>> = grammar
+        .mrules
+        .iter()
+        .enumerate()
+        .map(|(i, rule)| {
+            let (morpheme, allomorphs) = match rule {
+                pg_grammar::model::MorphRuleDef::AffixProcess(r) => (r.morpheme, &r.allomorphs),
+                pg_grammar::model::MorphRuleDef::Realizational(r) => (r.morpheme, &r.allomorphs),
+                pg_grammar::model::MorphRuleDef::Compounding(_) => {
+                    return Some(format!("rule#{i}"))
+                }
+            };
+            let info = grammar.morphemes.get(morpheme.0 as usize)?;
+            let forms: Vec<_> = allomorphs
+                .iter()
+                .map(|a| {
+                    grammar
+                        .allomorph_sources
+                        .get(a.id.0 as usize)
+                        .map(|s| &s.form_guids)
+                })
+                .collect();
+            Some(format!(
+                "{:?}|{:?}|{:?}|{forms:?}",
+                info.owner.as_ref().map(|o| &o.entry_guid),
+                info.source_msa_guid,
+                info.source_infl_type_guid
+            ))
+        })
+        .collect();
+    let all: BTreeSet<String> = keys.iter().flatten().cloned().collect();
+    let kept = |id: &pg_grammar::model::MRuleId| {
+        keys.get(id.0 as usize)
+            .and_then(|k| k.as_ref())
+            .filter(|k| only.is_none_or(|o| o.contains(*k)))
+            .cloned()
+    };
+    let mut text = String::new();
+    for stratum in &grammar.strata {
+        let rules: Vec<_> = stratum.mrules.iter().filter_map(kept).collect();
+        text += &format!(
+            "stratum {:?} {:?} {:?} {:?} {:?} {rules:?}\n",
+            stratum.name, stratum.table, stratum.mrule_order, stratum.prules, stratum.templates
+        );
+    }
+    for template in &grammar.templates {
+        text += &format!(
+            "template {:?} {:?} {} {:?}\n",
+            template.source_guid, template.name, template.is_final, template.required_syn_fs
+        );
+        for slot in &template.slots {
+            let rules: Vec<_> = slot.rules.iter().filter_map(kept).collect();
+            text += &format!(
+                " slot {:?} {} {:?} {rules:?}\n",
+                slot.name, slot.optional, slot.zone
+            );
+        }
+    }
+    text += &format!(
+        "{} {} {} {} {} {} {} {} {}",
+        grammar.prules.len(),
+        grammar.natural_classes.len(),
+        grammar.stem_names.len(),
+        grammar.families.len(),
+        grammar.max_stem_count,
+        grammar.deletion_reapplications,
+        grammar.always_enforce_final_templates,
+        grammar.merge_equivalent_analyses,
+        grammar.guess_roots
+    );
+    (all, text)
+}
+
+/// True when the retired grammar differs from the baseline in anything but the removed lexicon: other snapshot parts, or how the compiler lays out templates and strata around the surviving rules.
+fn rest_of_grammar_changed(
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+    baseline: &Grammar,
+    retired: &Grammar,
+) -> bool {
+    if before != after {
+        return true;
+    }
+    let (retired_keys, retired_text) = structure(retired, None);
+    let (_, baseline_text) = structure(baseline, Some(&retired_keys));
+    baseline_text != retired_text
+}
+
+/// The retired grammar, whether every word must be re-parsed, and the owning entry of every allomorph and MSA guid of the original.
 fn load_retired(
     path: &str,
     ids: &[String],
@@ -186,17 +283,29 @@ fn load_retired(
                 .map(|g| (g.to_ascii_lowercase(), e.guid.clone()))
         })
         .collect();
+    let before = without_lexicon(&snapshot);
+    let unmodified = snapshot.clone();
     let allomorph = retire_from_snapshot(&mut snapshot, ids)?;
     if ext == "json" {
         warnings = Vec::new();
     }
+    let after = without_lexicon(&snapshot);
+    let baseline = pg_grammar::compile_project_grammar_only_with_import_warnings(
+        &unmodified,
+        Default::default(),
+        warnings.clone(),
+    )
+    .map_err(|e| format!("compile {path}: {e}"))?
+    .grammar;
     let output = pg_grammar::compile_project_grammar_only_with_import_warnings(
         &snapshot,
         Default::default(),
         warnings,
     )
     .map_err(|e| format!("compile {path} without the retired ids: {e}"))?;
-    Ok((output.grammar, allomorph, form_owner))
+    let reparse_all =
+        allomorph || rest_of_grammar_changed(&before, &after, &baseline, &output.grammar);
+    Ok((output.grammar, reparse_all, form_owner))
 }
 
 fn parse_all(grammar: &Grammar, s: &Settings<'_>, words: &[&String]) -> Vec<Parsed> {
@@ -281,7 +390,7 @@ pub(crate) fn run(
     let mut base = parse_all(baseline, settings, &all);
     base.iter_mut()
         .for_each(|p| add_form_owners(p, &form_owner));
-    // An allomorph retire can unblock a word, and a shrunk prohibition can block one, with no reading to name either, so only a plain entry retire narrows the re-parse.
+    // Narrowing holds only while the rest of the grammar is unchanged; an allomorph retire or any other change can alter a word no reading names.
     let candidates: Vec<usize> = (0..base.len())
         .filter(|&i| {
             reparse_all
