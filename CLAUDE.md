@@ -186,38 +186,19 @@ check. `pg.ps1` never initializes `machine`; only `rust/tools/run-conformance.sh
 out). Move the suite pin by editing `conformance.commit` to a full SHA that is on the suite's `main`,
 then running `pwsh rust/tools/conformance.ps1`.
 
-## Releases start with a pushed version tag
+## Releases
 
-Keep release notes under `## Unreleased`, then run `pwsh -NoProfile -File rust/tools/release.ps1
--Prepare -Version x.y.z` from a clean worktree on any branch. It branches `release/vX.Y.Z` from
-`origin/main`, renames `## Unreleased` to the version, stamps `[workspace.package].version`, refreshes
-`Cargo.lock` through managed `pg.ps1`, runs the locked check, commits `release: vX.Y.Z`, pushes, and
-opens the PR. Squash-merge it, then run `release.ps1 -Tag -Version x.y.z -Push`, which creates and
-pushes the annotated `vX.Y.Z` tag on the merged release commit. Nothing commits to local `main`.
-`-NoPush` and `-DryRun` stop early.
+Follow `docs/development/releasing.md` (procedure, CI gates, rehearsal); nothing commits to local `main`.
 
-The merge starts Rust CI and the tag push starts `.github/workflows/release.yml`. The tag must be
-annotated, match the workspace version and changelog, and point to a commit reachable from
-`origin/main`; the workflow verifies `Cargo.lock` with locked metadata and waits for Rust CI on that
-commit. It then runs the shared Rust and release gates, builds and smoke-checks Windows x64, Linux
-x64, macOS arm64, and macOS x64, verifies all ten assets and checksums, and publishes a GitHub
-release on the existing tag. CI never commits to main or creates or moves tags.
-
-`workflow_dispatch` takes a version and an explicit source ref and runs the same preflight, gates,
-and builds without publishing. Prerelease tags are not supported. Coverage and the real-language
-corpus exclusion are recorded in the GitHub release notes body.
-
-See `docs/development/releasing.md` for the complete procedure and rehearsal path.
+1. `pwsh -NoProfile -File rust/tools/release.ps1 -Prepare -Version x.y.z` opens the release PR.
+2. Squash-merge the PR once Rust CI is green.
+3. `pwsh -NoProfile -File rust/tools/release.ps1 -Tag -Version x.y.z -Push` tags the merged release commit and starts the Release workflow.
 
 **The contract gate is `conformance`** -- engine-agnostic, all-synthetic, diffed against
 committed ground truth, and available to CI through the `conformance` clone at the pinned commit. The real-language corpora (Sena,
 Amharic, Aweti, Indonesian) are gitignored local files: they exist for speed work and for harvesting
 issues that then become conformance fixtures. They are the sampling tool, not the contract, and
 their absence from a release gate is deliberate rather than a gap.
-
-*Historical note: the former release process was tied to one workstation. One attempt refused six
-roots of unrelated local scratch, and another found a drifted FieldWorks checkout. The tag flow now
-checks this worktree's clean, current `main` and validates the pushed source commit in CI.*
 
 ## Merging into main
 
