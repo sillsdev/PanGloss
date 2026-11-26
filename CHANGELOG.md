@@ -1,7 +1,9 @@
 # Changelog
 
-Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
-`rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
+Release notes are authored, not generated. A pull request does not edit this file: it adds one
+fragment under `changes/unreleased/` (see its README). The prepare step of `rust/tools/release.ps1`
+folds the fragments into the new version section, in file-name order, and deletes them. It refuses a
+version with neither fragments, a `## Unreleased` section nor a version section.
 
 ## 0.35.3
 

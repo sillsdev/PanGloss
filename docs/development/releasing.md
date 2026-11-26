@@ -4,8 +4,9 @@ Releases use numeric `vX.Y.Z` tags. Prereleases are unsupported.
 
 ## Cut a version
 
-A release is two steps and a PR; nothing commits to local `main`. Keep the release notes under
-`## Unreleased` in `CHANGELOG.md` as work lands.
+A release is two steps and a PR; nothing commits to local `main`. Release notes are fragments:
+each pull request adds one file under `changes/unreleased/` (see its README) and does not edit
+`CHANGELOG.md`.
 
 1. Prepare. From a clean worktree on any branch:
 
@@ -15,8 +16,10 @@ A release is two steps and a PR; nothing commits to local `main`. Keep the relea
 
    The script fetches `origin/main` and creates `release/v0.10.0` from it (your HEAD need not be
    `main`). It checks the working tree, the version, and that no `v0.10.0` tag or release branch
-   exists. It renames `## Unreleased` to `## 0.10.0` followed by `Released <today>.` (an existing
-   `## 0.10.0` section is kept as is; with neither section it refuses). It stamps
+   exists. It writes `## 0.10.0` followed by `Released <today>.`: a legacy `## Unreleased` section is
+   renamed to it, and the fragments in `changes/unreleased/` are appended in file-name order and
+   deleted (an existing `## 0.10.0` section is kept as is and fragments stay; with no fragments, no
+   `## Unreleased` and no `## 0.10.0` it refuses). It stamps
    `[workspace.package].version`, refreshes `Cargo.lock` offline through managed
    `pg.ps1 -Mode lock-refresh`, verifies that only local workspace-member version lines changed, runs
    the locked `pg.ps1 -Mode check`, commits `release: v0.10.0`, pushes the branch, and opens the PR

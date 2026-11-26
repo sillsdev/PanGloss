@@ -3,9 +3,11 @@
   Cut a PanGloss release through a pull request, in two phases. No step commits to local main.
 
   -Prepare -Version X.Y.Z   (from any clean worktree on any branch)
-    Fetches origin/main, creates branch release/vX.Y.Z from it (HEAD need not be main), renames
-    '## Unreleased' in CHANGELOG.md to '## X.Y.Z' plus 'Released <today>.' (an existing '## X.Y.Z'
-    section is kept as is), stamps the workspace version, refreshes Cargo.lock through pg.ps1,
+    Fetches origin/main, creates branch release/vX.Y.Z from it (HEAD need not be main), makes the
+    '## X.Y.Z' section of CHANGELOG.md plus 'Released <today>.': a '## Unreleased' heading is renamed
+    to it, and the fragments in changes/unreleased/*.md (README.md excepted) are appended to it in
+    file-name order (ordinal) and deleted. An existing '## X.Y.Z' section is kept as is and fragments
+    are left in place. With no '## Unreleased' the section goes above the newest version. Stamps the workspace version, refreshes Cargo.lock through pg.ps1,
     runs the locked managed check, commits 'release: vX.Y.Z', pushes the branch, and opens the PR
     with gh. -NoPush stops after the local commit.
 
@@ -176,6 +178,28 @@ function Test-ChangelogSection([string]$Text, [string]$SectionVersion) {
     return (($Text -split "`n") -ccontains "## $SectionVersion")
 }
 
+function Get-FragmentName([string]$Path) {
+    # Direct children of changes/unreleased that end in .md; README.md documents the folder.
+    $m = [regex]::Match(($Path -replace '\\', '/'), '^changes/unreleased/(?<name>[^/]+\.md)$')
+    if ($m.Success -and $m.Groups['name'].Value -cne 'README.md') { return $m.Groups['name'].Value }
+    return $null
+}
+
+function Add-ChangelogFragments([string]$Text, [string]$SectionVersion, [string]$Stamp, [string]$Block) {
+    # Appends $Block to the '## X.Y.Z' section, creating it above the first version section when absent.
+    if (-not (Test-ChangelogSection $Text $SectionVersion)) {
+        $first = [regex]::Match($Text, '(?m)^## ')
+        $heading = "## $SectionVersion`n`nReleased $Stamp.`n`n"
+        $Text = if ($first.Success) { $Text.Insert($first.Index, $heading) } else { $Text.TrimEnd() + "`n`n" + $heading.TrimEnd() + "`n" }
+    }
+    $start = $Text.IndexOf("## $SectionVersion`n", [System.StringComparison]::Ordinal)
+    $next = [regex]::Match($Text.Substring($start + 3), '(?m)^## ')
+    $cut = if ($next.Success) { $start + 3 + $next.Index } else { $Text.Length }
+    $head = $Text.Substring(0, $cut).TrimEnd()
+    $tail = $Text.Substring($cut)
+    return $head + "`n`n" + $Block + "`n" + $(if ($tail) { "`n" + $tail } else { '' })
+}
+
 function Invoke-Git([string[]]$GitArguments) {
     $output = & git -C $repoRoot @GitArguments 2>&1
     return [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = (($output | ForEach-Object { "$_" }) -join "`n").TrimEnd() }
@@ -277,8 +301,10 @@ $baseChangelog = Get-CommitFile $remoteMain 'CHANGELOG.md'
 if ($null -eq $baseChangelog) { Write-Refusal 'changelog' 'CHANGELOG.md is missing' 33 }
 $hasSection = Test-ChangelogSection $baseChangelog $Version
 $hasUnreleased = [bool]($baseChangelog -match '(?m)^##[ \t]+Unreleased[ \t]*\r?$')
-if (-not $hasSection -and -not $hasUnreleased) {
-    Write-Refusal 'changelog' "CHANGELOG.md has neither '## Unreleased' nor '## $Version'; author release notes before cutting" 33
+$baseFragments = @((Invoke-Git @('ls-tree', '-r', '--name-only', $remoteMain, '--', 'changes/unreleased')).Output -split "`n" |
+        Where-Object { $_ -and $null -ne (Get-FragmentName $_) })
+if (-not $hasSection -and -not $hasUnreleased -and $baseFragments.Count -eq 0) {
+    Write-Refusal 'changelog' "CHANGELOG.md has neither '## Unreleased' nor '## $Version' and changes/unreleased holds no fragment; author release notes before cutting" 33
 }
 if ($null -eq (Get-CommitFile $remoteMain 'rust/Cargo.lock')) { Write-Refusal 'lockfile' 'rust/Cargo.lock is missing before the managed refresh' 33 }
 
@@ -287,7 +313,8 @@ if (-not $NoPush -and -not (Get-Command $gh -ErrorAction SilentlyContinue)) {
     Write-Refusal 'gh' "cannot run '$gh'; install the GitHub CLI or pass -NoPush" 35
 }
 
-$changelogPlan = if ($hasSection) { "keep '## $Version'" } else { "rename '## Unreleased' to '## $Version'" }
+$changelogPlan = if ($hasSection) { "keep '## $Version'" } elseif ($hasUnreleased) { "rename '## Unreleased' to '## $Version'" } else { "create '## $Version'" }
+if (-not $hasSection -and $baseFragments.Count -gt 0) { $changelogPlan += " and fold $($baseFragments.Count) fragment(s) from changes/unreleased" }
 Write-Host "[release] preflight green: origin/main=$remoteMain, version $baseVersion -> $Version, changelog: $changelogPlan"
 if ($DryRun) {
     Write-Host "[release] DRY RUN -- no branch, files, or commits changed. Would branch $releaseBranch from origin/main, commit, push, and open a PR."
@@ -299,11 +326,33 @@ $switched = Invoke-Git @('switch', '--quiet', '--no-track', '-c', $releaseBranch
 if ($switched.ExitCode -ne 0) { Write-Refusal 'branch' "could not create $releaseBranch from origin/main: $($switched.Output)" 31 }
 Write-Host "[release] created $releaseBranch from origin/main ($remoteMain)"
 
+$fragmentFiles = @()
 if (-not $hasSection) {
     $changelogText = [System.IO.File]::ReadAllText($changelog)
     $stamp = Get-Date -Format 'yyyy-MM-dd'
     $heading = [regex]::new('(?m)^##[ \t]+Unreleased[ \t]*(?<eol>\r?\n|\z)(?:\r?\n)?')
     $renamed = $heading.Replace($changelogText, { param($m) $e = $m.Groups['eol'].Value; if (-not $e) { $e = "`n" }; "## $Version$e${e}Released $stamp.$e$e" }, 1)
+    $fragmentDir = Join-Path $repoRoot 'changes\unreleased'
+    if (Test-Path -LiteralPath $fragmentDir) {
+        [string[]]$names = @(Get-ChildItem -LiteralPath $fragmentDir -File | ForEach-Object { $_.Name } | Where-Object { $null -ne (Get-FragmentName "changes/unreleased/$_") })
+        [Array]::Sort($names, [System.StringComparer]::Ordinal)
+        $fragmentFiles = @($names | ForEach-Object { Join-Path $fragmentDir $_ })
+    }
+    $fragmentBullets = @()
+    $badFragment = $null
+    foreach ($file in $fragmentFiles) {
+        $bullet = ([System.IO.File]::ReadAllText($file) -replace "`r`n", "`n").Trim()
+        if (-not $bullet.StartsWith('- ', [System.StringComparison]::Ordinal)) { $badFragment = $file; break }
+        $fragmentBullets += $bullet
+    }
+    if ($badFragment) {
+        Invoke-Git @('switch', '--quiet', $previousRef) | Out-Null
+        Invoke-Git @('branch', '-D', $releaseBranch) | Out-Null
+        Write-Refusal 'changelog' "fragment $badFragment must hold one or more Markdown bullets starting with '- '" 33
+    }
+    if ($fragmentBullets.Count -gt 0) {
+        $renamed = Add-ChangelogFragments ($renamed -replace "`r`n", "`n") $Version $stamp ($fragmentBullets -join "`n")
+    }
     if (-not (Test-ChangelogSection $renamed $Version)) {
         # Nothing is written yet: leave the tree as found.
         Invoke-Git @('switch', '--quiet', $previousRef) | Out-Null
@@ -311,6 +360,8 @@ if (-not $hasSection) {
         Write-Refusal 'changelog' "renaming '## Unreleased' did not produce an exact '## $Version' line (CI needs LF endings and no trailing spaces)" 33
     }
     [System.IO.File]::WriteAllText($changelog, $renamed, [System.Text.UTF8Encoding]::new($false))
+    foreach ($file in $fragmentFiles) { Remove-Item -LiteralPath $file -Force }
+    if ($fragmentFiles.Count -gt 0) { Write-Host "[release] folded $($fragmentFiles.Count) fragment(s) from changes/unreleased into '## $Version' and deleted them" }
 }
 
 $lockBefore = Get-LockText $cargoLock
@@ -379,14 +430,16 @@ if ($lockAfterCheck -cne $lockAfterRefresh) {
 }
 $postCheckDirty = @(git -C $repoRoot status --porcelain --untracked-files=all --ignore-submodules=all)
 if ($LASTEXITCODE -ne 0) { Write-Host '[release] could not verify the managed check left only release files changed' -ForegroundColor Red; exit 32 }
-$unexpectedChanges = @($postCheckDirty | Where-Object { $_ -notmatch '^\s*M\s+(rust[/\\]Cargo\.(toml|lock)|CHANGELOG\.md)$' })
+$unexpectedChanges = @($postCheckDirty | Where-Object { $_ -notmatch '^\s*[MD]\s+(rust[/\\]Cargo\.(toml|lock)|CHANGELOG\.md|changes[/\\]unreleased[/\\][^/\\]+\.md)$' })
 if ($unexpectedChanges.Count -gt 0) {
-    Write-Host '[release] managed check changed files outside rust/Cargo.toml, rust/Cargo.lock, and CHANGELOG.md; inspect the tree before retrying' -ForegroundColor Red
+    Write-Host '[release] managed check changed files outside rust/Cargo.toml, rust/Cargo.lock, CHANGELOG.md, and changes/unreleased; inspect the tree before retrying' -ForegroundColor Red
     $unexpectedChanges | ForEach-Object { Write-Host "    $_" }
     exit 32
 }
 
-git -C $repoRoot add -- rust/Cargo.toml rust/Cargo.lock CHANGELOG.md
+$stagePaths = @('rust/Cargo.toml', 'rust/Cargo.lock', 'CHANGELOG.md')
+if ($fragmentFiles.Count -gt 0) { $stagePaths += 'changes/unreleased' }
+git -C $repoRoot add -A -- @stagePaths
 if ($LASTEXITCODE -ne 0) { Write-Host '[release] git add failed; version stamp is left in the tree' -ForegroundColor Red; exit 32 }
 git -C $repoRoot diff --cached --quiet
 if ($LASTEXITCODE -eq 0) { Write-Host '[release] managed version stamp produced no Cargo.toml or Cargo.lock changes' -ForegroundColor Red; exit 33 }

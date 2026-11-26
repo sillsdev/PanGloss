@@ -123,6 +123,9 @@ Nothing enforces these. They are here because they change what a careful agent d
   machine session and whenever a verdict looks odd; it is not a threshold. Wall time and
   `work_steps` do not decide it. A new Windows machine needs `rust/tools/pmc-setup.ps1` first
   (`docs/design/parse-cost.md`). Terms: `GLOSSARY.md`.
+- **Release notes are fragments, never `CHANGELOG.md`.** A user-visible change adds one
+  `changes/unreleased/<issue>-<slug>.md` bullet (`changes/unreleased/README.md`); `release.ps1 -Prepare`
+  folds them. Editing `CHANGELOG.md` directly brings back the conflict on every open pull request.
 - **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
   no language named outside a comment.
 

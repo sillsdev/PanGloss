@@ -100,7 +100,7 @@ The tool never edits a weight. After the owner agrees:
 1. Edit `WORK_WEIGHT`, `BYTE_WEIGHT`, `REGISTER_WEIGHT` and `ALLOCATION_WEIGHT` in `rust/crates/pg-cost/src/lib.rs`, and the
    numbers in the formula and evidence block of `docs/design/parse-cost.md` (pair count, grammars, rows,
    direction, r, median and worst error, from this run).
-2. Add a line to `CHANGELOG.md` naming the old and new weights; the `batch --cost-column` line quotes them.
+2. Add a fragment under `changes/unreleased/` (not `CHANGELOG.md`) naming the old and new weights; the `batch --cost-column` line quotes them.
 3. Run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode check -Jobs 4`, then `-Mode preland -Jobs 4`.
 4. Land by squash PR, from a branch rebased on main. Do not push or merge unasked.
 
