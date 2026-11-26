@@ -154,6 +154,7 @@ mod fst_health;
 mod fst_verify;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
 mod diagnostic;
+mod generate_batch;
 pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
 mod make_report;
@@ -2783,11 +2784,19 @@ fn run_batch_impl(
     Ok(())
 }
 
-/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot.
+/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot; `generate <grammar> --requests <file.jsonl|->` answers a JSONL batch of `serve` `generate` requests.
 fn run_generate(args: &[String]) -> Result<(), String> {
+    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|->";
     let Some(grammar_path) = args.first() else {
-        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
+        return Err(USAGE.into());
     };
+
+    if args.get(1).is_some_and(|arg| arg == "--requests") {
+        return run_generate_requests(grammar_path, &args[2..]);
+    }
+    if args.iter().skip(1).any(|arg| arg == "--requests") {
+        return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
+    }
 
     if args.get(1).is_some_and(|arg| arg == "--request") {
         if args.len() == 2 {
@@ -2812,7 +2821,7 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     }
 
     let [_, root_id, other_ids @ ..] = args else {
-        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
+        return Err(USAGE.into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
@@ -2838,6 +2847,44 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     }
     for w in &outcome.surfaces {
         println!("{w}");
+    }
+    Ok(())
+}
+
+/// `generate <grammar> --requests <file.jsonl|->`: one `serve` `generate` request per input line, one `serve` response per output line on stdout, in input order. A bad line is an error row and the batch goes on; the exit status is 0 once every line is answered, and 1 only for a bad argument, an unreadable input, a grammar that fails to load or a failed write.
+fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), String> {
+    let [source] = rest else {
+        return Err(if rest.is_empty() {
+            "--requests requires a path to a JSONL file, or - for stdin".to_string()
+        } else {
+            generate_request::GenerateRequestError::MixedSelectors.to_string()
+        });
+    };
+    // Open the input before loading, so a missing file fails fast.
+    let input: Box<dyn std::io::BufRead> = if source == "-" {
+        Box::new(std::io::BufReader::new(std::io::stdin()))
+    } else {
+        Box::new(std::io::BufReader::new(
+            std::fs::File::open(source).map_err(|e| format!("cannot read {source}: {e}"))?,
+        ))
+    };
+    let (grammar, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
+    // The defaults `pangloss serve` starts with, so a row equals the serve op's answer.
+    let morpher = with_guess_override(
+        Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap())
+            .with_word_mem_cap(Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES))
+            .with_word_timeout(None),
+        None,
+    );
+    let stdout = std::io::stdout();
+    let summary = generate_batch::run_requests(&grammar, &morpher, input, stdout.lock())
+        .map_err(|e| format!("generate --requests: {e}"))?;
+    if summary.errors > 0 {
+        eprintln!(
+            "generate --requests: {} of {} requests were refused; see the error rows",
+            summary.errors, summary.rows
+        );
     }
     Ok(())
 }

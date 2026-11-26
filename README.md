@@ -204,6 +204,7 @@ FieldWorks `entryGuid`/`msaGuid` pairs in an imported snapshot; request schema v
 MSAs only and explicitly refuses non-null `formGuid` constraints. The request's `morphemes`
 array is generation order, which is not surface order. In one Swahili analysis, surface
 `SM + stem + FV + RELSUF` is requested as `SM, RELSUF, FV`.
+`--requests <file.jsonl|->` answers one request per line, in the `serve` `generate` row shape, and an error row for a bad line.
 See [`docs/generation.md`](docs/generation.md) for the request schema and limits.
 
 From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:
