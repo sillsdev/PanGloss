@@ -47,9 +47,10 @@ The merge to `main` starts Rust CI. The tag push starts `.github/workflows/relea
 Rust CI on that commit. Before building, release preflight confirms the tag commit is reachable
 from `origin/main`, the tag is annotated and matches the workspace version, `Cargo.lock` passes
 locked metadata validation, and the changelog has the version section. The workflow then runs
-`rust-gates.yml` with release gates, builds and smoke-checks Windows x64, Linux x64, macOS arm64,
-and macOS x64, checks the ten release files and SHA-256 values, and publishes a GitHub release on
-the existing tag. CI never commits to `main` or creates or moves a tag.
+`rust-gates.yml` with release gates, builds and smoke-checks Windows x64 and Linux x64, checks the six release files and SHA-256 values,
+and publishes a GitHub release on the existing tag. macOS arm64 and x64 build and smoke-check in a
+separate `build-macos` job that is allowed to fail and that `publish` does not wait for, so a slow
+or failed macOS runner never delays or fails a release; no macOS file is released. CI never commits to `main` or creates or moves a tag.
 
 The shared gates include explicit FST tests and doctests for `pg-foma`, `pg-foma-runtime`,
 `pg-foma-backend` and `pg-cli` with `foma-tools`, in addition to the default-member suite.
@@ -63,5 +64,5 @@ identify the version; they do not claim which checks passed.
 
 Use Actions → Release → Run workflow with an explicit `ref` and `version`. The ref must resolve to a
 commit on `origin/main`, its workspace version and changelog must match the requested version, and
-it must pass the same preflight, gates, and four-target build. A rehearsal verifies release assets
-but never publishes a GitHub release.
+it must pass the same preflight, gates, and Windows and Linux builds, and it runs the same non-blocking
+macOS job. A rehearsal verifies the six release files but never publishes a GitHub release.
