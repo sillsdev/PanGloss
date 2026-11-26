@@ -1,13 +1,13 @@
 name: Rust gates
 
-# The fmt, clippy and test gates shared by Rust CI and Release, so the two cannot drift. Release adds
+# The fmt, clippy, docs and test gates shared by Rust CI and Release, so the two cannot drift. Release adds
 # its version preflight and extra gates through `include_release_gates`.
 
 on:
   workflow_call:
     inputs:
       include_release_gates:
-        description: Include release version, documentation, hygiene, and conformance gates.
+        description: Include release version, WordMaker parity, and conformance gates.
         required: false
         default: false
         type: boolean
@@ -196,6 +196,24 @@ jobs:
       - working-directory: rust
         run: cargo clippy --all-targets --features pg-cli/examples,pg-cli/cost-calibration --locked -- -D warnings
 
+  # Every PR and every release. Cheap: no test binaries, only a doc build. One script defines it.
+  docs:
+    name: comment hygiene + rustdoc
+    needs: preflight
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: comment hygiene + rustdoc (-D warnings)
+        run: bash rust/tools/ci-doc-gate.sh
+
   test:
     name: build + test
     needs: preflight
@@ -307,7 +325,7 @@ jobs:
           if-no-files-found: error
 
   release-extras:
-    name: release gates (hygiene, rustdoc, conformance)
+    name: release gates (WordMaker parity, conformance)
     needs: preflight
     if: ${{ inputs.include_release_gates && !failure() && !cancelled() }}
     runs-on: ubuntu-22.04
@@ -326,14 +344,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: comment hygiene
-        working-directory: rust
-        run: cargo run --locked -p pg-comment-hygiene -- --repo-root .. --list
-      - name: rustdoc
-        working-directory: rust
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --locked
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
