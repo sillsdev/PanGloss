@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 defaults:
   run:
@@ -13,14 +14,84 @@ defaults:
 env:
   CARGO_TERM_COLOR: always
 
+# One run per pull request: a new push cancels the superseded run. Runs on main are never cancelled.
+# Pushes key on the commit, so a queued run for one commit is never replaced by a later one (release
+# preflight waits for the run on its exact commit). The reusable rust-gates.yml sets no group: inside a
+# called workflow github.workflow is the caller's name, so the same group would deadlock the caller.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Decides whether the diff holds anything beyond docs. A skipped job reports success to branch
+  # protection, so the jobs below skip on `code != true` instead of the workflow using `paths-ignore`
+  # (a workflow that never starts leaves its required checks pending forever). Pushes to main always run.
+  changes:
+    name: changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - id: filter
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [[ "$EVENT" == pull_request ]]; then
+            # If the listing fails, run everything rather than fail the job.
+            files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)') || {
+              echo "::warning::could not list the pull request files; running everything"
+              files=""
+            }
+            if [[ -n "$files" ]]; then
+              code=false
+              while IFS= read -r f; do
+                # Docs-only means every changed path is prose: a .md file outside rust/ or a top-level
+                # LICENSE*. Other files under docs/ (tests include_str! docs/divergences/evidence/**)
+                # and .md under rust/ (make_report_golden.md) are code. The .md files that tests read
+                # are code too: CLAUDE.md and .claude/ (agent_docs_resolve_gate, build_command_contract),
+                # docs/divergences/ (divergence_catalogue_gate), docs/diagnostics/ and
+                # docs/grammar-diagnostics-reference.md (pg-grammar help paths), docs/fst-plan/ and
+                # docs/research/subrecipes/ (pg-foma-backend contracts), docs/formats/ and
+                # docs/grammar-facts-format.md (pg-facts).
+                case "$f" in
+                  rust/*|CLAUDE.md|AGENTS.md|.claude/*|docs/divergences/*|docs/diagnostics/*|docs/fst-plan/*|docs/research/subrecipes/*|docs/formats/*|docs/grammar-facts-format.md|docs/grammar-diagnostics-reference.md) code=true; echo "code change: $f"; break ;;
+                  *.md|LICENSE*) ;;
+                  *) code=true; echo "code change: $f"; break ;;
+                esac
+              done <<< "$files"
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code changes selected: $code"
+
   gates:
     name: fmt, clippy, build + test
+    needs: changes
+    # The called workflow's own jobs skip on run_gates=false, so each required context still reports.
+    # A skipped caller would leave their names pending.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/rust-gates.yml
     with:
       timeout_minutes: 360
+      run_gates: ${{ needs.changes.outputs.code == 'true' }}
 
   linux-containment:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: Linux containment (required)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -39,6 +110,8 @@ jobs:
         run: bash tools/linux-containment-ci.sh
 
   wasm-js-smoke:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: HC-only WASM JS smoke (required)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -60,6 +133,8 @@ jobs:
         run: bash tools/linux-containment-ci.sh --wasm-js-smoke
 
   windows:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     # The Linux gates never compile cfg(windows) code; v0.8.0's Windows release build broke unseen.
     name: Windows clippy, build, tool + hard-link tests (required)
     runs-on: windows-latest
@@ -97,6 +172,8 @@ jobs:
 
   coverage:
     name: coverage (codecov)
+    # Pushes to main only: it is not a required check and was the most often failing job on PRs (#378).
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     # Same claim as the `test` job: this step runs the same default suite, so it needs the same scope.
     env:

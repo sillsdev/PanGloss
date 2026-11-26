@@ -31,6 +31,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_gates:
+        description: Run the fmt, clippy, docs and test jobs. Rust CI passes false for a draft or docs-only pull request; every job then reports skipped.
+        required: false
+        default: true
+        type: boolean
       timeout_minutes:
         description: Maximum time allowed for the test job.
         required: false
@@ -160,7 +165,7 @@ jobs:
   fmt:
     name: fmt --check
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -176,7 +181,7 @@ jobs:
   clippy:
     name: clippy
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -200,7 +205,7 @@ jobs:
   docs:
     name: comment hygiene + rustdoc
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -217,7 +222,7 @@ jobs:
   test:
     name: build + test
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout_minutes }}
     # Fixture discovery refuses an unclaimed run; claim both roots, as `pg.ps1 -Mode test` does.
@@ -257,7 +262,7 @@ jobs:
   fst-test:
     name: FST build + test (required)
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
