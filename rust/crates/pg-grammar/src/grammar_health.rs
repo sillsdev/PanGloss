@@ -30,6 +30,7 @@ pub enum GrammarHealthCode {
     StoredAnalysisNoLongerParses,
     StoredAnalysisIncomplete,
     StoredAnalysisBudgetReached,
+    StoredAnalysisExtraReading,
     ShadowedAlternate,
     FstPatternRootShape,
     FstCircumfixNoRoute,
@@ -52,6 +53,7 @@ impl GrammarHealthCode {
         Self::StoredAnalysisNoLongerParses,
         Self::StoredAnalysisIncomplete,
         Self::StoredAnalysisBudgetReached,
+        Self::StoredAnalysisExtraReading,
         Self::ShadowedAlternate,
         Self::FstPatternRootShape,
         Self::FstCircumfixNoRoute,
@@ -75,6 +77,7 @@ impl GrammarHealthCode {
             Self::StoredAnalysisNoLongerParses => "grammar.stored-analysis.no-longer-parses",
             Self::StoredAnalysisIncomplete => "grammar.stored-analysis.incomplete",
             Self::StoredAnalysisBudgetReached => "grammar.stored-analysis.budget-reached",
+            Self::StoredAnalysisExtraReading => "grammar.stored-analysis.extra-reading",
             Self::ShadowedAlternate => "grammar.allomorph.shadowed",
             Self::FstPatternRootShape => "fst.pattern-root-shape",
             Self::FstCircumfixNoRoute => "fst.circumfix-no-route",
@@ -100,7 +103,8 @@ impl GrammarHealthCode {
             Self::FstShapeNotInSurfaceTable => Some("The Grammar retains a shape without a supported final surface-table spelling."),
             Self::DuplicateFeatureBundle | Self::ProvisionalPhonemeFeatures
             | Self::StoredAnalysisNoLongerParses | Self::StoredAnalysisIncomplete
-            | Self::StoredAnalysisBudgetReached | Self::ShadowedAlternate
+            | Self::StoredAnalysisBudgetReached | Self::StoredAnalysisExtraReading
+            | Self::ShadowedAlternate
             | Self::ImportWarning(_) => None,
         }
     }
@@ -204,6 +208,12 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "The default grammar check compares FieldWorks stored analyses with PanGloss's analyses in sorted wordform order, and stops once a fixed total amount of analysis work is spent so that the check stays fast. The description names the first wordform that was not compared and how many remain. Whether their stored analyses still parse is unknown.",
             "No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes.",
             vec![], PARSER_HELP,
+        ),
+        GrammarHealthCode::StoredAnalysisExtraReading => (
+            "Parse has no stored analysis", Info,
+            "PanGloss parses this wordform to a Reading that none of its approved FieldWorks analyses matches, so the parser offers a Reading the approved set does not contain. It is a fact about the grammar, not an error: the approved set may be incomplete, or the grammar may overgenerate. The same words that carry an extra Reading are listed per word, with their missing and matched counts, under stored_analysis_words. An extra can also come from a recorded Rust-versus-C# parser divergence (for example the metathesis entries 127, 132 and 133 in docs/divergences); it is reported anyway. Guessed roots are not reported.",
+            "Compare the named morphs with the wordform's approved analyses in Lexicon > Lexicon Edit. If the Reading is correct, approve it. If it is wrong, find the allomorph, environment or rule that lets it parse and narrow it.",
+            vec![place("lexiconEdit", "Analysis")], PARSER_HELP,
         ),
         GrammarHealthCode::ShadowedAlternate => (
             "Alternate is shadowed", Warning,
@@ -310,6 +320,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             "grammar.stored-analysis.no-longer-parses" => Self::StoredAnalysisNoLongerParses,
             "grammar.stored-analysis.incomplete" => Self::StoredAnalysisIncomplete,
             "grammar.stored-analysis.budget-reached" => Self::StoredAnalysisBudgetReached,
+            "grammar.stored-analysis.extra-reading" => Self::StoredAnalysisExtraReading,
             "grammar.allomorph.shadowed" => Self::ShadowedAlternate,
             "fst.pattern-root-shape" => Self::FstPatternRootShape,
             "fst.circumfix-no-route" => Self::FstCircumfixNoRoute,

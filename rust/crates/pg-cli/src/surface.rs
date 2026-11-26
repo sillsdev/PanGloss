@@ -772,7 +772,7 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--stored-analyses",
         takes_value: true,
-        summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison.",
+        summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison. It reports missing and extra Readings, with a per-wordform outcome under `stored_analysis_words`.",
     },
     FlagSpec {
         name: "--snapshot-out",

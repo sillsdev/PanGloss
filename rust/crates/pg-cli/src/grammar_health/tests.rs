@@ -63,6 +63,7 @@ const PARTIAL_ENTRY_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?
 const STORED_ANALYSIS_CODE: &str = "grammar.stored-analysis.no-longer-parses";
 const INCOMPLETE_CODE: &str = "grammar.stored-analysis.incomplete";
 const BUDGET_CODE: &str = "grammar.stored-analysis.budget-reached";
+const EXTRA_CODE: &str = "grammar.stored-analysis.extra-reading";
 static STORED_ANALYSIS_TEST_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
@@ -495,6 +496,7 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
     let wordform_order: Vec<_> = sequential
         .iter()
         .filter_map(|finding| finding.message.split("for wordform ").nth(1))
+        .filter_map(|rest| rest.split(" (WfiWordform").next())
         .collect();
     let mut sorted = wordform_order.clone();
     sorted.sort();
@@ -595,6 +597,15 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     );
     assert_eq!(incomplete[0]["level"], "warning");
     assert_eq!(incomplete[0]["scope"], "object");
+    let capped_row = word_row(&report, "xpupa");
+    assert_eq!(capped_row["outcome"], "incomplete");
+    assert_counts(capped_row, (1, 0, 0, 0));
+    assert!(
+        findings_with_code(&report, EXTRA_CODE)
+            .iter()
+            .all(|finding| !finding["description"].as_str().unwrap().contains("xpupa")),
+        "a capped wordform has no extra finding"
+    );
 
     let lost = |report: &serde_json::Value| -> Vec<serde_json::Value> {
         report["diagnostics"]
@@ -629,7 +640,7 @@ fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thre
         .expect("full comparison succeeds");
     assert!(full
         .iter()
-        .all(|finding| finding.code.wire() == STORED_ANALYSIS_CODE));
+        .all(|finding| { [STORED_ANALYSIS_CODE, EXTRA_CODE].contains(&finding.code.wire()) }));
     let mut wordforms: Vec<_> = analyses.iter().map(|analysis| analysis.wordform).collect();
     wordforms.sort_unstable();
     let mut cutoffs = BTreeSet::new();
@@ -1024,10 +1035,23 @@ fn stored_analysis_naming_a_merged_msa_matches_its_representatives_parse() {
         )
         .expect("comparison runs")
     };
+    let control = compare(&loaded.grammar);
+    let count = |code: &str| {
+        control
+            .iter()
+            .filter(|finding| finding.code.wire() == code)
+            .count()
+    };
+    assert_eq!(control.len(), 2, "{control:#?}");
     assert_eq!(
-        compare(&loaded.grammar).len(),
+        count(STORED_ANALYSIS_CODE),
         1,
         "control: the stored MSA is not the parsed one"
+    );
+    assert_eq!(
+        count(EXTRA_CODE),
+        1,
+        "control: the parsed MSA is not approved"
     );
     loaded.grammar.representative_msas.insert(
         "00000000-0000-0000-0000-000000000042".to_string(),
@@ -1063,6 +1087,161 @@ fn grammar_health_reports_synthesis_budget_as_unattributed() {
         finding.message
     );
     assert!(!finding.message.contains("authored phonological rule"));
+}
+
+/// The `kat` fixture with a second entry spelled `kat`, so the wordform parses to two Readings.
+fn homograph_project() -> String {
+    const FIXTURE: &str = include_str!("../../../pg-fwdata/tests/data/fixture.fwdata");
+    let homograph = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000060">
+<CitationForm><AUni ws="fx">kat</AUni></CitationForm>
+<LexemeForm><objsur guid="00000000-0000-0000-0000-000000000061" t="o" /></LexemeForm>
+<MorphoSyntaxAnalyses><objsur guid="00000000-0000-0000-0000-000000000062" t="o" /></MorphoSyntaxAnalyses>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000061" ownerguid="00000000-0000-0000-0000-000000000060">
+<Form><AUni ws="fx">kat</AUni></Form>
+<IsAbstract val="False" />
+<MorphType><objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" /></MorphType>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000062" ownerguid="00000000-0000-0000-0000-000000000060">
+<PartOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000b" t="r" /></PartOfSpeech>
+</rt>
+"#;
+    let mut project = FIXTURE
+        .replace(
+            "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+            "guid=\"00000000-0000-0000-0000-000000000017\"",
+        )
+        .replace(
+            "<objsur guid=\"00000000-0000-0000-0000-000000000018\" t=\"o\" />",
+            "",
+        );
+    let end = project
+        .rfind("</languageproject>")
+        .expect("fixture has a root closing tag");
+    project.insert_str(end, homograph);
+    project
+}
+
+const KAT: StoredAnalysisFixture = StoredAnalysisFixture {
+    wordform: "kat",
+    allomorph: "00000000-0000-0000-0000-000000000031",
+    msa: "00000000-0000-0000-0000-000000000032",
+    expected_surface: "kat",
+};
+const KAT_HOMOGRAPH: StoredAnalysisFixture = StoredAnalysisFixture {
+    allomorph: "00000000-0000-0000-0000-000000000061",
+    msa: "00000000-0000-0000-0000-000000000062",
+    ..KAT
+};
+/// An approved analysis of `kat` that names the other root, so it never parses.
+const KAT_AS_RANNA: StoredAnalysisFixture = StoredAnalysisFixture {
+    allomorph: "00000000-0000-0000-0000-000000000041",
+    msa: "00000000-0000-0000-0000-000000000042",
+    ..KAT
+};
+
+fn findings_with_code<'a>(report: &'a serde_json::Value, code: &str) -> Vec<&'a serde_json::Value> {
+    report["diagnostics"]
+        .as_array()
+        .expect("diagnostic array")
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == code)
+        .collect()
+}
+
+fn word_row<'a>(report: &'a serde_json::Value, wordform: &str) -> &'a serde_json::Value {
+    report["stored_analysis_words"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no stored_analysis_words in {report}"))
+        .iter()
+        .find(|row| row["wordform"] == wordform)
+        .unwrap_or_else(|| panic!("no row for {wordform:?} in {report}"))
+}
+
+fn assert_counts(
+    row: &serde_json::Value,
+    (approved, matched, missing, extra): (u64, u64, u64, u64),
+) {
+    assert_eq!(row["approved"], approved, "{row}");
+    assert_eq!(row["matched"], matched, "{row}");
+    assert_eq!(row["missing"], missing, "{row}");
+    assert_eq!(row["extra"], extra, "{row}");
+}
+
+#[test]
+fn stored_analysis_check_reports_a_parsed_reading_no_approved_analysis_matches() {
+    let report = run_stored_analysis_health("extra", &homograph_project(), "fx", &[KAT]);
+    let extras = findings_with_code(&report, EXTRA_CODE);
+    assert_eq!(extras.len(), 1, "{extras:#?}");
+    assert_eq!(extras[0]["level"], "info");
+    let description = extras[0]["description"].as_str().expect("description");
+    assert!(description.contains("wordform \"kat\""), "{description}");
+    assert!(
+        description.contains(KAT_HOMOGRAPH.allomorph),
+        "{description}"
+    );
+    assert!(description.contains(KAT_HOMOGRAPH.msa), "{description}");
+    assert!(!description.contains(KAT.allomorph), "{description}");
+    assert!(description.contains("divergence"), "{description}");
+    assert!(findings_with_code(&report, STORED_ANALYSIS_CODE).is_empty());
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "extra");
+    assert_counts(row, (1, 1, 0, 1));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_whose_approved_readings_all_parse_as_same() {
+    let report =
+        run_stored_analysis_health("same", &homograph_project(), "fx", &[KAT, KAT_HOMOGRAPH]);
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
+    assert!(findings_with_code(&report, STORED_ANALYSIS_CODE).is_empty());
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "same");
+    assert_counts(row, (2, 2, 0, 0));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_with_both_a_missing_and_an_extra_reading() {
+    let report =
+        run_stored_analysis_health("both", &homograph_project(), "fx", &[KAT, KAT_AS_RANNA]);
+    assert_eq!(findings_with_code(&report, EXTRA_CODE).len(), 1);
+    assert_eq!(findings_with_code(&report, STORED_ANALYSIS_CODE).len(), 1);
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "missing_and_extra");
+    assert_counts(row, (2, 1, 1, 1));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_with_only_a_missing_reading_as_missing() {
+    let report = run_stored_analysis_health(
+        "missing",
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &[StoredAnalysisFixture {
+            wordform: "muma",
+            allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+            expected_surface: "pupa",
+        }],
+    );
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
+    let row = word_row(&report, "muma");
+    assert_eq!(row["outcome"], "missing");
+    assert_counts(row, (1, 0, 1, 0));
+}
+
+#[test]
+fn stored_analysis_word_rows_are_absent_when_the_comparison_is_off() {
+    let report = run_stored_analysis_health_at(
+        "off",
+        &homograph_project(),
+        "fx",
+        &[KAT],
+        crate::stored_analysis_health::Limits::DEFAULT,
+        &["--stored-analyses", "off"],
+    );
+    assert!(report.get("stored_analysis_words").is_none(), "{report}");
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
 }
 
 #[test]

@@ -105,13 +105,14 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [conversion.unsegmentable-form](diagnostics/conversion.unsegmentable-form.md) | Allomorph form cannot be segmented |  | In Lexicon > Lexicon Edit, check the named Lexeme Form or Allomorphs > Form. Use the finding's character position to locate unintended spelling. If the spelling is intended, check Grammar > Phonemes > In Orthography as for its phonemes; report a valid form that still cannot be loaded. |
 | [substrate.position-unmapped](diagnostics/substrate.position-unmapped.md) | Allomorph character position is unmapped |  | In Lexicon > Lexicon Edit, inspect the named position in the form. Correct an unintended character; if FieldWorks displays the intended spelling, report the mapping problem and diagnostic details. |
 
-## Information (11)
+## Information (12)
 
 | Code | Title | Label | What to do |
 |---|---|---|---|
 | [provisional.phoneme-features](diagnostics/provisional.phoneme-features.md) | Phoneme has no features |  | In Grammar > Phonemes, select the named phoneme and assign its Phonological Features to replace this provisional definition. |
 | [grammar.stored-analysis.no-longer-parses](diagnostics/grammar.stored-analysis.no-longer-parses.md) | Stored analysis changed |  | Check whether the named rule is meant to apply to these morphs. If so, update or remove the stored analysis in Lexicon > Lexicon Edit. If not, restrict the rule's environment in Grammar > Phonological Rules. |
 | [grammar.stored-analysis.budget-reached](diagnostics/grammar.stored-analysis.budget-reached.md) | Analysis check stopped early |  | No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes. |
+| [grammar.stored-analysis.extra-reading](diagnostics/grammar.stored-analysis.extra-reading.md) | Parse has no stored analysis |  | Compare the named morphs with the wordform's approved analyses in Lexicon > Lexicon Edit. If the Reading is correct, approve it. If it is wrong, find the allomorph, environment or rule that lets it parse and narrow it. |
 | [fwdata.only-first-used](diagnostics/fwdata.only-first-used.md) | Only the first phoneme set is used |  | In Grammar > Phonemes, check that the intended inventory appears in the first set. If it does, no change is needed; otherwise report the limitation before reorganizing the project. |
 | [grammar.allomorph.morph-type-unsupported-as-rule-form](diagnostics/grammar.allomorph.morph-type-unsupported-as-rule-form.md) | Loaded through separate parts |  | In Lexicon > Lexicon Edit, no change is needed when the separate parts are the intended parser representation. |
 | [grammar.environment.missing-natural-class](diagnostics/grammar.environment.missing-natural-class.md) | Environment names a missing natural class |  | In Grammar > Natural Classes, define the named class or correct its abbreviation in Grammar > Environments. Check the allomorph's intended distribution in Lexicon > Lexicon Edit > Allomorphs > Environments. |

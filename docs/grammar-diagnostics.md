@@ -134,7 +134,8 @@ labels after completion, replacing the separate PGF0016 partial-morpheme detecto
 
 The checks that do not parse always run to completion and are always written. The stored-analysis
 comparison does parse: it analyzes each FieldWorks wordform that has a stored analysis and reports
-`grammar.stored-analysis.no-longer-parses` for a stored analysis PanGloss no longer produces.
+`grammar.stored-analysis.no-longer-parses` for a stored analysis PanGloss no longer produces, and
+`grammar.stored-analysis.extra-reading` for a parsed Reading no stored analysis matches.
 Parsing a project's wordforms can take minutes, so `--stored-analyses` selects how much of it runs:
 
 | Value | Effect |
@@ -153,6 +154,43 @@ The comparison never aborts the report and never drops a wordform silently:
 Both limits count deterministic parse work, never time. The default report is therefore the same
 on every machine and at every thread count. Neither finding is an error, so neither changes the exit
 status. Both codes are retained in schema version 5.
+
+### Extra Readings and the per-word outcome
+
+Beside the missing-Reading finding, the comparison reports the other direction. A Reading PanGloss
+parses that none of the wordform's approved analyses matches becomes one
+`grammar.stored-analysis.extra-reading` info finding, naming the wordform and the Reading's morphs.
+Matching uses the same key as the missing check (allomorph, representative MSA and inflection
+type, in order). Readings that share a key count once, because FieldWorks merges equal bundles, so
+a key is extra only when no approved analysis has it: two parses with one key against one approved
+analysis with that key give no extra, and against none give one.
+Guessed roots are never extras, and a Reading with no complete key is not compared. An extra is a
+fact, not an error: the approved set may be incomplete, the grammar may overgenerate, or a recorded
+Rust-versus-C# parser divergence may let PanGloss parse a word hc.dll does not (for example the
+metathesis entries 127, 132 and 133 in `docs/divergences`). It is reported anyway; nothing here
+matches a finding to the divergence ledger. A wordform whose comparison is `incomplete` reports no
+extras.
+
+The JSON report also carries `stored_analysis_words`, one row per compared wordform in wordform
+order, present only when at least one wordform was compared:
+
+```json
+{ "wordform": "kat", "wordform_guid": "e0000000-0000-0000-0000-000000000000",
+  "outcome": "extra", "approved": 1, "matched": 1, "missing": 0, "extra": 1 }
+```
+
+| `outcome` | Meaning |
+|---|---|
+| `same` | Every approved analysis parses and PanGloss parses nothing else. |
+| `missing` | At least one approved analysis no longer parses; no extra Reading. |
+| `extra` | Every approved analysis parses, and PanGloss parses at least one more. |
+| `missing_and_extra` | Both. |
+| `incomplete` | The wordform hit the work cap or time limit; the counts are 0. |
+
+These are #399's outcomes `same`, `missing` and `extra`. Its fourth, the same morphemes with
+different cuts, is not reported yet: it needs sound surface spans on the stored side. The key and
+the existing findings are unchanged. The addition is a new finding code and a new top-level key, so
+schema version 5 stays.
 
 ## Shadowed alternates
 
