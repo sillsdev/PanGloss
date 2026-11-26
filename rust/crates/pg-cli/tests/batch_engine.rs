@@ -484,3 +484,112 @@ fn fst_affix_batch_matches_complete_hc_signatures_and_sidecar_availability() {
     assert_eq!(results[0], results[1]);
     assert_eq!(sidecars[0], sidecars[1]);
 }
+
+fn parse_stdout(args: &[&str]) -> Output {
+    Command::new(BIN).arg("parse").args(args).output().unwrap()
+}
+
+/// The readings `parse` printed for the word, from its `word\tsignature` line.
+fn parsed_readings(output: &Output) -> std::collections::BTreeSet<String> {
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    let line = text.lines().next().expect("a signature line");
+    let signature = line.split('\t').nth(1).unwrap_or("");
+    signature
+        .split(';')
+        .filter(|s| !s.is_empty() && *s != "-")
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn parse_without_a_root_loses_a_reading_plain_parse_has() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let project = project.to_str().unwrap();
+    let words: Vec<String> = fs::read_to_string(fixture.words_yaml_path())
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.trim_start().strip_prefix("- word:"))
+        .map(|w| w.trim().trim_matches('"').to_string())
+        .collect();
+    let entries: Vec<String> = pg_fwdata::import_file_lean(Path::new(project))
+        .unwrap()
+        .0
+        .lexicon
+        .entries
+        .iter()
+        .map(|e| e.guid.clone())
+        .collect();
+    let mut lost = 0;
+    for word in &words {
+        let plain = parsed_readings(&parse_stdout(&[project, word]));
+        for entry in &entries {
+            let without = parsed_readings(&parse_stdout(&[project, word, "--without", entry]));
+            assert!(
+                without.is_subset(&plain) || plain.is_empty(),
+                "{word} without {entry}: {without:?} vs {plain:?}"
+            );
+            lost += usize::from(plain.difference(&without).next().is_some());
+        }
+    }
+    assert!(lost > 0, "leaving out some root must lose some reading");
+}
+
+#[test]
+fn parse_without_refuses_unknown_and_unsupported_guids() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let project = project.to_str().unwrap();
+    let unknown = parse_stdout(&[project, "da", "--without", "no-such-guid"]);
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("no-such-guid is neither"));
+    let snapshot = pg_fwdata::import_file_lean(Path::new(project)).unwrap().0;
+    let msa = snapshot.lexicon.entries[0].msas[0].guid().to_string();
+    let unsupported = parse_stdout(&[project, "da", "--without", &msa]);
+    assert!(!unsupported.status.success());
+    let stderr = String::from_utf8_lossy(&unsupported.stderr);
+    assert!(
+        stderr.contains(&msa) && stderr.contains("only lexical entries and allomorphs"),
+        "{stderr}"
+    );
+    let entry = snapshot.lexicon.entries[0].guid.clone();
+    let traced = parse_stdout(&[
+        project,
+        "da",
+        "--without",
+        &entry,
+        "--trace-details",
+        "--trace",
+    ]);
+    assert!(!traced.status.success());
+    assert!(String::from_utf8_lossy(&traced.stderr).contains("--without cannot be combined"));
+}
+
+#[test]
+fn describe_lists_without_on_parse_and_batch() {
+    let output = Command::new(BIN).arg("--describe").output().unwrap();
+    let described: Value = serde_json::from_slice(&output.stdout).unwrap();
+    for name in ["parse", "batch"] {
+        let command = described["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is described"));
+        assert!(
+            command["flags"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["name"] == "--without"),
+            "{name} lists --without: {command}"
+        );
+    }
+}

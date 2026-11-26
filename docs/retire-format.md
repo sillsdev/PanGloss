@@ -25,3 +25,11 @@ A summary of status counts is printed to stderr as `RETIRE`.
 Not covered: causes finer than these (a class mismatch, dead continuation or repeated affix) are not derived; the retired entry is absent from the retired grammar, so a why-not on the lost reading has nothing to explain it with.
 
 Retiring an entry or allomorph that an ad hoc prohibition names drops that reference, and the prohibition when it loses its key item or every other item, as FieldWorks does when the item is deleted. `--retire-out` cannot be the grammar, word list or `<out.tsv>` path.
+
+## `--without`: the analyses with objects left out
+
+`pangloss parse <grammar> <word> --without <guid>[,<guid>...]` and `pangloss batch <grammar> <words.txt> <out.tsv> --without <guid>[,<guid>...]` parse with the named objects disabled and return the ordinary output (the `parse` signature lines, the batch TSV, an `--analyses` sidecar), not a diff. They run on the same reduced grammar as `--retire` (one implementation, `retire::load_without`), so the result for each word equals a plain parse of a grammar copy with those entries or allomorphs deleted, including the ad hoc prohibition handling above.
+
+Only lexical entries (entry guids) and allomorphs (`MoForm` guids) are supported. A guid that names any other object in the grammar (an MSA, rule, feature, template and so on) is refused with an error saying so, and a guid found nowhere in the grammar is an error; no guid is ever ignored. Rule-level removal is not modelled. The grammar must be a `.fwdata`, `.fwbackup` or snapshot `.json`.
+
+`--without` is refused with `--retire`, `--stats`, `--partials`, `--engine`, `--prefilter`, `--cache`, `--stats-manifest` and a rejection trace on `batch`, and with `--trace-details` and a rejection trace on `parse`. `batch --result-cache` keys on the flag.
