@@ -119,8 +119,8 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         Err(e) => return fatal("bad_arguments", &e),
     };
     let load_started = Instant::now();
-    let (grammar, warnings, metadata) =
-        match crate::load_grammar_with_trace_metadata(&parsed.project) {
+    let (grammar, warnings, metadata, stored_analyses) =
+        match crate::load_grammar_for_serve(&parsed.project) {
             Ok(loaded) => loaded,
             Err(e) => return fatal("load_failed", &e),
         };
@@ -150,6 +150,11 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         morpher: &morpher,
         opts: &opts,
         metadata: &metadata,
+        health_input: crate::serve_health::Input {
+            project: &parsed.project,
+            warnings: &warnings,
+            stored_analyses: &stored_analyses,
+        },
         timing: parsed.timing,
         guess: parsed.guess_arg == Some(true),
     };
@@ -248,6 +253,7 @@ struct Context<'a> {
     morpher: &'a Morpher<'a>,
     opts: &'a pg_parse::ParseOptions,
     metadata: &'a rich_trace::TraceMetadata,
+    health_input: crate::serve_health::Input<'a>,
     timing: bool,
     guess: bool,
 }
@@ -405,6 +411,13 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             .unwrap_or_else(|_| {
                 error_response(&id, "internal", "shadowedAllomorphs panicked; see stderr")
             }),
+            false,
+        ),
+        Some("health") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_health::handle(ctx.grammar, &ctx.health_input, &id, object)
+            }))
+            .unwrap_or_else(|_| error_response(&id, "internal", "health panicked; see stderr")),
             false,
         ),
         Some(other) => (

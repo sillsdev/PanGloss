@@ -44,6 +44,8 @@ mod recipe_optimize_continuation;
 mod serve_effects;
 #[path = "../serve_generate.rs"]
 mod serve_generate;
+#[path = "../serve_health.rs"]
+mod serve_health;
 #[path = "../serve_inventory.rs"]
 mod serve_inventory;
 #[path = "../serve_match.rs"]

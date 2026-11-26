@@ -92,7 +92,7 @@ The process keeps running after every `error`.
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
 | `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type, or `ruleTrace` present and not a boolean; `id` is `null` when it could not be read |
-| `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects`, `shadowedAllomorphs` or `shutdown` |
+| `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects`, `shadowedAllomorphs`, `health` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |
 | `internal` | the parser panicked on this word; the details are on stderr |
@@ -249,6 +249,22 @@ Result:
 - **A row is one HC allomorph**, not one FieldWorks allomorph: a FieldWorks affix allomorph with several environments becomes one HC allomorph per environment pass, and an entry or rule with several MSAs one per MSA. Every row carries `sourceAllomorphGuids` (the FieldWorks form guids the copy contains: one, or a prefix and a suffix for a circumfix copy) and `removableGuids`, `msaGuid` and `environments` (the authored text of the pass's environments; a suffix's left environment is compiled into its input pattern and is not listed). `shadowed` and `proven` are reported only when, for at least one guid of the row, every HC copy containing that guid has that verdict (`removableGuids` lists those guids); otherwise the row is `maybe_shadowed` or `maybe` with reason `source_allomorph_selectable_elsewhere` or `source_allomorph_live_elsewhere`, and `siblings` lists the copies that are not (`allomorphId`, `xmlKey`, `environments`). Act only on `removableGuids`. Never remove another guid from `sourceAllomorphGuids`. `proven` verdicts are not yet replayed against C# HC. Removing a FieldWorks allomorph listed in `removableGuids` is therefore safe for every pass and MSA; to drop one pass, remove that environment from the allomorph.
 - Errors: `bad_request` (an unknown field or a non-boolean `includeSelectable`), `internal`.
 - Not proven: a `maybe_shadowed` or `maybe` row says nothing either way, and no rule-level syntactic-feature or part-of-speech condition is modelled for dead continuations. The FST engine is not covered.
+
+## Op `health`: the `grammar-health` report from the loaded grammar
+
+`interfaces.serveOps.health` in `pangloss --describe` declares the op. One process that loaded a grammar (`--project` a `.fwdata`, `.fwbackup`, snapshot `.json` or grammar XML) answers `health` and `parse` requests in any order without loading again, which saves the cold start a separate `grammar-health` run pays. It is read-only and changes no parse.
+
+```json
+{"id":"h1","op":"health","shadowed":true,"includeSelectable":false,"storedAnalyses":"bounded"}
+```
+
+- Result: `{"id","type":"result","op":"health","report":{...}}`. `report` is the JSON document `pangloss grammar-health <project> [options]` prints for the same project and options, built by the same code (`diagnostics`, `stored_analysis_words`, and `shadowed_alternates` when asked), not a second report builder. Only ordering and wall-clock fields may differ.
+- Request fields, all optional: `shadowed` (boolean, the command's `--shadowed`), `includeSelectable` (boolean, `--include-selectable`; requires `shadowed`), `storedAnalyses` (`"bounded"` default, `"all"` or `"off"`, the command's `--stored-analyses`).
+- Not offered, because serve has no input for them or they write files: `--fst`, `--fw-project` (the project name comes from the `--project` path as the command derives it), `--snapshot-out`, `--facts-out` and `--facts-context`, `--log-guids` (the stderr log is not produced). They are listed under `notRun` in `--describe`.
+- Stored analyses exist only for a `.fwdata` or `.fwbackup` project; for a snapshot or grammar XML the stored-analysis section is empty whatever `storedAnalyses` says.
+- The report is computed from the grammar loaded at startup. A grammar edited on disk afterwards is not seen; start a new process.
+- Unlike the command, which exits 1 on an error-level finding, an error-level finding is still a `result`; read the findings. The stored-analysis comparison parses wordforms on the request thread, so a `bounded` or `all` request can take as long as the command's comparison and blocks other requests meanwhile; `off` runs only the checks that do not parse.
+- Errors: `bad_request` (an unknown field, a wrong type, an invalid `storedAnalyses`, or `includeSelectable` without `shadowed`), `internal`.
 
 ## Closing stdin
 
