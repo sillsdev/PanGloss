@@ -95,6 +95,78 @@
       "pangloss": "[\"B|aat\"]",
       "divergence": "134",
       "note": "hc.dll reports B twice for aat: the plain lookup of B and the blocked A+T, whose fresh B seed is not value-equal to the looked-up one. PanGloss deduplicates by WordKey and reports B once. The fixture is staged because the suite retired it at df2b0e7. Delete if PanGloss ever reports both or the staged row changes."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+sp",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R2|+?sp\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+sp` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+spa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0|+?spa\", \"NU0+R2+SU1|+?spa\", \"NU0+R2+SU1|+?spa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+spa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "sp",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R2|+?sp\", \"R2|sp\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `sp` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "spa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0|+?spa\", \"NU0+R2+SU1|+?spa\", \"NU0+R2+SU1|+?spa\", \"R0|spa\", \"R2+SU1|spa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `spa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "spaa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0+SU1|+?spaa\", \"NU0+R0+SU1|+?spaa\", \"R0+SU1|spaa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `spaa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+spaa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0+SU1|+?spaa\", \"NU0+R0+SU1|+?spaa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+spaa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "tps",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `tps` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "tp+s",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `tp+s` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "t+ps",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `t+ps` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
     }
   ]
 }

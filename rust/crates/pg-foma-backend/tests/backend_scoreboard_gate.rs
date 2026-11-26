@@ -45,13 +45,13 @@ impl Bucket {
 
 // Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
 
-// oracle_exact 169, refused 170: pin 57929476b adds metathesis-allomorph-env-after-swap (one refused cell: the FST route refuses metathesis grammars); earlier, pin cc7512e adds convergent-stemname-mpr-homophones (one exact cell); the 3 restored prefix-required-environment-after-epenthesis* fixtures return from conformance-staging/ to the suite and score unchanged (2 exact, 1 refused).
+// oracle_exact 169, refused 170: pin 57929476b adds metathesis-allomorph-env-after-swap (one refused cell: the FST route refuses metathesis grammars); earlier, pin cc7512e adds convergent-stemname-mpr-homophones (one exact cell); the 3 restored prefix-required-environment-after-epenthesis* fixtures return from conformance-staging/ to the suite and score unchanged (2 exact, 1 refused). Pin 0b7db29 adds metathesis-swap-then-gap and metathesis-middle-context-emptied-edges (both refused: a deleting rewrite in a grammar with affix rules): refused 172.
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
         oracle_exact: 169,
         compiles_but_misses: 0,
-        refused: 170,
+        refused: 172,
         unmeasurable: 0,
     },
 )];

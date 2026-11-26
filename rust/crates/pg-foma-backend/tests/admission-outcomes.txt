@@ -115,7 +115,9 @@ machine:edge-cases/metathesis-boundary-right-to-left-prefix	TunedSurfaceProbed	r
 machine:edge-cases/metathesis-boundary-right-to-left-suffix	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-boundary-two-suffixes	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-deletion-restores-segment-between-switches	TunedSurfaceProbed	refused
+machine:edge-cases/metathesis-middle-context-emptied-edges	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-segment-class-union	TunedSurfaceProbed	refused
+machine:edge-cases/metathesis-swap-then-gap	TunedSurfaceProbed	refused
 machine:edge-cases/morphotactic-attribute-breadth	TunedSurfaceProbed	refused
 machine:edge-cases/mpr-gated-exception	TunedSurfaceProbed	refused
 machine:edge-cases/mpr-wide-inflection-classes	TunedSurfaceProbed	oracle_exact
