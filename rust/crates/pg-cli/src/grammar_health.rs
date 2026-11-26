@@ -7,6 +7,11 @@
 //! and the whole report under the JSON key `shadowed_alternates` with the serve op's rows,
 //! verdicts and `removableGuids`. `--include-selectable` also lists the `selectable` rows.
 //!
+//! The stored-analysis comparison also writes one row per compared wordform under the top-level
+//! key `stored_analysis_words` (outcome `same`, `extra`, `missing`, `missing_and_extra` or
+//! `incomplete`, with counts), and one `grammar.stored-analysis.extra-reading` finding per parsed
+//! Reading no approved analysis matches.
+//!
 //! The checks that do not parse always run to completion. The FieldWorks stored-analysis
 //! comparison parses wordforms, so by default it stops at a fixed total work budget; a wordform it
 //! cannot finish, and the wordforms past the budget, are reported as findings, never dropped.
@@ -57,6 +62,7 @@ pub(crate) fn run_grammar_health_with_limits(
     let mut shadowed = false;
     let mut include_selectable = false;
     let mut shadowed_report: Option<serde_json::Map<String, serde_json::Value>> = None;
+    let mut stored_words = Vec::new();
     let mut fst_check_error = None;
     let mut coverage = Coverage::Budget(limits.work_budget);
     let mut artifacts = ArtifactArgs::default();
@@ -190,12 +196,14 @@ pub(crate) fn run_grammar_health_with_limits(
                 diagnostics.extend(crate::serve_shadowed::findings(&loaded.grammar, &report));
                 shadowed_report = Some(report);
             }
-            diagnostics.extend(crate::stored_analysis_health::check(
+            let compared = crate::stored_analysis_health::check(
                 &loaded.grammar,
                 &loaded.stored_analyses,
                 limits.work_cap,
                 coverage,
-            ));
+            );
+            diagnostics.extend(compared.diagnostics);
+            stored_words = compared.words;
             diagnostics.extend(
                 loaded
                     .warnings
@@ -229,11 +237,15 @@ pub(crate) fn run_grammar_health_with_limits(
     }
     let mut json =
         render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
-    if fst_report.is_some() || shadowed_report.is_some() {
+    if fst_report.is_some() || shadowed_report.is_some() || !stored_words.is_empty() {
         let mut value: serde_json::Value =
             serde_json::from_str(&json).map_err(|error| error.to_string())?;
         if let Some(fst) = fst_report.take() {
             value["fst"] = fst;
+        }
+        if !stored_words.is_empty() {
+            value["stored_analysis_words"] =
+                serde_json::to_value(&stored_words).map_err(|error| error.to_string())?;
         }
         if let Some(shadowed) = shadowed_report.take() {
             value["shadowed_alternates"] = serde_json::Value::Object(shadowed);
