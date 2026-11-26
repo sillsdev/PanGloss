@@ -10,7 +10,7 @@ suite disagree.
 | Path | Repository | What reads it | Fetched by |
 |---|---|---|---|
 | `conformance/` | `sillsdev/fieldworks-parser-conformance`, a `git clone --filter=blob:none` at the commit `conformance.commit` names; gitignored, not a submodule | every fixture gate, `pg-conformance-fixtures`, `typology_speedup`, the xample projector, the C# driver's `--fixtures` | `pg.ps1` (before Cargo starts), `rust/tools/conformance.ps1`, the `conformance-suite` CI action |
-| `machine` | `sillsdev/machine`, a submodule pinned to `1ddef2bd` | `run-conformance.sh` builds the driver from its source; preland uses a validated pin cache, a clean pin-matched worktree binary, or publishes a temporary Git export (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) or a local clone supplies source; preland never writes to registered Machine checkouts |
+| `machine` | `sillsdev/machine`, a submodule pinned to `ba6dfa10` | `run-conformance.sh` builds the driver from its source; preland uses a validated pin cache, a clean pin-matched worktree binary, or publishes a temporary Git export (`Find-PinMatchedConformanceDriver`) | CI (`submodules: true`) or a local clone supplies source; preland never writes to registered Machine checkouts |
 
 The suite used to live inside `machine` at `machine/conformance/`, which is why PanGloss's first
 submodule had to be initialized *sparsely*: a full `machine` checkout is 41MB of C# source that nothing
@@ -78,11 +78,12 @@ without a local commit, the dirty refusal, the unreachable remote, a missing pin
 
 ## The `machine` pin and its `.gitmodules` branch
 
-`machine` is pinned to `1ddef2bd2f1503717de95556116df8e4a63846d6`: Machine #627 cherry-picked
-onto `4d9b454d`, the head of PR #615 (stacked on #556 and #500). Master includes #627 but not
-the runner or its parser prerequisites, so it cannot yet replace this branch. The tag
-`pangloss-oracle-pin-1ddef2bd` keeps the pin reachable. Previous pins
-include `4d9b454d` (tag `pangloss-oracle-pin-4d9b454d`) and `aab4c598` (tag
+`machine` is pinned to `ba6dfa106feaee1b6f6dd1529a0644053d9dd145`: the head of PR #615 (the conformance runner),
+which contains the engine `e63b8863` the suite's rows come from and the loader for the optional top-level
+`upstream:` key of `words.yaml` (PROTOCOL.md section 12). The runner and its parser prerequisites are not on
+master, so master cannot yet replace this branch. The branch tip keeps the pin reachable until a
+`pangloss-oracle-pin-ba6dfa10` tag is pushed. Previous pins
+include `1ddef2bd` (tag `pangloss-oracle-pin-1ddef2bd`), `4d9b454d` (tag `pangloss-oracle-pin-4d9b454d`) and `aab4c598` (tag
 `pangloss-oracle-pin-aab4c598`). `.gitmodules` records the repository URL without a branch field.
 A plain `git submodule update --init machine` fetches the recorded commit by SHA; moving the oracle
 pin is a deliberate gitlink edit.

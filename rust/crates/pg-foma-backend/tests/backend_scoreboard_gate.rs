@@ -45,11 +45,11 @@ impl Bucket {
 
 // Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
 
-// oracle_exact 168, refused 169: pin df2b0e7 adds category-limited-phonological-rule and 7 convergent-* fixtures (5 exact, 3 refused); the 5 retired engine-only fixtures score unchanged from conformance-staging/.
+// oracle_exact 169, refused 169: pin cc7512e adds convergent-stemname-mpr-homophones (one exact cell); the 3 restored prefix-required-environment-after-epenthesis* fixtures return from conformance-staging/ to the suite and score unchanged (2 exact, 1 refused).
 const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
     EmissionStrategy::TunedSurfaceProbed,
     Bucket {
-        oracle_exact: 168,
+        oracle_exact: 169,
         compiles_but_misses: 0,
         refused: 169,
         unmeasurable: 0,
