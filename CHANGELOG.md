@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.35.2
+
+Released 2026-11-26.
 
 - Releases ship Windows and Linux executables only; macOS builds still run but are not published. They run in a separate `build-macos` job that never blocks the release, and the release now carries six files, not ten: `pangloss-win-x64.exe`, `pangloss-linux-x64`, the legacy `pangloss.exe`, and a `.sha256` for each. `pangloss-osx-arm64` and `pangloss-osx-x64` are no longer published.
 - An allomorph environment after a cross-morph metathesis swap now reads the morph extent C# does (#380): C# rebuilds each swapped morph as its leftmost child to its rightmost, so a root can wrap a prefix and its right environment sees what follows the root's last segment. Rust ended the root at the segment before the prefix, so it found no parse for `tsa` and `t+sa` where a root `ta` requires a word-final right environment, and accepted `tsaa` for a root `taa` requiring a following segment. The word model now records a morph's last node after a swap where the next morph's start would not imply it. Pinned by suite fixture `edge-cases/metathesis-allomorph-env-after-swap` (conformance pin 57929476b, nine rows from hc.dll at Machine ba6dfa106) and `pg-parse/tests/metathesis_allomorph_env_extent.rs`. #388 and #391 are unchanged.
