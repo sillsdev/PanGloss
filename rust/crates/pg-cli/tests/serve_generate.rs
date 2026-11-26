@@ -567,3 +567,170 @@ fn describe_matches_what_the_op_emits() {
         "{r}"
     );
 }
+
+/// One `generate` request line, as `pangloss serve` and `generate --requests` both take it.
+fn batch_line(id: &str, morphemes: &[&str], extra: Value) -> String {
+    let request: Value = serde_json::from_str(&format!(
+        r#"{{"schemaVersion":1,"root":{ROOT},"morphemes":[{}]}}"#,
+        morphemes.join(",")
+    ))
+    .unwrap();
+    let mut message = json!({"id": id, "op": "generate", "request": request});
+    for (key, value) in extra.as_object().unwrap() {
+        message[key] = value.clone();
+    }
+    message.to_string()
+}
+
+/// Runs `pangloss generate <project> --requests <source>`, feeding `lines` through a file or, for `-`, stdin; returns the exit success and the parsed output rows.
+fn run_requests(project: &Project, lines: &[String], via_stdin: bool) -> (bool, Vec<Value>) {
+    let text = lines.join("\n") + "\n";
+    let mut command = Command::new(BIN);
+    command.arg("generate").arg(&project.path).arg("--requests");
+    let dir = tempfile::tempdir().unwrap();
+    let output = if via_stdin {
+        let mut child = command
+            .arg("-")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("pangloss generate must start");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(text.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap()
+    } else {
+        let path = dir.path().join("requests.jsonl");
+        std::fs::write(&path, text).unwrap();
+        command.arg(&path).output().unwrap()
+    };
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let rows = stdout
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("not JSON ({e}): {l}")))
+        .collect();
+    (output.status.success(), rows)
+}
+
+#[test]
+fn requests_batch_answers_every_line_in_order_and_a_bad_line_is_an_error_row() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let lines = [
+        batch_line("first", &[AFFIX], json!({})),
+        "{not json".to_string(),
+        batch_line("third", &[], json!({})),
+    ];
+    let (ok, rows) = run_requests(&project, &lines, false);
+    assert!(ok, "a bad line must not fail the batch: {rows:?}");
+    assert_eq!(rows.len(), 3, "{rows:?}");
+    assert_eq!(rows[0]["id"], "first");
+    let numbers: Vec<&Value> = rows.iter().map(|r| &r["line"]).collect();
+    assert_eq!(numbers, [1, 2, 3], "{rows:?}");
+    assert_eq!(rows[0]["type"], "result", "{}", rows[0]);
+    assert_eq!(surfaces(&rows[0]["seeds"][0]), ["rannas"]);
+    assert_eq!(rows[1]["type"], "error", "{}", rows[1]);
+    assert_eq!(rows[1]["code"], "malformed_json");
+    assert_eq!(rows[1]["id"], Value::Null);
+    assert_eq!(rows[2]["id"], "third");
+    assert_eq!(rows[2]["type"], "result", "{}", rows[2]);
+}
+
+#[test]
+fn requests_batch_row_equals_the_serve_op_answer_for_the_same_request() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let traced = batch_line("t", &[AFFIX], json!({"trace": true}));
+    let plain = batch_line("p", &[], json!({"maxSeeds": 5}));
+    let (_, rows) = run_requests(&project, &[traced.clone(), plain.clone()], false);
+    let mut server = Server::start(&project);
+    let expected_traced = server.ask(serde_json::from_str(&traced).unwrap());
+    let expected_plain = server.ask(serde_json::from_str(&plain).unwrap());
+    let without_line: Vec<Value> = rows
+        .into_iter()
+        .map(|mut row| {
+            row.as_object_mut().unwrap().remove("line").unwrap();
+            row
+        })
+        .collect();
+    assert_eq!(without_line, [expected_traced, expected_plain]);
+}
+
+#[test]
+fn requests_batch_reads_stdin_for_a_dash() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let lines = [batch_line("in", &[AFFIX], json!({}))];
+    let (ok, rows) = run_requests(&project, &lines, true);
+    assert!(ok);
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["id"], "in");
+    assert_eq!(surfaces(&rows[0]["seeds"][0]), ["rannas"]);
+}
+
+#[test]
+fn requests_batch_keeps_refusing_form_selection_and_other_ops_per_row() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let forced = AFFIX.replace(
+        r#""msaClass""#,
+        r#""formGuid":"00000000-0000-0000-0000-000000000051","msaClass""#,
+    );
+    let lines = [
+        batch_line("forced", &[&forced], json!({})),
+        r#"{"id":"w","op":"parse","word":"x"}"#.to_string(),
+        String::new(),
+        batch_line("after", &[], json!({})),
+    ];
+    let (ok, rows) = run_requests(&project, &lines, false);
+    assert!(ok);
+    assert_eq!(rows.len(), 3, "a blank line has no row: {rows:?}");
+    let numbers: Vec<&Value> = rows.iter().map(|r| &r["line"]).collect();
+    assert_eq!(numbers, [1, 2, 4], "line counts the blank line: {rows:?}");
+    assert_eq!(rows[0]["code"], "unsupported_form_selection", "{}", rows[0]);
+    assert_eq!(rows[1]["code"], "unknown_op", "{}", rows[1]);
+    assert_eq!(rows[1]["id"], "w");
+    assert_eq!(rows[2]["type"], "result");
+}
+
+/// Runs `generate --requests` over raw bytes through a file.
+fn run_raw_requests(project: &Project, bytes: &[u8]) -> Vec<Value> {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("requests.jsonl");
+    std::fs::write(&path, bytes).unwrap();
+    let output = Command::new(BIN)
+        .arg("generate")
+        .arg(&project.path)
+        .arg("--requests")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[test]
+fn requests_batch_gives_an_error_row_for_an_oversize_and_a_non_utf8_line() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(batch_line("a", &[], json!({})).as_bytes());
+    bytes.push(b'\n');
+    bytes.extend_from_slice(format!("{{\"id\":\"{}\"}}\n", "x".repeat(1 << 20)).as_bytes());
+    bytes.extend_from_slice(b"{\"id\":\"\xff\"}\n");
+    bytes.extend_from_slice(b"  \t\n");
+    bytes.extend_from_slice(batch_line("e", &[], json!({})).as_bytes());
+    bytes.push(b'\n');
+    let rows = run_raw_requests(&project, &bytes);
+    assert_eq!(rows.len(), 4, "{rows:?}");
+    assert_eq!(rows[0]["line"], 1);
+    assert_eq!(rows[1]["code"], "request_too_large", "{}", rows[1]);
+    assert_eq!(rows[1]["line"], 2);
+    assert_eq!(rows[2]["code"], "malformed_json", "{}", rows[2]);
+    assert_eq!(rows[2]["line"], 3);
+    assert_eq!(rows[3]["id"], "e");
+    assert_eq!(rows[3]["line"], 5);
+}

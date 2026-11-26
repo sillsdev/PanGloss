@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use pg_stats::WorkCap;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::rich_trace;
 
@@ -190,7 +190,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
 }
 
 /// The longest accepted request line, newline excluded.
-const MAX_REQUEST_BYTES: usize = 1 << 20;
+pub(crate) const MAX_REQUEST_BYTES: usize = 1 << 20;
 
 enum Request {
     Line(Vec<u8>),
@@ -252,42 +252,65 @@ struct Context<'a> {
     guess: bool,
 }
 
-fn error_response(id: &Value, code: &str, message: &str) -> Value {
+pub(crate) fn error_response(id: &Value, code: &str, message: &str) -> Value {
     json!({"id": id, "type": "error", "code": code, "message": message})
+}
+
+/// Reads one request line into its string `id` and its object. `Err` is the error response line for a malformed, non-object or id-less line.
+pub(crate) fn request_envelope(line: &str) -> Result<(Value, Map<String, Value>), Value> {
+    let request: Value = serde_json::from_str(line)
+        .map_err(|e| error_response(&Value::Null, "malformed_json", &e.to_string()))?;
+    let Value::Object(object) = request else {
+        return Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "request must be a JSON object",
+        ));
+    };
+    match object.get("id") {
+        Some(Value::String(s)) => Ok((Value::String(s.clone()), object)),
+        Some(_) => Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "\"id\" must be a string",
+        )),
+        None => Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "\"id\" is required",
+        )),
+    }
+}
+
+/// Runs one `generate` request object and returns its response line: the op's result with `id`, `type` and `op` set, or an error line.
+pub(crate) fn generate_response(
+    grammar: &Grammar,
+    morpher: &Morpher<'_>,
+    id: Value,
+    object: &Map<String, Value>,
+) -> Value {
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        crate::serve_generate::run(grammar, morpher, object)
+    }));
+    match outcome {
+        Ok(Ok(mut result)) => {
+            result["id"] = id;
+            result["type"] = json!("result");
+            result["op"] = json!("generate");
+            result
+        }
+        Ok(Err((code, message))) => error_response(&id, code, &message),
+        Err(_) => error_response(&id, "internal", "generator panicked; see stderr"),
+    }
 }
 
 /// Returns the response line and whether the process should exit after writing it.
 fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
-    let request: Value = match serde_json::from_str(line) {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                error_response(&Value::Null, "malformed_json", &e.to_string()),
-                false,
-            )
-        }
+    let (id, object) = match request_envelope(line) {
+        Ok(envelope) => envelope,
+        Err(response) => return (response, false),
     };
-    let Some(object) = request.as_object() else {
-        return (
-            error_response(&Value::Null, "bad_request", "request must be a JSON object"),
-            false,
-        );
-    };
-    let id = match object.get("id") {
-        Some(Value::String(s)) => Value::String(s.clone()),
-        Some(_) => {
-            return (
-                error_response(&Value::Null, "bad_request", "\"id\" must be a string"),
-                false,
-            )
-        }
-        None => {
-            return (
-                error_response(&Value::Null, "bad_request", "\"id\" is required"),
-                false,
-            )
-        }
-    };
+    let object = &object;
     match object.get("op").and_then(Value::as_str) {
         Some("shutdown") => (json!({"id": id, "type": "bye"}), true),
         Some("parse") => {
@@ -348,22 +371,10 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             };
             (response, false)
         }
-        Some("generate") => {
-            let outcome = catch_unwind(AssertUnwindSafe(|| {
-                crate::serve_generate::run(ctx.grammar, ctx.morpher, object)
-            }));
-            let response = match outcome {
-                Ok(Ok(mut result)) => {
-                    result["id"] = id;
-                    result["type"] = json!("result");
-                    result["op"] = json!("generate");
-                    result
-                }
-                Ok(Err((code, message))) => error_response(&id, code, &message),
-                Err(_) => error_response(&id, "internal", "generator panicked; see stderr"),
-            };
-            (response, false)
-        }
+        Some("generate") => (
+            generate_response(ctx.grammar, ctx.morpher, id, object),
+            false,
+        ),
         Some("inventory") => (
             catch_unwind(AssertUnwindSafe(|| {
                 crate::serve_inventory::handle(ctx.grammar, ctx.morpher, &id, object)

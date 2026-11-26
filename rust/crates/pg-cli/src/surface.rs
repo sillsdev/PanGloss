@@ -518,11 +518,18 @@ const WHY_NOT_FLAGS: &[FlagSpec] = &[
     },
 ];
 
-const GENERATE_FLAGS: &[FlagSpec] = &[FlagSpec {
-    name: "--request",
-    takes_value: true,
-    summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
-}];
+const GENERATE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--request",
+        takes_value: true,
+        summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
+    },
+    FlagSpec {
+        name: "--requests",
+        takes_value: true,
+        summary: "JSONL file of `serve` generate requests (`-` reads stdin); one response row per line on stdout, in order; a bad line is an error row and the batch continues",
+    },
+];
 
 const SERVE_FLAGS: &[FlagSpec] = &[
     FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
@@ -1078,7 +1085,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "generate",
-        summary: "Generate from HC XML MorphemeId selectors or an exact FieldWorks entry/MSA request; a request lists morphemes in generation order, not surface order.",
+        summary: "Generate from HC XML MorphemeId selectors, an exact FieldWorks entry/MSA request, or a JSONL batch of such requests (`--requests`); a request lists morphemes in generation order, not surface order.",
         hidden: false,
         positionals: &["grammar", "root-morpheme-id", "other-morpheme-id..."],
         flags: GENERATE_FLAGS,

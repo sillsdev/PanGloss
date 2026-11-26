@@ -99,7 +99,7 @@ The process keeps running after every `error`.
 
 ## The `generate` op
 
-`generate` runs the `pangloss generate --request` v1 document inside the server and keeps one result per seed. It needs a project with authored FieldWorks identity (a snapshot or fwdata); an HC XML project gets `authored_identity_unavailable`. `--describe` declares it as `interfaces.serveOps.generate`, and a test checks that declaration against what the op emits.
+`generate` runs the `pangloss generate --request` v1 document inside the server and keeps one result per seed. It needs a project with authored FieldWorks identity (a snapshot or fwdata); an HC XML project gets `authored_identity_unavailable`. `--describe` declares it as `interfaces.serveOps.generate`, and a test checks that declaration against what the op emits. `pangloss generate <project> --requests <file.jsonl|->` runs the same op over a JSONL file with no server (see `docs/generation.md`, "Batch requests"); its rows equal the responses `serve` gives.
 
 ```json
 {"id":"g1","op":"generate","request":{"schemaVersion":1,"root":{"entryGuid":"..","msaGuid":"..","msaClass":"MoStemMsa"},"morphemes":[{"entryGuid":"..","msaGuid":"..","msaClass":"MoInflAffMsa"}]},"trace":true,"maxTraceSteps":50000}
