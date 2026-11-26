@@ -42,12 +42,13 @@ Pin a page to a release tag: `https://github.com/sillsdev/PanGloss/blob/<tag>/do
 | [substrate.classification-ambiguous](diagnostics/substrate.classification-ambiguous.md) | Allomorph contains an unclassifiable character |  | In Lexicon > Lexicon Edit, check the named allomorph's spelling and remove any unintended control character. If a letter still cannot be segmented, check its representations in Grammar > Phonemes. |
 | [migration.inferred-segment-with-feature-rule](diagnostics/migration.inferred-segment-with-feature-rule.md) | Unlisted character matches a feature class |  | If the character is a language phoneme, define its In Orthography as and Phonological Features in Grammar > Phonemes. Otherwise correct the unintended allomorph spelling in Lexicon > Lexicon Edit. |
 
-## Warnings (57)
+## Warnings (58)
 
 | Code | Title | Label | What to do |
 |---|---|---|---|
 | [hc-undeclared-segment](diagnostics/hc-undeclared-segment.md) | Missing segment definition | blocks FST | In Lexicon > Lexicon Edit, check the named form's spelling. If the spelling is intended, add its phoneme and grapheme representation in Grammar > Phonemes; for an inserted compound-rule segment, check the named rule in Grammar > Compound Rules instead. |
 | [grammar.stored-analysis.incomplete](diagnostics/grammar.stored-analysis.incomplete.md) | Stored analysis not checked |  | No FieldWorks correction is established: the stored analyses may still parse. If the wordform should analyze quickly, look for rules or affixes that can apply to it many times, such as optional phonological rules or null affixes. If the grammar is correct, report the wordform with its description and PanGloss version. |
+| [grammar.allomorph.shadowed](diagnostics/grammar.allomorph.shadowed.md) | Alternate is shadowed |  | In Lexicon > Lexicon Edit, open the named entry. Remove the allomorph (or, for an affix, its alternate form) whose GUID is listed as removable, or move it before the allomorph that shadows it and give it a narrower environment. Act only on the removable GUIDs named in the description. |
 | [fst.pattern-root-shape](diagnostics/fst.pattern-root-shape.md) | Pattern root has no FST route | blocks FST | Use the full morphological parser for this grammar. If the pattern is intentional, report the named root and PanGloss version; no FieldWorks correction is established. |
 | [fst.circumfix-no-route](diagnostics/fst.circumfix-no-route.md) | Circumfix has no FST route | blocks FST | Use the full morphological parser. For an intentional HC-XML circumfix, report the named rule and PanGloss version; no FieldWorks correction is established. |
 | [fst.reduplication-no-route](diagnostics/fst.reduplication-no-route.md) | Reduplication has no FST route | blocks FST | Use the full morphological parser. Report the named HC-XML rule and PanGloss version if the reduplication is intentional; changing its linguistic meaning is not a verified remedy. |

@@ -1453,7 +1453,7 @@ fn an_empty_report_remains_valid() {
 
 #[test]
 fn every_code_variant_occurs_once_in_all() {
-    assert_eq!(GrammarHealthCode::ALL.len(), 15);
+    assert_eq!(GrammarHealthCode::ALL.len(), 16);
     for code in [
         GrammarHealthCode::UndeclaredSegment,
         GrammarHealthCode::DuplicateFeatureBundle,
@@ -1465,6 +1465,7 @@ fn every_code_variant_occurs_once_in_all() {
         GrammarHealthCode::StoredAnalysisNoLongerParses,
         GrammarHealthCode::StoredAnalysisIncomplete,
         GrammarHealthCode::StoredAnalysisBudgetReached,
+        GrammarHealthCode::ShadowedAlternate,
         GrammarHealthCode::FstPatternRootShape,
         GrammarHealthCode::FstCircumfixNoRoute,
         GrammarHealthCode::FstReduplicationNoRoute,

@@ -750,6 +750,16 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
         summary: "append each item's FieldWorks GUID to its human-readable log title.",
     },
     FlagSpec {
+        name: "--shadowed",
+        takes_value: false,
+        summary: "add the shadowed-alternates report of `serve`'s shadowedAllomorphs op: a grammar.allomorph.shadowed warning per proven alternate and the whole report under `shadowed_alternates`; act only on its removableGuids.",
+    },
+    FlagSpec {
+        name: "--include-selectable",
+        takes_value: false,
+        summary: "with --shadowed, also list the selectable alternates (and live dead-continuation rows).",
+    },
+    FlagSpec {
         name: "--stored-analyses",
         takes_value: true,
         summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison.",

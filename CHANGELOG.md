@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- `pangloss grammar-health <grammar> [<out.json>] --shadowed [--include-selectable]` gives the command line the shadowed-alternates report that only `pangloss serve` had (#469; `shadowedAllomorphs`). It runs the serve op's own code, so verdicts, reasons and GUIDs are identical (a test compares the two on the fixtures): each proven `shadowed` alternate is a new `grammar.allomorph.shadowed` warning that names the covering alternate and its `removableGuids`, and the whole report (`maybe_shadowed`, blockers, `deadContinuations`; with `--include-selectable` also the selectable rows) is written under the report's `shadowed_alternates` key. Act only on `removableGuids`. Opt-in and additive: without the flag the report is unchanged and stays schema version 5. See `docs/grammar-diagnostics.md`. Replaying proven verdicts against C# HermitCrab is still open in #469.
+
 ## 0.35.0
 
 Released 2026-11-25.

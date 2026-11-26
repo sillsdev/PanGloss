@@ -1,6 +1,11 @@
 //! `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-//! [--stored-analyses bounded|all|off] [--fst]`: run the ported `hc-*` HermitCrab grammar-authoring checks
+//! [--stored-analyses bounded|all|off] [--fst] [--shadowed [--include-selectable]]`: run the ported `hc-*` HermitCrab grammar-authoring checks
 //! (`pg_grammar::grammar_health`) and print/serialize the diagnostics.
+//!
+//! `--shadowed` adds the shadowed-alternates report of `pangloss serve`'s `shadowedAllomorphs` op
+//! (`serve_shadowed::report`, the same code): a `grammar.allomorph.shadowed` warning per proven row,
+//! and the whole report under the JSON key `shadowed_alternates` with the serve op's rows,
+//! verdicts and `removableGuids`. `--include-selectable` also lists the `selectable` rows.
 //!
 //! The checks that do not parse always run to completion. The FieldWorks stored-analysis
 //! comparison parses wordforms, so by default it stops at a fixed total work budget; a wordform it
@@ -31,7 +36,7 @@ use pg_snapshot::DiagnosticLevel;
 use crate::stored_analysis_health::{Coverage, Limits};
 
 /// `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-/// [--stored-analyses bounded|all|off] [--fst]`; `<out.json>` omitted prints the versioned report to stdout
+/// [--stored-analyses bounded|all|off] [--fst] [--shadowed [--include-selectable]]`; `<out.json>` omitted prints the versioned report to stdout
 /// instead of a file. Diagnostics are also logged one per line on stderr.
 pub fn run_grammar_health(args: &[String]) -> Result<(), String> {
     run_grammar_health_with_limits(args, Limits::DEFAULT)
@@ -49,6 +54,9 @@ pub(crate) fn run_grammar_health_with_limits(
     let mut fieldworks_project = None;
     let mut log_guids = false;
     let mut fst = false;
+    let mut shadowed = false;
+    let mut include_selectable = false;
+    let mut shadowed_report: Option<serde_json::Map<String, serde_json::Value>> = None;
     let mut fst_check_error = None;
     let mut coverage = Coverage::Budget(limits.work_budget);
     let mut artifacts = ArtifactArgs::default();
@@ -65,6 +73,14 @@ pub(crate) fn run_grammar_health_with_limits(
                     return Err("--fst requires a build with the foma-tools feature".to_string());
                 }
                 fst = true;
+                index += 1;
+            }
+            "--shadowed" => {
+                shadowed = true;
+                index += 1;
+            }
+            "--include-selectable" => {
+                include_selectable = true;
                 index += 1;
             }
             "--log-guids" => {
@@ -130,12 +146,15 @@ pub(crate) fn run_grammar_health_with_limits(
         [grammar, output] => (*grammar, Some(*output)),
         _ => {
             return Err(
-                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]"
+                "usage: grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--shadowed [--include-selectable]] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]"
                     .to_string(),
             );
         }
     };
 
+    if include_selectable && !shadowed {
+        return Err("--include-selectable requires --shadowed".to_string());
+    }
     artifacts.validate(grammar_path, out_path)?;
     let mut capture = crate::ImportCapture {
         keep_compile: artifacts.facts_out.is_some(),
@@ -165,6 +184,11 @@ pub(crate) fn run_grammar_health_with_limits(
                 .map_err(|error| format!("run grammar health checks: {error}"))?;
             if fst {
                 fst_check_error = extend_fst_diagnostics(&loaded.grammar, &mut diagnostics);
+            }
+            if shadowed {
+                let report = crate::serve_shadowed::report(&loaded.grammar, include_selectable);
+                diagnostics.extend(crate::serve_shadowed::findings(&loaded.grammar, &report));
+                shadowed_report = Some(report);
             }
             diagnostics.extend(crate::stored_analysis_health::check(
                 &loaded.grammar,
@@ -205,10 +229,15 @@ pub(crate) fn run_grammar_health_with_limits(
     }
     let mut json =
         render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
-    if let Some(fst) = fst_report.take() {
+    if fst_report.is_some() || shadowed_report.is_some() {
         let mut value: serde_json::Value =
             serde_json::from_str(&json).map_err(|error| error.to_string())?;
-        value["fst"] = fst;
+        if let Some(fst) = fst_report.take() {
+            value["fst"] = fst;
+        }
+        if let Some(shadowed) = shadowed_report.take() {
+            value["shadowed_alternates"] = serde_json::Value::Object(shadowed);
+        }
         json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
     }
 
