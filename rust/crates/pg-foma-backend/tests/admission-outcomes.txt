@@ -101,6 +101,7 @@ machine:edge-cases/merge-subrules-pos-ltr-template	TunedSurfaceProbed	refused
 machine:edge-cases/merge-subrules-pos-rtl-template	TunedSurfaceProbed	refused
 machine:edge-cases/merge-subrules-pos-simultaneous-template	TunedSurfaceProbed	refused
 machine:edge-cases/merge-then-metathesis	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/metathesis-allomorph-env-after-swap	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-boundary-between-switches-compound	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-boundary-between-switches-marker	TunedSurfaceProbed	refused
 machine:edge-cases/metathesis-boundary-between-switches-prefix	TunedSurfaceProbed	refused

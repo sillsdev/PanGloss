@@ -16,6 +16,7 @@ struct Parts {
     applied_phonological_rules: Vec<(StratumId, PRuleId)>,
     root_runtime_id: Option<String>,
     pinned_starts: Vec<(AllomorphId, u16, u16)>,
+    stretched_ends: Vec<((AllomorphId, u16, u16), u32)>,
     deleted_gaps: Vec<u32>,
     bare_nodes: Vec<u32>,
     span_marks: SpanMarks,
@@ -119,6 +120,18 @@ impl Extras {
         }
     }
 
+    /// Morph runs, by allomorph, application and run, whose range a swap stretched past what the next morph's start implies: C# `SynthesisMetathesisRuleSpec.ApplyRhs` rebuilds each overlapped morph as its leftmost child to its rightmost, which can wrap another morph. Each entry is the interior index of the run's last node.
+    pub(crate) fn stretched_ends(&self) -> &[((AllomorphId, u16, u16), u32)] {
+        self.0.as_ref().map_or(&[][..], |p| &p.stretched_ends)
+    }
+
+    pub(crate) fn set_stretched_ends(&mut self, ends: Vec<((AllomorphId, u16, u16), u32)>) {
+        if ends.is_empty() && self.0.is_none() {
+            return;
+        }
+        self.parts_mut().stretched_ends = ends;
+    }
+
     /// Interior node indices that a synthesis rewrite deleted a non-optional node just before.
     pub(crate) fn deleted_gaps(&self) -> &[u32] {
         self.0.as_ref().map_or(&[][..], |p| &p.deleted_gaps)
@@ -150,6 +163,7 @@ impl Extras {
     pub(crate) fn clear_shape_marks(&mut self) {
         if let Some(parts) = self.0.as_mut() {
             parts.pinned_starts.clear();
+            parts.stretched_ends.clear();
             parts.deleted_gaps.clear();
             parts.bare_nodes.clear();
         }
@@ -177,6 +191,7 @@ impl std::fmt::Debug for Extras {
             )
             .field("root_runtime_id", &self.root_runtime_id())
             .field("pinned_starts", &self.pinned_starts())
+            .field("stretched_ends", &self.stretched_ends())
             .field("deleted_gaps", &self.deleted_gaps())
             .field("bare_nodes", &self.bare_nodes())
             .field("span_marks", &self.span_marks().filter(|m| !m.is_empty()))

@@ -1601,9 +1601,9 @@ fn attribute_morphs(
         &[u16],
     )>,
 ) -> Vec<MorphRecord> {
-    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len(), head.extras.bare_nodes());
-    let non_head_layout = non_head
-        .map(|word| MorphLayout::decode(&word.morphs, word.shape.len(), word.extras.bare_nodes()));
+    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len(), &head.extras);
+    let non_head_layout =
+        non_head.map(|word| MorphLayout::decode(&word.morphs, word.shape.len(), &word.extras));
     let mut pending = Vec::new();
     let mut output_owners = vec![None; out.len()];
 
