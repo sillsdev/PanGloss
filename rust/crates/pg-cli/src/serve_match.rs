@@ -62,13 +62,14 @@ pub(crate) const MAX_WORD_TIMEOUT_MS: u64 = 600_000;
 /// What a segment is tested by: `engine` as rule application does (features), `identity` by exact segment and class membership.
 const SEGMENT_TESTS: [&str; 2] = ["engine", "identity"];
 const DEFAULT_SEGMENT_TEST: &str = "engine";
-const KNOWN_FIELDS: [&str; 11] = [
+const KNOWN_FIELDS: [&str; 12] = [
     "id",
     "op",
     "pattern",
     "words",
     "wordsFile",
     "boundaryMarker",
+    "boundaryMarkers",
     "maxWords",
     "maxMatchesPerWord",
     "maxWork",
@@ -222,6 +223,22 @@ pub(crate) fn handle(
         Some(Value::String(s)) if !s.is_empty() => Some(s.as_str()),
         Some(_) => return bad("\"boundaryMarker\" must be a non-empty string"),
     };
+    let extra_markers: Vec<&str> = match object.get("boundaryMarkers") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => {
+            let mut markers = Vec::with_capacity(items.len());
+            for item in items {
+                match item.as_str() {
+                    Some(s) if !s.is_empty() => markers.push(s),
+                    _ => {
+                        return bad("every entry of \"boundaryMarkers\" must be a non-empty string")
+                    }
+                }
+            }
+            markers
+        }
+        Some(_) => return bad("\"boundaryMarkers\" must be an array of strings"),
+    };
     let max_words = match opt_usize(id, object, "maxWords", DEFAULT_MAX_WORDS, HARD_MAX_WORDS) {
         Ok(n) => n,
         Err(e) => return e,
@@ -308,6 +325,24 @@ pub(crate) fn handle(
             }
         },
     };
+    let mut allowed: Vec<CharDefId> = boundary.into_iter().collect();
+    for m in &extra_markers {
+        match boundary_char_def(table, m) {
+            Some(cd) => {
+                if !allowed.contains(&cd) {
+                    allowed.push(cd);
+                }
+            }
+            None => {
+                return error(
+                    id,
+                    "unknown_boundary_marker",
+                    format!("{m:?} is not a boundary character definition of the surface table"),
+                    json!({"boundaryMarker": m}),
+                )
+            }
+        }
+    }
     let parsed = match parse_pattern(g, table, pattern_text, boundary) {
         Ok(p) => p,
         Err(e) => return pattern_error(id, e),
@@ -348,8 +383,8 @@ pub(crate) fn handle(
                 continue;
             }
         };
-        if has_stray_boundary(&shape, boundary) {
-            let reason = if boundary.is_some() {
+        if has_stray_boundary(&shape, &allowed) {
+            let reason = if !allowed.is_empty() {
                 "unexpected_boundary"
             } else {
                 "boundary_in_unmarked_word"
@@ -434,6 +469,9 @@ pub(crate) fn handle(
     });
     if let Some(m) = marker {
         result["boundaryMarker"] = json!(m);
+    }
+    if !extra_markers.is_empty() {
+        result["boundaryMarkers"] = json!(extra_markers);
     }
     result
 }
