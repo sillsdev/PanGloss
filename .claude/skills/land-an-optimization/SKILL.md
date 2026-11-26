@@ -49,7 +49,7 @@ replay, as `.claude/skills/conformance-grammars/SKILL.md` says. A risk without a
 Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -Mode conformance-test -Scope all`).
 - Where they are, and the exact commands for sweep runs, timings and the Windows steps: `.claude/skills/land-an-optimization/sweep.md`.
   The five corpus grammars are in `rust/tools/corpus-manifest.json`; the calibration sets come from the conformance suite; every other
-  grammar (CEB, Swahili, Tamil, lane projects) goes in a local manifest in scratch, never committed. The PR names any grammar not run,
+  grammar (CEB, Swahili, Tamil, lane projects) goes in a local manifest in scratch, never committed. Include the Tamil `base`, `p145` and `p147` grammars (`sweep.md`, "Calibration grammars"). The PR names any grammar not run,
   with the reason. Never commit an absolute home path or real-language data.
 - One core, one run (owner rule): the sweep runs one grammar at a time, `--threads=1`, one process, under `nice -n 19 ionice -c3`,
   never beside another sweep run. Run `stile admit --jobs 1` before every build and build with `-Jobs 1`. Parallel runs spoil the CPU
@@ -61,7 +61,7 @@ Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -M
   - STATUS_DIFF: rerun each such word on both sides at a long timeout and raised caps until the statuses settle (`sweep.md`, "Settling a
     status difference"). TIMEOUT is wall clock, so load and the speedup alone create TIMEOUT to ok or MEMCAP rows. Treat MEMCAP as CAP.
     A word that stays different after the raised rerun, other than the expected CAP-versus-MEMCAP race, is a finding.
-  - Default caps cap nothing, so also rerun a lowered `--work-cap` pass on a grammar with heavy words and list newly finishing words.
+  - Default caps (`--work-cap` 5,000,000,000, `--word-mem-cap-mib` 100) rarely fire on small words, so also rerun a lowered `--work-cap` pass on a grammar with heavy words and list newly finishing words.
     A cap order change (Before CAP at the work cap, After MEMCAP at the memory ceiling, fewer steps) is the expected form; say so.
   - A drop on any grammar blocks landing until explained.
 - Report the speedup per grammar, as instructions (step 4), not wall time.
@@ -77,9 +77,10 @@ a grammar where any word's status or signature differs between the binaries. Giv
 least 1000), strided to about 100M work, with the exclusion counted; that subset is acceptable only when step 3 already explained every
 difference; say so in the PR. Reading verdicts:
 - Mixed verdicts are normal: a grammar whose words the change never reaches reads NO-GO (no change); report it, do not retry.
+- NO-GO (regression) on such a grammar: a regression inside its own control's noise floor is recorded as noise; above it, the PR blocks until the sweep record explains cause and size and the lead signs off (`sweep.md`, "Verdicts").
 - INCONCLUSIVE: rerun that list with `-Repeats 15`.
-- The control (Before against Before) must not read GO or NO-GO (regression); NO-GO (no change) is expected.
-- retune-parser-work takes over an hour and repeats its own callgrind compare; pass `-PairResult` and `-ControlResult` only from runs on retune's own manifest and samples (it binds them by grammar file name and count alone).
+- The control (Before against Before) must not read GO or NO-GO (regression); NO-GO (no change) is expected, and INCONCLUSIVE on a tiny control is fine.
+- retune-parser-work takes over an hour and repeats its own callgrind compare; pass `-PairResult` and `-ControlResult` only from runs on retune's own manifest and samples (it binds them by grammar file name and count alone); how to make them: `sweep.md`, "Retune on Windows runs".
 
 ### When instruction-compare cannot run on this machine
 
