@@ -27,6 +27,7 @@ See `README.md` for the full status table and the kind definitions.
 | `TraversalMethodBase.Advance`; `Fst.Transduce` (all matches) | 130 |
 | `TraversalMethodBase.Advance`; `AnalysisMetathesisRuleSpec.ApplyRhs` (zip of the switch captures) | 132 |
 | `SynthesisMetathesisRuleSpec.ApplyRhs` (`newMorphAnn`); `AnnotationList.FindDepthFirst` | 133 |
+| `AllomorphEnvironment.IsMatch`; `Matcher.GetStartAnnotation`; `AnnotationList.Find` (swapped affix's right environment) | 133 |
 | `Word.cs` (`CheckBlocking`, `ValueEquals`); `Morpher.cs` (`SynthesizeSequential`) | 134 |
 | `HCLoader.cs` (no read of `HC/AffixRules`); `AffixProcessRule.cs` (`MaxApplicationCount`); `XmlLanguageLoader.cs` (`multipleApplication`) | 135 |
 

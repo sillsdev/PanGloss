@@ -6,6 +6,7 @@ Release notes are authored, not generated. Keep them under `## Unreleased`; the 
 ## Unreleased
 
 - `pangloss serve` `match` takes `boundaryMarkers`, an array of the boundary kinds a word may hold, so a word that mixes kinds (morpheme `+` and clitic `=`) is segmented and matched instead of `unsegmentable` (#462); each listed kind is transparent to the pattern, `+` still stands for `boundaryMarker` alone, and a request without the field behaves as before. See `docs/formats/serve-protocol.md`.
+- Divergence 133 now also records the swapped affix's own right environment (#380): after a cross-morph metathesis, hc.dll reads the segment after the swapped prefix as end of input (`AnnotationList.FindDepthFirst` never visits the rebuilt root that holds it), PanGloss reads the real segment, and 32 of 168 probe grammars differ on `t+sa` and `tsa`. Recorded, not emulated (sillsdev/machine#650); pinned by `pg-parse/tests/metathesis_prefix_right_env.rs`. No engine change.
 - `grammar-health --shadowed` no longer drops a `grammar.allomorph.shadowed` finding when the alternate's owner cannot be resolved (#500): the finding is emitted with its GUIDs and a note that its owner could not be resolved, so a proven shadowed alternate is never hidden.
 
 ## 0.35.2
