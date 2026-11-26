@@ -73,7 +73,25 @@ fn guid_eq(a: &str, b: &str) -> bool {
 pub(crate) fn retire_from_snapshot(
     snapshot: &mut pg_snapshot::Snapshot,
     ids: &[String],
+    flag: &str,
 ) -> Result<bool, String> {
+    // Classify every id against the untouched snapshot, so an MSA of an entry that is also named cannot slip through as already gone.
+    for id in ids {
+        let known = snapshot
+            .lexicon
+            .entries
+            .iter()
+            .any(|e| guid_eq(&e.guid, id) || e.allomorphs.iter().any(|a| guid_eq(&a.guid, id)));
+        if !known {
+            return Err(if names_other_object(snapshot, id) {
+                format!(
+                    "{flag}: {id} names an object that is neither an entry nor an allomorph; only lexical entries and allomorphs can be removed"
+                )
+            } else {
+                format!("{flag}: {id} is neither an entry nor an allomorph of the grammar")
+            });
+        }
+    }
     let mut allomorph_retired = false;
     let mut gone: BTreeSet<String> = BTreeSet::new();
     for id in ids {
@@ -88,23 +106,33 @@ pub(crate) fn retire_from_snapshot(
             gone.extend(entry.msas.iter().map(|m| m.guid().to_ascii_lowercase()));
             continue;
         }
-        let mut found = false;
         for entry in entries.iter_mut() {
-            for allomorph in entry.allomorphs.iter().filter(|a| guid_eq(&a.guid, id)) {
-                gone.insert(allomorph.guid.to_ascii_lowercase());
-                found = true;
-            }
+            gone.extend(
+                entry
+                    .allomorphs
+                    .iter()
+                    .filter(|a| guid_eq(&a.guid, id))
+                    .map(|a| a.guid.to_ascii_lowercase()),
+            );
             entry.allomorphs.retain(|a| !guid_eq(&a.guid, id));
-        }
-        if !found {
-            return Err(format!(
-                "--retire: {id} is neither an entry nor an allomorph of the grammar"
-            ));
         }
         allomorph_retired = true;
     }
     drop_adhoc_references(snapshot, &gone);
     Ok(allomorph_retired)
+}
+
+/// True when `id` appears as a string anywhere in the snapshot, so it names a real object of a kind this reduction does not remove (an MSA, a rule, a feature, a template and so on).
+fn names_other_object(snapshot: &pg_snapshot::Snapshot, id: &str) -> bool {
+    fn walk(value: &serde_json::Value, id: &str) -> bool {
+        match value {
+            serde_json::Value::String(s) => guid_eq(s, id),
+            serde_json::Value::Array(items) => items.iter().any(|v| walk(v, id)),
+            serde_json::Value::Object(map) => map.values().any(|v| walk(v, id)),
+            _ => false,
+        }
+    }
+    serde_json::to_value(snapshot).is_ok_and(|v| walk(&v, id))
 }
 
 /// Removes retired guids from ad hoc prohibitions, dropping those that lose their primary or every other item, and their group memberships.
@@ -245,6 +273,56 @@ fn rest_of_grammar_changed(
     baseline_text != retired_text
 }
 
+/// The grammar's snapshot and import warnings, read from a `.fwdata`, `.fwbackup` or snapshot `.json`; `flag` names the option in the refusal for any other grammar.
+fn load_snapshot(
+    path: &str,
+    flag: &str,
+) -> Result<(pg_snapshot::Snapshot, Vec<pg_snapshot::Warning>), String> {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if ext == "json" {
+        let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+        let snapshot = pg_snapshot::Snapshot::from_json(&json)
+            .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+        Ok((snapshot, Vec::new()))
+    } else if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") {
+        let (snapshot, report) = pg_fwdata::import_file_lean(std::path::Path::new(path))
+            .map_err(|e| format!("import {path}: {e}"))?;
+        let mut warnings = report.warnings;
+        warnings.extend(snapshot.validate());
+        Ok((snapshot, warnings))
+    } else {
+        Err(format!(
+            "{flag} needs a grammar with entry guids: a .fwdata, .fwbackup or snapshot .json"
+        ))
+    }
+}
+
+/// The grammar of `path` with the entries and allomorphs named by `ids` deleted in memory, as `--retire` builds its second grammar; `flag` names the option in errors.
+pub(crate) fn load_without(
+    path: &str,
+    ids: &[String],
+    flag: &str,
+) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
+    let ext_json = std::path::Path::new(path)
+        .extension()
+        .is_some_and(|e| e == "json");
+    let (mut snapshot, mut warnings) = load_snapshot(path, flag)?;
+    retire_from_snapshot(&mut snapshot, ids, flag)?;
+    if ext_json {
+        warnings = Vec::new();
+    }
+    let output = pg_grammar::compile_project_grammar_only_with_import_warnings(
+        &snapshot,
+        Default::default(),
+        warnings.clone(),
+    )
+    .map_err(|e| format!("compile {path} without the {flag} ids: {e}"))?;
+    Ok((output.grammar, warnings))
+}
+
 /// The retired grammar, whether every word must be re-parsed, and the owning entry of every allomorph and MSA guid of the original.
 fn load_retired(
     path: &str,
@@ -254,23 +332,7 @@ fn load_retired(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    let (mut snapshot, mut warnings) = if ext == "json" {
-        let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-        let snapshot = pg_snapshot::Snapshot::from_json(&json)
-            .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-        (snapshot, Vec::new())
-    } else if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") {
-        let (snapshot, report) = pg_fwdata::import_file_lean(std::path::Path::new(path))
-            .map_err(|e| format!("import {path}: {e}"))?;
-        let mut warnings = report.warnings;
-        warnings.extend(snapshot.validate());
-        (snapshot, warnings)
-    } else {
-        return Err(
-            "--retire needs a grammar with entry guids: a .fwdata, .fwbackup or snapshot .json"
-                .into(),
-        );
-    };
+    let (mut snapshot, mut warnings) = load_snapshot(path, "--retire")?;
     let form_owner: BTreeMap<String, String> = snapshot
         .lexicon
         .entries
@@ -285,7 +347,7 @@ fn load_retired(
         .collect();
     let before = without_lexicon(&snapshot);
     let unmodified = snapshot.clone();
-    let allomorph = retire_from_snapshot(&mut snapshot, ids)?;
+    let allomorph = retire_from_snapshot(&mut snapshot, ids, "--retire")?;
     if ext == "json" {
         warnings = Vec::new();
     }
@@ -515,8 +577,8 @@ fn dedup(readings: Vec<Reading>) -> Vec<Reading> {
         .collect()
 }
 
-/// Splits a `--retire` value into guids, refusing an empty list.
-pub(crate) fn parse_ids(value: &str) -> Result<Vec<String>, String> {
+/// Splits a `--retire` or `--without` value into guids, refusing an empty list.
+pub(crate) fn parse_ids(value: &str, flag: &str) -> Result<Vec<String>, String> {
     let ids: Vec<String> = value
         .split(',')
         .map(str::trim)
@@ -529,7 +591,17 @@ pub(crate) fn parse_ids(value: &str) -> Result<Vec<String>, String> {
             ids
         });
     if ids.is_empty() {
-        return Err("--retire requires at least one guid".into());
+        return Err(format!("{flag} requires at least one guid"));
     }
     Ok(ids)
+}
+
+/// Adds `more` to the ids of a repeated flag, keeping the first spelling of each guid.
+pub(crate) fn merge_ids(into: &mut Option<Vec<String>>, more: Vec<String>) {
+    let ids = into.get_or_insert_with(Vec::new);
+    for id in more {
+        if !ids.iter().any(|seen| guid_eq(seen, &id)) {
+            ids.push(id);
+        }
+    }
 }

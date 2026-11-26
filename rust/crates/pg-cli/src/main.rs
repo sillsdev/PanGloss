@@ -567,11 +567,11 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--without <guid>[,<guid>...]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
@@ -1056,10 +1056,21 @@ fn run_parse_impl(
     let mut work_cap = DEFAULT_WORK_CAP;
     let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut word_timeout = None;
+    let mut without_arg: Option<Vec<String>> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--without" => {
+                let v = it.next().ok_or("--without requires a value")?;
+                retire::merge_ids(&mut without_arg, retire::parse_ids(v, "--without")?);
+            }
+            s if s.starts_with("--without=") => {
+                retire::merge_ids(
+                    &mut without_arg,
+                    retire::parse_ids(&s["--without=".len()..], "--without")?,
+                );
+            }
             "--trace" => trace_dest = Some(None),
             s if s.starts_with("--trace=") => {
                 trace_dest = Some(Some(s["--trace=".len()..].to_string()))
@@ -1131,6 +1142,11 @@ fn run_parse_impl(
             "legacy trace cannot be combined with rejection trace",
         ));
     }
+    if without_arg.is_some() && (diagnostic.is_some() || trace_details) {
+        return Err(
+            "--without cannot be combined with --trace-details or a rejection trace".into(),
+        );
+    }
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
@@ -1150,7 +1166,7 @@ fn run_parse_impl(
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
     };
 
     let mut diagnostic_slots = None;
@@ -1165,6 +1181,9 @@ fn run_parse_impl(
         )
     } else if trace_details {
         load_grammar_with_trace_metadata(grammar_path)?
+    } else if let Some(ids) = &without_arg {
+        let (grammar, warnings) = retire::load_without(grammar_path, ids, "--without")?;
+        (grammar, warnings, rich_trace::TraceMetadata::default())
     } else {
         let (grammar, warnings) = load_grammar(grammar_path)?;
         (grammar, warnings, rich_trace::TraceMetadata::default())
@@ -1681,6 +1700,7 @@ fn run_batch_impl(
     let mut morph_spans = false;
     let mut retire_arg: Option<Vec<String>> = None;
     let mut retire_out_arg: Option<String> = None;
+    let mut without_arg: Option<Vec<String>> = None;
     let mut query_fields_flag = false;
     let mut cost_column = false;
     // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
@@ -1780,16 +1800,29 @@ fn run_batch_impl(
             "--morph-spans" => morph_spans = true,
             "--retire" => {
                 let v = it.next().ok_or("--retire requires a value")?;
-                retire_arg = Some(retire::parse_ids(v)?);
+                retire::merge_ids(&mut retire_arg, retire::parse_ids(v, "--retire")?);
             }
             s if s.starts_with("--retire=") => {
-                retire_arg = Some(retire::parse_ids(&s["--retire=".len()..])?);
+                retire::merge_ids(
+                    &mut retire_arg,
+                    retire::parse_ids(&s["--retire=".len()..], "--retire")?,
+                );
             }
             "--retire-out" => {
                 retire_out_arg = Some(it.next().ok_or("--retire-out requires a value")?.clone());
             }
             s if s.starts_with("--retire-out=") => {
                 retire_out_arg = Some(s["--retire-out=".len()..].to_string());
+            }
+            "--without" => {
+                let v = it.next().ok_or("--without requires a value")?;
+                retire::merge_ids(&mut without_arg, retire::parse_ids(v, "--without")?);
+            }
+            s if s.starts_with("--without=") => {
+                retire::merge_ids(
+                    &mut without_arg,
+                    retire::parse_ids(&s["--without=".len()..], "--without")?,
+                );
             }
             "--query-fields" => query_fields_flag = true,
             "--work-columns" => work_columns = true,
@@ -1846,6 +1879,18 @@ fn run_batch_impl(
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
+    if without_arg.is_some()
+        && (retire_arg.is_some()
+            || stats_requested
+            || partials != 0
+            || engine.is_some()
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || cache_path_arg.is_some()
+            || stats_manifest_path_arg.is_some())
+    {
+        return Err("--without cannot be combined with --retire, --stats, --partials, --engine, --prefilter, --cache, --stats-manifest or a diagnostic run".into());
+    }
     let per_word_diagnostics = per_word_diagnostics_requested();
     if per_word_diagnostics && threads != 1 {
         return Err(format!(
@@ -1854,7 +1899,7 @@ fn run_batch_impl(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--without <guid>[,<guid>...]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
@@ -1995,6 +2040,16 @@ fn run_batch_impl(
         let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
         diagnostic_slots = Some(slots);
         loaded
+    } else if let Some(ids) = &without_arg {
+        let (grammar, warnings) = retire::load_without(grammar_path, ids, "--without")?;
+        LoadedGrammar {
+            grammar,
+            warnings,
+            stored_analyses: Vec::new(),
+            metadata: None,
+            stats_identity: LoadedStatsIdentity::None,
+            substrate: Default::default(),
+        }
     } else {
         let stats_request = if stats_manifest_path_arg.is_some() {
             StatsIdentityRequest::Frozen

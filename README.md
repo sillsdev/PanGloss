@@ -154,8 +154,10 @@ pipelines; C# oracle replay remains separate. See
 Parse one word (the only engine `parse` runs is the default HermitCrab one):
 
 ```
-pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--work-cap N|unbounded] [--word-timeout-ms N]
+pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-timeout-ms N]
 ```
+
+`--without` parses as if the named lexical entries or allomorphs were deleted, and `batch` takes it too (see `docs/retire-format.md`).
 
 Plain parsing and ordinary tracing exit with failure when the HC engine reports `capped`,
 `timed_out`, or `invalid_shape`. The applicable flags appear on stderr; any printed signature is

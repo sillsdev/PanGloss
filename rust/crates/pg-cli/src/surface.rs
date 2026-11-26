@@ -395,6 +395,11 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "the pangloss-retire/v1 JSONL report path for --retire; <out.tsv> is not written",
     },
     FlagSpec {
+        name: "--without",
+        takes_value: true,
+        summary: "comma-separated entry or allomorph guids to leave out: parse as if they were deleted from the grammar, reusing the --retire reduction; any other guid, or an unknown one, is an error; needs a .fwdata, .fwbackup or snapshot .json grammar",
+    },
+    FlagSpec {
         name: "--query-fields",
         takes_value: false,
         summary: "add readingCount, a typed failure, and per-morph entry and signature (plus a reading signature) to each --analyses row; requires --analyses",
@@ -550,6 +555,11 @@ const SERVE_FLAGS: &[FlagSpec] = &[
 ];
 
 const PARSE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--without",
+        takes_value: true,
+        summary: "comma-separated entry or allomorph guids to leave out: parse as if they were deleted from the grammar, reusing the --retire reduction; any other guid, or an unknown one, is an error; needs a .fwdata, .fwbackup or snapshot .json grammar",
+    },
     crate::diagnostic::FLAGS[0],
     crate::diagnostic::FLAGS[1],
     crate::diagnostic::FLAGS[2],

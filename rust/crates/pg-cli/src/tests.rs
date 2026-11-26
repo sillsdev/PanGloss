@@ -1854,6 +1854,228 @@ fn retire_refuses_what_it_cannot_evaluate() {
     assert!(err.contains("entry guids"), "{err}");
 }
 
+/// The readings of each word from `batch --without <ids> --analyses`, in the shape `analysed_readings` returns.
+fn without_readings(
+    tag: &str,
+    grammar: &std::path::Path,
+    words: &[String],
+    ids: &str,
+) -> Result<Vec<std::collections::BTreeSet<String>>, String> {
+    let dir = scratch_dir(tag);
+    let words_path = dir.join("words.txt");
+    let analyses = dir.join("analyses.jsonl");
+    fs::write(&words_path, words.join("\n")).expect("write words");
+    let args: Vec<String> = [
+        grammar.to_str().unwrap(),
+        words_path.to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--analyses",
+        analyses.to_str().unwrap(),
+        "--without",
+        ids,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args)?;
+    Ok(fs::read_to_string(analyses)
+        .expect("read analyses")
+        .lines()
+        .map(|l| {
+            let row: serde_json::Value = serde_json::from_str(l).unwrap();
+            row["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["morphs"].to_string())
+                .collect()
+        })
+        .collect())
+}
+
+#[test]
+fn batch_without_matches_a_real_parse_with_each_entry_deleted() {
+    for name in [
+        "adhoc-prohibition-circumfix-pairings",
+        "adhoc-prohibition-variant-msa-copies",
+        "adhoc-prohibition-stem-msa-copies",
+    ] {
+        let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+        let project = fixture.dir.join("fieldworks").join("project.fwdata");
+        let words = fixture_words(&fixture);
+        assert!(!words.is_empty(), "{name}");
+        let baseline = analysed_readings(name, &project, &words).expect("baseline parse");
+        let entries: Vec<String> = pg_fwdata::import_file_lean(&project)
+            .unwrap()
+            .0
+            .lexicon
+            .entries
+            .iter()
+            .map(|e| e.guid.clone())
+            .collect();
+        let mut changed = 0;
+        let mut sets: Vec<Vec<&str>> = entries.iter().map(|e| vec![e.as_str()]).collect();
+        sets.push(entries.iter().take(2).map(String::as_str).collect());
+        for ids in sets {
+            let copy = grammar_copy_without(&project, &ids);
+            let deleted = analysed_readings(name, &copy, &words)
+                .unwrap_or_else(|e| panic!("{name} {ids:?}: deleted copy failed: {e}"));
+            let without = without_readings(name, &project, &words, &ids.join(","))
+                .unwrap_or_else(|e| panic!("{name} {ids:?}: --without failed: {e}"));
+            assert_eq!(without, deleted, "{name} --without {ids:?}");
+            changed += without
+                .iter()
+                .zip(&baseline)
+                .filter(|(a, b)| a != b)
+                .count();
+        }
+        assert!(
+            changed > 0,
+            "{name}: leaving entries out should change some word"
+        );
+    }
+}
+
+#[test]
+fn batch_without_matches_a_real_parse_with_an_allomorph_deleted() {
+    let grammar = blocked_allomorph_snapshot();
+    let words: Vec<String> = ["tta", "dda"].iter().map(|s| s.to_string()).collect();
+    let id = "00000000-0000-0000-0000-0000000000e2";
+    let copy = grammar_copy_without(&grammar, &[id]);
+    let deleted = analysed_readings("without-blocked-copy", &copy, &words).unwrap();
+    let without = without_readings("without-blocked", &grammar, &words, id).unwrap();
+    assert_eq!(without, deleted);
+    assert_eq!(without[0].len(), 0, "tta is lost");
+    assert_eq!(without[1].len(), 1, "dda is unblocked");
+}
+
+#[test]
+fn repeated_without_and_retire_flags_merge_their_ids() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = fixture_words(&fixture);
+    let entries: Vec<String> = pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries
+        .iter()
+        .map(|e| e.guid.clone())
+        .collect();
+    assert!(entries.len() >= 2);
+    let (a, b) = (&entries[0], &entries[1]);
+    let once = without_readings("merge-once", &project, &words, &format!("{a},{b}")).unwrap();
+    let dir = scratch_dir("merge-twice");
+    fs::write(dir.join("words.txt"), words.join("\n")).unwrap();
+    let analyses = dir.join("analyses.jsonl");
+    let args: Vec<String> = [
+        project.to_str().unwrap(),
+        dir.join("words.txt").to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--analyses",
+        analyses.to_str().unwrap(),
+        "--without",
+        a,
+        "--without",
+        b,
+        "--without",
+        a,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args).unwrap();
+    let twice: Vec<std::collections::BTreeSet<String>> = fs::read_to_string(&analyses)
+        .unwrap()
+        .lines()
+        .map(|l| {
+            let row: serde_json::Value = serde_json::from_str(l).unwrap();
+            row["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["morphs"].to_string())
+                .collect()
+        })
+        .collect();
+    assert_eq!(twice, once);
+    let both = retire_report("merge-retire-once", &project, &words, &format!("{a},{b}")).unwrap();
+    let out = dir.join("retire.jsonl");
+    let args: Vec<String> = [
+        project.to_str().unwrap(),
+        dir.join("words.txt").to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--retire",
+        a,
+        "--retire",
+        b,
+        "--retire-out",
+        out.to_str().unwrap(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args).unwrap();
+    let repeated: Vec<serde_json::Value> = fs::read_to_string(out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(repeated, both);
+}
+
+#[test]
+fn batch_without_refuses_unknown_unsupported_and_incompatible_requests() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = vec!["da".to_string()];
+    let err = without_readings("without-unknown", &project, &words, "no-such-guid").unwrap_err();
+    assert!(err.contains("--without: no-such-guid is neither"), "{err}");
+    let entry = &pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries[0];
+    let msa = entry.msas[0].guid().to_string();
+    let err = without_readings("without-msa", &project, &words, &msa).unwrap_err();
+    assert!(
+        err.contains("--without") && err.contains("only lexical entries and allomorphs"),
+        "{err}"
+    );
+    // One bad id among good ones still refuses the whole request.
+    let mixed = format!("{},{msa}", entry.guid);
+    assert!(without_readings("without-mixed", &project, &words, &mixed).is_err());
+    let err = without_readings("without-xml", &fixture.grammar_path(), &words, "x").unwrap_err();
+    assert!(err.contains("entry guids"), "{err}");
+    let err = without_readings("without-empty", &project, &words, ",").unwrap_err();
+    assert!(err.contains("at least one guid"), "{err}");
+    let dir = scratch_dir("without-combos");
+    fs::write(dir.join("words.txt"), "da").unwrap();
+    for extra in [
+        vec!["--retire", "x", "--retire-out", "r.jsonl"],
+        vec!["--stats"],
+        vec!["--partials", "1"],
+        vec!["--engine", "hc"],
+        vec!["--prefilter", "on"],
+    ] {
+        let mut args = vec![
+            project.to_str().unwrap().to_string(),
+            dir.join("words.txt").to_str().unwrap().to_string(),
+            dir.join("out.tsv").to_str().unwrap().to_string(),
+            "--without".to_string(),
+            entry.guid.clone(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let err = run_batch(&args).unwrap_err();
+        assert!(
+            err.contains("--without cannot be combined"),
+            "{extra:?}: {err}"
+        );
+    }
+}
+
 #[test]
 fn retire_of_entries_named_by_ad_hoc_prohibitions_drops_the_reference_and_parses() {
     let fixture =
