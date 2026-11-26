@@ -195,6 +195,15 @@ pangloss stats <grammar> --cache <cache.sqlite3> --group object --kind morph_rul
 segments examined, `work_steps` adds up: with no filter, the object rows plus the unattributed
 remainder equal the words' total work.
 
+`--group object` and `--group allomorph` end with a `words` column (and a `words` field in `--format jsonl`):
+the number of distinct input words in which the object, or the object's allomorph, has at least one use.
+`uses` counts appearances, so a word with two readings that both use an object adds 2 to `uses` and 1 to
+`words`. It is `-` wherever `uses` is (named allomorphs of a morphological rule, kinds that record no uses)
+and is absent from the other orientations. It counts words this Rust parse used the object in; it says
+nothing about what hc.dll does with the same word. `--word`, `--direction` and `--exclude-censored` narrow it
+like every other column. It reads the cache's per-word facts, so the stratum-narrowed or per-allomorph
+views of a compact cache still refuse as before.
+
 Stratum and direction are filters, not report orientations. Aggregating attempts across unrelated
 object kinds would mix different units, so attempt shares and comparisons remain within compatible
 kinds. For example, a morphological-rule attempt and a lexical-entry lookup are both useful counts,

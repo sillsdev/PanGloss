@@ -1453,6 +1453,7 @@ fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
             }
             if has("uses") {
                 r.uses = None;
+                r.words = None;
             }
             r
         })
@@ -1501,6 +1502,8 @@ struct RowView {
     not_applied: Option<i64>,
     no_root: Option<i64>,
     surface_mismatch: Option<i64>,
+    /// Distinct words with at least one use of this object or allomorph: only the object and allomorph orientations report it, and it is `-` wherever `uses` is.
+    words: Option<i64>,
 }
 
 fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
@@ -1517,6 +1520,7 @@ fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
+        words: cell_value(&r.kind, "uses", r.uses).map(|_| r.words),
     }
 }
 
@@ -1549,6 +1553,11 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
             cell_value(&r.object_kind, "no_root", r.no_root)
         },
         surface_mismatch: cell_value(&r.object_kind, "surface_mismatch", r.surface_mismatch),
+        words: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
+            None
+        } else {
+            cell_value(&r.object_kind, "uses", r.uses).map(|_| r.words)
+        },
     }
 }
 
@@ -1567,6 +1576,7 @@ fn morpheme_row_view(r: &pg_stats::PerMorphemeRow) -> RowView {
         not_applied: cell_value(KIND, "not_applied", r.not_applied),
         no_root: cell_value(KIND, "no_root", r.no_root),
         surface_mismatch: cell_value(KIND, "surface_mismatch", r.surface_mismatch),
+        words: None,
     }
 }
 
@@ -1584,6 +1594,7 @@ fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
+        words: None,
     }
 }
 
@@ -1730,6 +1741,7 @@ fn render_narrow(
     let show_uses = show("uses");
     let show_work = show("work");
     let show_work_steps = show("work_steps") && rows.iter().any(|r| r.work_steps.is_some());
+    let show_words = show_uses && rows.iter().any(|r| r.words.is_some());
     let show_not_applied = show("not_applied");
     let show_no_root = show("no_root");
     let show_surface_mismatch = show("surface_mismatch");
@@ -1762,6 +1774,9 @@ fn render_narrow(
             headers.push("surface_mismatch");
         }
         headers.push("identity_quality");
+    }
+    if show_words {
+        headers.push("words");
     }
     let table_rows = rows
         .iter()
@@ -1803,6 +1818,9 @@ fn render_narrow(
                         .unwrap_or_else(|| "-".to_string()),
                 );
             }
+            if show_words {
+                cells.push(fmt_opt_i64(r.words));
+            }
             cells
         })
         .collect();
@@ -1830,6 +1848,9 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
     });
     if let Some(work_steps) = r.work_steps {
         row["work_steps"] = work_steps.into();
+    }
+    if let Some(words) = r.words {
+        row["words"] = words.into();
     }
     row
 }

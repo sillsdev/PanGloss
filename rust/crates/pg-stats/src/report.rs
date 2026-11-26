@@ -141,6 +141,8 @@ pub struct PerObjectRow {
     pub self_time_ns: i64,
     /// Parser work reservations (`fact.work_steps`) summed across this object's rows: the same unit as `word.work`, unlike `work`. The `unattributed` remainder row is not an object, so these sums plus that remainder equal the words' `work` totals.
     pub work_steps: i64,
+    /// Distinct words in which this object has at least one use (`uses > 0` in a fact row of that word); `uses` counts appearances, this counts words. Per Rust parse only: it says nothing about what hc.dll does with the same word.
+    pub words: i64,
 }
 
 fn per_object_sql() -> String {
@@ -151,7 +153,8 @@ fn per_object_sql() -> String {
                    SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END) AS not_applied,
                    SUM(f.no_root) AS no_root, SUM(f.surface_mismatch) AS surface_mismatch,
                    SUM(f.uses) AS uses, SUM(f.self_time_ns) AS self_time_ns,
-                   SUM(f.work_steps) AS work_steps
+                   SUM(f.work_steps) AS work_steps,
+                   COUNT(DISTINCT CASE WHEN f.uses > 0 THEN f.word_id END) AS words
             FROM fact f
             JOIN object o ON o.object_id = f.object_id
             JOIN word w ON w.word_id = f.word_id
@@ -166,7 +169,7 @@ fn per_object_sql() -> String {
             GROUP BY o.object_id
         )
         SELECT kind, label, identity_quality, attempts, work, outputs, not_applied, no_root,
-               surface_mismatch, uses, self_time_ns, work_steps
+               surface_mismatch, uses, self_time_ns, work_steps, words
         FROM agg
         ORDER BY {sort} DESC, object_key_sort ASC",
         sort = sort_case_sql()
@@ -216,6 +219,7 @@ pub fn per_object_report(
                 uses: row.get(9)?,
                 self_time_ns: row.get(10)?,
                 work_steps: row.get(11)?,
+                words: row.get(12)?,
             })
         },
     )?;
@@ -255,6 +259,8 @@ pub struct PerAllomorphRow {
     pub uses: i64,
     /// Measured wall-clock self time summed across this `(object, allomorph)` pair's rows.
     pub self_time_ns: i64,
+    /// Distinct words in which this `(object, allomorph)` pair has at least one use; see `PerObjectRow::words`.
+    pub words: i64,
 }
 
 const PER_ALLOMORPH_SELECTED_FACTS_CTE: &str = "
@@ -289,12 +295,13 @@ fn per_allomorph_sql() -> String {
                    -- Deliberately unmasked: this report groups BY allomorph, so each row is one allomorph's own count and the rule-level residue is its own `NONE` row.
                    SUM(not_applied) AS not_applied, SUM(no_root) AS no_root,
                    SUM(surface_mismatch) AS surface_mismatch, SUM(uses) AS uses,
-                   SUM(self_time_ns) AS self_time_ns
+                   SUM(self_time_ns) AS self_time_ns,
+                   COUNT(DISTINCT CASE WHEN uses > 0 THEN word_id END) AS words
             FROM selected_facts
             GROUP BY object_id, allomorph_id
         )
         SELECT object_kind, object_label, allomorph_key, allomorph_label,
-               attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns
+               attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, words
         FROM agg
         ORDER BY self_time_ns DESC, object_key_sort ASC, allomorph_key ASC"
     )
@@ -406,6 +413,7 @@ fn per_allomorph_report_in_snapshot(
             surface_mismatch: row.get(9)?,
             uses: row.get(10)?,
             self_time_ns: row.get(11)?,
+            words: row.get(12)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
