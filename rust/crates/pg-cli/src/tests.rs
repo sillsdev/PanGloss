@@ -2187,6 +2187,177 @@ fn query_fields_are_deterministic_across_threads_and_share_a_circumfix_signature
     assert!(halves > 0, "the fixture should give a circumfix reading");
 }
 
+/// The staged `do-not-use-for-parsing-flag-ignored` project: `la` and `li` each parse as two MSAs of one entry.
+fn two_msa_project() -> std::path::PathBuf {
+    pg_conformance_fixtures::require_fixture("edge-cases", "do-not-use-for-parsing-flag-ignored")
+        .dir
+        .join("fieldworks")
+        .join("project.fwdata")
+}
+
+/// `two_msa_project` with its prefix slot made obligatory and the first irregular-inflection type bound to that slot, so a null affix (`^0`, a zero morph FieldWorks omits from `morphs`) fills the slot.
+fn two_msa_project_with_null_affix(tag: &str) -> std::path::PathBuf {
+    let xml = fs::read_to_string(two_msa_project()).expect("read staged project");
+    let slot = "96fb962c-d72c-448c-8706-d991ce75a16a";
+    let name = "<AUni ws=\"en\">prefixSlot</AUni>";
+    let at = xml.find(name).expect("prefix slot name");
+    let (head, tail) = xml.split_at(at);
+    let optional = "<Optional val=\"True\" />";
+    assert!(tail.contains(optional), "slot optional flag moved");
+    let tail = tail.replacen(optional, "<Optional val=\"False\" />", 1);
+    let xml = format!("{head}{tail}");
+    let sort_spec = "<SortSpec val=\"0\" />";
+    assert!(xml.contains(sort_spec), "infl type shape moved");
+    let slots = format!("<Slots><objsur guid=\"{slot}\" t=\"r\" /></Slots>");
+    let xml = xml.replacen(sort_spec, &format!("{slots}{sort_spec}"), 1);
+    let path = scratch_dir(tag).join("project.fwdata");
+    fs::write(&path, xml).expect("write null-affix project");
+    path
+}
+
+/// The morph signatures of every reading of a sidecar row, in reading order.
+fn reading_signatures(row: &serde_json::Value) -> Vec<String> {
+    row["analyses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|reading| reading["signature"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every reading's morph spans must name each morph in order and tile the surface with the unattributed runs.
+fn assert_spans_tile_the_surface(reading: &serde_json::Value) {
+    let spans = &reading["morphSpans"];
+    let morphs = reading["morphs"].as_array().unwrap().len();
+    let morphemes = spans["morphemes"].as_array().unwrap();
+    assert_eq!(morphemes.len(), morphs, "{spans}");
+    let mut runs: Vec<(u64, u64)> = Vec::new();
+    for (i, morpheme) in morphemes.iter().enumerate() {
+        assert_eq!(morpheme["item"], i);
+        for run in morpheme["spans"].as_array().expect("every morph is placed") {
+            runs.push((
+                run["segments"][0].as_u64().unwrap(),
+                run["segments"][1].as_u64().unwrap(),
+            ));
+        }
+    }
+    for run in spans["unattributed"].as_array().unwrap() {
+        runs.push((
+            run["segments"][0].as_u64().unwrap(),
+            run["segments"][1].as_u64().unwrap(),
+        ));
+    }
+    runs.sort();
+    let mut next = 0;
+    for (start, end) in runs {
+        assert_eq!(start, next, "{spans}");
+        next = end;
+    }
+    assert_eq!(next, spans["segmentCount"].as_u64().unwrap(), "{spans}");
+}
+
+#[test]
+fn query_fields_count_and_tell_apart_several_readings_of_one_word() {
+    let project = two_msa_project();
+    let args = ["--query-fields", "--morph-spans"];
+    let rows = run_batch_sidecar_path("qf-multi", &project, "la\nli\ntala\n", &args);
+    for (row, word) in rows.iter().zip(["la", "li", "tala"]) {
+        assert_eq!(row["word"], word);
+        assert_eq!(row["failure"], serde_json::Value::Null);
+    }
+    // `la` is the Noun and the Verb MSA of one entry: two readings, one entry, two distinct signatures.
+    assert_eq!(rows[0]["readingCount"], 2);
+    assert_eq!(rows[0]["analyses"].as_array().unwrap().len(), 2);
+    let la = reading_signatures(&rows[0]);
+    assert_ne!(la[0], la[1], "two MSAs are two signatures: {la:?}");
+    let entry = |sig: &str| sig.split(':').next().unwrap().to_string();
+    assert_eq!(entry(&la[0]), entry(&la[1]));
+    let msa = |sig: &str| sig.split(':').nth(1).unwrap().to_string();
+    assert_ne!(msa(&la[0]), msa(&la[1]));
+    // The variant `li` is its own entry whose MSAs are the main entry's, as documented.
+    assert_eq!(rows[1]["readingCount"], 2);
+    let li = reading_signatures(&rows[1]);
+    assert_ne!(entry(&li[0]), entry(&la[0]));
+    assert_eq!(
+        [msa(&li[0]), msa(&li[1])],
+        [msa(&la[0]), msa(&la[1])],
+        "a variant reads the main entry's MSAs"
+    );
+    // Every reading places its morphs, and a stable order puts the prefix before the stem.
+    for row in &rows {
+        for reading in row["analyses"].as_array().unwrap() {
+            assert_spans_tile_the_surface(reading);
+        }
+    }
+    assert_eq!(rows[2]["readingCount"], 1);
+    let tala = &rows[2]["analyses"][0];
+    assert_eq!(tala["morphs"].as_array().unwrap().len(), 2);
+    let texts: Vec<&str> = tala["morphSpans"]["morphemes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["spans"][0]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["ta", "la"]);
+    assert!(tala["signature"].as_str().unwrap().contains('+'));
+    // The same words twice give the same signatures in the same order.
+    let again = run_batch_sidecar_path("qf-multi-2", &project, "la\nli\ntala\n", &args);
+    assert_eq!(without_timing(&rows), without_timing(&again));
+}
+
+#[test]
+fn query_fields_keep_a_zero_morph_out_of_the_ordered_morphs() {
+    let args = ["--query-fields", "--morph-spans"];
+    let plain = run_batch_sidecar_path("qf-nonull", &two_msa_project(), "la\n", &args);
+    let project = two_msa_project_with_null_affix("qf-zero");
+    let rows = run_batch_sidecar_path("qf-zero", &project, "la\nli\n", &args);
+    // The obligatory slot leaves only the Verb reading, which reaches it through the null affix.
+    assert_eq!(plain[0]["readingCount"], 2);
+    assert_eq!(rows[0]["readingCount"], 1);
+    assert_eq!(rows[1]["readingCount"], 1);
+    let verb = reading_signatures(&plain[0])
+        .into_iter()
+        .find(|sig| sig == &reading_signatures(&rows[0])[0])
+        .expect("the surviving reading is one of the plain readings");
+    // FieldWorks omits the null affix: one morph, one signature, and the stem owns the whole surface.
+    let reading = &rows[0]["analyses"][0];
+    assert_eq!(reading["signature"], verb.as_str());
+    assert_eq!(reading["morphs"].as_array().unwrap().len(), 1);
+    assert!(!verb.contains('+'));
+    assert_eq!(reading["morphSpans"]["segmentCount"], 2);
+    assert_eq!(
+        reading["morphSpans"]["morphemes"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        reading["morphSpans"]["morphemes"][0]["spans"][0]["text"],
+        "la"
+    );
+    assert_eq!(reading["morphSpans"]["unattributed"], serde_json::json!([]));
+    assert_spans_tile_the_surface(reading);
+    assert_spans_tile_the_surface(&rows[1]["analyses"][0]);
+}
+
+#[test]
+fn query_fields_name_a_non_parse_and_give_it_no_spans() {
+    let project = two_msa_project();
+    let args = ["--query-fields", "--morph-spans"];
+    let rows = run_batch_sidecar_path("qf-nonparse", &project, "lala\nzzz\nla\n", &args);
+    for (row, status) in rows.iter().zip(["noParse", "invalidShape"]) {
+        assert_eq!(row["readingCount"], 0, "{row}");
+        assert_eq!(row["analyses"], serde_json::json!([]));
+        assert_eq!(row["unavailable"], serde_json::json!([]));
+        assert_eq!(row["failure"]["status"], status, "{row}");
+        assert!(row.get("morphSpans").is_none());
+    }
+    assert_eq!(rows[0]["capped"], false);
+    assert_eq!(rows[1]["invalidShape"], true);
+    // A parsed word beside them keeps its readings and spans, and no failure.
+    assert_eq!(rows[2]["readingCount"], 2);
+    assert_eq!(rows[2]["failure"], serde_json::Value::Null);
+    assert_spans_tile_the_surface(&rows[2]["analyses"][0]);
+}
+
 struct CacheRun {
     parsed: usize,
     tsv: String,
