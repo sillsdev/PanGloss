@@ -354,7 +354,8 @@ fn equal_shapes_hash_alike_and_edits_rehash() {
     assert_eq!(state.hash_one(&a), state.hash_one(&b));
     assert_eq!(state.hash_one(&a), state.hash_one(a.clone()));
     let mut edited = ShapeBuilder::from_shape(&a);
-    edited.push_segment(12);
+    // `freeze` asserts the right anchor is last, so insert before it.
+    edited.insert(a.len() - 1, NodeKind::Segment, 12, NodeFlags::EMPTY, &[]);
     assert_ne!(state.hash_one(&a), state.hash_one(edited.freeze()));
 }
 

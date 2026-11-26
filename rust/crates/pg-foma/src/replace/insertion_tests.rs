@@ -4,8 +4,8 @@ use super::block_tests::{
 };
 use super::*;
 use foma::constructions::fsm_compose;
-use foma::regex::fsm_parse_regex;
 use foma::structures::fsm_isempty;
+use foma::trie::{fsm_trie_add_word, fsm_trie_done, fsm_trie_init};
 
 /// A replacement or environment node: `C`/`V` are classes, anything else a literal segment.
 fn node(name: &str) -> String {
@@ -98,14 +98,11 @@ fn insertion_grammar(dir: &str) -> Grammar {
     pg_grammar::load(&xml).expect("insertion grammar loads")
 }
 
+// A trie, not the regex parser, which recurses once per symbol and overflowed in debug builds.
 fn acceptor(tokens: &str) -> Fsm {
-    let spaced: Vec<String> = tokens.chars().map(String::from).collect();
-    let regex = if spaced.is_empty() {
-        "0".to_owned()
-    } else {
-        format!("[{}]", spaced.join(" "))
-    };
-    fsm_parse_regex(&FomaOptions::default(), &regex, None, None).expect("string acceptor")
+    let mut trie = fsm_trie_init();
+    fsm_trie_add_word(&mut trie, tokens);
+    fsm_trie_done(trie)
 }
 
 /// Whether `net` relates `input` to `output`; the relation may be infinite, so it is composed rather than enumerated.
