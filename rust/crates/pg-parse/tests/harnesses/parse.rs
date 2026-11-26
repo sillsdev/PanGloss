@@ -10,6 +10,9 @@ mod metathesis_after_deletion;
 #[path = "../metathesis_allomorph_env_extent.rs"]
 mod metathesis_allomorph_env_extent;
 
+#[path = "../metathesis_prefix_right_env.rs"]
+mod metathesis_prefix_right_env;
+
 #[path = "../metathesis_match_order.rs"]
 mod metathesis_match_order;
 
