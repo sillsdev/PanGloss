@@ -254,13 +254,10 @@ pub fn node_byte_spans(
     (at == text.len()).then_some(spans)
 }
 
-/// Whether `shape` holds a boundary node other than `allowed` (any boundary at all when `None`).
-pub fn has_stray_boundary(
-    shape: &Shape,
-    allowed: Option<pg_grammar_model::chardef::CharDefId>,
-) -> bool {
+/// Whether `shape` holds a boundary node outside `allowed` (any boundary at all when `allowed` is empty).
+pub fn has_stray_boundary(shape: &Shape, allowed: &[pg_grammar_model::chardef::CharDefId]) -> bool {
     shape.interior().any(|(_, kind, cd, _)| {
-        kind == NodeKind::Boundary && Some(pg_grammar_model::chardef::CharDefId(cd)) != allowed
+        kind == NodeKind::Boundary && !allowed.contains(&pg_grammar_model::chardef::CharDefId(cd))
     })
 }
 

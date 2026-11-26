@@ -725,6 +725,65 @@ fn a_marked_word_may_hold_only_the_marker_as_a_boundary() {
 }
 
 #[test]
+fn a_word_mixing_boundary_kinds_is_matched_when_both_are_listed() {
+    let mut s = Server::start();
+    let words = ["a+b=a", "a=ba", "aba"];
+    // One kind per request: the other kind is unsegmentable, as before.
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V] / _ [Stop]",
+        "boundaryMarker": "+", "words": words}),
+    );
+    assert_eq!(r["words"][0]["status"], "unsegmentable", "{r}");
+    assert_eq!(r["words"][0]["reason"], "unexpected_boundary", "{r}");
+    // Listing the second kind admits it; both stay transparent to the pattern.
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V] / _ [Stop]",
+        "boundaryMarker": "+", "boundaryMarkers": ["="], "words": words}),
+    );
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["boundaryMarkers"], json!(["="]), "{r}");
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 1)], vec![(0, 1)], vec![(0, 1)]],
+        "{r}"
+    );
+    // `+` still stands for `boundaryMarker` alone: `a+b=a` has `+` after `a`, `a=ba` has none.
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V] / _ + [Stop]",
+        "boundaryMarker": "+", "boundaryMarkers": ["="], "words": words}),
+    );
+    assert_eq!(first_spans(&r), vec![vec![(0, 1)], vec![], vec![]], "{r}");
+    // `boundaryMarkers` alone does not give `+` a meaning; the list admits words without a marker.
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V] / _ + [Stop]",
+        "boundaryMarkers": ["=", "+"], "words": words}),
+    );
+    assert_eq!(r["code"], "boundary_needs_marked_input", "{r}");
+    let r = s.ask(
+        json!({"id": "m", "op": "match", "pattern": "[V] / _ [Stop]",
+        "boundaryMarkers": ["=", "+"], "words": words}),
+    );
+    assert_eq!(
+        first_spans(&r),
+        vec![vec![(0, 1)], vec![(0, 1)], vec![(0, 1)]],
+        "{r}"
+    );
+    // A kind in neither field is still refused; a non-boundary or malformed entry is typed.
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]",
+        "boundaryMarkers": ["="], "words": ["a+b"]}));
+    assert_eq!(r["words"][0]["reason"], "unexpected_boundary", "{r}");
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]",
+        "boundaryMarkers": ["x"], "words": ["a"]}));
+    assert_eq!(r["code"], "unknown_boundary_marker", "{r}");
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]",
+        "boundaryMarkers": "=", "words": ["a"]}));
+    assert_eq!(r["code"], "bad_request", "{r}");
+    let r = s.ask(json!({"id": "m", "op": "match", "pattern": "[V]",
+        "boundaryMarkers": [1], "words": ["a"]}));
+    assert_eq!(r["code"], "bad_request", "{r}");
+}
+
+#[test]
 fn unknown_request_fields_are_refused() {
     let mut s = Server::start();
     let r =
