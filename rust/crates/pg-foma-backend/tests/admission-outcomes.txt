@@ -52,6 +52,7 @@ machine:edge-cases/convergent-clitic-stratum-homophonous	TunedSurfaceProbed	orac
 machine:edge-cases/convergent-compound-homophonous-suffixes	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/convergent-deletion-optional-reduplication	TunedSurfaceProbed	refused
 machine:edge-cases/convergent-homophonous-suffix-reduplication	TunedSurfaceProbed	refused
+machine:edge-cases/convergent-stemname-mpr-homophones	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/convergent-zero-derivation-identity	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/copy-agreement-featureless-redup	TunedSurfaceProbed	refused
 machine:edge-cases/cross-stem-material-determination	TunedSurfaceProbed	oracle_exact
@@ -152,6 +153,9 @@ machine:edge-cases/partial-rule-infixed-material	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/partial-rule-truncated-material	TunedSurfaceProbed	refused
 machine:edge-cases/partial-rule-wrapped-material	TunedSurfaceProbed	refused
 machine:edge-cases/pattern-root-required-environment	TunedSurfaceProbed	refused
+machine:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/prefix-required-environment-after-epenthesis-later-compound	TunedSurfaceProbed	refused
+machine:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/process-morphology-in-place-mutation	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/quantified-alpha-bounded-ltr-left	TunedSurfaceProbed	refused
 machine:edge-cases/quantified-alpha-bounded-ltr-right	TunedSurfaceProbed	refused
@@ -296,9 +300,6 @@ staging:edge-cases/permissive-intermediate-class	TunedSurfaceProbed	refused
 staging:edge-cases/permissive-multisegment-output	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/pos-scoped-deletion-blocks-metathesis	TunedSurfaceProbed	refused
 staging:edge-cases/prefix-excluded-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
-staging:edge-cases/prefix-required-environment-after-epenthesis	TunedSurfaceProbed	oracle_exact
-staging:edge-cases/prefix-required-environment-after-epenthesis-later-compound	TunedSurfaceProbed	refused
-staging:edge-cases/prefix-required-environment-after-epenthesis-later-suffix	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/realizational-reduplication-no-proposal-route	TunedSurfaceProbed	refused
 staging:edge-cases/rewrite-analysis-feature-neutralization	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/rewrite-default-environment	TunedSurfaceProbed	oracle_exact
