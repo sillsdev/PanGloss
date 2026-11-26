@@ -64,7 +64,7 @@
 //!
 //! ## `grammar-health` (see `grammar_health.rs`'s own doc for the full contract)
 //! `grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-//! [--stored-analyses bounded|all|off]` runs the ported
+//! [--stored-analyses bounded|all|off] [--shadowed [--include-selectable]]` runs the ported
 //! `hc-*` HermitCrab grammar-authoring checks
 //! (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes a versioned JSON
 //! report. A separate report from `fst-health`: this one asks whether the grammar is
@@ -577,7 +577,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
          usage: pangloss fst-health <grammar> [<out.json>] [--fst-strategy surface-enum|factored|auto]\n\
          usage: pangloss fst-verify <grammar> <words> [--out <tsv>] [--json <path>] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
-         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--fst] [--fst-strategy surface-enum|factored|auto] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
+         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--shadowed [--include-selectable]] [--fst] [--fst-strategy surface-enum|factored|auto] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
          usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\

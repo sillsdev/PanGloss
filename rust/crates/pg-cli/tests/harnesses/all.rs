@@ -31,6 +31,8 @@ mod fwdata_grammar_equivalence_gate;
 mod grammar_dump_diag;
 #[path = "../grammar_health_artifacts.rs"]
 mod grammar_health_artifacts;
+#[path = "../grammar_health_shadowed.rs"]
+mod grammar_health_shadowed;
 #[path = "../guesser_conformance_gate.rs"]
 mod guesser_conformance_gate;
 #[path = "../inferred_segment_engine_parity_gate.rs"]

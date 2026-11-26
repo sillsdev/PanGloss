@@ -30,6 +30,7 @@ pub enum GrammarHealthCode {
     StoredAnalysisNoLongerParses,
     StoredAnalysisIncomplete,
     StoredAnalysisBudgetReached,
+    ShadowedAlternate,
     FstPatternRootShape,
     FstCircumfixNoRoute,
     FstReduplicationNoRoute,
@@ -51,6 +52,7 @@ impl GrammarHealthCode {
         Self::StoredAnalysisNoLongerParses,
         Self::StoredAnalysisIncomplete,
         Self::StoredAnalysisBudgetReached,
+        Self::ShadowedAlternate,
         Self::FstPatternRootShape,
         Self::FstCircumfixNoRoute,
         Self::FstReduplicationNoRoute,
@@ -73,6 +75,7 @@ impl GrammarHealthCode {
             Self::StoredAnalysisNoLongerParses => "grammar.stored-analysis.no-longer-parses",
             Self::StoredAnalysisIncomplete => "grammar.stored-analysis.incomplete",
             Self::StoredAnalysisBudgetReached => "grammar.stored-analysis.budget-reached",
+            Self::ShadowedAlternate => "grammar.allomorph.shadowed",
             Self::FstPatternRootShape => "fst.pattern-root-shape",
             Self::FstCircumfixNoRoute => "fst.circumfix-no-route",
             Self::FstReduplicationNoRoute => "fst.reduplication-no-route",
@@ -97,7 +100,8 @@ impl GrammarHealthCode {
             Self::FstShapeNotInSurfaceTable => Some("The Grammar retains a shape without a supported final surface-table spelling."),
             Self::DuplicateFeatureBundle | Self::ProvisionalPhonemeFeatures
             | Self::StoredAnalysisNoLongerParses | Self::StoredAnalysisIncomplete
-            | Self::StoredAnalysisBudgetReached | Self::ImportWarning(_) => None,
+            | Self::StoredAnalysisBudgetReached | Self::ShadowedAlternate
+            | Self::ImportWarning(_) => None,
         }
     }
 
@@ -201,6 +205,12 @@ fn check_diagnostic_metadata(code: &GrammarHealthCode) -> Option<CheckDiagnostic
             "No FieldWorks correction is needed. To compare every wordform, run pangloss grammar-health with --stored-analyses=all; on a large project that can take minutes.",
             vec![], PARSER_HELP,
         ),
+        GrammarHealthCode::ShadowedAlternate => (
+            "Alternate is shadowed", Warning,
+            "No word can select this allomorph: an earlier alternate of the same entry or affix is eligible wherever this one is, and HermitCrab takes the first eligible alternate. Only identical or empty conditions are counted as covering, so every reported alternate is proven; the description names the earlier alternate and the FieldWorks allomorph GUIDs that are safe to act on. Reported only by pangloss grammar-health --shadowed.",
+            "In Lexicon > Lexicon Edit, open the named entry. Remove the allomorph (or, for an affix, its alternate form) whose GUID is listed as removable, or move it before the allomorph that shadows it and give it a narrower environment. Act only on the removable GUIDs named in the description.",
+            vec![place("lexiconEdit", "Allomorphs")], ALLOMORPHS_HELP,
+        ),
         GrammarHealthCode::FstPatternRootShape => (
             "Pattern root has no FST route", Warning,
             "The lexical pattern root is retained in the Grammar but its complete spelling set has no supported FST route.",
@@ -300,6 +310,7 @@ impl<'de> serde::Deserialize<'de> for GrammarHealthCode {
             "grammar.stored-analysis.no-longer-parses" => Self::StoredAnalysisNoLongerParses,
             "grammar.stored-analysis.incomplete" => Self::StoredAnalysisIncomplete,
             "grammar.stored-analysis.budget-reached" => Self::StoredAnalysisBudgetReached,
+            "grammar.allomorph.shadowed" => Self::ShadowedAlternate,
             "fst.pattern-root-shape" => Self::FstPatternRootShape,
             "fst.circumfix-no-route" => Self::FstCircumfixNoRoute,
             "fst.reduplication-no-route" => Self::FstReduplicationNoRoute,

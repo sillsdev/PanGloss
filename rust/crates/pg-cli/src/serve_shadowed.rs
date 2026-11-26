@@ -2,6 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use pg_grammar::grammar_health::{GrammarHealthCode, GrammarHealthDiagnostic};
 use pg_grammar::model::{AllomorphId, AllomorphOwner, Grammar, MorphemeId};
 use pg_rules::dead::{
     dead_continuations, Continuation, REASONS as DEAD_REASONS, SOURCE_ELSEWHERE as DEAD_ELSEWHERE,
@@ -96,6 +97,16 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             )
         }
     };
+    let mut result = json!({"id": id, "type": "result", "op": "shadowedAllomorphs"});
+    result
+        .as_object_mut()
+        .expect("object literal")
+        .extend(report(g, include_selectable));
+    result
+}
+
+/// The report body of `shadowedAllomorphs`, shared by the serve op and `grammar-health --shadowed`.
+pub(crate) fn report(g: &Grammar, include_selectable: bool) -> Map<String, Value> {
     let copies = Copies::new(g);
     let mut rows = Vec::new();
     let mut counts = [0usize; 3];
@@ -250,14 +261,69 @@ pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Va
             "viaConverter": row.via_converter,
         }));
     }
-    json!({
-        "id": id, "type": "result", "op": "shadowedAllomorphs",
-        "complete": true,
-        "deadCounts": {"proven": dead_counts[0], "maybe": dead_counts[1], "live": dead_counts[2]},
-        "deadContinuations": dead,
-        "counts": {"shadowed": counts[0], "maybe_shadowed": counts[1], "selectable": counts[2]},
-        "alternates": rows,
-    })
+    let mut out = Map::new();
+    out.insert("complete".into(), json!(true));
+    out.insert(
+        "deadCounts".into(),
+        json!({"proven": dead_counts[0], "maybe": dead_counts[1], "live": dead_counts[2]}),
+    );
+    out.insert("deadContinuations".into(), Value::Array(dead));
+    out.insert(
+        "counts".into(),
+        json!({"shadowed": counts[0], "maybe_shadowed": counts[1], "selectable": counts[2]}),
+    );
+    out.insert("alternates".into(), Value::Array(rows));
+    out
+}
+
+/// One `grammar.allomorph.shadowed` finding per proven `shadowed` row of `report`, so the command line states exactly the verdicts and GUIDs of the serve op.
+pub(crate) fn findings(g: &Grammar, report: &Map<String, Value>) -> Vec<GrammarHealthDiagnostic> {
+    let strings = |value: &Value| -> Vec<String> {
+        value
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let rows = report["alternates"]
+        .as_array()
+        .map_or(&[][..], Vec::as_slice);
+    rows.iter()
+        .filter(|row| row["verdict"] == "shadowed")
+        .filter_map(|row| {
+            let id = AllomorphId(row["allomorphId"].as_u64()? as u32);
+            let blockers = row["blockers"]
+                .as_array()
+                .map(|b| {
+                    b.iter()
+                        .filter_map(|b| b["xmlKey"].as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            let message = format!(
+                "Alternate {:?} ({}) can never be selected: the earlier alternate {} covers it ({}). Removable FieldWorks allomorph GUIDs: {}.",
+                row["form"].as_str().unwrap_or(""),
+                row["xmlKey"].as_str().unwrap_or(""),
+                blockers,
+                strings(&row["reasons"]).join(", "),
+                strings(&row["removableGuids"]).join(", "),
+            );
+            let code = GrammarHealthCode::ShadowedAlternate;
+            match g.allomorph_owners.get(id.0 as usize)? {
+                AllomorphOwner::Root(entry, _) => {
+                    GrammarHealthDiagnostic::for_lexical_entry(g, *entry, code, message)
+                }
+                AllomorphOwner::Affix(rule, _) => {
+                    GrammarHealthDiagnostic::for_morph_rule(g, *rule, code, message)
+                }
+            }
+            .ok()
+        })
+        .collect()
 }
 
 /// The HC copies of each source allomorph: one per environment pass and per MSA; a circumfix copy contains two guids and sits in both groups.

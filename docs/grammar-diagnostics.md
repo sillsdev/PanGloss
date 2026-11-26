@@ -1,7 +1,7 @@
 # Grammar diagnostics
 
 `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-[--stored-analyses bounded|all|off] [--fst] [--snapshot-out <snapshot.json>]
+[--stored-analyses bounded|all|off] [--shadowed [--include-selectable]] [--fst] [--snapshot-out <snapshot.json>]
 [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]` reports problems in a grammar that its author should fix in
 FieldWorks. This document explains how each
 diagnostic's level is chosen and what the report looks like. For every code, with its level and
@@ -153,6 +153,25 @@ The comparison never aborts the report and never drops a wordform silently:
 Both limits count deterministic parse work, never time. The default report is therefore the same
 on every machine and at every thread count. Neither finding is an error, so neither changes the exit
 status. Both codes are retained in schema version 5.
+
+## Shadowed alternates
+
+`--shadowed` adds the report of `pangloss serve`'s `shadowedAllomorphs` op (computed by the same code, so
+the verdicts, reasons and GUIDs are identical; wire and reason codes in `formats/serve-protocol.md`).
+It is off by default, needs no parse, and changes no other finding.
+
+- Each proven `shadowed` alternate (an earlier alternate of the same entry or affix is eligible wherever
+  this one is, so no word can select it) becomes one `grammar.allomorph.shadowed` warning naming the
+  alternate, the alternate that covers it and its `removableGuids`.
+- The whole report, including `maybe_shadowed` rows, the blocking alternates and `deadContinuations`,
+  is written to the JSON under the top-level key `shadowed_alternates`, with the serve op's fields.
+  `--include-selectable` also lists the `selectable` rows, as the op's `includeSelectable` does.
+- Act only on `removableGuids`. Never remove another GUID from `sourceAllomorphGuids`. `proven`
+  verdicts are not yet replayed against C# HermitCrab.
+
+```
+pangloss grammar-health project.fwdata report.json --shadowed
+```
 
 ## Report format
 
