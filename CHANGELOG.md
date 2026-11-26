@@ -3,7 +3,9 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
-## Unreleased
+## 0.35.3
+
+Released 2026-11-26.
 
 - `pangloss generate <grammar> --requests <file.jsonl|->` answers a JSONL batch of generation requests (#398): one `serve` `generate` request per line, one response per line in input order, each equal to what `serve` returns because both run the same code. A bad line is an error row (`malformed_json`, `bad_request`, `unsupported_form_selection` and the other serve codes) and the batch continues; exit 0 once every line is answered, 1 for a bad argument, unreadable input or grammar that fails to load. New flag only; `--request` and the positional form are unchanged. No paradigm or forced-allomorph mode: `formGuid` is still refused. See `docs/generation.md`.
 - `pangloss stats --group object|allomorph` ends each row with `words` (and a `words` field in `--format jsonl`), the number of distinct input words in which the object or allomorph has at least one use (#396); `uses` still counts appearances, so a word with two readings that use an object is 2 uses and 1 word. Existing columns and their order are unchanged. Counts this Rust parse only, not hc.dll. See `docs/optimize-grammar-with-stats.md`.
