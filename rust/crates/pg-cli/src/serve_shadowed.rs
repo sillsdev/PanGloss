@@ -293,8 +293,7 @@ pub(crate) fn findings(g: &Grammar, report: &Map<String, Value>) -> Vec<GrammarH
         .map_or(&[][..], Vec::as_slice);
     rows.iter()
         .filter(|row| row["verdict"] == "shadowed")
-        .filter_map(|row| {
-            let id = AllomorphId(row["allomorphId"].as_u64()? as u32);
+        .map(|row| {
             let blockers = row["blockers"]
                 .as_array()
                 .map(|b| {
@@ -304,7 +303,7 @@ pub(crate) fn findings(g: &Grammar, report: &Map<String, Value>) -> Vec<GrammarH
                         .join(", ")
                 })
                 .unwrap_or_default();
-            let message = format!(
+            let mut message = format!(
                 "Alternate {:?} ({}) can never be selected: the earlier alternate {} covers it ({}). Removable FieldWorks allomorph GUIDs: {}.",
                 row["form"].as_str().unwrap_or(""),
                 row["xmlKey"].as_str().unwrap_or(""),
@@ -313,15 +312,25 @@ pub(crate) fn findings(g: &Grammar, report: &Map<String, Value>) -> Vec<GrammarH
                 strings(&row["removableGuids"]).join(", "),
             );
             let code = GrammarHealthCode::ShadowedAlternate;
-            match g.allomorph_owners.get(id.0 as usize)? {
-                AllomorphOwner::Root(entry, _) => {
-                    GrammarHealthDiagnostic::for_lexical_entry(g, *entry, code, message)
+            let owner = row["allomorphId"]
+                .as_u64()
+                .and_then(|id| g.allomorph_owners.get(id as usize));
+            let located = match owner {
+                Some(AllomorphOwner::Root(entry, _)) => {
+                    GrammarHealthDiagnostic::for_lexical_entry(g, *entry, code.clone(), message.clone())
+                        .ok()
                 }
-                AllomorphOwner::Affix(rule, _) => {
-                    GrammarHealthDiagnostic::for_morph_rule(g, *rule, code, message)
+                Some(AllomorphOwner::Affix(rule, _)) => {
+                    GrammarHealthDiagnostic::for_morph_rule(g, *rule, code.clone(), message.clone())
+                        .ok()
                 }
-            }
-            .ok()
+                None => None,
+            };
+            // A proven shadowed alternate is never hidden: with no owner to navigate to, the finding keeps its GUIDs and says so.
+            located.unwrap_or_else(|| {
+                message.push_str(" Its owner could not be resolved.");
+                GrammarHealthDiagnostic::from_check(code, message, Vec::new())
+            })
         })
         .collect()
 }
@@ -481,5 +490,27 @@ mod tests {
             .unwrap();
         assert_eq!(row["verdict"], "maybe_shadowed", "{row}");
         assert_eq!(row["removableGuids"], json!([]));
+    }
+
+    /// A proven row whose owner cannot be found is still a finding, carrying its GUIDs.
+    #[test]
+    fn a_shadowed_row_with_an_unresolvable_owner_is_still_a_finding() {
+        let xml = include_str!("../tests/data/shadowed-fixture.xml");
+        let g = pg_grammar::load(xml).expect("fixture loads");
+        let report = report(&g, false);
+        let mut report = report;
+        let rows = report["alternates"].as_array_mut().unwrap();
+        let proven = rows.iter().filter(|r| r["verdict"] == "shadowed").count();
+        assert!(proven > 0);
+        for row in rows.iter_mut().filter(|r| r["verdict"] == "shadowed") {
+            row["allomorphId"] = json!(u32::MAX);
+            row["removableGuids"] = json!(["guid-kept"]);
+        }
+        let found = findings(&g, &report);
+        assert_eq!(found.len(), proven);
+        for finding in &found {
+            assert!(finding.message.contains("guid-kept"), "{}", finding.message);
+            assert!(finding.message.contains("owner could not be resolved"));
+        }
     }
 }

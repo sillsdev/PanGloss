@@ -3,6 +3,10 @@
 Release notes are authored, not generated. Keep them under `## Unreleased`; the prepare step of
 `rust/tools/release.ps1` renames that heading to the version and refuses a version with neither section.
 
+## Unreleased
+
+- `grammar-health --shadowed` no longer drops a `grammar.allomorph.shadowed` finding when the alternate's owner cannot be resolved (#500): the finding is emitted with its GUIDs and a note that its owner could not be resolved, so a proven shadowed alternate is never hidden.
+
 ## 0.35.2
 
 Released 2026-11-26.

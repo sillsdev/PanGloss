@@ -27,7 +27,17 @@ fn serve_op(project: &PathBuf, include_selectable: bool) -> Value {
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
-    stdout.read_line(&mut line).unwrap();
+    loop {
+        line.clear();
+        assert_ne!(
+            stdout.read_line(&mut line).unwrap(),
+            0,
+            "serve exited before its ready banner"
+        );
+        if serde_json::from_str::<Value>(line.trim_end()).is_ok_and(|v| v["type"] == "ready") {
+            break;
+        }
+    }
     let request =
         json!({"id": "s", "op": "shadowedAllomorphs", "includeSelectable": include_selectable});
     writeln!(stdin, "{request}").unwrap();
