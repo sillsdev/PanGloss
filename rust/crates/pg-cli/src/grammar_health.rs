@@ -186,31 +186,26 @@ pub(crate) fn run_grammar_health_with_limits(
                     &fst_config,
                 )?);
             }
-            let mut diagnostics = check_grammar_health_diagnostics(&loaded.grammar)
-                .map_err(|error| format!("run grammar health checks: {error}"))?;
-            if fst {
-                fst_check_error = extend_fst_diagnostics(&loaded.grammar, &mut diagnostics);
-            }
-            if shadowed {
-                let report = crate::serve_shadowed::report(&loaded.grammar, include_selectable);
-                diagnostics.extend(crate::serve_shadowed::findings(&loaded.grammar, &report));
-                shadowed_report = Some(report);
-            }
-            let compared = crate::stored_analysis_health::check(
+            let checks = Checks {
+                shadowed,
+                include_selectable,
+                coverage,
+                work_cap: limits.work_cap,
+            };
+            let run = run_checks(
                 &loaded.grammar,
                 &loaded.stored_analyses,
-                limits.work_cap,
-                coverage,
-            );
-            diagnostics.extend(compared.diagnostics);
-            stored_words = compared.words;
-            diagnostics.extend(
-                loaded
-                    .warnings
-                    .iter()
-                    .map(GrammarHealthDiagnostic::from_import_warning),
-            );
-            diagnostics
+                &loaded.warnings,
+                checks,
+                |diagnostics| {
+                    if fst {
+                        fst_check_error = extend_fst_diagnostics(&loaded.grammar, diagnostics);
+                    }
+                },
+            )?;
+            shadowed_report = run.shadowed_report;
+            stored_words = run.stored_words;
+            run.diagnostics
         }
         Err(crate::compile_failure::GrammarLoadError::Compile(failure)) => {
             artifact_error = artifacts.write(&capture, None);
@@ -227,31 +222,17 @@ pub(crate) fn run_grammar_health_with_limits(
             return Err(error.to_string());
         }
     };
-    let mut report = GrammarHealthReport::new(diagnostics)
-        .map_err(|error| format!("assemble grammar health report: {error}"))?
-        .with_fieldworks_project(project);
-    if let Some(reason) = &fst_check_error {
-        report = report.with_fst_check_error(reason.clone());
-    } else if fst {
-        report = report.with_fst_checked();
-    }
-    let mut json =
-        render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
-    if fst_report.is_some() || shadowed_report.is_some() || !stored_words.is_empty() {
-        let mut value: serde_json::Value =
-            serde_json::from_str(&json).map_err(|error| error.to_string())?;
-        if let Some(fst) = fst_report.take() {
-            value["fst"] = fst;
-        }
-        if !stored_words.is_empty() {
-            value["stored_analysis_words"] =
-                serde_json::to_value(&stored_words).map_err(|error| error.to_string())?;
-        }
-        if let Some(shadowed) = shadowed_report.take() {
-            value["shadowed_alternates"] = serde_json::Value::Object(shadowed);
-        }
-        json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
-    }
+    let (report, json) = render_report(
+        diagnostics,
+        shadowed_report,
+        stored_words,
+        project,
+        FstSection {
+            requested: fst,
+            report: fst_report.take(),
+            check_error: fst_check_error.clone(),
+        },
+    )?;
 
     match out_path {
         Some(path) => {
@@ -291,6 +272,101 @@ pub(crate) fn run_grammar_health_with_limits(
         return Err(format!("{errors} error(s); fix them before parsing"));
     }
     Ok(())
+}
+
+/// Which of the checks that need no extra input run, shared by `grammar-health` and `serve`'s `health` op.
+#[derive(Clone, Copy)]
+pub(crate) struct Checks {
+    pub(crate) shadowed: bool,
+    pub(crate) include_selectable: bool,
+    pub(crate) coverage: Coverage,
+    pub(crate) work_cap: usize,
+}
+
+/// What the checks found, before it is rendered.
+pub(crate) struct CheckRun {
+    pub(crate) diagnostics: Vec<GrammarHealthDiagnostic>,
+    pub(crate) shadowed_report: Option<serde_json::Map<String, serde_json::Value>>,
+    pub(crate) stored_words: Vec<crate::stored_analysis_health::WordRow>,
+}
+
+/// Runs the grammar checks on a compiled grammar; `extend` adds the FST findings after the base checks, where the command puts them.
+pub(crate) fn run_checks(
+    grammar: &pg_grammar::model::Grammar,
+    stored_analyses: &[pg_fwdata::StoredAnalysis],
+    warnings: &[pg_snapshot::Warning],
+    checks: Checks,
+    extend: impl FnOnce(&mut Vec<GrammarHealthDiagnostic>),
+) -> Result<CheckRun, String> {
+    let mut diagnostics = check_grammar_health_diagnostics(grammar)
+        .map_err(|error| format!("run grammar health checks: {error}"))?;
+    extend(&mut diagnostics);
+    let mut shadowed_report = None;
+    if checks.shadowed {
+        let report = crate::serve_shadowed::report(grammar, checks.include_selectable);
+        diagnostics.extend(crate::serve_shadowed::findings(grammar, &report));
+        shadowed_report = Some(report);
+    }
+    let compared = crate::stored_analysis_health::check(
+        grammar,
+        stored_analyses,
+        checks.work_cap,
+        checks.coverage,
+    );
+    diagnostics.extend(compared.diagnostics);
+    diagnostics.extend(
+        warnings
+            .iter()
+            .map(GrammarHealthDiagnostic::from_import_warning),
+    );
+    Ok(CheckRun {
+        diagnostics,
+        shadowed_report,
+        stored_words: compared.words,
+    })
+}
+
+/// The `--fst` part of a report: whether it was asked for, its compile report, and why it could not finish.
+pub(crate) struct FstSection {
+    pub(crate) requested: bool,
+    pub(crate) report: Option<serde_json::Value>,
+    pub(crate) check_error: Option<String>,
+}
+
+/// Builds the versioned report and its JSON text, the one place both callers do it.
+pub(crate) fn render_report(
+    diagnostics: Vec<GrammarHealthDiagnostic>,
+    shadowed_report: Option<serde_json::Map<String, serde_json::Value>>,
+    stored_words: Vec<crate::stored_analysis_health::WordRow>,
+    project: FieldWorksProject,
+    fst: FstSection,
+) -> Result<(GrammarHealthReport, String), String> {
+    let mut report = GrammarHealthReport::new(diagnostics)
+        .map_err(|error| format!("assemble grammar health report: {error}"))?
+        .with_fieldworks_project(project);
+    if let Some(reason) = &fst.check_error {
+        report = report.with_fst_check_error(reason.clone());
+    } else if fst.requested {
+        report = report.with_fst_checked();
+    }
+    let mut json =
+        render_json(&report).map_err(|e| format!("serialize grammar health diagnostics: {e}"))?;
+    if fst.report.is_some() || shadowed_report.is_some() || !stored_words.is_empty() {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&json).map_err(|error| error.to_string())?;
+        if let Some(fst) = fst.report {
+            value["fst"] = fst;
+        }
+        if !stored_words.is_empty() {
+            value["stored_analysis_words"] =
+                serde_json::to_value(&stored_words).map_err(|error| error.to_string())?;
+        }
+        if let Some(shadowed) = shadowed_report {
+            value["shadowed_alternates"] = serde_json::Value::Object(shadowed);
+        }
+        json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
+    }
+    Ok((report, json))
 }
 
 /// The extra outputs of one grammar-health run: `import`'s snapshot and `facts`' database.
@@ -446,7 +522,7 @@ fn extend_fst_diagnostics(
     Some("FST inspection requires the foma-tools feature.".to_string())
 }
 
-fn fieldworks_project_for_path(
+pub(crate) fn fieldworks_project_for_path(
     grammar_path: &str,
     fieldworks_project: Option<&str>,
 ) -> FieldWorksProject {

@@ -172,6 +172,7 @@ mod rich_trace;
 mod serve;
 mod serve_effects;
 mod serve_generate;
+mod serve_health;
 mod serve_inventory;
 mod serve_match;
 mod serve_shadowed;
@@ -988,13 +989,34 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
+    let (grammar, warnings, metadata, _) = load_grammar_for_serve(path)?;
+    Ok((grammar, warnings, metadata))
+}
+
+/// `load_grammar_with_trace_metadata` that also keeps the project's stored analyses, which `serve`'s `health` op compares; empty for a snapshot or grammar XML.
+pub(crate) fn load_grammar_for_serve(
+    path: &str,
+) -> Result<
+    (
+        Grammar,
+        Vec<pg_snapshot::Warning>,
+        rich_trace::TraceMetadata,
+        Vec<pg_fwdata::StoredAnalysis>,
+    ),
+    String,
+> {
     let loaded = load_grammar_impl(path, true, StatsIdentityRequest::None)
         .map_err(|error| error.to_string())?;
     let metadata = loaded
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
     print_substrate_report(&loaded.substrate);
-    Ok((loaded.grammar, loaded.warnings, metadata))
+    Ok((
+        loaded.grammar,
+        loaded.warnings,
+        metadata,
+        loaded.stored_analyses,
+    ))
 }
 fn load_diagnostic_grammar(
     path: &str,
