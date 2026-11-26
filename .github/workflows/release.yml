@@ -172,16 +172,6 @@ jobs:
             binary: pangloss
             asset: pangloss-linux-x64
             artifact: pangloss-linux-x64
-          - runner: macos-latest
-            target: aarch64-apple-darwin
-            binary: pangloss
-            asset: pangloss-osx-arm64
-            artifact: pangloss-osx-arm64
-          - runner: macos-latest
-            target: x86_64-apple-darwin
-            binary: pangloss
-            asset: pangloss-osx-x64
-            artifact: pangloss-osx-x64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
@@ -225,8 +215,8 @@ jobs:
           }
           Write-Host "smoke passed: $actual ($env:TARGET)"
 
-      - name: Smoke-test the Unix target binary
-        if: runner.os != 'Windows'
+      - name: Smoke-test the Linux binary
+        if: runner.os == 'Linux'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
@@ -241,14 +231,7 @@ jobs:
           smoke_binary="$RUNNER_TEMP/pangloss-smoke$suffix"
           cp "$source" "$smoke_binary"
 
-          if [[ "$TARGET" == x86_64-apple-darwin && "$(uname -m)" == arm64 ]]; then
-            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
-              sudo softwareupdate --install-rosetta --agree-to-license
-            fi
-            actual="$(arch -x86_64 "$smoke_binary" --version)"
-          else
-            actual="$("$smoke_binary" --version)"
-          fi
+          actual="$("$smoke_binary" --version)"
           expected="pangloss $RELEASE_VERSION"
           if [[ "$actual" != "$expected" ]]; then
             echo "::error::expected '$expected', got '$actual'"
@@ -285,24 +268,77 @@ jobs:
           cp "$RUNNER_TEMP/pangloss-smoke" "$dist/$ASSET_NAME"
           sha256sum "$dist/$ASSET_NAME" | awk '{print $1}' > "$dist/$ASSET_NAME.sha256"
 
-      - name: Stage macOS assets
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          ASSET_NAME: ${{ matrix.asset }}
-        run: |
-          set -euo pipefail
-          dist="$RUNNER_TEMP/release-assets"
-          mkdir -p "$dist"
-          cp "$RUNNER_TEMP/pangloss-smoke" "$dist/$ASSET_NAME"
-          shasum -a 256 "$dist/$ASSET_NAME" | awk '{print $1}' > "$dist/$ASSET_NAME.sha256"
-
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ runner.temp }}/release-assets/*
           if-no-files-found: error
           overwrite: true
+
+  # macOS is built and smoke-checked but not released (owner decision: Windows and Linux only).
+  # No other job needs this one, so a slow or failed macOS runner cannot delay or fail a release,
+  # and nothing is uploaded, so publish's `pangloss-*` artifact pattern cannot pick anything up.
+  build-macos:
+    name: macOS smoke check, not published (${{ matrix.target }})
+    needs: [resolve, gates]
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+          - target: x86_64-apple-darwin
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.source_sha }}
+          submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build pg-cli
+        working-directory: rust
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo build --release -p pg-cli --locked --features foma-tools --target "$TARGET"
+
+      - name: Smoke-test the macOS binary
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          source="rust/target/$TARGET/release/pangloss"
+          test -f "$source"
+          smoke_binary="$RUNNER_TEMP/pangloss-smoke"
+          cp "$source" "$smoke_binary"
+
+          if [[ "$TARGET" == x86_64-apple-darwin && "$(uname -m)" == arm64 ]]; then
+            if ! arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+              sudo softwareupdate --install-rosetta --agree-to-license
+            fi
+            actual="$(arch -x86_64 "$smoke_binary" --version)"
+          else
+            actual="$("$smoke_binary" --version)"
+          fi
+          expected="pangloss $RELEASE_VERSION"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::expected '$expected', got '$actual'"
+            exit 1
+          fi
+          echo "smoke passed: $actual ($TARGET)"
 
   publish:
     name: verify and publish release
@@ -324,7 +360,7 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Verify all ten local release files and notes
+      - name: Verify all six local release files and notes
         shell: bash
         env:
           RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
@@ -335,8 +371,6 @@ jobs:
           expected_files=(
             pangloss-win-x64.exe pangloss-win-x64.exe.sha256
             pangloss-linux-x64 pangloss-linux-x64.sha256
-            pangloss-osx-arm64 pangloss-osx-arm64.sha256
-            pangloss-osx-x64 pangloss-osx-x64.sha256
             pangloss.exe pangloss.exe.sha256
           )
           mapfile -t expected < <(printf '%s\n' "${expected_files[@]}" | sort)
@@ -347,7 +381,7 @@ jobs:
             exit 1
           fi
 
-          for asset in pangloss-win-x64.exe pangloss-linux-x64 pangloss-osx-arm64 pangloss-osx-x64 pangloss.exe; do
+          for asset in pangloss-win-x64.exe pangloss-linux-x64 pangloss.exe; do
             actual_hash="$(sha256sum "release-assets/$asset" | cut -d ' ' -f 1)"
             recorded_hash="$(cat "release-assets/$asset.sha256")"
             if [[ ! "$recorded_hash" =~ ^[0-9a-f]{64}$ || "$recorded_hash" != "$actual_hash" ]]; then
@@ -374,7 +408,7 @@ jobs:
 
           cat >> release-notes.md <<'EOF'
 
-          Coverage: Rust CI (fmt, clippy, comment hygiene, rustdoc, cargo test), release gates (WordMaker parity, conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64, Linux x64, macOS arm64, and macOS x64 builds.
+          Coverage: Rust CI (fmt, clippy, comment hygiene, rustdoc, cargo test), release gates (WordMaker parity, conformance: all-synthetic fixtures diffed against committed ground truth), and smoke-checked Windows x64 and Linux x64 builds. Releases ship Windows and Linux executables only; macOS builds still run but are not published.
 
           Real-language corpora (Sena, Amharic, Aweti, Indonesian) are gitignored local files and are deliberately absent from release gates.
           EOF
@@ -416,8 +450,6 @@ jobs:
           expected = {
               "pangloss-win-x64.exe", "pangloss-win-x64.exe.sha256",
               "pangloss-linux-x64", "pangloss-linux-x64.sha256",
-              "pangloss-osx-arm64", "pangloss-osx-arm64.sha256",
-              "pangloss-osx-x64", "pangloss-osx-x64.sha256",
               "pangloss.exe", "pangloss.exe.sha256",
           }
           assets = release.get("assets", [])
