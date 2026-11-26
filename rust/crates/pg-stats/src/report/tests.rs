@@ -1295,3 +1295,105 @@ fn word_only_reports_measured_word_fields_and_refuses_each_object_view() {
         assert!(matches!(error, StatsError::WordOnlyFactsUnavailable));
     }
 }
+
+fn fact_with_uses(
+    object_key: &str,
+    kind: ObjectKind,
+    allomorph: Option<(&str, &str)>,
+    stratum: &str,
+    uses: u64,
+) -> FactRecord {
+    FactRecord {
+        stratum: Some(StructuralLocator::new(stratum, stratum)),
+        uses,
+        ..fact_with_allomorph(object_key, kind, allomorph, 1, 1)
+    }
+}
+
+/// `uses` counts appearances; `words` counts the distinct words with at least one (#396). A word whose object shows up in two strata (two readings) adds 2 to `uses` and 1 to `words`.
+#[test]
+fn per_object_words_counts_distinct_words_not_uses() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = vec![
+        word_record(
+            "one",
+            1,
+            vec![
+                fact_with_uses("obj-x", ObjectKind::LexEntry, None, "0:Root", 1),
+                fact_with_uses("obj-x", ObjectKind::LexEntry, None, "1:Stem", 1),
+                fact_with_uses("obj-y", ObjectKind::LexEntry, None, "0:Root", 0),
+            ],
+        ),
+        word_record(
+            "two",
+            1,
+            vec![fact_with_uses(
+                "obj-x",
+                ObjectKind::LexEntry,
+                None,
+                "0:Root",
+                1,
+            )],
+        ),
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let conn = outcome.cache.connection();
+
+    let rows = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    let x = rows.iter().find(|r| r.label == "obj-x").unwrap();
+    assert_eq!((x.uses, x.words), (3, 2));
+    let y = rows.iter().find(|r| r.label == "obj-y").unwrap();
+    assert_eq!(
+        (y.uses, y.words),
+        (0, 0),
+        "attempted but never used is not a word"
+    );
+
+    let one = PerObjectFilter {
+        word: Some("one".to_string()),
+        ..PerObjectFilter::default()
+    };
+    let rows = per_object_report(conn, &one).unwrap();
+    let x = rows.iter().find(|r| r.label == "obj-x").unwrap();
+    assert_eq!((x.uses, x.words), (2, 1), "two readings, one word");
+}
+
+#[test]
+fn per_allomorph_words_counts_distinct_words_not_uses() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = vec![
+        word_record(
+            "one",
+            1,
+            vec![
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:0", "A0")), "0:Root", 1),
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:0", "A0")), "1:Stem", 1),
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:1", "A1")), "0:Root", 0),
+            ],
+        ),
+        word_record(
+            "two",
+            1,
+            vec![fact_with_uses(
+                "e",
+                ObjectKind::LexEntry,
+                Some(("e:0", "A0")),
+                "0:Root",
+                1,
+            )],
+        ),
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let rows =
+        per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default()).unwrap();
+    let a0 = rows
+        .iter()
+        .find(|r| r.allomorph_key.as_deref() == Some("e:0"))
+        .unwrap();
+    assert_eq!((a0.uses, a0.words), (3, 2));
+    let a1 = rows
+        .iter()
+        .find(|r| r.allomorph_key.as_deref() == Some("e:1"))
+        .unwrap();
+    assert_eq!((a1.uses, a1.words), (0, 0));
+}

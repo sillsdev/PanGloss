@@ -1574,6 +1574,7 @@ fn sample_object_row(no_root: i64) -> pg_stats::PerObjectRow {
         uses: 1,
         self_time_ns: 150,
         work_steps: 0,
+        words: 0,
     }
 }
 
@@ -1942,6 +1943,7 @@ fn a_shown_row_states_its_share_of_every_matched_row_not_of_the_excerpt() {
         not_applied: Some(0),
         no_root: Some(0),
         surface_mismatch: Some(0),
+        words: None,
     };
     // One row displayed out of a matched set totalling four times its time and attempts.
     let denoms = Denominators {
@@ -2508,6 +2510,7 @@ fn newly_timed_object_kinds_render_self_time() {
             uses: 0,
             self_time_ns: 0,
             work_steps: 0,
+            words: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(0), "{kind}");
     }
@@ -2536,6 +2539,7 @@ fn timed_object_kinds_render_their_self_time() {
             uses: 0,
             self_time_ns: 7,
             work_steps: 0,
+            words: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(7), "{kind}");
     }
@@ -2556,6 +2560,7 @@ fn direction_filter_distinguishes_measured_lexical_and_unmeasured_index_synthesi
         uses: 0,
         self_time_ns: 0,
         work_steps: 0,
+        words: 0,
     };
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
@@ -3514,6 +3519,7 @@ fn wide_object_table_shows_work_steps_and_other_views_do_not() {
     };
     let object = object_row_view(&pg_stats::PerObjectRow {
         work_steps: 321,
+        words: 0,
         ..sample_object_row(0)
     });
     assert_eq!(object.work_steps, Some(321));
@@ -4246,4 +4252,59 @@ fn wide_mpr_cache_profiles_preserve_replay_and_attribution() {
             );
         }
     }
+}
+
+/// `words` is appended after every existing column, narrow and wide, and is `-` where `uses` is not measured (#396).
+#[test]
+fn words_column_is_appended_last_and_follows_uses() {
+    let mut row = sample_object_row(0);
+    row.kind = "lex_entry".to_string();
+    row.uses = 3;
+    row.words = 2;
+    let view = object_row_view(&row);
+    for wide in [false, true] {
+        let (headers, cells) = render_narrow_self_totals(std::slice::from_ref(&view), wide);
+        assert_eq!(headers.last(), Some(&"words"), "wide={wide}");
+        assert_eq!(
+            cells[0].last().map(String::as_str),
+            Some("2"),
+            "wide={wide}"
+        );
+    }
+    let (narrow, _) = render_narrow_self_totals(std::slice::from_ref(&view), false);
+    assert_eq!(
+        &narrow[..narrow.len() - 1],
+        [
+            "label",
+            "time_ms",
+            "time%",
+            "attempts",
+            "attempts%",
+            "amp",
+            "uses"
+        ],
+        "existing columns keep their order"
+    );
+    assert_eq!(row_view_to_json(&view)["words"], 2);
+    assert_eq!(row_view_to_json(&view)["uses"], 3);
+
+    let (headers, _) = render_narrow(
+        std::slice::from_ref(&view),
+        true,
+        &Denominators::of(std::slice::from_ref(&view)),
+        &["uses"],
+    );
+    assert!(
+        !headers.contains(&"words"),
+        "an engine that records no uses has no words"
+    );
+}
+
+#[test]
+fn words_is_absent_for_orientations_that_do_not_report_it() {
+    let mut view = object_row_view(&sample_object_row(0));
+    view.words = None;
+    let (headers, _) = render_narrow_self_totals(std::slice::from_ref(&view), true);
+    assert!(!headers.contains(&"words"));
+    assert!(row_view_to_json(&view).get("words").is_none());
 }
