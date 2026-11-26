@@ -168,7 +168,8 @@ pub(crate) struct MorphLayout {
 impl MorphLayout {
     /// Infer envelopes from positioned starts, then overlay owning singletons. Unowned gaps inside
     /// those inferred envelopes (such as compound linkers) cannot be reconstructed by this decoder.
-    pub(crate) fn decode(morphs: &[MorphRecord], shape_len: usize, bare_nodes: &[u32]) -> Self {
+    pub(crate) fn decode(morphs: &[MorphRecord], shape_len: usize, extras: &Extras) -> Self {
+        let bare_nodes = extras.bare_nodes();
         let last = shape_len.saturating_sub(3) as u32;
         let mut groups = Vec::with_capacity(morphs.len());
         let mut index = 0;
@@ -217,6 +218,21 @@ impl MorphLayout {
                 let mut end = end;
                 while end > morph.order && bare_nodes.contains(&end) {
                     end -= 1;
+                }
+                // A swap that wrapped this morph around another left its true end here, which no later morph's start implies.
+                let stretched = extras.stretched_ends();
+                if !stretched.is_empty() {
+                    let run = morphs[..host]
+                        .iter()
+                        .filter(|r| {
+                            r.allomorph == morph.allomorph
+                                && r.observation_occurrence == morph.observation_occurrence
+                        })
+                        .count() as u16;
+                    let key = (morph.allomorph, morph.observation_occurrence, run);
+                    if let Some(&(_, stored)) = stretched.iter().find(|(k, _)| *k == key) {
+                        end = stored.min(last).max(morph.order);
+                    }
                 }
                 groups[group_index].range = (morph.order, end);
             }
@@ -456,6 +472,7 @@ pub struct WordKey {
     shape: Shape,
     real_fs: FeatureStruct,
     morphs: Vec<MorphKey>,
+    stretched_ends: Vec<((AllomorphId, u16, u16), u32)>,
     non_heads: Vec<WordKey>,
     non_head_app_index: i32,
     stratum: StratumId,
@@ -528,6 +545,7 @@ impl WordKey {
                     && k.status == m.status
                     && k.runtime_identity.as_deref() == runtime_id(m.runtime_root.as_deref())
             })
+            && self.stretched_ends == w.extras.stretched_ends()
             && self.non_heads.len() == w.non_heads().len()
             && self
                 .non_heads
@@ -555,6 +573,7 @@ impl WordKey {
                     runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
                 })
                 .collect(),
+            stretched_ends: w.extras.stretched_ends().to_vec(),
             non_heads: w.non_heads().iter().map(Word::dedup_key).collect(),
             non_head_app_index: w.non_head_app_index,
             stratum: w.stratum,
@@ -576,7 +595,7 @@ impl Word {
         if origin.len() != shape_len {
             return;
         }
-        let layout = MorphLayout::decode(&self.morphs, shape_len, self.extras.bare_nodes());
+        let layout = MorphLayout::decode(&self.morphs, shape_len, &self.extras);
         let interior = shape_len.saturating_sub(2);
         let mut new_of_old = vec![0u32; interior];
         for new in 0..interior {
@@ -627,26 +646,62 @@ impl Word {
                 MorphStatus::Floating | MorphStatus::SubsumedChild => group.range.0,
             };
         }
-        if layout
+        // Where each group's last node went: C# re-creates every overlapped morph as its leftmost child to its rightmost, which can wrap another morph.
+        let wanted_ends: Vec<Option<u32>> = layout
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(group_index, group)| {
+                if self.morphs[group.host].status != MorphStatus::Real {
+                    return None;
+                }
+                layout
+                    .node_owners
+                    .iter()
+                    .enumerate()
+                    .filter(|&(_, owner)| *owner == Some(group_index))
+                    .map(|(old, _)| new_of_old[old])
+                    .max()
+            })
+            .collect();
+        let mut new_host: Vec<usize> = layout.groups.iter().map(|g| g.host).collect();
+        if !layout
             .groups
             .iter()
             .zip(&starts)
             .all(|(group, &start)| group.range.0 == start)
         {
-            return;
+            let mut sequence: Vec<usize> = (0..layout.groups.len()).collect();
+            sequence.sort_by_key(|&g| (starts[g], !pinned[g]));
+            let mut morphs = Vec::with_capacity(self.morphs.len());
+            for g in sequence {
+                let group = &layout.groups[g];
+                for record in &self.morphs[group.children.start..=group.host] {
+                    let mut record = record.clone();
+                    record.order = starts[g];
+                    morphs.push(record);
+                }
+                new_host[g] = morphs.len() - 1;
+            }
+            self.morphs = morphs;
         }
-        let mut sequence: Vec<usize> = (0..layout.groups.len()).collect();
-        sequence.sort_by_key(|&g| (starts[g], !pinned[g]));
-        let mut morphs = Vec::with_capacity(self.morphs.len());
-        for g in sequence {
-            let group = &layout.groups[g];
-            for record in &self.morphs[group.children.start..=group.host] {
-                let mut record = record.clone();
-                record.order = starts[g];
-                morphs.push(record);
+        // Keep an end only where the next morph's start would not imply it.
+        self.extras.set_stretched_ends(Vec::new());
+        let inferred = MorphLayout::decode(&self.morphs, shape_len, &self.extras);
+        let mut ends = Vec::new();
+        for (group_index, wanted) in wanted_ends.into_iter().enumerate() {
+            let Some(wanted) = wanted else { continue };
+            let host = new_host[group_index];
+            let implied = inferred
+                .groups
+                .iter()
+                .find(|group| group.host == host)
+                .map(|group| group.range.1);
+            if implied != Some(wanted) {
+                ends.push((self.run_key(host), wanted));
             }
         }
-        self.morphs = morphs;
+        self.extras.set_stretched_ends(ends);
     }
 
     /// Whether this word records what phonological rules do to morph identity, for `Word::span_attribution`.
@@ -681,7 +736,7 @@ impl Word {
         }
         let old_len = self.shape.len();
         let interior = old_len.saturating_sub(2);
-        let layout = MorphLayout::decode(&self.morphs, old_len, self.extras.bare_nodes());
+        let layout = MorphLayout::decode(&self.morphs, old_len, &self.extras);
         let mut marks = self.extras.span_marks().cloned().unwrap_or_default();
         let kept = |old: usize| keys.iter().position(|&key| key == 2 * (old as u32 + 1));
         let mut inserted: Vec<(u32, PRuleId)> = marks
@@ -740,7 +795,7 @@ impl Word {
             return;
         }
         let interior = shape_len.saturating_sub(2);
-        let layout = MorphLayout::decode(&self.morphs, shape_len, self.extras.bare_nodes());
+        let layout = MorphLayout::decode(&self.morphs, shape_len, &self.extras);
         let mut marks = self.extras.span_marks().cloned().unwrap_or_default();
         let mut new_of_old = vec![0u32; interior];
         for new in 0..interior {
@@ -778,7 +833,7 @@ impl Word {
 
     /// Which morph record owns each interior node, as the engine's own morph ranges say, with the doubts phonological rules left behind (see `SpanMarks`).
     pub fn span_attribution(&self) -> SpanAttribution {
-        let layout = MorphLayout::decode(&self.morphs, self.shape.len(), self.extras.bare_nodes());
+        let layout = MorphLayout::decode(&self.morphs, self.shape.len(), &self.extras);
         let empty = SpanMarks::default();
         let marks = self.extras.span_marks().unwrap_or(&empty);
         let mut records: Vec<SpanRecord> = self
@@ -855,7 +910,7 @@ impl Word {
     /// Re-anchor morph records after a synthesis rewrite deleted or inserted nodes. `old_len` is the shape's length before the rewrite, and `keys` holds each kept node's `MutShape::anchor_keys` entry: twice its old shape index, or an odd key for an inserted node. C# keeps a deleted node in the shape, so its morph annotations keep their places; here each record starts at the first kept node at or after its old start, a positioned morph that kept no node becomes an empty singleton there, so it neither owns its neighbour's segments nor leaves the morph order, and a morph that lost its first node keeps that start through a later swap.
     pub(crate) fn remap_morph_orders(&mut self, old_len: usize, keys: &[u32]) {
         let bare_before = self.extras.bare_nodes().to_vec();
-        let layout = MorphLayout::decode(&self.morphs, old_len, &bare_before);
+        let layout = MorphLayout::decode(&self.morphs, old_len, &self.extras);
         let new_start = |old: u32| keys.partition_point(|&key| key < 2 * (old + 1)) as u32;
         let is_bare = |key: u32| key.is_multiple_of(2) && bare_before.contains(&(key / 2 - 1));
         for group in &layout.groups {
@@ -911,7 +966,19 @@ impl Word {
             }
         }
         bare.sort_unstable();
+        // A stretched end follows the last of its node that the rewrite kept.
+        let ends: Vec<_> = self
+            .extras
+            .stretched_ends()
+            .iter()
+            .filter_map(|&(run, end)| {
+                keys.iter()
+                    .rposition(|&key| key.is_multiple_of(2) && key <= 2 * (end + 1))
+                    .map(|kept| (run, kept as u32))
+            })
+            .collect();
         self.extras.set_shape_marks(gaps, bare);
+        self.extras.set_stretched_ends(ends);
         for record in &mut self.morphs {
             record.order = new_start(record.order);
         }

@@ -214,7 +214,9 @@ fn decoded_ranges(bare: &[u32]) -> Vec<(u32, u32)> {
         MorphRecord::new(AllomorphId(0), MorphemeId(0), 0),
         MorphRecord::new(AllomorphId(1), MorphemeId(1), 3),
     ];
-    MorphLayout::decode(&morphs, 7, bare).record_ranges
+    let mut extras = crate::extras::Extras::default();
+    extras.set_shape_marks(Vec::new(), bare.to_vec());
+    MorphLayout::decode(&morphs, 7, &extras).record_ranges
 }
 
 #[test]
