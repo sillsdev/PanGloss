@@ -16,6 +16,11 @@ steps 1, 2, 3 (beyond samples) and 4 unchecked. Put all four steps in the brief.
 Finding and researching the idea comes first: `.claude/skills/optimization-research/SKILL.md` and its ledger, `docs/research/optimization/README.md`.
 Start from the idea's ledger entry, and update its status here as the PR lands.
 
+Two mechanical checks apply. The PR description needs a `Ledger: <row name>` line naming the idea's ledger row (or `Ledger: n/a (<reason>)`)
+whenever the PR changes parser code: `.github/workflows/ledger-line.yml`, pull requests only. The ledger lint
+(`rust/tools/ledger-check.ps1`, in `pg.ps1 -Mode preland`) fails if the row you update has an unknown status, a `rejected` row without a killing
+number and source, a broken entry link or a duplicate name.
+
 ## 0. Is it allowed at all?
 
 CLAUDE.md allows one memo or cache: the root-trie exception (per-word, exact stratum and shape key, 1 MiB cap, immutable index results

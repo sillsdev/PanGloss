@@ -3,8 +3,8 @@
 The ledger is `docs/research/optimization/README.md`: a table (one row per idea: name, status, target blowup, issues, link) and one `##` entry
 per idea, or a file `docs/research/optimization/<idea>.md` for a long one (link it from the row).
 
-Statuses: `idea`, `measured`, `issue-filed`, `ready` (parity argued, owner decisions in, hand off to `land-an-optimization`),
-`in-progress`, `landed`, `rejected` (with the killing number), `open-upstream` (a Machine issue exists and the port waits).
+Statuses (a qualifier may follow in parentheses or after a comma; `open` is also accepted for older rows): `idea`, `measured`, `issue-filed`, `ready` (parity argued, owner decisions in, hand off to `land-an-optimization`),
+`in-progress`, `landed`, `rejected` (with the killing number: a value with a unit or a ratio such as `+7.7% work`, `1.1x` or `0 steps`, and its source, an issue, PR or command, in the row or the entry; `ledger-check.ps1` fails without both), `open-upstream` (a Machine issue exists and the port waits).
 
 ```
 ## <short-name>

@@ -1,0 +1,37 @@
+name: Ledger line
+
+# A PR that changes parser code (the list lives in rust/tools/ledger-check.ps1, $script:LedgerParserPaths)
+# must carry a `Ledger: <row name>` or `Ledger: n/a (<reason>)` line in its description. Pull requests
+# only: never runs on merge_group or push, so the merge queue cannot be blocked by a description check.
+# Not a required check; `edited` re-runs it when the description changes.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ledger-line-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ledger-line:
+    name: ledger-line
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Ledger line
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
+          pwsh -NoProfile -File rust/tools/ledger-check.ps1 -Mode Pr -ChangedFilesPath "$RUNNER_TEMP/changed.txt"
