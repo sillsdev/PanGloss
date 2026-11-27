@@ -126,7 +126,7 @@ impl LookupReplay {
         let mut extra = self.realizational_out.clone();
         let mut excluded_ok = !self.overwrite_reachable;
         let mut stem_ok = true;
-        for (entry, _) in alt.trail.slots_rev() {
+        for (entry, recorded) in alt.trail.slots_rev() {
             let rule = entry.and_then(|id| match &g.mrules[id.0 as usize] {
                 MorphRuleDef::AffixProcess(rule) => Some(rule),
                 _ => None,
@@ -184,6 +184,7 @@ impl LookupReplay {
                 root_mpr,
                 &extra,
                 excluded_ok,
+                recorded,
                 work,
                 stats.map(|stats| (stats, ObjectKind::MorphRule, rule_id.0)),
                 observation,
@@ -209,6 +210,7 @@ impl LookupReplay {
     }
 }
 
+/// Synthesis emits output only from the allomorph that analysis recorded, so when the slot names an allomorph of this rule only that allomorph's gate is tested; otherwise any allomorph may pass.
 #[allow(clippy::too_many_arguments)]
 fn any_allomorph_possible(
     g: &Grammar,
@@ -216,12 +218,17 @@ fn any_allomorph_possible(
     root_mpr: &MprSet,
     extra: &MprSet,
     excluded_ok: bool,
+    recorded: Option<AllomorphId>,
     work: &mut u64,
     owner: Option<(&StatsCollector, ObjectKind, u32)>,
     observation: Option<(&dyn Recorder, AllomorphId, &Word)>,
 ) -> bool {
     let upper = root_mpr.union(extra);
+    let recorded_here = recorded.filter(|id| rule.allomorphs.iter().any(|allo| allo.id == *id));
     rule.allomorphs.iter().any(|allo| {
+        if recorded_here.is_some_and(|id| id != allo.id) {
+            return false;
+        }
         let check = |test: &MprSet, actual: &MprSet, excluded| {
             if let Some((recorder, candidate, word)) = observation {
                 mpr_check_observed(g, test, actual, excluded, owner, |group, bucket| {

@@ -1,0 +1,1 @@
+- The pre-synthesis replay now tests only the allomorph that analysis recorded for a rule application, so synthesis variants whose recorded allomorph fails its MPR gate are dropped before they are synthesized; parses are unchanged and work steps drop (#550).

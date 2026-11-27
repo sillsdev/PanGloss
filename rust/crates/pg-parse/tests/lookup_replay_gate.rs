@@ -91,3 +91,51 @@ fn the_replay_keeps_every_analysis_and_saves_synthesis_work() {
     assert!(on.lookup_replay_work() > 0);
     assert_eq!(off.lookup_replay_work(), 0);
 }
+
+fn subrule(id: &str, input_attrs: &str, shape: &str) -> String {
+    format!(
+        r#"<MorphologicalSubrule id="{id}">
+          <MorphologicalInput {input_attrs}><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>{shape}</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule>"#
+    )
+}
+
+/// One rule with three allomorphs: two gated on MPR features the root lacks, one ungated.
+fn three_allomorph_grammar() -> pg_grammar_model::model::Grammar {
+    let subrules = [
+        subrule("subA", r#"requiredMPRFeatures="mprLatinate""#, "+t"),
+        subrule("subB", r#"requiredMPRFeatures="mprGermanic""#, "+s"),
+        subrule("subC", "", "+n"),
+    ]
+    .concat();
+    let rule = format!(
+        r#"<MorphologicalRule id="multi" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV"><Name>multi</Name>
+        <MorphologicalSubrules>{subrules}</MorphologicalSubrules>
+        <OutputHeadFeatures><FeatureValue feature="featPers" symbolValues="symP1" /></OutputHeadFeatures>
+        <MorphemeId>multiM</MorphemeId></MorphologicalRule>"#
+    );
+    let lexicon = r#"<LexicalEntry id="eStem" partOfSpeech="posV">
+        <Allomorphs><Allomorph id="aSan"><PhoneticShape>san</PhoneticShape></Allomorph></Allomorphs>
+        <MorphemeId>stem</MorphemeId></LexicalEntry>"#;
+    csharp_port_common::build_grammar_w5("", "", &rule, "multi", "", lexicon)
+}
+
+#[test]
+fn a_recorded_allomorph_that_fails_its_gate_is_pruned_even_when_a_later_one_is_ungated() {
+    let g = three_allomorph_grammar();
+    let on = Morpher::new(&g, usize::MAX).with_lookup_replay(true);
+    let off = Morpher::new(&g, usize::MAX).with_lookup_replay(false);
+    let (mut steps_on, mut steps_off) = (0, 0);
+    let mut parsed = Vec::new();
+    for word in ["san", "sant", "sans", "sann"] {
+        let (a, b) = (on.parse_word(word), off.parse_word(word));
+        assert_eq!(a.analyses, b.analyses, "{word}");
+        parsed.push((word, a.analyses.len()));
+        steps_on += a.work_steps;
+        steps_off += b.work_steps;
+    }
+    // Only the ungated allomorph can ever apply to this root.
+    assert_eq!(parsed, [("san", 1), ("sant", 0), ("sans", 0), ("sann", 1)]);
+    assert!(steps_on < steps_off, "on={steps_on} off={steps_off}");
+}
