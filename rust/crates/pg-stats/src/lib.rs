@@ -6,7 +6,7 @@
 //! is everything downstream of that: where the cache file lives, how it is opened, wiped, and
 //! accumulated into, how facts are written, and the reports that read them back.
 //!
-//! The schema (`schema.sql`, embedded via `include_str!`) is a documented public escape hatch —
+//! The schema (`schema.sql` and `attribution.sql`) is a documented public escape hatch —
 //! `run.schema_version` is a compatibility promise once a caller queries the file directly, so
 //! this crate never migrates it. A version or grammar-hash mismatch wipes and starts over; see
 //! `cache::StatsCache::open`.
@@ -14,21 +14,22 @@
 pub mod cache;
 pub mod error;
 pub mod model;
+pub mod pack;
 pub mod path;
 pub mod report;
 mod schema;
-pub mod step_cap;
 #[cfg(test)]
 mod test_support;
 mod util;
+pub mod work_cap;
 
 pub use cache::{OpenOutcome, StatsCache};
 pub use error::StatsError;
 pub use model::{
-    Direction, FactRecord, FrozenRunSnapshot, FrozenWordSummary, IdentityQuality, ObjectKind,
-    RunMetadata, StructuralLocator, UnknownVariant, WordRecord,
+    Direction, FactRecord, FrozenRunSnapshot, FrozenWordSummary, GateRecord, IdentityQuality,
+    ObjectKind, RunMetadata, StructuralLocator, UnknownVariant, WordRecord,
 };
-pub use path::{default_cache_dir, default_cache_path};
+pub use path::{default_cache_dir, default_cache_path, default_cache_path_for_profile};
 pub use report::{
     kind_has_any_recorded_object, mixed_settings, never_fires_report, per_allomorph_report,
     per_kind_report, per_morpheme_report, per_object_report, per_word_report,
@@ -36,5 +37,8 @@ pub use report::{
     PerAllomorphRow, PerKindFilter, PerKindRow, PerMorphemeFilter, PerMorphemeRow, PerObjectFilter,
     PerObjectRow, PerWordRow, SortKey, NEVER_FIRES_DEFAULT_MIN_ATTEMPTS,
 };
-pub use schema::{COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION};
-pub use step_cap::StepCap;
+pub use schema::{
+    collection_profile, is_compact, require_object_facts, supported_schema_version, StatsProfile,
+    COMPACT_SCHEMA_VERSION, COUNTER_SEMANTICS_VERSION, SCHEMA_VERSION, WORD_ONLY_SCHEMA_VERSION,
+};
+pub use work_cap::WorkCap;

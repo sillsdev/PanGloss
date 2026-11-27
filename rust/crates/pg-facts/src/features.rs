@@ -201,13 +201,15 @@ fn insert_feature_system(
 ) -> Result<(), FactsError> {
     for feature in &system.closed_features {
         let guid = checked_guid(&feature.guid, "feature.guid")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO feature(guid, system, kind, name, abbreviation, feature_type_guid) VALUES (?1, ?2, 'closed', ?3, ?4, NULL)",
             params![guid, system_name, feature.name, feature.abbreviation],
         )?;
         for (ordinal, value) in feature.values.iter().enumerate() {
             let value_guid = checked_guid(&value.guid, "featureValue.guid")?;
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO feature_value(guid, feature_guid, ordinal, name, abbreviation) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![value_guid, guid, ordinal as i64, value.name, value.abbreviation],
             )?;
@@ -220,7 +222,8 @@ fn insert_feature_system(
             .as_deref()
             .map(|value| checked_guid(value, "feature.featureType"))
             .transpose()?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO feature(guid, system, kind, name, abbreviation, feature_type_guid) VALUES (?1, ?2, 'complex', ?3, ?4, ?5)",
             params![guid, system_name, feature.name, feature.abbreviation, feature_type_guid],
         )?;
@@ -244,7 +247,8 @@ fn insert_structure(
 ) -> Result<i64, FactsError> {
     let id = *next_id;
     *next_id += 1;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO feature_structure(fs_id, system, owner_kind, owner_guid, role, path) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![id, owner.system, owner.kind, owner.guid, owner.role, path],
     )?;
@@ -252,7 +256,8 @@ fn insert_structure(
         let feature_guid = &value.feature;
         match &value.value {
             FeatureValueKind::Closed { value } => {
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO feature_assignment(fs_id, ordinal, feature_guid, value_kind, value_guid, child_fs_id) VALUES (?1, ?2, ?3, 'closed', ?4, NULL)",
                     params![id, ordinal as i64, feature_guid, value],
                 )?;
@@ -271,7 +276,8 @@ fn insert_structure(
                     value,
                     next_id,
                 )?;
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO feature_assignment(fs_id, ordinal, feature_guid, value_kind, value_guid, child_fs_id) VALUES (?1, ?2, ?3, 'complex', NULL, ?4)",
                     params![id, ordinal as i64, feature_guid, child_id],
                 )?;

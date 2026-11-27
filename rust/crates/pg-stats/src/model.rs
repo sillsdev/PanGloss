@@ -4,11 +4,13 @@
 
 use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
+
 /// The kinds of object a fact row can be attributed to.
 ///
 /// `root_index`, `guesser`, and `overlay` have no authored counterpart in the grammar and get a
 /// synthetic stable id (see `IdentityQuality`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ObjectKind {
     MorphRule,
     PhonRule,
@@ -16,6 +18,8 @@ pub enum ObjectKind {
     RootIndex,
     Guesser,
     Overlay,
+    Parser,
+    Unattributed,
 }
 
 impl ObjectKind {
@@ -27,6 +31,8 @@ impl ObjectKind {
             ObjectKind::RootIndex => "root_index",
             ObjectKind::Guesser => "guesser",
             ObjectKind::Overlay => "overlay",
+            ObjectKind::Parser => "parser",
+            ObjectKind::Unattributed => "unattributed",
         }
     }
 }
@@ -53,18 +59,19 @@ impl FromStr for ObjectKind {
             "root_index" => Ok(ObjectKind::RootIndex),
             "guesser" => Ok(ObjectKind::Guesser),
             "overlay" => Ok(ObjectKind::Overlay),
+            "parser" => Ok(ObjectKind::Parser),
+            "unattributed" => Ok(ObjectKind::Unattributed),
             other => Err(UnknownVariant(other.to_string())),
         }
     }
 }
 
-/// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
-/// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key,
-/// stored inline rather than interned -- a fixed two-value tag has no locator or label to look up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The pass that produced a fact row, or `Unattributed` for the word's directionless remainder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Direction {
     Analysis,
     Synthesis,
+    Unattributed,
 }
 
 impl Direction {
@@ -72,6 +79,7 @@ impl Direction {
         match self {
             Direction::Analysis => "analysis",
             Direction::Synthesis => "synthesis",
+            Direction::Unattributed => "unattributed",
         }
     }
 }
@@ -89,13 +97,14 @@ impl FromStr for Direction {
         match s {
             "analysis" => Ok(Direction::Analysis),
             "synthesis" => Ok(Direction::Synthesis),
+            "unattributed" => Ok(Direction::Unattributed),
             other => Err(UnknownVariant(other.to_string())),
         }
     }
 }
 
 /// How trustworthy an object's `key` is as something a human can look up in FLEx.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum IdentityQuality {
     /// Traceable straight to an authored id (a GUID, an xml id) in the source grammar.
     Authored,
@@ -138,7 +147,7 @@ impl FromStr for IdentityQuality {
 ///
 /// `None` in a `FactRecord` means the sentinel row (`stratum_id`/`allomorph_id` 0) applies —
 /// not applicable, or no allomorph, respectively.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuralLocator {
     pub key: String,
     pub label: String,
@@ -163,11 +172,11 @@ pub struct RunMetadata {
     pub options_hash: String,
     pub options_json: String,
     pub created_utc: String,
-    /// `--step-cap` in force for this run, or `None` when this engine records no such concept
-    /// (e.g. `foma`). Compared across runs by `StatsCache::refuse_if_step_cap_differs` -- a cache
-    /// spanning two step caps could silently reuse a cached-word row produced under a cap the
+    /// `--work-cap` in force for this run, or `None` when this engine records no such concept
+    /// (e.g. `foma`). Compared across runs by `StatsCache::refuse_if_work_cap_differs` -- a cache
+    /// spanning two work caps could silently reuse a cached-word row produced under a cap the
     /// current run no longer applies.
-    pub step_cap: Option<crate::StepCap>,
+    pub work_cap: Option<crate::WorkCap>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,7 +190,7 @@ pub struct FrozenRunSnapshot {
     pub options_hash: String,
     pub options_json: String,
     pub word_count: u64,
-    pub step_cap: Option<crate::StepCap>,
+    pub work_cap: Option<crate::WorkCap>,
     pub words: Vec<FrozenWordSummary>,
 }
 
@@ -189,19 +198,18 @@ pub struct FrozenRunSnapshot {
 pub struct FrozenWordSummary {
     pub form: String,
     pub elapsed_ns: u64,
-    pub attempts: u64,
     pub passes: u64,
     pub capped: bool,
     pub timed_out: bool,
     pub invalid_shape: bool,
 }
 
-/// The seven counters for one `(object, stratum, allomorph)` combination inside one word.
+/// Counters for one `(object, stratum, allomorph)` combination inside one word.
 ///
 /// Counters are `u64` here, matching the collector; a value too large for SQLite's signed
 /// `INTEGER` storage is an error rather than a silent wraparound, pinned by
 /// `huge_counter_round_trips_and_overflow_is_rejected`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FactRecord {
     pub object_key: String,
     pub object_kind: ObjectKind,
@@ -216,6 +224,8 @@ pub struct FactRecord {
     pub direction: Direction,
     pub attempts: u64,
     pub work: u64,
+    /// Successful work-budget reservations attributed exclusively to this row.
+    pub work_steps: u64,
     pub outputs: u64,
     pub not_applied: u64,
     pub no_root: u64,
@@ -227,12 +237,10 @@ pub struct FactRecord {
 }
 
 /// One analyzed word and every fact row it produced.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WordRecord {
     pub form: String,
     pub elapsed_ns: u64,
-    /// Analysis attempts: the parse outcome's `steps`.
-    pub attempts: u64,
     /// Total work-budget reservations: the parse outcome's `work_steps`. Not the sum of the
     /// facts' `work`, which counts shape segments examined.
     pub work: u64,
@@ -241,4 +249,22 @@ pub struct WordRecord {
     pub timed_out: bool,
     pub invalid_shape: bool,
     pub facts: Vec<FactRecord>,
+    /// None means unmeasured; Some(empty) means measured with no evaluated predicates.
+    pub gates: Option<Vec<GateRecord>>,
+}
+
+/// One feature predicate, with its owner's stable object identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GateRecord {
+    pub object_key: String,
+    pub object_kind: ObjectKind,
+    pub object_label: String,
+    pub identity_quality: IdentityQuality,
+    pub morpheme: Option<StructuralLocator>,
+    pub feature_key: String,
+    pub feature_kind: String,
+    pub feature_label: String,
+    pub mode: String,
+    pub passed: u64,
+    pub blocked: u64,
 }

@@ -20,7 +20,7 @@ use pg_foma_backend::backend_optimizer::{
     DefaultStrategyRegistry, PilotCosts, StrategyRegistry,
 };
 use pg_foma_backend::backend_registry::{
-    Registry, FAMILY_ORDERED_MORPHOPHONOLOGY, REGISTRY_SCHEMA_VERSION,
+    Registry, FAMILY_SURFACE_PROBE_MORPHOLOGY, REGISTRY_SCHEMA_VERSION,
 };
 use pg_foma_backend::backend_runtime::{
     evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
@@ -37,8 +37,8 @@ pub struct RecipeOptimizeArgs {
     pub out_dir: String,
     pub seed: u64,
     pub budget: Budget,
-    /// `--oracle-step-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
-    pub oracle_step_cap: Option<usize>,
+    /// `--oracle-work-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
+    pub oracle_work_cap: Option<usize>,
     /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`); tripping it aborts the run rather than excluding the word.
     pub oracle_liveness_net: Option<Duration>,
     /// `--oracle-memory-ceiling-bytes`; exceeding it aborts the run, never classifies a word.
@@ -147,7 +147,7 @@ impl std::error::Error for RecipeOptimizeError {}
 
 pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeError> {
     if args.len() < 3 {
-        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-step-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
+        return Err(RecipeOptimizeError::Usage("usage: recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N] [--oracle-work-cap N] [--oracle-liveness-net-ms N] [--oracle-memory-ceiling-bytes N] [--search-all-families]".into()));
     }
     let mut r = RecipeOptimizeArgs {
         grammar: args[0].clone(),
@@ -155,7 +155,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
         out_dir: args[2].clone(),
         seed: 0,
         budget: Budget::default(),
-        oracle_step_cap: None,
+        oracle_work_cap: None,
         oracle_liveness_net: None,
         oracle_memory_ceiling: None,
         search_all_families: false,
@@ -190,7 +190,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             "confirmation-work" => r.budget.confirmation = n,
             "reserve-ns" => r.budget.reserve = n,
             // `None` here means "use `RuntimeBudget`'s default", never "unbounded".
-            "oracle-step-cap" => r.oracle_step_cap = Some(n as usize),
+            "oracle-work-cap" => r.oracle_work_cap = Some(n as usize),
             // Legacy alias: this flag no longer excludes a word on timeout, only aborts the run.
             "oracle-liveness-net-ms" | "oracle-word-timeout-ms" => {
                 r.oracle_liveness_net = Some(Duration::from_millis(n))
@@ -217,10 +217,10 @@ struct Evaluator<'a> {
     grammar: &'a pg_grammar::model::Grammar,
     words: &'a [String],
     plans: BTreeMap<String, LoweredCandidate>,
-    /// What actually compiled each candidate, keyed by id; a marker-bearing PlanComposed candidate is rejected before measurement, never rerouted to the tuned emitter.
+    /// What actually compiled each candidate, keyed by id; a candidate whose strategy cannot compile it is rejected before measurement, never rerouted to another strategy.
     realized: BTreeMap<String, &'static str>,
     capability: pg_foma::capability::PredicateRegistry,
-    oracle_step_cap: Option<usize>,
+    oracle_work_cap: Option<usize>,
     oracle_liveness_net: Option<Duration>,
     oracle_memory_ceiling: Option<u64>,
     cache: &'a mut RunEvaluationCache,
@@ -288,7 +288,7 @@ impl CandidateEvaluator for Evaluator<'_> {
             RuntimeBudget {
                 build: Some(remaining.build),
                 confirmation: Some(remaining.confirmation),
-                oracle_step_cap: self.oracle_step_cap,
+                oracle_work_cap: self.oracle_work_cap,
                 oracle_liveness_net: self.oracle_liveness_net,
                 oracle_memory_ceiling: self.oracle_memory_ceiling,
                 ..Default::default()
@@ -360,7 +360,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         &grammar,
         &words,
         RuntimeBudget {
-            oracle_step_cap: a.oracle_step_cap,
+            oracle_work_cap: a.oracle_work_cap,
             oracle_liveness_net: a.oracle_liveness_net,
             oracle_memory_ceiling: a.oracle_memory_ceiling,
             ..Default::default()
@@ -403,14 +403,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         compositional,
         a.search_all_families,
     );
-    instances.sort_by_key(|instance| {
-        let baseline = instance.family_id == FAMILY_ORDERED_MORPHOPHONOLOGY
-            && instance
-                .parameters
-                .get("topology")
-                .is_some_and(|value| value == "baseline");
-        (!baseline, instance.canonical_key())
-    });
+    instances.sort_by_key(|instance| instance.canonical_key());
     let mut plans = BTreeMap::new();
     let mut states = Vec::new();
     let mut measurements = Vec::new();
@@ -430,13 +423,13 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
     let baseline_id = baseline_root.to_string();
     roots.insert((
         baseline_root,
-        pg_foma::enumerate::EmissionStrategy::PlanComposed.label(),
+        pg_foma::enumerate::EmissionStrategy::TunedSurfaceProbed.label(),
     ));
     materialization_times.insert(baseline_id.clone(), baseline_materialization_ns);
     states.push(CandidateState {
         id: baseline_id.clone(),
-        family: FAMILY_ORDERED_MORPHOPHONOLOGY.into(),
-        signature: format!("{FAMILY_ORDERED_MORPHOPHONOLOGY}|topology=baseline"),
+        family: FAMILY_SURFACE_PROBE_MORPHOLOGY.into(),
+        signature: format!("{FAMILY_SURFACE_PROBE_MORPHOLOGY}|topology=baseline"),
         lower_bound: baseline.len() as u64,
         // Always `None`: no pilot evaluation runs before search, so this can never populate `BranchAndBound`'s incumbent.
         exact_objective: None,
@@ -447,7 +440,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         LoweredCandidate {
             label: "baseline",
             plan: baseline.clone(),
-            adapter: pg_foma::enumerate::EmissionStrategy::PlanComposed,
+            adapter: pg_foma::enumerate::EmissionStrategy::TunedSurfaceProbed,
             // The one candidate that IS the grammar's default compilation, stated here so the evaluator never infers it from position.
             role: CandidateRole::Baseline,
         },
@@ -477,12 +470,8 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         let root = plan.plan.root().ok_or_else(|| {
             RecipeOptimizeError::Runtime("materialized recipe has no root".into())
         })?;
-        // A plan-composed candidate keeps the bare root as its id; a whole-grammar strategy must not, since it reuses the baseline plan and a bare-root id would collide with it.
-        let id = if !pg_foma_backend::backend::backend_for(plan.adapter).interprets_plan() {
-            format!("{root}@{}", plan.strategy().label())
-        } else {
-            root.to_string()
-        };
+        // A whole-grammar strategy reuses the baseline plan, so a bare-root id would collide with the baseline's.
+        let id = format!("{root}@{}", plan.strategy().label());
         materialization_times.insert(id.clone(), materialize_ns);
         if !roots.insert((root, plan.strategy().label())) {
             duplicates = duplicates.saturating_add(1);
@@ -547,7 +536,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
             RuntimeBudget {
                 build: Some(a.budget.build / 4),
                 confirmation: Some(a.budget.confirmation / 4),
-                oracle_step_cap: a.oracle_step_cap,
+                oracle_work_cap: a.oracle_work_cap,
                 oracle_liveness_net: a.oracle_liveness_net,
                 oracle_memory_ceiling: a.oracle_memory_ceiling,
                 ..Default::default()
@@ -611,7 +600,7 @@ pub fn run_recipe_optimize(args: &[String]) -> Result<(), RecipeOptimizeError> {
         plans,
         realized: BTreeMap::new(),
         capability,
-        oracle_step_cap: a.oracle_step_cap,
+        oracle_work_cap: a.oracle_work_cap,
         oracle_liveness_net: a.oracle_liveness_net,
         oracle_memory_ceiling: a.oracle_memory_ceiling,
         cache: &mut run_cache,

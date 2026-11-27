@@ -183,9 +183,11 @@ impl SuppliedLexiconRuntime {
     pub(crate) fn morpher<'a>(&'a self, snapshot: &'a LexiconSnapshot) -> Morpher<'a> {
         Morpher::new_with_overlay(
             &self.grammar,
-            self.analysis_policy.step_cap,
+            self.analysis_policy.work_cap,
             snapshot.overlay(),
         )
+        .with_word_mem_cap(self.analysis_policy.word_mem_cap)
+        .with_generation_cap(self.analysis_policy.generation_cap)
     }
 
     pub fn snapshot(&self) -> Arc<LexiconSnapshot> {
@@ -753,7 +755,7 @@ impl SuppliedLexiconRuntime {
                         lexical_spelling: entry.stem.clone(),
                         gloss: entry.gloss.clone(),
                         syn_fs: self.grammar.fs_interner.get(resolved.syn_fs).clone(),
-                        mpr: resolved.mpr,
+                        mpr: resolved.mpr.clone(),
                         stratum: resolved.stratum,
                         authority,
                     });

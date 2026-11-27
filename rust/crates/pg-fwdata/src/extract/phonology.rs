@@ -179,8 +179,8 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme>
             IssueClass::UnrepresentableForHc,
             false,
             Some(pg_snapshot::SourceRef {
-                kind: FwClass::from_wire(&rec.class),
-                id: rec.guid.clone(),
+                kind: FwClass::from_wire(rec.class),
+                id: rec.guid.to_string(),
             }),
             warning,
         );
@@ -199,7 +199,7 @@ fn extract_phoneme(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Phoneme>
         name,
         representations,
         features,
-        basic_ipa_symbol: rec.node.child("BasicIPASymbol").map(|c| c.text.clone()),
+        basic_ipa_symbol: rec.node.child("BasicIPASymbol").map(|c| c.text.to_string()),
     })
 }
 
@@ -265,12 +265,12 @@ pub(crate) fn first_code_representation(ctx: &mut Ctx, guid: &str) -> Option<Str
     let text = if rec.class == "PhBdryMarker" {
         ctx.best_vernacular(&forms)
     } else {
-        // "vernacular default" is simply the first (default) vernacular writing system.
+        // "vernacular default" is simply the first (default) vernacular writing system; HCLoader has no fallback (HCLoader.cs:1445-1449).
         ctx.vernacular_ws
             .first()
             .and_then(|ws| forms.iter().find(|f| &f.ws == ws))
             .map(|f| f.form.clone())
-            .unwrap_or_else(|| ctx.best_vernacular(&forms))
+            .unwrap_or_default()
     };
     let text = text.trim();
     if text.is_empty() {
@@ -295,7 +295,7 @@ fn extract_natural_class(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Na
     let display_name =
         Some(ctx.best_analysis(&rec.node.ws_forms("Name"))).filter(|n| !n.trim().is_empty());
     let key = InventoryKey::object(InventoryKind::NaturalClass, guid.to_string());
-    match rec.class.as_str() {
+    match rec.class {
         "PhNCSegments" => {
             let phonemes = rec.node.objsur_list("Segments");
             ctx.considered(key.clone());
@@ -364,8 +364,8 @@ fn record_unreferenced_environments(ctx: &mut Ctx, phon_data: Option<&Record>) {
         .graph
         .headers
         .iter()
-        .filter(|header| header.class == "PhEnvironment" && !header.guid.is_empty())
-        .map(|header| header.guid.clone())
+        .filter(|header| &*header.class == "PhEnvironment" && !header.guid.is_empty())
+        .map(|header| header.guid.to_string())
         .collect();
     let mut seen = std::collections::BTreeSet::new();
     for guid in candidates {
@@ -451,13 +451,13 @@ fn extract_rules(ctx: &mut Ctx, phon_data: &Record) -> Vec<PhonologicalRule> {
             let rec = ctx.get(&guid)?;
             let key = InventoryKey::object(InventoryKind::PhonologicalRule, guid.clone());
             if rec.node.val_bool("Disabled").unwrap_or(false) {
-                if matches!(rec.class.as_str(), "PhRegularRule" | "PhMetathesisRule") {
+                if matches!(rec.class, "PhRegularRule" | "PhMetathesisRule") {
                     ctx.considered(key.clone());
                     ctx.not_considered(key, pg_snapshot::LoadReasonCode::Disabled);
                 }
                 return None;
             }
-            match rec.class.as_str() {
+            match rec.class {
                 "PhRegularRule" => {
                     ctx.considered(key.clone());
                     ctx.selected(key.clone());
@@ -545,7 +545,7 @@ fn extract_rewrite_rule(ctx: &mut Ctx, rec: &Record) -> Option<RewriteRule> {
         }
     }
     Some(RewriteRule {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         direction,
         structural_description,
@@ -647,68 +647,68 @@ fn resolve_rule_features(ctx: &mut Ctx, rec: &Record, field: &str, label: &str) 
         .collect()
 }
 
-/// Model gap: the LCM schema has no switch-index integer fields, only a `StrucChange` string this parses into an approximate two-element swap.
+/// Metathesis rule: `StrucChange` is `[left env, right switch, middle, left switch, right env]`.
 /// See `docs/research/pg-fwdata-phonology-extract-notes.md`.
 fn extract_metathesis_rule(ctx: &mut Ctx, rec: &Record) -> Option<MetathesisRule> {
     let label = "phonology.rules(metathesis)";
     let direction = rule_direction(rec, ctx, label);
-    let structural_description: Vec<_> = rec
-        .node
-        .objsur_list("StrucDesc")
-        .into_iter()
-        .filter_map(|g| resolve_phon_context(ctx, &g, label, rec, "StrucDesc"))
+    let context_guids = rec.node.objsur_list("StrucDesc");
+    let structural_description: Vec<_> = context_guids
+        .iter()
+        .filter_map(|g| resolve_phon_context(ctx, g, label, rec, "StrucDesc"))
         .collect();
 
-    let struc_change_text = rec
-        .node
-        .child("StrucChange")
-        .map(|c| c.text.clone())
-        .unwrap_or_default();
-    let permutation: Vec<usize> = struc_change_text
-        .split_whitespace()
-        .filter_map(|tok| tok.parse::<usize>().ok())
-        .collect();
-    if permutation.len() != structural_description.len() {
+    let struc_change_text = rec.node.str_text("StrucChange").unwrap_or_default();
+    let Some([_, right_switch_index, _, left_switch_index, _]) =
+        parse_struc_change_indices(&struc_change_text)
+    else {
         ctx.warn_with_subjects(
-            super::codes::METATHESIS_APPROXIMATION,
+            super::codes::MISSING_REQUIRED_FIELD,
             format!(
-                "{label}: rule {} StrucChange {:?} does not enumerate all {} structural-description \
-                 positions; switch indices may be wrong",
-                rec.guid,
-                struc_change_text,
-                structural_description.len()
-            ),
-            [ctx.subject_for_record(rec, Some("StrucChange"))],
-        );
-    }
-    let differing: Vec<usize> = permutation
-        .iter()
-        .enumerate()
-        .filter(|(i, &v)| v != i + 1)
-        .map(|(i, _)| i)
-        .collect();
-    if !differing.is_empty() && differing.len() != 2 {
-        ctx.warn_with_subjects(
-            super::codes::METATHESIS_APPROXIMATION,
-            format!(
-                "{label}: rule {} has a StrucChange permutation more complex than a simple two-part \
-                 swap ({:?}); left/right switch indices are an approximation",
+                "{label}: rule {} StrucChange {:?} is not five space-separated indices; rule skipped",
                 rec.guid, struc_change_text
             ),
             [ctx.subject_for_record(rec, Some("StrucChange"))],
         );
+        return None;
+    };
+    if structural_description.len() != context_guids.len() {
+        ctx.warn_with_subjects(
+            super::codes::MISSING_REQUIRED_FIELD,
+            format!(
+                "{label}: rule {} lost a StrucDesc context, so its StrucChange indices no longer \
+                 line up; rule skipped",
+                rec.guid
+            ),
+            [ctx.subject_for_record(rec, Some("StrucDesc"))],
+        );
+        return None;
     }
-    let left_switch_index = differing.first().copied().unwrap_or(0) as i32;
-    let right_switch_index = differing.last().copied().unwrap_or(0) as i32;
 
     Some(MetathesisRule {
-        guid: rec.guid.clone(),
+        guid: rec.guid.to_string(),
         name: ctx.best_analysis(&rec.node.ws_forms("Name")),
         direction,
         structural_description,
         left_switch_index,
         right_switch_index,
     })
+}
+
+/// LCM `GetStrucChangeIndices`: split on single spaces, strip the middle's `:L`/`:R` suffix, parse five integers.
+fn parse_struc_change_indices(text: &str) -> Option<[i32; 5]> {
+    let mut fields = text.split(' ');
+    let mut out = [0i32; 5];
+    for (i, slot) in out.iter_mut().enumerate() {
+        let field = fields.next()?;
+        let field = if i == 2 {
+            field.split(':').next().unwrap_or(field)
+        } else {
+            field
+        };
+        *slot = field.parse().ok()?;
+    }
+    Some(out)
 }
 
 /// Resolve a `PhContextOrVar` guid into a `PhonContext` tree, shared by phonological rules and `extract::lexicon`.
@@ -727,7 +727,7 @@ pub(crate) fn resolve_phon_context(
         ctx.selected(key.clone());
         ctx.represented(key.clone());
     };
-    match rec.class.as_str() {
+    match rec.class {
         "PhSequenceContext" => {
             let members = rec
                 .node
@@ -797,7 +797,7 @@ pub(crate) fn resolve_phon_context(
 fn required_context_reference(ctx: &mut Ctx<'_>, rec: &Record, field: &str) -> Option<String> {
     let guid = rec.node.objsur_one(field);
     if guid.is_none() {
-        let key = InventoryKey::object(InventoryKind::PhonologicalContext, rec.guid.clone());
+        let key = InventoryKey::object(InventoryKind::PhonologicalContext, rec.guid.to_string());
         ctx.considered(key.clone());
         ctx.selected(key.clone());
         ctx.recorder

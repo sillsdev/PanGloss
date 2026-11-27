@@ -103,6 +103,32 @@ fn feature_lanes_default_to_full_mask_and_override_on_explicit_value() {
 }
 
 #[test]
+fn explicit_full_set_is_recorded_apart_from_an_absent_feature() {
+    use crate::featsys::RawFeature;
+    let feature = |id: &str| RawFeature {
+        xml_id: id.into(),
+        name: id.into(),
+        symbols: vec![("symP".into(), "+".into()), ("symM".into(), "-".into())],
+        default_symbol: None,
+    };
+    let feat_sys =
+        PhonFeatureSystem::from_raw(vec![feature("f1"), feature("f2"), feature("f3")]).unwrap();
+    let value = |feature: &str, symbols: &[&str]| RawFeatureValue {
+        feature_xml_id: feature.to_string(),
+        symbol_xml_ids: symbols.iter().map(|s| s.to_string()).collect(),
+    };
+    let mut raw = seg("c1", &["p"]);
+    // f1 authored with both symbols, f2 with one, f3 absent.
+    raw.feature_values = vec![value("f1", &["symP", "symM"]), value("f2", &["symP"])];
+    let table = CharDefTable::from_raw("t".to_string(), None, vec![raw], &feat_sys).unwrap();
+    let def = table.get(table.lookup_nfd("p").unwrap());
+    assert_eq!(def.feature_lanes()[0], def.feature_lanes()[2]);
+    assert_eq!(def.explicit_full_features(), &[0]);
+    assert!(!def.feature_is_defaulted(FlatIndex(0)));
+    assert!(def.feature_is_defaulted(FlatIndex(2)));
+}
+
+#[test]
 fn greedy_longest_match_prefers_two_char_rep() {
     // The table itself doesn't do the matching (that's segment.rs), but confirm "s", "y", and "sy" are all independently resolvable so its greedy scan has real work to do.
     let table = table_with(vec![

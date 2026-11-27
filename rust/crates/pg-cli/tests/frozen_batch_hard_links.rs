@@ -7,10 +7,9 @@ use std::process::{Command, Output};
 
 /// A grammar the compiler accepts, copied into each scratch directory so the link is ours to make.
 fn write_grammar(path: &Path) {
-    let source = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../conformance-staging/edge-cases/standalone-combining-mark/grammar.xml"
-    );
+    let source =
+        pg_conformance_fixtures::require_fixture("edge-cases", "standalone-combining-mark")
+            .grammar_path();
     std::fs::copy(source, path).unwrap();
 }
 

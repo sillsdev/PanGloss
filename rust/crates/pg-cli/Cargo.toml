@@ -15,6 +15,14 @@ name = "all"
 path = "tests/harnesses/all.rs"
 
 [[test]]
+name = "source_guards"
+path = "tests/harnesses/source_guards.rs"
+
+[[test]]
+name = "stats_manifest_roundtrip"
+path = "tests/stats_manifest_roundtrip.rs"
+
+[[test]]
 name = "recipe_optimize_timeout"
 path = "tests/recipe_optimize_timeout.rs"
 required-features = ["foma-tools"]
@@ -26,6 +34,8 @@ developer-tools = ["foma-tools", "pg-foma/developer-tools", "pg-foma-backend/dev
 # Ground-truth allocator instrumentation for docs/research/word-memory-trace.md; default off, see
 # `src/alloc_trace.rs`.
 alloc-trace = []
+# Off in every released build: `pangloss cost-calibrate` suggests new fixed weights for the code.
+cost-calibration = []
 
 [[example]]
 name = "spellcheck_measure"
@@ -33,6 +43,8 @@ path = "examples/spellcheck_measure.rs"
 required-features = ["examples"]
 
 [dependencies]
+pg-cost.workspace = true
+pg-analyzer.workspace = true
 pg-parse.workspace = true
 pg-grammar.workspace = true
 pg-realize.workspace = true
@@ -41,8 +53,7 @@ pg-fst.workspace = true
 pg-rules.workspace = true
 pg-snapshot.workspace = true
 pg-fwdata.workspace = true
-# P3 (docs/fst-plan/foma-fst-plan.md): `--engine=foma` on `batch`/`parse` routes through
-# `pg_foma::composite::FomaAnalyzer` instead of the default `pg_parse::Morpher` path.
+# Explicit batch FST selection; absent from the default dependency closure.
 pg-foma = { workspace = true, optional = true }
 pg-foma-backend = { workspace = true, optional = true }
 pg-assess.workspace = true

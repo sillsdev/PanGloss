@@ -1,14 +1,94 @@
 //! Schema application: create fresh, or wipe and recreate — never migrate.
 
 use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
 
 use crate::error::StatsError;
 
 /// Embedded DDL; its shape is a compatibility break for direct queries, so it also gates a wipe.
 const SCHEMA_SQL: &str = include_str!("schema.sql");
+const ATTRIBUTION_SQL: &str = include_str!("attribution.sql");
 
 /// Bumped when `schema.sql` changes shape. A cache is wiped, never migrated, on a mismatch.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 13;
+
+/// Compact caches discard the stratum/allomorph split; full caches retain version 13.
+pub const COMPACT_SCHEMA_VERSION: i64 = 14;
+
+/// Word-only caches contain run and word measurements without object or feature-gate attribution.
+pub const WORD_ONLY_SCHEMA_VERSION: i64 = 15;
+
+/// The statistics collected for a batch. Compact storage retains the full collection profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StatsProfile {
+    #[default]
+    Full,
+    WordOnly,
+}
+
+impl StatsProfile {
+    pub(crate) fn including_legacy(version: i64) -> Result<Self, StatsError> {
+        if version < SCHEMA_VERSION {
+            Ok(Self::Full)
+        } else {
+            Self::from_schema_version(version)
+        }
+    }
+
+    pub fn from_schema_version(version: i64) -> Result<Self, StatsError> {
+        match version {
+            SCHEMA_VERSION | COMPACT_SCHEMA_VERSION => Ok(Self::Full),
+            WORD_ONLY_SCHEMA_VERSION => Ok(Self::WordOnly),
+            existing => Err(StatsError::UnknownSchemaVersion(existing)),
+        }
+    }
+
+    pub fn require_object_facts(self) -> Result<(), StatsError> {
+        match self {
+            Self::Full => Ok(()),
+            Self::WordOnly => Err(StatsError::WordOnlyFactsUnavailable),
+        }
+    }
+}
+
+impl std::fmt::Display for StatsProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Full => "full",
+            Self::WordOnly => "word-only",
+        })
+    }
+}
+
+pub fn supported_schema_version(version: i64) -> bool {
+    StatsProfile::from_schema_version(version).is_ok()
+}
+
+/// The durable identity names the profile even before the first run. Older caches only have run metadata.
+pub fn collection_profile(conn: &Connection) -> Result<StatsProfile, StatsError> {
+    let version = match cache_identity(conn)? {
+        Some((_, version, _, _)) => Some(version),
+        None => legacy_run_version(conn)?,
+    };
+    version.map_or(Ok(StatsProfile::Full), StatsProfile::including_legacy)
+}
+
+pub fn require_object_facts(conn: &Connection) -> Result<(), StatsError> {
+    collection_profile(conn)?.require_object_facts()?;
+    // A partial restore can leave a full cache identity with words owned by scoped runs.
+    let mut statement =
+        conn.prepare("SELECT DISTINCT r.schema_version FROM word w JOIN run r USING (run_id)")?;
+    for version in statement.query_map([], |row| row.get(0))? {
+        StatsProfile::including_legacy(version?)?.require_object_facts()?;
+    }
+    Ok(())
+}
+
+/// Whether reports must refuse dimensions discarded by the compact writer.
+pub fn is_compact(conn: &Connection) -> Result<bool, StatsError> {
+    Ok(cache_identity(conn)?.is_some_and(|(_, version, _, _)| version == COMPACT_SCHEMA_VERSION))
+}
 
 /// Bumped when counter meaning or object attribution changes; recorded per run rather than wiped on.
 pub use pg_rules::stats::COUNTER_SEMANTICS_VERSION;
@@ -23,15 +103,44 @@ pub(crate) fn has_run_table(conn: &Connection) -> Result<bool, StatsError> {
 }
 
 pub(crate) fn create(conn: &Connection, grammar_hash: Option<&str>) -> Result<(), StatsError> {
+    create_version(conn, grammar_hash, SCHEMA_VERSION)
+}
+
+pub(crate) fn create_version(
+    conn: &Connection,
+    grammar_hash: Option<&str>,
+    version: i64,
+) -> Result<(), StatsError> {
     // An empty legacy cache has no run signature to trigger recreation, so remove stale coverage here.
     conn.execute_batch("DROP TABLE IF EXISTS coverage;")?;
+    let profile = StatsProfile::from_schema_version(version)?;
     conn.execute_batch(SCHEMA_SQL)?;
-    seed_sentinels(conn)?;
+    if version == COMPACT_SCHEMA_VERSION {
+        let sql = ATTRIBUTION_SQL
+            .replace(
+                "stratum_id       INTEGER NOT NULL",
+                "stratum_id       INTEGER NOT NULL CHECK (stratum_id = 0)",
+            )
+            .replace(
+                "allomorph_id     INTEGER NOT NULL",
+                "allomorph_id     INTEGER NOT NULL CHECK (allomorph_id = 0)",
+            )
+            .replace(
+                "PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)",
+                "PRIMARY KEY (word_id, object_id, direction)",
+            );
+        conn.execute_batch(&sql)?;
+    } else if profile == StatsProfile::Full {
+        conn.execute_batch(ATTRIBUTION_SQL)?;
+    }
+    if profile == StatsProfile::Full {
+        seed_sentinels(conn)?;
+    }
     if let Some(grammar_hash) = grammar_hash {
         conn.execute(
             "INSERT INTO cache_identity (cache_id, schema_version, grammar_hash, engine)
              VALUES (1, ?1, ?2, NULL)",
-            rusqlite::params![SCHEMA_VERSION, grammar_hash],
+            rusqlite::params![version, grammar_hash],
         )?;
     }
     Ok(())
@@ -54,8 +163,18 @@ fn seed_sentinels(conn: &Connection) -> Result<(), StatsError> {
 }
 
 pub(crate) fn wipe_and_recreate(conn: &Connection, grammar_hash: &str) -> Result<(), StatsError> {
+    wipe_and_recreate_version(conn, grammar_hash, SCHEMA_VERSION)
+}
+
+pub(crate) fn wipe_and_recreate_version(
+    conn: &Connection,
+    grammar_hash: &str,
+    version: i64,
+) -> Result<(), StatsError> {
     conn.execute_batch(
-        "DROP TABLE IF EXISTS fact;
+        "DROP TABLE IF EXISTS gate_fact;
+         DROP TABLE IF EXISTS feature;
+         DROP TABLE IF EXISTS fact;
          DROP TABLE IF EXISTS word;
          DROP TABLE IF EXISTS coverage;
          DROP TABLE IF EXISTS allomorph;
@@ -65,7 +184,27 @@ pub(crate) fn wipe_and_recreate(conn: &Connection, grammar_hash: &str) -> Result
          DROP TABLE IF EXISTS run;
          DROP TABLE IF EXISTS cache_identity;",
     )?;
-    create(conn, Some(grammar_hash))
+    create_version(conn, Some(grammar_hash), version)
+}
+
+/// Caches without an identity row can still identify their collection profile in a run.
+pub(crate) fn legacy_run_version(conn: &Connection) -> Result<Option<i64>, StatsError> {
+    let has_version: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('run') WHERE name = 'schema_version')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_version {
+        return Ok(None);
+    }
+    use rusqlite::OptionalExtension;
+    conn.query_row(
+        "SELECT schema_version FROM run ORDER BY run_id DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 /// The latest run's `(schema_version, grammar_hash)`, or `None` if `run` is absent or empty.

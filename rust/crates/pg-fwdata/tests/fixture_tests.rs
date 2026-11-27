@@ -166,6 +166,81 @@ fn unreferenced_feature_structure_gets_an_explicit_import_reason() {
         }));
 }
 
+const NEGATED_CODE: pg_snapshot::ImportWarningCode =
+    pg_snapshot::ImportWarningCode::FeatureNegatedValueUnsupported;
+
+fn assert_negated_value_refused(path: &Path, spec_suffix: &str, structure_guid: &str) {
+    let (snapshot, _) = pg_fwdata::import_file(path).expect("negated value must still import");
+    let issue = snapshot
+        .conversion_provenance
+        .import_issues
+        .iter()
+        .find(|i| {
+            i.source
+                .as_ref()
+                .is_some_and(|s| s.id.ends_with(spec_suffix))
+        })
+        .expect("negated value must raise an import issue");
+    assert!(issue.fatal);
+    assert_eq!(issue.code, NEGATED_CODE);
+    assert_eq!(issue.class, pg_snapshot::IssueClass::UnrepresentableForHc);
+    let key = InventoryKey::object(InventoryKind::FeatureStructure, structure_guid);
+    assert!(snapshot
+        .conversion_provenance
+        .import_load_decisions
+        .iter()
+        .any(|d| d.subject == key && d.disposition == LoadDisposition::Rejected));
+    let err = pg_grammar::compile_project(&snapshot).expect_err("compile_project must refuse");
+    assert!(
+        err.issues()
+            .iter()
+            .any(|i| i.code == NEGATED_CODE && i.fatal),
+        "refusal must carry the negated-value code"
+    );
+}
+
+/// Divergence 026 / issue #82: HCLoader.LoadFeatureStruct casts every non-closed spec to IFsComplexValue and throws on an FsNegatedValue; PanGloss must refuse it, never drop the negation.
+#[test]
+fn negated_feature_value_is_refused_not_silently_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = fixture_variant(
+        dir.path(),
+        r#"<rt class="FsClosedValue" guid="00000000-0000-0000-0000-000000000035""#,
+        r#"<rt class="FsNegatedValue" guid="00000000-0000-0000-0000-000000000035""#,
+    );
+    assert_negated_value_refused(
+        &path,
+        "000000000035",
+        "00000000-0000-0000-0000-000000000034",
+    );
+}
+
+/// The negated value sits in a structure nested under a complex value; the nested structure must be rejected too.
+#[test]
+fn negated_feature_value_in_a_nested_structure_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let nested = r#"<rt class="FsComplexValue" guid="00000000-0000-0000-0000-000000000035" ownerguid="00000000-0000-0000-0000-000000000034"><Feature><objsur guid="00000000-0000-0000-0000-000000000007" t="r" /></Feature><Value><objsur guid="00000000-0000-0000-0000-0000000000a1" t="o" /></Value></rt>
+<rt class="FsFeatStruc" guid="00000000-0000-0000-0000-0000000000a1" ownerguid="00000000-0000-0000-0000-000000000035"><FeatureSpecs><objsur guid="00000000-0000-0000-0000-0000000000a2" t="o" /></FeatureSpecs></rt>
+<rt class="FsNegatedValue" guid="00000000-0000-0000-0000-0000000000a2" ownerguid="00000000-0000-0000-0000-0000000000a1"><Feature><objsur guid="00000000-0000-0000-0000-000000000007" t="r" /></Feature><Value><objsur guid="00000000-0000-0000-0000-000000000009" t="r" /></Value></rt>
+"#;
+    let source = fixture_source();
+    let start = source
+        .find(r#"<rt class="FsClosedValue" guid="00000000-0000-0000-0000-000000000035""#)
+        .unwrap();
+    let end = start + source[start..].find("</rt>").unwrap() + "</rt>\n".len();
+    let path = dir.path().join("variant.fwdata");
+    std::fs::write(
+        &path,
+        format!("{}{nested}{}", &source[..start], &source[end..]),
+    )
+    .unwrap();
+    assert_negated_value_refused(
+        &path,
+        "0000000000a2",
+        "00000000-0000-0000-0000-0000000000a1",
+    );
+}
+
 fn assert_invalid_active_parser_source(path: &Path) {
     match pg_fwdata::import_file(path).unwrap_err() {
         pg_fwdata::ImportError::InvalidSource { code, .. } => {
@@ -322,6 +397,41 @@ fn unknown_morph_type_allomorph_is_skipped_with_a_warning() {
                 subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000044")
             })
     }));
+}
+
+/// Simulfix and suprafix are known morph types: the allomorph imports with its type and no warning (#149).
+#[test]
+fn simulfix_and_suprafix_allomorphs_import_with_their_type() {
+    let dir = tempfile::tempdir().unwrap();
+    for (guid, expected) in [
+        ("d7f713dc", pg_snapshot::MorphType::Simulfix),
+        ("d7f713de", pg_snapshot::MorphType::Suprafix),
+    ] {
+        let path = fixture_variant(
+            dir.path(),
+            "guid=\"d7f713dd-e8cf",
+            &format!("guid=\"{guid}-e8cf"),
+        );
+        let (snap, report) = pg_fwdata::import_file(&path).unwrap();
+        let allomorph = snap
+            .lexicon
+            .entries
+            .iter()
+            .flat_map(|e| &e.allomorphs)
+            .find(|a| a.guid == "00000000-0000-0000-0000-000000000051")
+            .expect("the affix allomorph must be kept");
+        assert_eq!(allomorph.morph_type, expected);
+        assert!(
+            !report.warnings.iter().any(|w| {
+                w.code.contains("morph-type")
+                    && w.subjects.iter().any(|subject| {
+                        subject.guid.as_deref() == Some("00000000-0000-0000-0000-000000000051")
+                    })
+            }),
+            "{:?}",
+            report.warnings
+        );
+    }
 }
 
 /// The unrecognized-morph-type-guid warning carries a specific, stable code, so a future reword of the message is never itself a code change.
@@ -2041,4 +2151,27 @@ fn imported_equal_msas_merge_into_the_sense_bearing_one() {
         "00000000-0000-0000-0000-000000000042",
         "the first MSA has no sense, so the later sense-bearing one represents it"
     );
+}
+
+#[test]
+fn do_not_use_for_parsing_is_ignored_like_fieldworks() {
+    // FieldWorks never reads the flag in ParserCore, HCLoader or XAmple (#154).
+    let dir = tempfile::tempdir().unwrap();
+    let (baseline, _) = pg_fwdata::import_file(&fixture_path()).unwrap();
+    let entry = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000030">"#;
+    for value in ["True", "False", "maybe"] {
+        let path = fixture_variant(
+            dir.path(),
+            entry,
+            &format!("{entry}<DoNotUseForParsing val=\"{value}\" />"),
+        );
+        let (snapshot, _, delta) = pg_fwdata::import_file_measured(&path).unwrap();
+        assert!(delta.silently_omitted.is_empty());
+        assert_eq!(snapshot.lexicon, baseline.lexicon, "val={value}");
+        assert!(snapshot
+            .conversion_provenance
+            .import_load_decisions
+            .iter()
+            .all(|d| d.reason_code.as_str() != "doNotUseForParsing"));
+    }
 }

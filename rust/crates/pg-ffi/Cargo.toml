@@ -33,6 +33,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+pg-conformance-fixtures.workspace = true
 pg-lexicon = { workspace = true, features = ["test-hooks"] }
 # Enables `pg_parse::batch::TEST_PANIC_WORD` for the abort-safety test only (Cargo feature
 # unification means this activates `test-panic-hook` for `cargo test`'s build of pg-parse, but

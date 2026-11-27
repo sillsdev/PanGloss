@@ -255,15 +255,13 @@ pub struct MetathesisRule {
     pub direction: RuleDirection,
     /// The full matched pattern, left to right. ← `PhMetathesisRule.StrucDescOS`.
     pub structural_description: Vec<PhonContext>,
-    /// 0-based index into `structural_description` of the part that moves right of
-    /// `right_switch_index`. ← `PhMetathesisRule.LeftSwitchIndex`.
+    /// `PhMetathesisRule.LeftSwitchIndex`: 0-based index into `structural_description`
+    /// (`StrucChange` field 3), or -1 when unset. `HCLoader` skips a rule where either switch is -1.
     pub left_switch_index: i32,
-    /// 0-based index into `structural_description` of the part that moves left of
-    /// `left_switch_index`. ← `PhMetathesisRule.RightSwitchIndex`.
+    /// `PhMetathesisRule.RightSwitchIndex`: 0-based index into `structural_description`
+    /// (`StrucChange` field 1), or -1 when unset.
     ///
-    /// `HCLoader` additionally computes derived "middle"/"left env"/"right env" part indices
-    /// from these two (`GetStrucChangeIndices`, HCLoader.cs:2119-2120) under an assumed
-    /// canonical layout; that derivation is compiler policy over already-complete data, not
-    /// separately stored LCM data, so it is not duplicated here — a compiler re-derives it the same way.
+    /// The other three `StrucChange` parts (left env, middle, right env) only name pattern groups
+    /// in `HCLoader` and never reach the engine, so they are not carried.
     pub right_switch_index: i32,
 }

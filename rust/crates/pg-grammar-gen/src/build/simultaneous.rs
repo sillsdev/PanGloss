@@ -5,7 +5,7 @@
 //!
 //! XML shape: an ordinary unconditional `<PhonologicalRule>` (no environment, no MPR/POS gating --
 //! nothing here should trip any OTHER budget/skip path first) with
-//! `multipleApplicationOrder="simultaneous"` (`machine/conformance/languages/templatic-root-modification/
+//! `multipleApplicationOrder="simultaneous"` (`conformance/languages/templatic-root-modification/
 //! grammar.xml`'s own `prSimulFeeding`/`prEpenthesis` shape, reduced to the minimal unconditional
 //! case). The whole rule is screened out on shape alone, upstream of any LHS/RHS lowering, so the
 //! rule's own content is never compiled and any two distinct segments suffice.

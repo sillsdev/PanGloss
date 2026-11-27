@@ -3,11 +3,19 @@ use super::*;
 fn named_analysis_policies_pin_host_contracts() {
     assert_eq!(
         AnalysisPolicy::browser_default(),
-        AnalysisPolicy { step_cap: 100_000 }
+        AnalysisPolicy {
+            work_cap: 10_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 100_000,
+        }
     );
     assert_eq!(
         AnalysisPolicy::native_abi_v1(),
-        AnalysisPolicy { step_cap: 500_000 }
+        AnalysisPolicy {
+            work_cap: 50_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 500_000,
+        }
     );
 }
 #[test]

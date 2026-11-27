@@ -6,9 +6,8 @@
 //!
 #![forbid(unsafe_code)]
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::sync::Arc;
-use unicode_segmentation::UnicodeSegmentation;
 
 use pg_grammar::model::{Grammar, MorphRuleDef};
 use pg_parse::WordAnalysis;
@@ -54,8 +53,11 @@ struct CachedWord {
     overlay_revision: pg_lexicon::Revision,
     /// Every surviving analysis, in `ParseOutcome.structured` order (first is what the view stacks under the word); empty for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    #[serde(default)]
+    word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
     /// `ParseOutcome.candidates_generated`: total synthesis candidates the parser produced before the validity/match gate, win or lose.
@@ -73,8 +75,10 @@ struct TokenOut {
     text: String,
     /// Every surviving analysis, in `ParseOutcome.structured` order; empty for `"other"` tokens and for words with no surviving analysis at all.
     analyses: Vec<AnalysisOut>,
-    /// `ParseOutcome.capped`: the analysis cascade hit its step budget before exhausting search.
+    /// `ParseOutcome.capped`: the analysis cascade hit its work cap before exhausting search.
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    word_mem_capped: bool,
     /// `ParseOutcome.invalid_shape`: the word contains characters outside the grammar's orthography, so it was never run through the cascade.
     invalid_shape: bool,
     /// See `CachedWord::candidates_generated`. `0` for `"other"` tokens.
@@ -99,6 +103,7 @@ struct AnalyzeTextResult {
 struct CacheAnalysis {
     structured: Vec<WordAnalysis>,
     capped: bool,
+    word_mem_capped: bool,
     invalid_shape: bool,
     candidates_generated: usize,
     overlay_revision: pg_lexicon::Revision,
@@ -145,6 +150,7 @@ fn build_cached_word(
         candidates_accepted: analyses.len(),
         analyses,
         capped: analysis.capped,
+        word_mem_capped: analysis.word_mem_capped,
         invalid_shape: analysis.invalid_shape,
         candidates_generated: analysis.candidates_generated,
     }
@@ -158,7 +164,6 @@ pub struct PanGlossGrammar {
     runtime: pg_lexicon::SuppliedLexiconRuntime,
     realize_map: RealizeMap,
     realizer: TableRealizer,
-    orthographic_characters: BTreeSet<char>,
 }
 
 /// Every affix-morpheme `<Gloss>` string in `grammar` (`AffixProcess`/`Realizational` rules' own morpheme gloss, never lexical-entry root glosses); this is the vocabulary `pg_realize::infer_english` matches its English alias table against, where a root gloss like "house" would only ever add noise.
@@ -198,19 +203,60 @@ impl PanGlossGrammar {
     /// gracefully to Leipzig-only glosses in that case (e.g. today's Sena sample).
     #[wasm_bindgen(constructor)]
     pub fn new(xml: &str, realize_toml: Option<String>) -> Result<PanGlossGrammar, JsValue> {
+        Self::with_policy(xml, realize_toml, pg_lexicon::AnalysisPolicy::default())
+    }
+
+    /// `new` with no attempt or work limit, for a deployed grammar the host trusts: a pathological
+    /// word runs until it finishes and blocks the calling thread, so run this off the UI thread.
+    #[wasm_bindgen(js_name = withoutWorkLimits)]
+    pub fn without_work_limits(
+        xml: &str,
+        realize_toml: Option<String>,
+    ) -> Result<PanGlossGrammar, JsValue> {
+        Self::with_policy(
+            xml,
+            realize_toml,
+            pg_lexicon::AnalysisPolicy::without_limits(),
+        )
+    }
+
+    /// Construct with a counted per-word memory ceiling in MiB; zero is unbounded.
+    #[wasm_bindgen(js_name = withWordMemCap)]
+    pub fn with_word_mem_cap(
+        xml: &str,
+        realize_toml: Option<String>,
+        mib: u32,
+    ) -> Result<PanGlossGrammar, JsValue> {
+        let policy =
+            pg_lexicon::AnalysisPolicy {
+                word_mem_cap: if mib == 0 {
+                    None
+                } else {
+                    Some((mib as usize).checked_mul(1024 * 1024).ok_or_else(|| {
+                        JsValue::from_str("word memory cap exceeds address space")
+                    })?)
+                },
+                ..pg_lexicon::AnalysisPolicy::default()
+            };
+        Self::with_policy(xml, realize_toml, policy)
+    }
+
+    fn with_policy(
+        xml: &str,
+        realize_toml: Option<String>,
+        policy: pg_lexicon::AnalysisPolicy,
+    ) -> Result<PanGlossGrammar, JsValue> {
         let grammar = Arc::new(pg_grammar::load(xml).map_err(|e| js_err("load grammar", &e))?);
         let realizer =
             TableRealizer::new().map_err(|e| js_err("load embedded English table", &e))?;
         let realize_map = build_realize_map(&grammar, realize_toml.as_deref())?;
-        let runtime = pg_lexicon::SuppliedLexiconRuntime::new(grammar.clone(), xml)
+        let runtime = pg_lexicon::SuppliedLexiconRuntime::with_policy(grammar.clone(), xml, policy)
             .map_err(|e| js_err("initialize supplied lexicon", &e))?;
-        let orthographic_characters = grammar.orthographic_characters();
         Ok(PanGlossGrammar {
             grammar,
             runtime,
             realize_map,
             realizer,
-            orthographic_characters,
         })
     }
 
@@ -228,8 +274,16 @@ impl PanGlossGrammar {
     /// construction (it's only ever passed to the same `PanGlossGrammar` instance the caller got
     /// it from), so callers don't need to namespace it themselves.
     ///
+    /// `profile` is a serialized `pg-analyzer` segmentation profile; null or undefined uses
+    /// Unicode defaults with no configured additions. The old grammar-character heuristic is gone.
+    ///
     #[wasm_bindgen(js_name = analyzeText)]
-    pub fn analyze_text(&mut self, text: &str, cache: JsValue) -> Result<JsValue, JsValue> {
+    pub fn analyze_text(
+        &mut self,
+        text: &str,
+        cache: JsValue,
+        profile: JsValue,
+    ) -> Result<JsValue, JsValue> {
         let cache: HashMap<String, CachedWord> = if cache.is_undefined() || cache.is_null() {
             HashMap::new()
         } else {
@@ -239,13 +293,46 @@ impl PanGlossGrammar {
         let mut new_cache_entries: HashMap<String, CachedWord> = HashMap::new();
 
         let mut tokens: Vec<TokenOut> = Vec::new();
-        for piece in tokenize(text, &self.orthographic_characters) {
+        let default_profile = pg_analyzer::SegmentationProfile {
+            version: 1,
+            source_id: "default".into(),
+            source_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                .into(),
+            word_forming: vec![],
+        };
+        let supplied_profile: pg_analyzer::SegmentationProfile =
+            if profile.is_null() || profile.is_undefined() {
+                default_profile
+            } else {
+                serde_wasm_bindgen::from_value(profile)
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?
+            };
+        let result = pg_analyzer::analyze(
+            text,
+            pg_analyzer::ProfileInput::Profile(&supplied_profile),
+            &[],
+        )
+        .map_err(|e| JsValue::from_str(&e))?;
+        let mut pieces = Vec::new();
+        let mut previous = 0;
+        for word in &result.occurrences {
+            if previous < word.utf8[0] {
+                pieces.push(Piece::Other(&text[previous..word.utf8[0]]));
+            }
+            pieces.push(Piece::Word(&text[word.utf8[0]..word.utf8[1]]));
+            previous = word.utf8[1];
+        }
+        if previous < text.len() {
+            pieces.push(Piece::Other(&text[previous..]));
+        }
+        for piece in pieces {
             let token = match piece {
                 Piece::Other(s) => TokenOut {
                     kind: "other",
                     text: s.to_string(),
                     analyses: Vec::new(),
                     capped: false,
+                    word_mem_capped: false,
                     invalid_shape: false,
                     candidates_generated: 0,
                     candidates_accepted: 0,
@@ -268,6 +355,7 @@ impl PanGlossGrammar {
                         let outcome = self.runtime.analyze_word_opts(&lexical, None, true);
                         let structured = outcome.structured;
                         let capped = outcome.capped;
+                        let word_mem_capped = outcome.word_mem_capped;
                         let invalid_shape = outcome.invalid_shape;
                         let candidates_generated = outcome.candidates_generated;
                         let overlay_revision = outcome.revision;
@@ -280,6 +368,7 @@ impl PanGlossGrammar {
                             CacheAnalysis {
                                 structured,
                                 capped,
+                                word_mem_capped,
                                 invalid_shape,
                                 candidates_generated,
                                 overlay_revision,
@@ -294,6 +383,7 @@ impl PanGlossGrammar {
                         text: word.to_string(),
                         analyses: cached.analyses,
                         capped: cached.capped,
+                        word_mem_capped: cached.word_mem_capped,
                         invalid_shape: cached.invalid_shape,
                         candidates_generated: cached.candidates_generated,
                         candidates_accepted: cached.candidates_accepted,
@@ -451,6 +541,8 @@ struct UnifiedAnalysisOut {
     analyses: Vec<(String, String)>,
     structured: Vec<StructuredAnalysisOut>,
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    word_mem_capped: bool,
     invalid_shape: bool,
     timed_out: bool,
     guessed: bool,
@@ -486,6 +578,7 @@ impl From<pg_lexicon::UnifiedAnalysis> for UnifiedAnalysisOut {
                 })
                 .collect(),
             capped: value.capped,
+            word_mem_capped: value.word_mem_capped,
             invalid_shape: value.invalid_shape,
             timed_out: value.timed_out,
             guessed: value.guessed,
@@ -695,44 +788,6 @@ fn js_err(action: &str, e: &dyn std::fmt::Debug) -> JsValue {
 enum Piece<'a> {
     Word(&'a str),
     Other(&'a str),
-}
-
-/// Splits text into word and other runs, preserving exact grapheme and authored text boundaries.
-fn tokenize<'a>(text: &'a str, orthographic_characters: &BTreeSet<char>) -> Vec<Piece<'a>> {
-    let mut pieces = Vec::new();
-    let mut start = 0;
-    let mut in_word: Option<bool> = None;
-
-    for (i, grapheme) in text.grapheme_indices(true) {
-        let this_is_word = !grapheme.chars().any(|c| c.is_whitespace())
-            && grapheme
-                .chars()
-                .any(|c| c.is_alphabetic() || c == '\'' || orthographic_characters.contains(&c));
-        match in_word {
-            Some(cur) if cur == this_is_word => {}
-            Some(cur) => {
-                push_piece(&mut pieces, &text[start..i], cur);
-                start = i;
-                in_word = Some(this_is_word);
-            }
-            None => in_word = Some(this_is_word),
-        }
-    }
-    if let Some(cur) = in_word {
-        push_piece(&mut pieces, &text[start..], cur);
-    }
-    pieces
-}
-
-fn push_piece<'a>(pieces: &mut Vec<Piece<'a>>, s: &'a str, is_word: bool) {
-    if s.is_empty() {
-        return;
-    }
-    pieces.push(if is_word {
-        Piece::Word(s)
-    } else {
-        Piece::Other(s)
-    });
 }
 
 #[cfg(test)]

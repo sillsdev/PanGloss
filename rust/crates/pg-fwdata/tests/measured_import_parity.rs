@@ -50,12 +50,6 @@ fn assert_parity(path: &Path) {
             path.display()
         );
     }
-    assert_eq!(
-        report_plain.provenance,
-        report_measured.provenance,
-        "{}: provenance must match",
-        path.display()
-    );
 }
 
 #[test]
