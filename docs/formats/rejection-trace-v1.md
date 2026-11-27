@@ -151,6 +151,20 @@ even for an unrelated target on grammars with affix templates. Capture limits
 cannot resolve it. Proof of compatibility or incompatibility for those histories
 remains an open decision for Motif.
 
+A `required_slot_uncoverable` rejection (analysis, template; the same `template_slot`
+operands as `required_slot_unfilled`) replaces the `required_slot_unfilled` event of a
+template when a target is requested and the target provably cannot pass through that
+template: its authored non-root morphs all resolve to affix morphemes and a required
+slot of the template holds no rule of any of them, so every output through the template
+carries a morpheme the target lacks. The operand slot is that required slot, not the slot
+the walk failed at. The event resolves the history as unrelated to the target, so it adds
+no `owner_unobserved`. When every template holding a rule of the target's affixes
+(and none of them standalone) is uncoverable the event also counts as an attributable
+terminal, and a target with otherwise exhausted coverage reports `status: rejected`.
+Rows whose target has a structural-zero or unresolved morph, no affix morph, a slot
+holding a compounding rule, or any other history stay as they were. A parser that does
+not list the tuple in `--describe` never emits it.
+
 Request metadata follows the [diagnostic request schema](rejection-trace-v1/request-v1.schema.json).
 Every record follows the [record schema](rejection-trace-v1/record-v1.schema.json) and the
 [closed tuple registry](rejection-trace-v1/event-tuples-v1.json). The binary advertises just

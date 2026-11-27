@@ -108,6 +108,13 @@
     ],
     [
       "analysis",
+      "reject",
+      "template",
+      "required_slot_uncoverable",
+      "template_slot"
+    ],
+    [
+      "analysis",
       "observe",
       "template",
       "optional_slot_skipped",

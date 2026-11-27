@@ -63,6 +63,13 @@ const SLOT_ANALYSIS: Tuple = [
     "required_slot_unfilled",
     "template_slot",
 ];
+const SLOT_UNCOVERABLE: Tuple = [
+    "analysis",
+    "reject",
+    "template",
+    "required_slot_uncoverable",
+    "template_slot",
+];
 const SLOT_SYNTHESIS: Tuple = [
     "synthesis",
     "reject",
@@ -245,6 +252,7 @@ pub(super) const TUPLES: &[Tuple] = &[
     ROOT_PRUNE,
     SLOT_ANALYSIS,
     SLOT_SYNTHESIS,
+    SLOT_UNCOVERABLE,
     NO_TEMPLATE,
     NONFINAL,
     REMAINING_STRATUM,
@@ -1243,6 +1251,21 @@ impl Capture {
         self.tally.paths_cut |= self.seen > limits.paths;
         self.tally.events_cut |= self.seen_events > limits.events;
         let path_id = order.saturating_mul(2).saturating_add(1);
+        let uncovered = match (&witness, target) {
+            (
+                Witness::Decision {
+                    decision:
+                        Decision::RequiredSlotUnfilled {
+                            template,
+                            analysis: true,
+                            ..
+                        },
+                    ..
+                },
+                Some(target),
+            ) => target.uncoverable(id, *template),
+            _ => None,
+        };
         let mut selection = None;
         let mut decision_rejected = false;
         let mut complete_word = false;
@@ -1348,7 +1371,8 @@ impl Capture {
         } else {
             (None, Vec::new(), Vec::new())
         };
-        let exact_terminal = decision_rejected && relation == Some(Relation::Exact);
+        let exact_terminal = decision_rejected
+            && (relation == Some(Relation::Exact) || uncovered.is_some_and(|proof| proof.named));
         let priority = if exact_terminal
             || matches!(witness, Witness::Output(output) if output.relation == Some(Relation::Exact))
         {
@@ -1390,17 +1414,18 @@ impl Capture {
             && self.kept + self.deferred.len() < limits.paths
             && (!event || self.kept_events + self.deferred_events < limits.events);
         self.exact_terminal |= exact_terminal;
-        let known_empty = matches!(
-            witness,
-            Witness::Decision {
-                decision: Decision::LookupCompleted {
-                    no_matches: true,
+        let known_empty = uncovered.is_some()
+            || matches!(
+                witness,
+                Witness::Decision {
+                    decision: Decision::LookupCompleted {
+                        no_matches: true,
+                        ..
+                    } | Decision::RootNotViable { .. }
+                        | Decision::InvalidShape { .. },
                     ..
-                } | Decision::RootNotViable { .. }
-                    | Decision::InvalidShape { .. },
-                ..
-            }
-        );
+                }
+            );
         if target.is_some() && incompatible.is_empty() && !known_empty {
             self.uncertain_terminal |= decision_rejected
                 && !matches!(relation, Some(Relation::Exact | Relation::Different));
@@ -1483,9 +1508,15 @@ impl Capture {
                     target,
                 ));
                 reason = match &witness {
-                    Witness::Decision { decision, .. } => {
-                        record_event(group, id, path_id, plan.parent.clone(), order, decision)
-                    }
+                    Witness::Decision { decision, .. } => record_event(
+                        group,
+                        id,
+                        path_id,
+                        plan.parent.clone(),
+                        order,
+                        decision,
+                        uncovered.map(|proof| proof.slot),
+                    ),
                     Witness::Merge { word, analysis, .. } => {
                         let owner = group.structural(id, "stratum", word.stratum.0);
                         let tuple = if *analysis {
@@ -1864,6 +1895,7 @@ fn record_event(
     parent: Value,
     order: usize,
     &decision: &Decision<'_>,
+    uncoverable_slot: Option<usize>,
 ) -> Option<&'static str> {
     let mut candidates = Vec::new();
     let (owner, also, operands) = match decision {
@@ -1956,6 +1988,7 @@ fn record_event(
             json!({"status": "unavailable", "materializedCount": null, "root": null}),
         ),
         Decision::RequiredSlotUnfilled { template, slot, .. } => {
+            let slot = uncoverable_slot.unwrap_or(slot);
             let template_ref = group.template(id, template);
             let slot = group.slot(id, template, slot, &template_ref);
             (
@@ -2148,7 +2181,11 @@ fn record_event(
             )
         }
     };
-    let tuple = decision_tuple(&decision);
+    let tuple = if uncoverable_slot.is_some() {
+        SLOT_UNCOVERABLE
+    } else {
+        decision_tuple(&decision)
+    };
     let mut object_refs = vec![subject(owner, "subject")];
     object_refs.extend(also);
     object_refs.append(&mut candidates);

@@ -17,6 +17,7 @@
 //! null affix, a rule that is not an affix process and an allomorph whose analysis pattern did not
 //! build leave the slot unprunable.
 
+mod cover;
 mod embed;
 
 use std::cell::Cell;
@@ -29,6 +30,7 @@ use pg_grammar_model::model::{
 };
 use pg_shape::NodeKind;
 
+pub use self::cover::{hosting_templates, target_unreachable, unfillable_required_slot};
 pub(crate) use self::embed::SlotWalk;
 use self::embed::{all_present, embeds, AllomorphSummary, UNBOUNDED};
 use crate::cache::{owning_table_for_morpheme, RuleCache};

@@ -1,0 +1,1 @@
+- Rejection trace names `required_slot_uncoverable` when a template's required slot cannot be filled by the target's affixes, so such target rows are no longer `unknown` with `owner_unobserved` (#364).
