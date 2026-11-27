@@ -1,7 +1,7 @@
 # 132: hc.dll pairs a metathesis switch with an optional segment a deletion restored; PanGloss pairs only the switches
 
 Kind: behavioural (hc.dll has a C# defect, sillsdev/machine#649, the mechanism of sillsdev/machine#520; PanGloss's pairing parses the 312 words hc.dll generates but cannot parse, though it still misses a few that need a skipped segment to travel, see Known gap and #392).
-Status: temporary-permanent: remove when the Machine fix lands and the oracle pin moves. Then delete this entry, the `forward-synthesis` marker in the staged fixture and its `oracle-conformance-known-divergences.json` row. Upstream: sillsdev/machine#649 and the suite fixture in sillsdev/fieldworks-parser-conformance#50, which records the four words as `expect_fail`; once pinned, the `pangloss_expectations` rows in `oracle-conformance-known-divergences.json` excuse PanGloss's parses. PanGloss #381 tracks it. Retired entry 050 (part-of-speech-scoped deletion, sillsdev/machine#520) is the same mechanism.
+Status: temporary-permanent, a recorded C# defect: remove when the Machine fix lands and the oracle pin moves. Then delete this entry, the `forward-synthesis` marker in the staged fixture and its `oracle-conformance-known-divergences.json` row. Upstream: sillsdev/machine#649 and the suite fixture in sillsdev/fieldworks-parser-conformance#50, which records the four words as `expect_fail`; once pinned, the `pangloss_expectations` rows in `oracle-conformance-known-divergences.json` excuse PanGloss's parses. PanGloss tracks it in #392. Retired entry 050 (part-of-speech-scoped deletion, sillsdev/machine#520) is the same mechanism.
 
 ## Decision
 
