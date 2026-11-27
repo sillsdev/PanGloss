@@ -1,0 +1,1 @@
+- Rust CI and Conformance CI now run on the GitHub merge queue (`merge_group`), with every required job reporting, a per-group concurrency key and the docs-only skip decided from the queue's own diff.

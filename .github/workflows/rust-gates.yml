@@ -280,7 +280,7 @@ jobs:
         shell: bash
         env:
           FST_RELEASE: ${{ inputs.include_release_gates }}
-          FST_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FST_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
           run=true

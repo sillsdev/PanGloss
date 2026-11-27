@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
+  # Merge queue: every required job runs and reports here (no draft skip, no coverage).
+  merge_group:
+    types: [checks_requested]
 
 defaults:
   run:
@@ -15,11 +18,12 @@ env:
   CARGO_TERM_COLOR: always
 
 # One run per pull request: a new push cancels the superseded run. Runs on main are never cancelled.
+# A merge group keys on its own queue ref and never cancels: each group's run is the final gate for it.
 # Pushes key on the commit, so a queued run for one commit is never replaced by a later one (release
 # preflight waits for the run on its exact commit). The reusable rust-gates.yml sets no group: inside a
 # called workflow github.workflow is the caller's name, so the same group would deadlock the caller.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -47,33 +51,47 @@ jobs:
           EVENT: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
           code=true
+          files=""
           if [[ "$EVENT" == pull_request ]]; then
             # If the listing fails, run everything rather than fail the job.
             files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)') || {
               echo "::warning::could not list the pull request files; running everything"
               files=""
             }
-            if [[ -n "$files" ]]; then
-              code=false
-              while IFS= read -r f; do
-                # Docs-only means every changed path is prose: a .md file outside rust/ or a top-level
-                # LICENSE*. Other files under docs/ (tests include_str! docs/divergences/evidence/**)
-                # and .md under rust/ (make_report_golden.md) are code. The .md files that tests read
-                # are code too: CLAUDE.md and .claude/ (agent_docs_resolve_gate, build_command_contract),
-                # docs/divergences/ (divergence_catalogue_gate), docs/diagnostics/ and
-                # docs/grammar-diagnostics-reference.md (pg-grammar help paths), docs/fst-plan/ and
-                # docs/research/subrecipes/ (pg-foma-backend contracts), docs/formats/ and
-                # docs/grammar-facts-format.md (pg-facts).
-                case "$f" in
-                  rust/*|CLAUDE.md|AGENTS.md|.claude/*|docs/divergences/*|docs/diagnostics/*|docs/fst-plan/*|docs/research/subrecipes/*|docs/formats/*|docs/grammar-facts-format.md|docs/grammar-diagnostics-reference.md) code=true; echo "code change: $f"; break ;;
-                  *.md|LICENSE*) ;;
-                  *) code=true; echo "code change: $f"; break ;;
-                esac
-              done <<< "$files"
+          elif [[ "$EVENT" == merge_group ]]; then
+            # The queue's own diff: everything the group adds to the base. The compare API lists at most
+            # 300 files, so a listing that long may be truncated and runs everything.
+            files=$(gh api "repos/$REPO/compare/$MG_BASE...$MG_HEAD" --paginate --jq '.files[] | .filename, (.previous_filename // empty)') || {
+              echo "::warning::could not compare the merge group; running everything"
+              files=""
+            }
+            if [[ $(grep -c . <<< "$files") -ge 300 ]]; then
+              echo "::warning::merge group diff may be truncated; running everything"
+              files=""
             fi
+          fi
+          if [[ -n "$files" ]]; then
+            code=false
+            while IFS= read -r f; do
+              # Docs-only means every changed path is prose: a .md file outside rust/ or a top-level
+              # LICENSE*. Other files under docs/ (tests include_str! docs/divergences/evidence/**)
+              # and .md under rust/ (make_report_golden.md) are code. The .md files that tests read
+              # are code too: CLAUDE.md and .claude/ (agent_docs_resolve_gate, build_command_contract),
+              # docs/divergences/ (divergence_catalogue_gate), docs/diagnostics/ and
+              # docs/grammar-diagnostics-reference.md (pg-grammar help paths), docs/fst-plan/ and
+              # docs/research/subrecipes/ (pg-foma-backend contracts), docs/formats/ and
+              # docs/grammar-facts-format.md (pg-facts).
+              case "$f" in
+                rust/*|CLAUDE.md|AGENTS.md|.claude/*|docs/divergences/*|docs/diagnostics/*|docs/fst-plan/*|docs/research/subrecipes/*|docs/formats/*|docs/grammar-facts-format.md|docs/grammar-diagnostics-reference.md) code=true; echo "code change: $f"; break ;;
+                *.md|LICENSE*) ;;
+                *) code=true; echo "code change: $f"; break ;;
+              esac
+            done <<< "$files"
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "code changes selected: $code"
