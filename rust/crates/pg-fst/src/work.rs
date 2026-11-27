@@ -206,6 +206,17 @@ impl WorkBudget {
         self
     }
 
+    /// The instant after which this budget stops, if it has a timeout.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.0.deadline.get()
+    }
+
+    /// Replace the stop instant, so a second budget can share another's timeout.
+    pub fn with_deadline(self, deadline: Option<Instant>) -> Self {
+        self.0.deadline.set(deadline);
+        self
+    }
+
     /// Reserve one work unit before exploring a branch or materializing a candidate.
     /// Failed reservations latch the reason and never advance the counter beyond the cap.
     pub fn consume(&self) -> bool {
@@ -322,6 +333,19 @@ impl WordMemory {
         }
         self.bytes = self.bytes.saturating_add(bytes);
         true
+    }
+
+    /// Whether charges are counted against a word ceiling at all.
+    pub fn metered(&self) -> bool {
+        self.budget.is_some()
+    }
+
+    /// Returns up to `bytes` of this collection's own charge, for state it dropped.
+    pub fn release(&mut self, bytes: usize) {
+        let Some(budget) = &self.budget else { return };
+        let bytes = bytes.min(self.bytes);
+        budget.release_word(bytes);
+        self.bytes -= bytes;
     }
 
     pub fn absorb(&mut self, mut other: Self) {

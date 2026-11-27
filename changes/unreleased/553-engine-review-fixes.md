@@ -1,0 +1,1 @@
+- A word is no longer stopped as `MEMCAP` because duplicate stratum outputs kept their memory charge, the root-answer table is charged to the word's memory meter, and the early root check is bounded by the word's timeout and a step allowance of its own instead of running unmetered (#553).

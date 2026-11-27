@@ -32,6 +32,12 @@ struct Entry {
 
 type Table = FxHashMap<Shape, Entry>;
 
+/// `PG_ROOT_CACHE_STATS`, read once.
+fn stats_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("PG_ROOT_CACHE_STATS").is_some())
+}
+
 pub(crate) struct RootSearchCache {
     tables: Vec<Option<Table>>,
     bytes: usize,
@@ -109,15 +115,20 @@ impl RootSearchCache {
             self.tables[idx] = Some(Table::with_capacity_and_hasher(SLOTS, Default::default()));
             self.bytes += table_bytes;
         }
-        if self.bytes.saturating_add(entry_bytes) > LIMIT
-            || self.tables[idx].as_ref().unwrap().len() == SLOTS
-        {
-            let table = self.tables[idx].as_mut().unwrap();
-            self.bytes -= table.values().map(|entry| entry.bytes).sum::<usize>();
-            table.clear();
-        }
-        if self.bytes.saturating_add(entry_bytes) > LIMIT {
-            return;
+        let full = self.tables[idx].as_ref().unwrap().len() == SLOTS;
+        if full || self.bytes.saturating_add(entry_bytes) > LIMIT {
+            // Clearing frees only this stratum's entries; if that leaves no room they stay.
+            let held: usize = self.tables[idx]
+                .as_ref()
+                .unwrap()
+                .values()
+                .map(|entry| entry.bytes)
+                .sum();
+            if self.bytes - held + entry_bytes > LIMIT {
+                return;
+            }
+            self.tables[idx].as_mut().unwrap().clear();
+            self.bytes -= held;
         }
         self.tables[idx].as_mut().unwrap().insert(
             shape.clone(),
@@ -134,7 +145,7 @@ impl RootSearchCache {
     pub(crate) fn finish(&self) {
         #[cfg(test)]
         TEST_LAST_HITS.with(|value| value.set(self.hits));
-        if std::env::var_os("PG_ROOT_CACHE_STATS").is_some() {
+        if stats_enabled() {
             eprintln!("ROOT_CACHE peak_bytes={} hits={}", self.peak, self.hits);
         }
     }
@@ -207,5 +218,28 @@ mod tests {
         let cache = RootSearchCache::new(usize::MAX);
         assert_eq!(cache.tables.len(), 256);
         assert!(cache.peak <= LIMIT);
+    }
+
+    #[test]
+    fn an_entry_that_cannot_fit_leaves_the_held_entries() {
+        let mut cache = RootSearchCache::new(2);
+        cache.insert(
+            StratumId(0),
+            &shape(1),
+            &[(AllomorphId(1), LexEntryId(1))],
+            100,
+        );
+        // Larger than the whole cap even with this stratum's table empty.
+        let huge = vec![(AllomorphId(0), LexEntryId(0)); LIMIT];
+        cache.insert(StratumId(0), &shape(2), &huge, usize::MAX);
+        assert!(cache.get(StratumId(0), &shape(1)).is_some());
+        // Another stratum holds most of the cap; clearing this stratum's table cannot make room.
+        let big = vec![(AllomorphId(0), LexEntryId(0)); LIMIT / 30];
+        cache.insert(StratumId(1), &shape(3), &big, usize::MAX);
+        assert!(cache.get(StratumId(1), &shape(3)).is_some());
+        cache.insert(StratumId(0), &shape(4), &big, usize::MAX);
+        assert!(cache.get(StratumId(0), &shape(4)).is_none());
+        assert!(cache.get(StratumId(0), &shape(1)).is_some());
+        assert!(cache.bytes <= LIMIT);
     }
 }

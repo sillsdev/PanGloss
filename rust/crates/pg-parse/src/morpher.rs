@@ -1146,8 +1146,10 @@ impl<'g> Morpher<'g> {
             && !pg_rules::branch_census::enabled()
             && !alt_yield::enabled();
         // Within this call the check depends only on shape and stratum, and many states of a word share a shape.
-        let root_answers =
-            std::cell::RefCell::new(crate::root_answers::RootAnswers::new(StratumId(0)));
+        let root_answers = std::cell::RefCell::new(crate::root_answers::RootAnswers::new(
+            StratumId(0),
+            pg_fst::work::active_budget(),
+        ));
         let has_root = |created: &Word| self.has_root(created, lex_entry_filter, &root_answers);
         // The stratum's candidates: the surface word first, then the previous admitted stratum's outputs, which are the last set of `results`. A word's key holds its stratum and every output of a stratum carries that stratum, so a stratum's outputs never meet an earlier stratum's and each stratum's set dedups on its own.
         let census = pg_rules::branch_census::enabled();
@@ -1779,7 +1781,7 @@ impl<'g> Morpher<'g> {
         w.morphs = vec![MorphRecord::new(allo, entry.morpheme, 0)];
     }
 
-    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for. Its own time is therefore outside the work measure: one root search per shape of the last stratum that something folds into once the search is large, while `answers` has room.
+    /// Whether root lookup can find anything for `aw`, asked without spending the word's work, touching its root search cache or recording a statistic. It may answer true for a word lookup then finds nothing for, never false for one it finds a root for. Its steps are outside the work measure but bounded by the word's deadline and an allowance of their own: one root search per shape of the last stratum that something folds into once the search is large, while `answers` has room.
     fn has_root(
         &self,
         aw: &Word,
@@ -1792,13 +1794,24 @@ impl<'g> Morpher<'g> {
         if let Some(known) = answers.borrow().get(aw.stratum, &aw.shape) {
             return known;
         }
-        let unmetered = pg_fst::work::WorkBudget::new(usize::MAX);
-        let _scope = unmetered.enter();
-        let found = self
-            .root_index
-            .search(self.g, aw.stratum, &aw.shape)
-            .into_iter()
-            .any(|(_, entry)| lex_entry_filter.is_none_or(|passes| passes(entry)));
+        // Bounded by the deadline and an allowance of its own; a bound hit answers yes and keeps nothing.
+        let left = answers.borrow().steps_left();
+        if left == 0 {
+            return true;
+        }
+        let deadline = pg_fst::work::active_budget().and_then(|b| b.deadline());
+        let check = pg_fst::work::WorkBudget::new(left).with_deadline(deadline);
+        let found = {
+            let _scope = check.enter();
+            self.root_index
+                .search(self.g, aw.stratum, &aw.shape)
+                .into_iter()
+                .any(|(_, entry)| lex_entry_filter.is_none_or(|passes| passes(entry)))
+        };
+        answers.borrow_mut().spend_steps(check.used());
+        if check.stopped() {
+            return true;
+        }
         answers.borrow_mut().insert(aw.stratum, &aw.shape, found);
         found
     }
