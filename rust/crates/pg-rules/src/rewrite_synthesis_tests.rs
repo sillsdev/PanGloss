@@ -91,7 +91,7 @@ fn ambiguous_intermediate_context_uses_subsumption_in_synthesis_and_unification_
 
 #[test]
 fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
-    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "per-site-alpha-rewrite")
         .load_grammar_xml();
     let mut g = pg_grammar::load(&xml).unwrap();
     let pid = PRuleId(0);
@@ -130,7 +130,7 @@ fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
 #[test]
 fn feeding_uses_the_same_result_for_plain_cached_and_traced_synthesis() {
     use crate::trace::{TraceSink, TreeTraceSink};
-    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "per-site-alpha-rewrite")
         .load_grammar_xml();
     let g = pg_grammar::load(&xml).unwrap();
     let pid = PRuleId(0);
@@ -464,7 +464,7 @@ fn env_input_borrows_without_defaults_and_copies_with_them() {
 
 #[test]
 fn a_carried_working_shape_gives_the_fresh_result_for_every_rule_that_follows() {
-    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "per-site-alpha-rewrite")
         .load_grammar_xml();
     let g = pg_grammar::load(&xml).unwrap();
     let cache = crate::cache::RuleCache::build(&g);
@@ -503,7 +503,9 @@ fn a_carried_working_shape_gives_the_fresh_result_for_every_rule_that_follows() 
     };
     // First rule does not apply and leaves its working copy; the second, on the same input, must give what a fresh call gives. That includes a second rule that applies, which mutates the carried copy.
     let (mut skipped_then_applied, mut skipped_then_skipped) = (0, 0);
-    for word in ["uuu", "aaa", "iii", "yyy", "aua", "uau", "u", "uu"] {
+    for word in [
+        "uuu", "aaa", "iii", "yyy", "aua", "uau", "uiu", "uii", "uyi", "aia", "u", "uu",
+    ] {
         let Ok(input) = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], word)
         else {
             continue;
