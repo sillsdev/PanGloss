@@ -2574,6 +2574,7 @@ pub fn synthesize_phonological_stratum_traced(
     let rule_parent = input.trace.unwrap_or(parent);
     let mut visited_prule_ids = Vec::new();
     let mut applied_prule_ids = Vec::new();
+    let mut rewrite_scratch = None;
 
     for &pid in &sd.prules {
         if budget.synthesis_over_budget() {
@@ -2603,6 +2604,7 @@ pub fn synthesize_phonological_stratum_traced(
                     trace,
                     rule_parent,
                     prule_stats,
+                    &mut rewrite_scratch,
                 ) {
                     Some(rewritten) => {
                         anchor_keys = rewritten.anchor_keys;
@@ -2633,6 +2635,7 @@ pub fn synthesize_phonological_stratum_traced(
             ctx.record_outcome(result.len() as u64);
         }
         if let Some(shape) = result.into_iter().next() {
+            rewrite_scratch = None;
             applied_prule_ids.push(pid);
             if let Some(keys) = anchor_keys {
                 input.note_rewrite_spans(&shape, &keys, pid);

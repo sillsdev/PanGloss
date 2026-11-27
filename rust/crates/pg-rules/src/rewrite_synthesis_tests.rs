@@ -461,3 +461,58 @@ fn env_input_borrows_without_defaults_and_copies_with_them() {
         "caller's segments untouched"
     );
 }
+
+#[test]
+fn a_carried_scratch_gives_the_fresh_result_and_survives_only_a_rule_that_does_not_apply() {
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
+        .load_grammar_xml();
+    let g = pg_grammar::load(&xml).unwrap();
+    let pg_grammar_model::model::PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("rewrite rule")
+    };
+    let cache = crate::cache::RuleCache::build(&g);
+    let run = |input: &Shape, scratch: &mut Option<SynthesisScratch>| {
+        synthesize_with_mpr_cached_stats(
+            &g,
+            PRuleId(0),
+            rule,
+            input,
+            &FeatureStruct::EMPTY,
+            &MprSet::EMPTY,
+            &cache,
+            None,
+            scratch,
+        )
+        .map(|rewritten| (rewritten.shape, rewritten.anchor_keys))
+    };
+    let (mut applied, mut skipped) = (0, 0);
+    for word in ["uuu", "aaa", "iii", "yyy", "aua", "u"] {
+        let Ok(input) = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], word)
+        else {
+            continue;
+        };
+        let fresh = run(&input, &mut None);
+        let mut scratch = None;
+        for round in 0..2 {
+            assert_eq!(run(&input, &mut scratch), fresh, "{word}, round {round}");
+            assert_eq!(scratch.is_none(), fresh.is_some(), "{word}, round {round}");
+            if fresh.is_none() {
+                assert!(
+                    scratch.as_ref().unwrap().segs.is_some(),
+                    "{word}: the segment list is kept for the next rule"
+                );
+            }
+        }
+        if fresh.is_some() {
+            applied += 1;
+        } else {
+            skipped += 1;
+        }
+        let other = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], "uu").unwrap();
+        assert_eq!(run(&other, &mut scratch), run(&other, &mut None), "{word}");
+    }
+    assert!(
+        applied > 0 && skipped > 0,
+        "both outcomes occur: {applied} applied, {skipped} skipped"
+    );
+}

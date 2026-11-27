@@ -1779,11 +1779,10 @@ fn required_pos_ok(
 struct SynthesisSite {
     nodes: Vec<usize>,
     subrule: usize,
-    prepared: usize,
     bindings: Bindings,
 }
 
-struct PreparedSynthesisSubrule {
+pub(crate) struct PreparedSynthesisSubrule {
     index: usize,
     kind: Kind,
     rhs_vars: Vec<Vec<VarOccur>>,
@@ -1833,20 +1832,89 @@ fn prepare_synthesis_subrule(
     }
 }
 
+/// The synthesis data of one rewrite rule that depends on the grammar and the rule alone, never on the word: the target's variable occurrences and full lane masks, and every subrule's prepared replacement.
+pub(crate) struct SynthesisPrep {
+    lhs_vars: Vec<Vec<VarOccur>>,
+    lhs_lanes: Vec<Vec<u64>>,
+    subrules: Vec<PreparedSynthesisSubrule>,
+}
+
+impl SynthesisPrep {
+    pub(crate) fn build(g: &Grammar, table: &CharDefTable, rule: &RewriteRuleDef) -> Self {
+        let lhs_vars = pattern_var_occurrences(&rule.lhs);
+        let lhs_lanes = rule
+            .lhs
+            .nodes
+            .iter()
+            .zip(&lhs_vars)
+            .map(|(n, vars)| {
+                let mut lanes = node_full_lanes(g, table, n);
+                for var in vars {
+                    lanes[var.feature] = full_mask(g, var.feature);
+                }
+                lanes
+            })
+            .collect();
+        let subrules = (0..rule.subrules.len())
+            .map(|index| prepare_synthesis_subrule(g, table, rule, index))
+            .collect();
+        Self {
+            lhs_vars,
+            lhs_lanes,
+            subrules,
+        }
+    }
+}
+
+/// The segment list and node map `MutShape::segs(true)` returns.
+type SegmentList = (Vec<Segment>, Vec<usize>);
+
+/// The working copy of one shape, and its segment list once built, that a rule loop keeps while consecutive rules leave the shape alone. It holds a reference to the shape it was built from, so an allocation match with the next rule's input shows the contents equal; a rule that rewrites drops it.
+pub(crate) struct SynthesisScratch {
+    table: TableId,
+    shape: Shape,
+    ms: MutShape,
+    segs: Option<SegmentList>,
+}
+
+/// The scratch for `shape` under `table`: the carried one when it was built from this very shape allocation and table, else a fresh one.
+fn scratch_for<'s>(
+    scratch: &'s mut Option<SynthesisScratch>,
+    g: &Grammar,
+    table_id: TableId,
+    shape: &Shape,
+) -> &'s mut SynthesisScratch {
+    let carried = scratch
+        .as_ref()
+        .is_some_and(|s| s.table == table_id && s.shape.same_allocation(shape));
+    if !carried {
+        *scratch = Some(SynthesisScratch {
+            table: table_id,
+            shape: shape.clone(),
+            ms: MutShape::for_rewrite(g, &g.char_tables[table_id.0 as usize], shape),
+            segs: None,
+        });
+    }
+    scratch.as_mut().expect("scratch was just filled")
+}
+
 struct RewriteGateObserver<'a> {
     recorder: &'a dyn Recorder,
     rule: PRuleId,
     word: &'a Word,
 }
 
+/// `segs` holds the segment list of `ms` as it stands on entry when the caller knows it, is filled when this builds it, and is emptied before `ms` changes.
 #[allow(clippy::too_many_arguments)]
 fn synthesize_sites(
     g: &Grammar,
     table: &CharDefTable,
     rule: &RewriteRuleDef,
     ms: &mut MutShape,
+    segs_known: &mut Option<SegmentList>,
     target: Option<&Fst>,
     envs: &[(&Option<EnvFst>, &Option<EnvFst>)],
+    prep: &SynthesisPrep,
     syn_fs: &FeatureStruct,
     mpr: &MprSet,
     probe: bool,
@@ -1862,36 +1930,32 @@ fn synthesize_sites(
             reason.unwrap_or(FailureReason::Pattern),
         ));
         if reason.is_none() {
-            eligible.push(prepare_synthesis_subrule(g, table, rule, index));
+            eligible.push(&prep.subrules[index]);
         }
     }
     if eligible.is_empty() {
         return outcomes;
     }
-    let lhs_vars = pattern_var_occurrences(&rule.lhs);
-    let lhs_lanes: Vec<_> = rule
-        .lhs
-        .nodes
-        .iter()
-        .zip(&lhs_vars)
-        .map(|(n, vars)| {
-            let mut lanes = node_full_lanes(g, table, n);
-            for var in vars {
-                lanes[var.feature] = full_mask(g, var.feature);
-            }
-            lanes
-        })
-        .collect();
+    let lhs_vars = &prep.lhs_vars;
+    let lhs_lanes = &prep.lhs_lanes;
     let dir = dir_of(rule);
     let mut cursor: Option<usize> = None;
     let mut pending = Vec::new();
+    let mut first_pass = true;
     loop {
         if !pg_fst::work::consume() {
             break;
         }
-        let (segs, node_of) = ms.segs(true);
+        let rebuilt;
+        let (segs, node_of) = if first_pass {
+            first_pass = false;
+            &*segs_known.get_or_insert_with(|| ms.segs(true))
+        } else {
+            rebuilt = ms.segs(true);
+            &rebuilt
+        };
         let sites: Vec<(usize, usize, Vec<usize>)> = if let Some(target) = target {
-            ordered_spans(target, &segs)
+            ordered_spans(target, segs)
                 .into_iter()
                 .filter_map(|(s, e)| {
                     let nodes = node_of[s..e].to_vec();
@@ -1919,7 +1983,7 @@ fn synthesize_sites(
                         let segment = Segment::new(ms.nodes[node].lanes.clone())
                             .with_explicit_full(segment_full_markers(&ms.nodes[node]));
                         !synthesis_constraint_matches(g, &segment, &lhs_lanes[i])
-                    }) || !pattern_defaults_ok(g, ms, &nodes, &lhs_lanes)
+                    }) || !pattern_defaults_ok(g, ms, &nodes, lhs_lanes)
                     {
                         return None;
                     }
@@ -1963,7 +2027,7 @@ fn synthesize_sites(
                 break;
             }
             let mut matching = None;
-            for (prepared, sr) in eligible.iter().enumerate() {
+            for sr in &eligible {
                 if sr.kind == Kind::Feature
                     && nodes.iter().any(|&n| ms.nodes[n].kind != NodeKind::Segment)
                 {
@@ -1971,23 +2035,23 @@ fn synthesize_sites(
                 }
                 let (left, right) = envs[sr.index];
                 let bindings = if target.is_none() {
-                    environment_bindings(g, &segs, s, e, left, right, Bindings::default())
+                    environment_bindings(g, segs, s, e, left, right, Bindings::default())
                 } else {
-                    let Some(lm) = left_env_match_for_binding(left, &segs, s) else {
+                    let Some(lm) = left_env_match_for_binding(left, segs, s) else {
                         continue;
                     };
-                    let Some(rm) = right_env_match_for_binding(right, &segs, e) else {
+                    let Some(rm) = right_env_match_for_binding(right, segs, e) else {
                         continue;
                     };
                     resolve_bindings(
                         g,
                         ms,
-                        &node_of,
+                        node_of,
                         &nodes,
-                        &segs,
+                        segs,
                         s,
                         e,
-                        &lhs_vars,
+                        lhs_vars,
                         left,
                         &lm,
                         right,
@@ -2000,7 +2064,6 @@ fn synthesize_sites(
                     matching = Some(SynthesisSite {
                         nodes,
                         subrule: sr.index,
-                        prepared,
                         bindings,
                     });
                     break;
@@ -2033,18 +2096,28 @@ fn synthesize_sites(
         let Some(site) = selected else {
             break;
         };
-        cursor = apply_synthesis_site(g, table, rule, ms, &site, &eligible[site.prepared], probe);
+        *segs_known = None;
+        cursor = apply_synthesis_site(
+            g,
+            table,
+            rule,
+            ms,
+            &site,
+            &prep.subrules[site.subrule],
+            probe,
+        );
         if cursor.is_none() {
             break;
         }
     }
     if rule.mode == RewriteMode::Simultaneous {
+        *segs_known = None;
         for i in 0..pending.len() {
             let (done, remaining) = pending.split_at_mut(i + 1);
             let site = &done[i];
             let insertion_after = *site.nodes.last().unwrap();
             let before = ms.nodes.len();
-            apply_synthesis_site(g, table, rule, ms, site, &eligible[site.prepared], true);
+            apply_synthesis_site(g, table, rule, ms, site, &prep.subrules[site.subrule], true);
             let added = ms.nodes.len() - before;
             if added > 0 {
                 for later in remaining {
@@ -2258,8 +2331,10 @@ pub fn synthesize_with_mpr(
         table,
         rule,
         &mut ms,
+        &mut None,
         target.as_ref(),
         &envs,
+        &SynthesisPrep::build(g, table, rule),
         syn_fs,
         mpr,
         false,
@@ -2280,12 +2355,13 @@ pub(crate) fn synthesize_with_mpr_cached(
     mpr: &MprSet,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    synthesize_with_mpr_cached_stats(g, pid, rule, input, syn_fs, mpr, cache, None)
+    synthesize_with_mpr_cached_stats(g, pid, rule, input, syn_fs, mpr, cache, None, &mut None)
         .map(|rewritten| rewritten.shape)
         .into_iter()
         .collect()
 }
 
+/// `scratch` carries the working copy of `input` from the previous rule of a loop; a result that rewrote leaves it empty.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn synthesize_with_mpr_cached_stats(
     g: &Grammar,
@@ -2296,25 +2372,32 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
     mpr: &MprSet,
     cache: &crate::cache::RuleCache,
     stats: Option<PRuleStatsCtx>,
+    scratch: &mut Option<SynthesisScratch>,
 ) -> Option<SynthesisRewrite> {
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::for_rewrite(g, table, input);
+    let working = scratch_for(scratch, g, table_id, input);
     let pc = cache.prule_rewrite(pid);
     let outcomes = synthesize_sites(
         g,
         table,
         rule,
-        &mut ms,
+        &mut working.ms,
+        &mut working.segs,
         pc.syn_target.as_ref(),
         &synthesis_envs(pc),
+        &pc.synthesis,
         syn_fs,
         mpr,
         false,
         stats,
         None,
     );
-    rewrite_for_outcomes(&ms, &outcomes, input)
+    let result = rewrite_for_outcomes(&working.ms, &outcomes, input);
+    if result.is_some() {
+        *scratch = None;
+    }
+    result
 }
 
 // C# `SynthesisRewriteRule.Apply` traces post-hoc from a per-subrule-index side channel (gate-failure reason, or success) rather than inline; readout reports the FIRST successful index and stops, mirroring the same gate order `subrule_applicable` checks.
@@ -2419,8 +2502,10 @@ pub fn synthesize_with_mpr_traced(
         table,
         rule,
         &mut ms,
+        &mut None,
         target.as_ref(),
         &envs,
+        &SynthesisPrep::build(g, table, rule),
         syn_fs,
         mpr,
         false,
@@ -2453,10 +2538,12 @@ pub fn synthesize_with_mpr_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Shape> {
-    synthesize_with_mpr_cached_traced_stats(g, pid, rule, input, cache, trace, parent, None)
-        .map(|rewritten| rewritten.shape)
-        .into_iter()
-        .collect()
+    synthesize_with_mpr_cached_traced_stats(
+        g, pid, rule, input, cache, trace, parent, None, &mut None,
+    )
+    .map(|rewritten| rewritten.shape)
+    .into_iter()
+    .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2469,6 +2556,7 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     stats: Option<PRuleStatsCtx>,
+    scratch: &mut Option<SynthesisScratch>,
 ) -> Option<SynthesisRewrite> {
     let mode = trace.mode();
     if matches!(mode, crate::trace::TraceMode::Off) {
@@ -2481,11 +2569,12 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
             &input.mpr,
             cache,
             stats,
+            scratch,
         );
     }
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let mut ms = MutShape::for_rewrite(g, table, &input.shape);
+    let working = scratch_for(scratch, g, table_id, &input.shape);
     let pc = cache.prule_rewrite(pid);
     let observation = mode.recorder().map(|recorder| RewriteGateObserver {
         recorder,
@@ -2496,16 +2585,21 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
         g,
         table,
         rule,
-        &mut ms,
+        &mut working.ms,
+        &mut working.segs,
         pc.syn_target.as_ref(),
         &synthesis_envs(pc),
+        &pc.synthesis,
         &input.syn_fs,
         &input.mpr,
         false,
         stats,
         observation.as_ref(),
     );
-    let result = rewrite_for_outcomes(&ms, &outcomes, &input.shape);
+    let result = rewrite_for_outcomes(&working.ms, &outcomes, &input.shape);
+    if result.is_some() {
+        *scratch = None;
+    }
     if let Some(observation) = observation {
         if result.is_none()
             && pg_fst::work::active_budget()
@@ -3940,6 +4034,8 @@ pub(crate) struct SubruleCache {
 pub(crate) struct PruleCache {
     pub(crate) syn_target: Option<Fst>,
     pub(crate) subrules: Vec<SubruleCache>,
+    /// The synthesis data the rule's own grammar content fixes, built with its matchers rather than on every application.
+    pub(crate) synthesis: SynthesisPrep,
 }
 
 /// Build the compile-once cache for one phonological rule (`crate::cache::RuleCache::build` calls
@@ -3997,6 +4093,7 @@ pub(crate) fn build_prule_cache(
     PruleCache {
         syn_target,
         subrules,
+        synthesis: SynthesisPrep::build(g, table, rule),
     }
 }
 
@@ -4040,8 +4137,10 @@ pub(crate) fn probe_apply_rule_cached(
         table,
         rule,
         ms,
+        &mut None,
         pc.syn_target.as_ref(),
         &synthesis_envs(pc),
+        &pc.synthesis,
         syn_fs,
         mpr,
         true,

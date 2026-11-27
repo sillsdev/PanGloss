@@ -53,7 +53,6 @@ pub fn focus_outputs(
     let site = SynthesisSite {
         nodes: (0..focus.len()).collect(),
         subrule,
-        prepared: 0,
         bindings,
     };
     let probe = rule.mode == RewriteMode::Simultaneous;

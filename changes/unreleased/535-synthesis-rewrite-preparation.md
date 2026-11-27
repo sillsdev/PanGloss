@@ -1,0 +1,1 @@
+- Parses spend less time applying phonological rules when generating candidate forms: the rule data that does not depend on the word is built once with the grammar, and consecutive rules that leave the form unchanged share one working copy of it. Results and work counts are unchanged (#535).
