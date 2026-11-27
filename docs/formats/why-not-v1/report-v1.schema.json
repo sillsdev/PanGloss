@@ -266,7 +266,8 @@
             "stem_name",
             "inflection_class",
             "surface_mismatch",
-            "other_gate"
+            "other_gate",
+            "required_co_occurrence"
           ]
         },
         "plain": {
@@ -289,6 +290,23 @@
         "gate": {
           "type": "string",
           "minLength": 1
+        },
+        "slot": {
+          "description": "required_slot_empty only: the empty required slot, by 0-based index and authored name (a slot has no grammar.xml id).",
+          "type": "object",
+          "required": [
+            "index"
+          ],
+          "properties": {
+            "index": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         },
         "provenance": {
           "enum": [
@@ -319,8 +337,14 @@
                     "rule",
                     "class",
                     "stem_name",
-                    "feature"
+                    "feature",
+                    "entry"
                   ]
+                },
+                "name": {
+                  "description": "The authored name of an object that has no grammar.xml id, such as a template.",
+                  "type": "string",
+                  "minLength": 1
                 },
                 "id": {
                   "type": [

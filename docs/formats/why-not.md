@@ -8,10 +8,10 @@ grammar object the failure is about, so a tool can draft a fix.
 
 > **Status: slice 2 (Motif #386).** The command answers `accepted`, `rejected` or `unknown` by
 > reparsing the word with the expected morphs pinned. A rejection names the first failing
-> constraint for these kinds: `no_morph_match`, `environment_unmet`, `adhoc_prohibition` and, for one gate, `other_gate`. `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
+> constraint for these kinds: `no_morph_match`, `environment_unmet`, `adhoc_prohibition`, `feature_clash` (one stem requirement), `required_slot_empty`, `required_co_occurrence` and, for two gates, `other_gate` (`disjunctive_allomorph`, `family_block`). `no_morph_match` is answered only when the trace shows no other cause, or when the word does parse with the same morphemes in another order or with other allomorphs (the `plain` sentence says which). Any
 > other failure, or a search that cannot finish, answers `unknown` with a `stop` reason, never a
 > guess. The examples below show the shape of each answer; ids, GUIDs and wording in them are
-> invented. Kinds beyond the four above are later slices. Slice 2 declares the capability (see Detecting why-not) and makes every id in a report a `grammar.xml` id or a typed absence (see Ids).
+> invented. Kinds beyond those above are later slices. A failure is named only when the evidence proves that object caused the rejection; a surface mismatch, a clash between rules, a stem name and every other failure stay `unknown`. Slice 2 declares the capability (see Detecting why-not) and makes every id in a report a `grammar.xml` id or a typed absence (see Ids).
 
 Schemas: [`why-not-v1/report-v1.schema.json`](why-not-v1/report-v1.schema.json) (the report) and
 [`why-not-v1/expect-v1.schema.json`](why-not-v1/expect-v1.schema.json) (the `--expect-json` input).
@@ -129,7 +129,7 @@ The report **always** has `results`, even for a single candidate, so one shape s
 | `results[].result` | `accepted`, `rejected` or `unknown` |
 | `results[].analysis` | when accepted: `{analysis, used}`. `analysis` is `{morphs, root_index, category, guessed}`: the derivation by authored ids (every morph in surface order as `{morpheme, allomorph, guid?}`, the root's index in `morphs`, the part of speech's `grammar.xml` id or null); it carries no engine ordinal. `used` has one `{morpheme, allomorph?}` per position, the choice that produced it. Otherwise null |
 | `results[].failure` | when rejected: the first failure (below). Otherwise null |
-| `results[].stop` | when unknown: `not_implemented`, `work_cap`, `deadline`, `failure_not_expressible` (a failure was found but cannot fill a required `failure` field; the C# tool emits this, so both engines share this schema), `no_root` (no position is a lexical entry), `unsupported_morpheme` (a position is neither a lexical entry nor an affix rule), `compounding_unsupported` (several are), `word_not_segmentable` (the word has no segmentation the parser can start from), `unclassified_failure` (HC stopped the derivation for a reason this release does not name: a category or feature clash, an empty required slot, a family block, a stem name, a `require` co-occurrence rule, a surface mismatch) or `choices_capped` (the candidate expands to more concrete sequences than the search tries). Otherwise null |
+| `results[].stop` | when unknown: `not_implemented`, `work_cap`, `deadline`, `failure_not_expressible` (a failure was found but cannot fill a required `failure` field; the C# tool emits this, so both engines share this schema), `no_root` (no position is a lexical entry), `unsupported_morpheme` (a position is neither a lexical entry nor an affix rule), `compounding_unsupported` (several are), `word_not_segmentable` (the word has no segmentation the parser can start from), `unclassified_failure` (HC stopped the derivation for a reason this release does not name: a feature clash that is not one single affix's stem requirement, an empty required slot the trace cannot attribute to one template, a stem name, a surface mismatch; the `plain`-style `stop_note` says which) or `choices_capped` (the candidate expands to more concrete sequences than the search tries). Otherwise null |
 | `results[].stop_note` | when unknown: one sentence saying what was reached. Optional |
 | `best` | index into `results` of the best candidate, or null |
 
@@ -149,7 +149,7 @@ rejected.
 | `position` | 0-based position in the candidate of the morph whose check failed, or null when the failure is about the whole word. For `environment_unmet` and `adhoc_prohibition` it is the position of `morphs[0]`, the allomorph or morpheme that owns the environment or the rule; for a prohibition the partner is only in `morphs[1]` and `members`, so `position` does not say where it sits. Never a guess: null when the morph cannot be placed in the candidate |
 | `hc_reason` | the engine's reason, the C# `FailureReason` name when HC reports it, or null when PanGloss inferred the failure |
 | `provenance` | `hc_reported` (C# raises this failure) or `derived` (PanGloss inferred it; C# has no event) |
-| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`. `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the grammar came from a FieldWorks model (a `.fwdata` snapshot). `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`; `guid` is that allomorph's `MoForm` guid); `adhoc_prohibition` fills it with the `rule` (`guid` is the `MoAdhocProhib` guid, `id` stays null); `stem_name` carries `stem_name` instead; null when no single object applies |
+| `object` | the grammar object a fix would touch, for kinds without a dedicated field above: `{type, id, guid}`; `type` is one of `environment`, `allomorph`, `affix`, `slot`, `template`, `rule`, `class`, `stem_name`, `feature`, `entry`. A template or entry has no `grammar.xml` id, so `id` is null and the object carries `name`, its authored name (the template's `name`). `id` is the `grammar.xml` id; `guid` is the FieldWorks identity, filled in only when the grammar came from a FieldWorks model (a `.fwdata` snapshot). `environment_unmet` fills it with the allomorph the environment belongs to (the same id as `environment.allomorph_id`; `guid` is that allomorph's `MoForm` guid); `adhoc_prohibition` fills it with the `rule` (`guid` is the `MoAdhocProhib` guid, `id` stays null); `stem_name` carries `stem_name` instead; null when no single object applies |
 | `morphs` | the morph(s) involved, as `{morpheme, allomorph?}` (the shape of an expected-parse element; `allomorph` is omitted when unknown); for a position with several choices, the choice used. For `adhoc_prohibition` it is the pair, the rule's primary morph first and the offending partner second; for `stem_name` the root allomorph |
 | `context` | `environment_unmet` only: `{left, right, provenance}`, the actual text around the allomorph in the form HC checked, which is the synthesized form and can differ from the word when phonological rules apply (`plain` then says so); otherwise null. HC does not report it, so an engine or adapter computes it and `provenance` is always `derived`, even when the failure itself is `hc_reported` |
 | `environment` | `environment_unmet` only: `{allomorph_id, guid?, text?, index?}`. When one environment failed it is that environment: its 0-based `index` in the allomorph's list, the FieldWorks environment `guid` and the authored `text` (such as `/ _ #`), the last two only on a snapshot-route grammar. When several failed (an allomorph's environments are any-of, so all of them failed) it names only the allomorph and `environments` lists them. `index` is omitted when unknown, never a fake 0. Otherwise null |
@@ -157,7 +157,8 @@ rejected.
 | `members` | `adhoc_prohibition` only: every morph the prohibition names, primary first, each `{morpheme, allomorph?, guid?, form_guid?}` (`morphs` keeps just the clashing pair); omitted otherwise. An allomorph prohibition lists the allomorphs, a morpheme prohibition the morphemes |
 | `stem_name` | `stem_name` only: the stem name's `grammar.xml` id. Otherwise null |
 | `features` | `feature_clash` only: an array with one `{path, required, actual}` per mismatching feature path (the word's feature state against one requirement); an empty array otherwise |
-| `gate` | `other_gate` only: the named gate, `disjunctive_allomorph`; omitted for every other kind |
+| `slot` | `required_slot_empty` only: `{index, name?}`, the empty required slot (0-based `index`, authored `name`; a slot has no `grammar.xml` id); omitted for every other kind |
+| `gate` | `other_gate` only: the named gate, `disjunctive_allomorph` or `family_block`; omitted for every other kind |
 | `alternatives` | how many other derivations of the same concrete morph sequence also fail (any reason), or null when none; derivations of other sequences of a multi-choice candidate are not counted |
 
 Kinds, in the order C# reaches them (`check` order, earliest first): `no_morph_match`, `slot_order`,
@@ -197,6 +198,24 @@ reason (it builds the word and rejects it on the surface), so `provenance` is `d
 * The `grammar.xml` id is the required identity everywhere. `entry_guid` and `msa_guid` (in a choice's `guid`) and
   `object.guid` are optional and are filled in when the caller has the FieldWorks model, as Motif does.
 
+`feature_clash` is answered for one cause: a pinned affix whose stem requirement refuses the root entry's
+features. `object` is that affix rule and `features` lists each mismatching path. It is named only when that affix is the
+derivation's only applied rule and the lexical lookup's input features are exactly its requirement. A clash between two rules, or in
+a derivation with several rules, stays `unknown`, because the features a rule demands of its stem are the result of earlier rules
+removing and overriding features, and the trace cannot prove which object caused the mismatch.
+
+`required_slot_empty` is answered when HermitCrab's stratum reports a partial parse because an applicable template
+was not applied and exactly one template could apply. `object` is the template (`name`) and `slot` the empty required slot.
+`hc_reason` is `PartialParse`.
+
+`required_co_occurrence` is answered when a `require` co-occurrence rule (a morpheme that needs another morpheme beside it, `adjacency`
+`anywhere`, `before` or `after`) finds none of its required morphemes. `object` is the rule (`id` and `guid` null, as for an `adhoc_prohibition`), `morphs` the rule's owner first and the first required morpheme it lacks second, and
+`members` every morph the rule names. `hc_reason` is `MorphemeCoOccurrenceRules`. `require` rules exist only in hand-written grammar.xml (ADR 0014).
+
+`other_gate` also answers `gate` `family_block`: an entry of the same family
+blocks the expected derivation: HermitCrab replaces the output of the expected morph with that entry's. `object` is that entry
+(`type` `entry`, its `grammar.xml` `id`; `morphs` lists the expected root, the blocked rule and the blocking entry); `provenance` is `derived`, `hc_reason` null.
+
 ### Ids
 
 Every identifier in a report is a `grammar.xml` id (the `id` attribute) or a typed absence. No
@@ -212,7 +231,8 @@ engine ordinal (a morpheme, allomorph, rule or part-of-speech index) appears in 
 | part of speech | `analysis.category` | `grammar.xml` part-of-speech id |
 | co-occurrence rule | `object` `{type: "rule", id: null, guid}` | `guid` is the `MoAdhocProhib` guid on a snapshot-route grammar and null for grammar.xml, which gives these rules no id. It is found by the primary and the full member set; when two prohibitions have the same primary and members the trace cannot say which fired, so `guid` is null. `morphs[0]` is the rule's owner |
 | environment | `environment.index`, `environment.guid`, `environment.text` | `index` is the 0-based position in its allomorph's list; `guid` and `text` come from the FieldWorks model only, never from grammar.xml: its `<Environment>` has no id, and an `id` authored there is never reported as a guid |
-| rule (phonological or morphological), template, slot | not reported | no failure kind that names them is answered yet (they are `unknown / unclassified_failure`) |
+| template, slot | `object` `{type: "template", id: null, name}` and `slot` `{index, name?}` | neither has a `grammar.xml` id; named by authored name and, for a slot, 0-based index |
+| rule (phonological) | not reported | a phonological rule is never named; the failure is `unknown / unclassified_failure` |
 
 On a `grammar.xml`, `plain` names an allomorph by its id (`aSal`) and a morpheme by its id with its text
 (`eSal ("SAL")`); on a FieldWorks snapshot it names a morph by form text and gloss instead (`ta- 'PA' forbids da 'run'`). The suite runner's morph lines name the morpheme by `MorphemeId` text as the suite
@@ -568,21 +588,26 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
       "analysis": null,
       "failure": {
         "kind": "required_slot_empty",
-        "plain": "The template requires slot 2 to be filled, and no expected morph fills it.",
+        "plain": "slot \"suffixSlot\" of template \"verbTemplate\" must be filled, and no morph of the candidate belongs to it",
         "position": null,
-        "hc_reason": "None",
+        "hc_reason": "PartialParse",
         "provenance": "hc_reported",
         "object": {
           "type": "template",
-          "id": "tmpl1",
-          "guid": "00000000-0000-0000-0000-000000000004"
+          "id": null,
+          "guid": null,
+          "name": "verbTemplate"
         },
         "morphs": [],
         "context": null,
         "environment": null,
         "stem_name": null,
         "features": [],
-        "alternatives": null
+        "alternatives": null,
+        "slot": {
+          "index": 1,
+          "name": "suffixSlot"
+        }
       },
       "stop": null
     }
@@ -622,7 +647,7 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
         "kind": "feature_clash",
         "plain": "Suffix `ak` requires tense=past but the word has tense=future.",
         "position": 1,
-        "hc_reason": "RequiredSyntacticFeatureStruct",
+        "hc_reason": "LexicalLookupFeatures",
         "provenance": "hc_reported",
         "object": {
           "type": "rule",
@@ -697,6 +722,70 @@ The candidate is `kib,ak,ek` unless the example says otherwise.
           },
           {
             "morpheme": "ek"
+          }
+        ],
+        "context": null,
+        "environment": null,
+        "stem_name": null,
+        "features": [],
+        "alternatives": null
+      },
+      "stop": null
+    }
+  ],
+  "best": 0
+}
+```
+
+#### `required_co_occurrence`
+
+```json
+{
+  "schema": "pangloss.whynot.v1",
+  "word": "kibakek",
+  "results": [
+    {
+      "expect": [
+        [
+          {
+            "morpheme": "kib"
+          }
+        ],
+        [
+          {
+            "morpheme": "ek"
+          }
+        ]
+      ],
+      "result": "rejected",
+      "analysis": null,
+      "failure": {
+        "kind": "required_co_occurrence",
+        "plain": "ek (\"EK\") [subEk] requires ak (\"AK\"), which the candidate does not provide",
+        "position": 1,
+        "hc_reason": "MorphemeCoOccurrenceRules",
+        "provenance": "hc_reported",
+        "object": {
+          "type": "rule",
+          "id": null,
+          "guid": null
+        },
+        "morphs": [
+          {
+            "morpheme": "ek",
+            "allomorph": "subEk"
+          },
+          {
+            "morpheme": "ak"
+          }
+        ],
+        "members": [
+          {
+            "morpheme": "ek",
+            "allomorph": "subEk"
+          },
+          {
+            "morpheme": "ak"
           }
         ],
         "context": null,

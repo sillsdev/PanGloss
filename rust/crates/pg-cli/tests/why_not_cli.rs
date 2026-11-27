@@ -575,39 +575,56 @@ fn json_allomorph_pins_and_a_wrong_guid_on_a_unique_id_is_refused() {
 }
 
 #[test]
-fn a_category_clash_is_not_reported_as_no_morph_match() {
+fn a_category_clash_names_the_affix_whose_stem_requirement_the_root_refuses() {
     let r = answer_on(
         "why-not-pos-clash.xml",
         "lost",
         &["--expect", "eLos,mrSufT"],
     );
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure");
+    assert_eq!(failure_kind(&r), "feature_clash", "{r}");
+    let f = &r["failure"];
+    assert_eq!(f["object"]["type"], "rule", "{r}");
+    assert_eq!(f["object"]["id"], "mrSufT", "{r}");
+    assert_eq!(f["hc_reason"], "LexicalLookupFeatures");
+    assert!(!f["features"].as_array().unwrap().is_empty(), "{r}");
 }
 
 #[test]
-fn an_unfilled_required_slot_is_not_reported_as_no_morph_match() {
+fn an_unfilled_required_slot_names_its_template_and_slot() {
     let r = answer_on("why-not-required-slot.xml", "ga", &["--expect", "eGa"]);
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure");
+    assert_eq!(failure_kind(&r), "required_slot_empty", "{r}");
+    let f = &r["failure"];
+    assert_eq!(f["object"]["type"], "template");
+    assert_eq!(f["object"]["name"], "verbTemplate");
+    assert_eq!(f["slot"]["index"], 0);
+    assert_eq!(f["slot"]["name"], "prefixSlot");
+    assert_eq!(f["hc_reason"], "PartialParse");
 }
 
 #[test]
-fn a_family_block_is_not_reported_as_no_morph_match() {
+fn a_family_block_names_the_blocking_entry() {
     let r = answer_on("trace-family.xml", "zodut", &["--expect", "eZod,mrPast2"]);
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure");
+    assert_eq!(failure_kind(&r), "other_gate", "{r}");
+    let f = &r["failure"];
+    assert_eq!(f["gate"], "family_block");
+    assert_eq!(f["object"]["type"], "entry");
+    assert_eq!(f["object"]["id"], "eVem");
+    assert_eq!(f["provenance"], "derived");
 }
 
 #[test]
-fn a_require_rule_is_unknown_not_an_adhoc_prohibition() {
+fn a_require_rule_is_a_required_co_occurrence_not_an_adhoc_prohibition() {
     let r = answer_on(
         "why-not-require-rule.xml",
         "lostk",
         &["--expect", "eLos,mrSufT,mrSufK"],
     );
-    assert_eq!(r["result"], "unknown", "{r}");
-    assert_eq!(r["stop"], "unclassified_failure");
+    assert_eq!(failure_kind(&r), "required_co_occurrence", "{r}");
+    let f = &r["failure"];
+    assert_eq!(f["object"]["type"], "rule");
+    assert_eq!(f["morphs"][0]["morpheme"], "mrSufK");
+    assert_eq!(f["morphs"][1]["morpheme"], "mrPreO");
+    assert_eq!(f["hc_reason"], "MorphemeCoOccurrenceRules");
 }
 
 #[test]
@@ -758,8 +775,11 @@ fn describe_declares_the_why_not_capability() {
         [
             "no_morph_match",
             "environment_unmet",
+            "required_slot_empty",
+            "feature_clash",
             "adhoc_prohibition",
-            "other_gate"
+            "other_gate",
+            "required_co_occurrence"
         ]
     );
 }
@@ -787,6 +807,17 @@ fn every_declared_kind_is_really_answered_and_the_rest_are_unknown() {
             &["--expect", "eKib,mrPast2,mrPl"],
         ),
         answer_on(&disjunctive_fixture(), "banku", &["--expect", "eBan,mrDat"]),
+        answer_on(
+            "why-not-pos-clash.xml",
+            "lost",
+            &["--expect", "eLos,mrSufT"],
+        ),
+        answer_on("why-not-required-slot.xml", "ga", &["--expect", "eGa"]),
+        answer_on(
+            "why-not-require-rule.xml",
+            "lostk",
+            &["--expect", "eLos,mrSufT,mrSufK"],
+        ),
     ];
     for r in &seen {
         let k = failure_kind(r).to_string();

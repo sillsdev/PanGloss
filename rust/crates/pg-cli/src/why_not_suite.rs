@@ -260,6 +260,7 @@ mod tests {
             features: vec![],
             alternatives: None,
             gate: None,
+            slot: None,
         }
     }
 
