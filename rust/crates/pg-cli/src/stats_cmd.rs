@@ -421,6 +421,8 @@ fn stats_options_identity(options: &StatsOptionsRecord) -> Result<StatsOptionsId
 pub(crate) struct BatchStatsWord {
     pub(crate) record: pg_stats::WordRecord,
     pub(crate) prunes: Option<pg_rules::stats::PruneCounters>,
+    /// Facts this word could not record faithfully; the run summary counts them.
+    pub(crate) warnings: u64,
 }
 
 pub(crate) enum BatchStatsCollector<'g> {
@@ -470,6 +472,7 @@ impl<'g> BatchStatsCollector<'g> {
                 let stats = BatchStatsWord {
                     record: word_record(word, &result),
                     prunes: None,
+                    warnings: 0,
                 };
                 Ok((result, stats))
             }
@@ -482,9 +485,18 @@ impl<'g> BatchStatsCollector<'g> {
                     outcome,
                     elapsed: start.elapsed(),
                 };
+                // One word whose facts cannot be converted must not abort the run and discard every word already measured: keep its word row, drop its facts, and count a warning.
                 let stats = batch_stats_word_with_gates(
                     grammar, identities, word, &result, &rows, &prunes, &gates,
-                )?;
+                )
+                .unwrap_or_else(|error| {
+                    eprintln!("warning: stats for {word:?} dropped its facts: {error}");
+                    BatchStatsWord {
+                        record: word_record(word, &result),
+                        prunes: None,
+                        warnings: 1,
+                    }
+                });
                 Ok((result, stats))
             }
         }
@@ -515,14 +527,15 @@ pub(crate) fn batch_stats_word(
 ) -> Result<BatchStatsWord, String> {
     let prunes = sum_prune_rows(prune_rows);
     let mut facts = Vec::with_capacity(rows.len() + 1);
-    let mut attributed = 0;
+    let mut attributed = 0u64;
     for row in rows {
         facts.push(fact_record_from_stats_row(grammar, identities, row)?);
-        attributed += row.counters.work_steps;
+        attributed = attributed.saturating_add(row.counters.work_steps);
     }
-    let unattributed = (outcome.outcome.work_steps as u64)
-        .checked_sub(attributed)
-        .expect("object work steps exceed the word budget");
+    let word_steps = outcome.outcome.work_steps as u64;
+    // Object steps above the word total mean a counter was charged outside the word's budget: record no unattributed remainder and say so, as rich-trace does, rather than panic.
+    let warnings = u64::from(attributed > word_steps);
+    let unattributed = word_steps.saturating_sub(attributed);
     facts.push(pg_stats::FactRecord {
         object_key: "unattributed".into(),
         object_kind: pg_stats::ObjectKind::Unattributed,
@@ -548,6 +561,7 @@ pub(crate) fn batch_stats_word(
             ..word_record(word, outcome)
         },
         prunes: Some(prunes),
+        warnings,
     })
 }
 
@@ -563,16 +577,26 @@ pub(crate) fn batch_stats_word_with_gates(
     gates: &[pg_rules::stats::GateRow],
 ) -> Result<BatchStatsWord, String> {
     let mut result = batch_stats_word(grammar, identities, word, outcome, rows, prune_rows)?;
+    // A predicate row must belong to a grammar object; a row that does not is skipped and counted instead of panicking.
+    let (owned, orphaned): (Vec<&pg_rules::stats::GateRow>, Vec<_>) =
+        gates.iter().partition(|row| {
+            use pg_rules::stats::ObjectKind;
+            matches!(
+                row.kind,
+                ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry
+            )
+        });
+    result.warnings += orphaned.len() as u64;
     result.record.gates = Some(
-        gates
-            .iter()
+        owned
+            .into_iter()
             .map(|row| {
                 use pg_rules::stats::{GateFeature, ObjectKind};
                 let identity = match row.kind {
                     ObjectKind::MorphRule => identities.morph_rule(MRuleId(row.object_index)),
                     ObjectKind::PhonRule => identities.phon_rule(PRuleId(row.object_index)),
                     ObjectKind::LexEntry => identities.lex_entry(LexEntryId(row.object_index)),
-                    _ => panic!("a feature predicate must have a grammar object owner"),
+                    _ => return Err("a feature predicate must have a grammar object owner".into()),
                 };
                 let (feature_key, feature_kind, feature_label, mode) = match row.feature {
                     GateFeature::Mpr(bit, _) | GateFeature::CompoundMpr(bit) => {
@@ -705,6 +729,7 @@ pub(crate) struct BatchStatsCache {
     grammar_hash: String,
     existing_words: HashSet<String>,
     skipped: usize,
+    warnings: u64,
     options: StatsOptionsRecord,
     mode: BatchStatsCacheMode,
     pack: bool,
@@ -738,6 +763,7 @@ impl BatchStatsCache {
             return Ok(());
         }
         self.analyzed += 1;
+        self.warnings += word.warnings;
         self.elapsed_ns += u128::from(word.record.elapsed_ns);
         if let (Some(total), Some(prunes)) = (&mut self.prune_totals, word.prunes) {
             total.accumulate(&prunes);
@@ -773,6 +799,12 @@ impl BatchStatsCache {
             self.skipped,
             elapsed.as_secs_f64() * 1e3
         );
+        if self.warnings > 0 {
+            println!(
+                "stats: warnings={} (words whose counters or facts could not be recorded in full)",
+                self.warnings
+            );
+        }
         Ok((cache, run_id))
     }
 }
@@ -955,6 +987,7 @@ fn prepare_batch_stats_hc_inner(
         grammar_hash: grammar_hash.to_string(),
         existing_words: existing,
         skipped,
+        warnings: 0,
         options,
         pack: false,
         mode: if frozen {
@@ -995,13 +1028,28 @@ pub(crate) fn finish_batch_stats_hc(
         let BatchStatsCacheMode::Reusable { cache_path } = prepared.mode else {
             return Err("frozen stats cache requires the manifest finalizer".into());
         };
-        cache.checkpoint_and_close().map_err(|e| e.to_string())?;
-        pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
+        if let Some(warning) = pack_committed_cache(cache, &cache_path) {
+            eprintln!("warning: {warning}");
+        }
     }
     if let Some(counters) = prune_totals {
         println!("{}", final_template_stats_line(counters));
     }
     Ok(prune_totals)
+}
+
+/// Packs a reusable cache whose words are already committed. A reader holding the cache can keep the checkpoint or the pack from finishing; the run still succeeded, so that is a warning and the cache stays unpacked but valid.
+fn pack_committed_cache(cache: pg_stats::StatsCache, cache_path: &Path) -> Option<String> {
+    if let Err(error) = cache.checkpoint_and_close() {
+        return Some(format!(
+            "--cache-pack skipped, the run's words are committed and the cache is valid but unpacked: {error}"
+        ));
+    }
+    pg_stats::pack::pack(cache_path).err().map(|error| {
+        format!(
+            "--cache-pack did not finish, the run's words are committed and the cache is valid: {error}"
+        )
+    })
 }
 
 pub(crate) fn finish_frozen_batch_stats_hc(
@@ -2943,9 +2991,8 @@ fn write_stats_report(out_path: Option<&str>, body: &str) -> Result<(), String> 
 }
 
 fn self_time_value(kind: &str, value: i64) -> Option<i64> {
-    let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
-        panic!("kind string from the cache must be a known ObjectKind: {kind}")
-    });
+    // A cache written by a newer binary may hold a kind this one does not know; show no self time rather than abort the report.
+    let stats_kind: pg_stats::ObjectKind = kind.parse().ok()?;
     stats_kind_to_rules_kind(stats_kind)
         .filter(|kind| pg_rules::stats::self_time_supported(*kind))
         .map(|_| value)

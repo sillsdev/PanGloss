@@ -1371,3 +1371,17 @@ fn fst_switch_and_auto_order_are_reachable_from_grammar_health() {
     assert_eq!(report["attempts"][0]["strategy"], "factored");
     assert_eq!(report["attempts"][1]["strategy"], "surface-enum");
 }
+
+#[test]
+fn atomic_write_replaces_an_existing_file_and_leaves_no_temporary() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("snapshot.json");
+    fs::write(&target, "old contents that are longer than the new ones").unwrap();
+    write_file_atomically(&target, b"new").unwrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new");
+    let names: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, vec![std::ffi::OsString::from("snapshot.json")]);
+}

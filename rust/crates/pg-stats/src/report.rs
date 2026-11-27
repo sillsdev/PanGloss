@@ -679,7 +679,9 @@ impl MixedSettings {
 /// Reports whether a query over this cache would silently span mixed collector settings.
 pub fn mixed_settings(conn: &Connection) -> Result<MixedSettings, StatsError> {
     conn.query_row(
-        "SELECT COUNT(DISTINCT options_hash), COUNT(DISTINCT counter_semantics) FROM run",
+        // Only runs that still own words matter: a superseded run whose words were all rewritten no longer shapes any row.
+        "SELECT COUNT(DISTINCT options_hash), COUNT(DISTINCT counter_semantics) FROM run
+         WHERE run_id IN (SELECT DISTINCT run_id FROM word)",
         [],
         |row| {
             Ok(MixedSettings {

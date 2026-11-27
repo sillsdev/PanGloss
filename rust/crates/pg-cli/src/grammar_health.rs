@@ -236,7 +236,8 @@ pub(crate) fn run_grammar_health_with_limits(
 
     match out_path {
         Some(path) => {
-            fs::write(path, &json).map_err(|e| format!("write {path}: {e}"))?;
+            write_file_atomically(Path::new(path), json.as_bytes())
+                .map_err(|e| format!("write {path}: {e}"))?;
         }
         None => println!("{json}"),
     }
@@ -451,7 +452,7 @@ impl ArtifactArgs<'_> {
             return Some("no snapshot was produced; snapshot and facts not written".to_string());
         };
         if let Some(path) = self.snapshot_out {
-            if let Err(error) = fs::write(path, snapshot) {
+            if let Err(error) = write_file_atomically(Path::new(path), snapshot.as_bytes()) {
                 return Some(format!("write {path}: {error}"));
             }
         }
@@ -559,6 +560,20 @@ fn render_level_counts(diagnostics: &[GrammarHealthDiagnostic]) -> String {
 
 fn count_level(diagnostics: &[GrammarHealthDiagnostic], level: DiagnosticLevel) -> usize {
     diagnostics.iter().filter(|d| d.level == level).count()
+}
+
+/// Publishes `bytes` at `path` through a temporary file in the same directory, replacing any existing file, so a crash leaves the old file or the whole new one and never a truncated one.
+fn write_file_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary.write_all(bytes)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+    Ok(())
 }
 
 #[cfg(test)]

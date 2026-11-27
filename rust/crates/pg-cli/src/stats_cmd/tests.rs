@@ -102,6 +102,7 @@ fn exercise_batch_rollback(profile: StatsProfile) {
             }),
         },
         prunes: full.then(pg_rules::stats::PruneCounters::default),
+        warnings: 0,
     };
 
     let snapshot = |conn: &rusqlite::Connection| {
@@ -333,6 +334,71 @@ fn invalid_parser_work_index_refuses_stats_record() {
         error.contains("invalid parser work index 4294967295"),
         "{error}"
     );
+}
+
+#[test]
+fn object_work_above_the_word_total_warns_instead_of_panicking() {
+    let (xml, word) = primary_fixture();
+    let dir = scratch_dir("object-work-over-budget");
+    let path = dir.join("grammar.xml");
+    fs::write(&path, xml).unwrap();
+    let (grammar, _) = crate::load_grammar(path.to_str().unwrap()).unwrap();
+    let identities = StatsIdentityCatalog::new(&grammar);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let outcome = pg_parse::BatchWordOutcome {
+        outcome: morpher.parse_word_opts(&word, &pg_parse::ParseOptions::default()),
+        elapsed: std::time::Duration::ZERO,
+    };
+    let mut row = pg_rules::stats::StatsRow {
+        kind: pg_rules::stats::ObjectKind::Parser,
+        object_index: 0,
+        stratum: pg_grammar::model::StratumId(0),
+        allomorph: pg_rules::stats::ALLOMORPH_NONE,
+        direction: pg_rules::stats::Direction::Analysis,
+        counters: pg_rules::stats::Counters::default(),
+    };
+    row.counters.work_steps = u64::MAX;
+    let result = batch_stats_word(&grammar, &identities, &word, &outcome, &[row], &[]).unwrap();
+    assert_eq!(result.warnings, 1);
+    let unattributed = result
+        .record
+        .facts
+        .iter()
+        .find(|fact| fact.object_key == "unattributed")
+        .unwrap();
+    assert_eq!(unattributed.work_steps, 0);
+}
+
+#[test]
+fn a_gate_row_without_an_owner_is_skipped_and_counted() {
+    let (xml, word) = primary_fixture();
+    let dir = scratch_dir("ownerless-gate");
+    let path = dir.join("grammar.xml");
+    fs::write(&path, xml).unwrap();
+    let (grammar, _) = crate::load_grammar(path.to_str().unwrap()).unwrap();
+    let identities = StatsIdentityCatalog::new(&grammar);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let outcome = pg_parse::BatchWordOutcome {
+        outcome: morpher.parse_word_opts(&word, &pg_parse::ParseOptions::default()),
+        elapsed: std::time::Duration::ZERO,
+    };
+    let gate = pg_rules::stats::GateRow {
+        kind: pg_rules::stats::ObjectKind::Parser,
+        object_index: 0,
+        feature: pg_rules::stats::GateFeature::Mpr(0, false),
+        passed: 1,
+        blocked: 0,
+    };
+    let result =
+        batch_stats_word_with_gates(&grammar, &identities, &word, &outcome, &[], &[], &[gate])
+            .unwrap();
+    assert_eq!(result.warnings, 1);
+    assert!(result.record.gates.unwrap().is_empty());
+}
+
+#[test]
+fn an_unknown_cache_kind_shows_no_self_time() {
+    assert_eq!(self_time_value("kind-from-a-future-binary", 5), None);
 }
 
 /// Every field set to a distinct prime, so a dropped or swapped field changes the output.
@@ -4307,4 +4373,47 @@ fn words_is_absent_for_orientations_that_do_not_report_it() {
     let (headers, _) = render_narrow_self_totals(std::slice::from_ref(&view), true);
     assert!(!headers.contains(&"words"));
     assert!(row_view_to_json(&view).get("words").is_none());
+}
+
+#[test]
+fn a_reader_holding_the_cache_turns_a_pack_failure_into_a_warning() {
+    let dir = scratch_dir("pack-held-by-reader");
+    let path = dir.join("cache.sqlite3");
+    let mut cache = pg_stats::StatsCache::open(&path, "hash-a").unwrap().cache;
+    let run = pg_stats::RunMetadata {
+        build_info: "test".into(),
+        fwdata_path: "project.fwdata".into(),
+        grammar_hash: "hash-a".into(),
+        engine: "hc".into(),
+        options_hash: "opts".into(),
+        options_json: "{}".into(),
+        created_utc: "2026-11-27T00:00:00Z".into(),
+        work_cap: None,
+    };
+    let word = pg_stats::WordRecord {
+        form: "apu".into(),
+        elapsed_ns: 1,
+        work: 1,
+        passes: 1,
+        capped: false,
+        timed_out: false,
+        invalid_shape: false,
+        facts: Vec::new(),
+        gates: Some(Vec::new()),
+    };
+    cache.flush(&run, &[word]).unwrap();
+    let reader = rusqlite::Connection::open(&path).unwrap();
+    reader.execute_batch("BEGIN").unwrap();
+    let words: i64 = reader
+        .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(words, 1);
+    let warning = pack_committed_cache(cache, &path).expect("a held cache must warn");
+    assert!(warning.contains("committed"), "{warning}");
+    reader.execute_batch("COMMIT").unwrap();
+    let kept: i64 = rusqlite::Connection::open(&path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM word", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 1);
 }

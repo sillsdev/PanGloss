@@ -218,15 +218,14 @@ impl StatsRunWriter {
             return Err(StatsError::RunWriteFailed);
         }
         self.failed = true;
-        write_word(
+        let replaced = write_word(
             &self.cache.conn,
             self.cache.schema_version,
             &mut self.interner,
             self.run_id,
             word,
         )?;
-        self.words = checked_counter_add("word_count", self.words, 1)?;
-        self.elapsed = checked_counter_add("total_elapsed_ns", self.elapsed, word.elapsed_ns)?;
+        (self.words, self.elapsed) = count_word(self.words, self.elapsed, word, replaced)?;
         self.failed = false;
         Ok(())
     }
@@ -265,6 +264,25 @@ impl StatsRunWriter {
         self.cache.conn.execute_batch("COMMIT")?;
         Ok((self.cache, self.run_id))
     }
+}
+
+/// Adds `word` to a run's counts. A form the same run already wrote is replaced, not added twice.
+fn count_word(
+    words: u64,
+    elapsed: u64,
+    word: &WordRecord,
+    replaced: Replaced,
+) -> Result<(u64, u64), StatsError> {
+    let (words, elapsed) = match replaced {
+        Replaced::SameRun { elapsed_ns } => (words, elapsed.saturating_sub(elapsed_ns)),
+        Replaced::None | Replaced::OtherRun => {
+            (checked_counter_add("word_count", words, 1)?, elapsed)
+        }
+    };
+    Ok((
+        words,
+        checked_counter_add("total_elapsed_ns", elapsed, word.elapsed_ns)?,
+    ))
 }
 
 fn checked_counter_add(counter: &'static str, left: u64, right: u64) -> Result<u64, StatsError> {
@@ -410,19 +428,61 @@ fn refuse_profile_change(existing_version: i64, requested_version: i64) -> Resul
     Ok(())
 }
 
+/// What a word write displaced.
+enum Replaced {
+    None,
+    /// The same run had already written this form; its elapsed time leaves that run's total.
+    SameRun {
+        elapsed_ns: u64,
+    },
+    /// An earlier run owned this form; that run's counts were reduced.
+    OtherRun,
+}
+
+/// Moves ownership of `word.form` to `run_id`, taking the form out of the counts of the run that held it.
+fn release_previous_owner(
+    conn: &Connection,
+    run_id: i64,
+    form: &str,
+) -> Result<Replaced, StatsError> {
+    let previous: Option<(i64, i64)> = conn
+        .prepare_cached("SELECT run_id, elapsed_ns FROM word WHERE form = ?1")?
+        .query_row(params![form], |row| Ok((row.get(0)?, row.get(1)?)))
+        .optional()?;
+    let Some((owner, elapsed_ns)) = previous else {
+        return Ok(Replaced::None);
+    };
+    if owner == run_id {
+        return Ok(Replaced::SameRun {
+            elapsed_ns: u64::try_from(elapsed_ns).unwrap_or(0),
+        });
+    }
+    execute_cached(
+        conn,
+        "UPDATE run SET word_count = MAX(word_count - 1, 0),
+                        total_elapsed_ns = MAX(total_elapsed_ns - ?2, 0)
+         WHERE run_id = ?1",
+        params![owner, elapsed_ns],
+    )?;
+    Ok(Replaced::OtherRun)
+}
+
 fn write_word(
     conn: &Connection,
     schema_version: i64,
     interner: &mut Interner,
     run_id: i64,
     word: &WordRecord,
-) -> Result<(), StatsError> {
+) -> Result<Replaced, StatsError> {
     if schema_version == schema::WORD_ONLY_SCHEMA_VERSION {
         if !word.facts.is_empty() || word.gates.is_some() {
             return Err(StatsError::WordOnlyFactsUnavailable);
         }
-        return upsert_word(conn, run_id, word);
+        let replaced = release_previous_owner(conn, run_id, &word.form)?;
+        upsert_word(conn, run_id, word)?;
+        return Ok(replaced);
     }
+    let replaced = release_previous_owner(conn, run_id, &word.form)?;
     upsert_word(conn, run_id, word)?;
     let word_id = query_id_cached(
         conn,
@@ -480,7 +540,7 @@ fn write_word(
             )
         })?;
     }
-    Ok(())
+    Ok(replaced)
 }
 
 /// Result of `StatsCache::open`: the cache, and whether opening it wiped prior data.
@@ -810,11 +870,12 @@ impl StatsCache {
         let run_id = insert_run(&tx, self.schema_version, &self.grammar_hash, run)?;
         let mut interner = Interner::default();
         let mut elapsed = 0u64;
+        let mut counted = 0u64;
         for word in words {
-            write_word(&tx, self.schema_version, &mut interner, run_id, word)?;
-            elapsed = checked_counter_add("total_elapsed_ns", elapsed, word.elapsed_ns)?;
+            let replaced = write_word(&tx, self.schema_version, &mut interner, run_id, word)?;
+            (counted, elapsed) = count_word(counted, elapsed, word, replaced)?;
         }
-        finish_run(&tx, run_id, words.len() as u64, elapsed)?;
+        finish_run(&tx, run_id, counted, elapsed)?;
         tx.commit()?;
         Ok(run_id)
     }

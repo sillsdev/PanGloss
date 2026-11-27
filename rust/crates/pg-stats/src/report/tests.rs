@@ -1397,3 +1397,16 @@ fn per_allomorph_words_counts_distinct_words_not_uses() {
         .unwrap();
     assert_eq!((a1.uses, a1.words), (0, 0));
 }
+
+#[test]
+fn a_run_that_owns_no_words_does_not_make_the_settings_mixed() {
+    let mut cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let words = [word_record("apu", 500, Vec::new())];
+    cache.flush(&run(), &words).unwrap();
+    let mut other = run();
+    other.options_hash = "opts-b".to_string();
+    cache.flush(&other, &words).unwrap();
+    let settings = mixed_settings(cache.connection()).unwrap();
+    assert_eq!(settings.distinct_options_hashes, 1);
+    assert!(!settings.is_mixed());
+}
