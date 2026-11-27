@@ -1861,6 +1861,8 @@ fn run_batch_with_counter(
             }
             // Ground-truth allocator peak/live bytes for this word (docs/research/word-memory-trace.md).
             #[cfg(feature = "alloc-trace")]
+            alloc_trace::report();
+            #[cfg(feature = "alloc-trace")]
             if std::env::var("HC_ALLOC_STATS").is_ok() {
                 eprintln!(
                     "ALLOC\t{i}\t{word}\tpeak_bytes={}\tlive_at_end={}",

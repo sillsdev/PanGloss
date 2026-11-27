@@ -944,6 +944,7 @@ impl<'g> Morpher<'g> {
                 break;
             }
             let inputs = results.last();
+            pg_rules::trail::probe::ts(&format!("stratum{s}_start"));
             let mut outputs = Canonicals::default();
             for at in 0..inputs.map_or(1, Canonicals::len) {
                 if budget.analysis_exhausted() {
@@ -1005,11 +1006,14 @@ impl<'g> Morpher<'g> {
                 // With stats, a word another candidate already gave adds its applied phonological rules to the held word's.
                 outputs.absorb(res.words, stats.is_some());
             }
+            pg_rules::trail::probe::ts(&format!("stratum{s}_end"));
             if outputs.is_empty() {
                 break;
             }
             results.push(outputs);
+            pg_rules::trail::probe::ts(&format!("stratum{s}_pushed"));
         }
+        pg_rules::trail::probe::ts("analysis_done");
         if let Some((t0, work0)) = census_t0 {
             pg_rules::branch_census::record_analysis_phase(
                 (budget.work_steps() - work0) as u64,

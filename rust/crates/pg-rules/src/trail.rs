@@ -15,6 +15,24 @@ use pg_grammar_model::model::{AllomorphId, MRuleId};
 #[derive(Clone, Default)]
 pub struct Trail(Option<Rc<Step>>);
 
+pub mod probe {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+    pub static STEP_ALLOC: AtomicUsize = AtomicUsize::new(0);
+    pub static STEP_LIVE: AtomicUsize = AtomicUsize::new(0);
+    pub static EXT_LIVE: AtomicUsize = AtomicUsize::new(0);
+    pub fn ts(tag: &str) {
+        eprintln!(
+            "TS\t{tag}\t{}\t{}\t{}",
+            STEP_ALLOC.load(Relaxed),
+            STEP_LIVE.load(Relaxed),
+            EXT_LIVE.load(Relaxed)
+        );
+    }
+    pub fn reset() {
+        STEP_ALLOC.store(0, Relaxed);
+    }
+}
+
 /// One step, packed so that the step and its reference counts fit a 40-byte allocation: a heavy word holds a step for every word of its search.
 struct Step {
     parent: Trail,
@@ -119,6 +137,11 @@ impl Trail {
     }
 
     fn link(&mut self, mut step: Step) {
+        let a = probe::STEP_ALLOC.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        probe::STEP_LIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if a & 0x7fff == 0 {
+            probe::ts("t");
+        }
         step.parent = std::mem::take(self);
         self.0 = Some(Rc::new(step));
     }
@@ -302,7 +325,10 @@ impl Drop for Trail {
         let mut next = self.0.take();
         while let Some(rc) = next {
             match Rc::try_unwrap(rc) {
-                Ok(mut step) => next = step.parent.0.take(),
+                Ok(mut step) => {
+                    probe::STEP_LIVE.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    next = step.parent.0.take()
+                }
                 Err(_) => break,
             }
         }
