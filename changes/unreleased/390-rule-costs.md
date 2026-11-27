@@ -1,0 +1,1 @@
+- `pangloss parse --rule-costs[=N]` and the `serve` `parse` field `ruleCosts` now list the objects that reserved the most work steps for one word, so a word the parser stops on shows which rule spent the budget; with `--trace-details` or `traceDetails` the document becomes trace-details v6 and carries them, and without the request trace-details stays v5 (#390).

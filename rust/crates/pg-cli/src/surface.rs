@@ -596,6 +596,11 @@ const PARSE_FLAGS: &[FlagSpec] = &[
         summary: "text|json (default text)",
     },
     FlagSpec {
+        name: "--rule-costs",
+        takes_value: true,
+        summary: "[=N]; print a ruleCosts: JSON line after the parse line: the N (default 8) objects that reserved the most work steps, so a word the parser stops on shows which rule spent the budget",
+    },
+    FlagSpec {
         name: "--trace-details",
         takes_value: false,
         summary: "emit the opt-in Try-a-Word-style JSON envelope (requires JSON tracing)",

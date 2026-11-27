@@ -153,13 +153,13 @@ fn stats_row_allomorph_locator(
     ))
 }
 
-/// Maps a collector row's runtime ids and owner-local allomorph position to durable identities.
-fn fact_record_from_stats_row(
+/// The durable identity of the object a collector row counts; shared by the facts cache and the per-word rule-cost rows so both name an object the same way.
+pub(crate) fn stats_row_object_identity(
     grammar: &Grammar,
     identities: &StatsIdentityCatalog,
     row: &pg_rules::stats::StatsRow,
-) -> Result<pg_stats::FactRecord, String> {
-    let identity = match row.kind {
+) -> Result<pg_grammar::stats_identity::ObjectIdentity, String> {
+    Ok(match row.kind {
         pg_rules::stats::ObjectKind::MorphRule => {
             identities.morph_rule(MRuleId(row.object_index)).clone()
         }
@@ -184,7 +184,16 @@ fn fact_record_from_stats_row(
                 .ok_or_else(|| format!("stats: invalid parser work index {}", row.object_index))?;
             pg_grammar::stats_identity::parser_identity(phase.name())
         }
-    };
+    })
+}
+
+/// Maps a collector row's runtime ids and owner-local allomorph position to durable identities.
+fn fact_record_from_stats_row(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    row: &pg_rules::stats::StatsRow,
+) -> Result<pg_stats::FactRecord, String> {
+    let identity = stats_row_object_identity(grammar, identities, row)?;
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
     let allomorph = stats_row_allomorph_locator(grammar, identities, row);
     // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.

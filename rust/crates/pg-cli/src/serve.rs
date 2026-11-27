@@ -157,6 +157,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         },
         timing: parsed.timing,
         guess: parsed.guess_arg == Some(true),
+        identities: std::sync::OnceLock::new(),
     };
     let requests = spawn_reader();
     loop {
@@ -256,6 +257,8 @@ struct Context<'a> {
     health_input: crate::serve_health::Input<'a>,
     timing: bool,
     guess: bool,
+    /// Built on the first `ruleCosts` request, then kept for the life of the server.
+    identities: std::sync::OnceLock<pg_grammar::stats_identity::StatsIdentityCatalog>,
 }
 
 pub(crate) fn error_response(id: &Value, code: &str, message: &str) -> Value {
@@ -352,8 +355,35 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                     )
                 }
             };
+            let rule_costs = match object.get("ruleCosts") {
+                None | Some(Value::Bool(false)) => None,
+                Some(Value::Bool(true)) => Some(rich_trace::DEFAULT_RULE_COSTS),
+                Some(Value::Number(n)) => match n.as_u64().filter(|n| *n >= 1) {
+                    Some(n) => Some(usize::try_from(n).unwrap_or(usize::MAX)),
+                    None => {
+                        return (
+                            error_response(
+                                &id,
+                                "bad_request",
+                                "\"ruleCosts\" must be a boolean or a positive integer",
+                            ),
+                            false,
+                        )
+                    }
+                },
+                Some(_) => {
+                    return (
+                        error_response(
+                            &id,
+                            "bad_request",
+                            "\"ruleCosts\" must be a boolean or a positive integer",
+                        ),
+                        false,
+                    )
+                }
+            };
             let outcome = catch_unwind(AssertUnwindSafe(|| {
-                parse_word(ctx, word, details, rule_trace)
+                parse_word(ctx, word, details, rule_trace, rule_costs)
             }));
             let response = match outcome {
                 Ok(Ok(served)) => {
@@ -366,6 +396,9 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                         "guessed": served.guessed,
                         "result": served.result,
                     });
+                    if let Some(costs) = served.rule_costs {
+                        r["ruleCosts"] = costs;
+                    }
                     if ctx.timing {
                         r["timing"] =
                             json!({"parseMs": served.parse_ms, "renderMs": served.render_ms});
@@ -439,6 +472,8 @@ struct Served {
     /// Whether the guesser found the analyses, whatever the `--guess` flag.
     guessed: bool,
     work_steps: usize,
+    /// The `ruleCosts` object, present only when the request asked for it.
+    rule_costs: Option<Value>,
     parse_ms: u64,
     render_ms: u64,
 }
@@ -447,9 +482,11 @@ struct Served {
 pub(crate) fn describe_parse() -> Value {
     json!({
         // Hand-kept; describe_declares_the_parse_request_fields pins ruleTrace and traceDetails.
-        "request": ["id", "op", "word", "traceDetails", "ruleTrace"],
+        "request": ["id", "op", "word", "traceDetails", "ruleTrace", "ruleCosts"],
         "defaultTraceDetails": false,
         "defaultRuleTrace": false,
+        "defaultRuleCosts": false,
+        "ruleCosts": "true or a positive integer N (true is 8): the response gains a top-level ruleCosts object listing the N objects that reserved the most work steps for this word, with the unattributed remainder; it works on a word the parser stops on. It runs the parse with a stats collector, which does not change workSteps; with traceDetails false and no ruleTrace the parse stays untraced",
         "ruleTrace": "with traceDetails false, the JSON rule-trace tree is appended to result only when ruleTrace is true; it is neither built nor sent otherwise. traceDetails true ignores ruleTrace",
     })
 }
@@ -460,6 +497,7 @@ fn parse_word(
     word: &str,
     details: bool,
     rule_trace: bool,
+    rule_costs: Option<usize>,
 ) -> Result<Served, (&'static str, String)> {
     let render_err = |e: String| ("render_failed", e);
     if details {
@@ -478,16 +516,19 @@ fn parse_word(
             &rows,
             started.elapsed(),
             ctx.metadata,
+            rule_costs,
         )
         .map_err(render_err)?;
         let render_ms = (started.elapsed().as_millis() as u64).saturating_sub(parse_ms);
         let value = serde_json::from_str(&rendered).map_err(|e| render_err(e.to_string()))?;
+        // The document carries ruleCosts itself (v6), so the response does not repeat it.
         return Ok(Served {
             result: value,
             exit_code: 0,
             status: crate::outcome_status(&outcome),
             guessed: outcome.guessed,
             work_steps: outcome.work_steps,
+            rule_costs: None,
             parse_ms,
             render_ms,
         });
@@ -495,11 +536,24 @@ fn parse_word(
     let sink = pg_rules::trace::TreeTraceSink::new();
     let started = Instant::now();
     // The tree sink is the cost; without ruleTrace the parse runs on the no-op sink.
-    let outcome = if rule_trace {
-        ctx.morpher.parse_word_traced(word, ctx.opts, &sink)
-    } else {
-        ctx.morpher.parse_word_opts(word, ctx.opts)
+    let mut rows = Vec::new();
+    let outcome = match (rule_trace, rule_costs.is_some()) {
+        (true, true) => {
+            let (outcome, collected) = ctx
+                .morpher
+                .parse_word_traced_with_stats(word, ctx.opts, &sink);
+            rows = collected;
+            outcome
+        }
+        (true, false) => ctx.morpher.parse_word_traced(word, ctx.opts, &sink),
+        (false, true) => {
+            let (outcome, collected) = ctx.morpher.parse_word_with_stats(word, ctx.opts);
+            rows = collected;
+            outcome
+        }
+        (false, false) => ctx.morpher.parse_word_opts(word, ctx.opts),
     };
+    let rule_costs = rule_costs_for(ctx, &rows, &outcome, rule_costs).map_err(render_err)?;
     let parse_ms = started.elapsed().as_millis() as u64;
     let render_started = Instant::now();
     let mut stdout = format!("{}\t{}\n", word, outcome.signature());
@@ -516,7 +570,24 @@ fn parse_word(
         status: crate::outcome_status(&outcome),
         guessed: outcome.guessed,
         work_steps: outcome.work_steps,
+        rule_costs,
         parse_ms,
         render_ms: render_started.elapsed().as_millis() as u64,
     })
+}
+
+/// The `ruleCosts` object for a request that asked for one.
+fn rule_costs_for(
+    ctx: &Context,
+    rows: &[pg_rules::stats::StatsRow],
+    outcome: &pg_parse::ParseOutcome,
+    top_n: Option<usize>,
+) -> Result<Option<Value>, String> {
+    let Some(top_n) = top_n else {
+        return Ok(None);
+    };
+    let identities = ctx
+        .identities
+        .get_or_init(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(ctx.grammar));
+    rich_trace::rule_costs_json(ctx.grammar, identities, rows, outcome, top_n).map(Some)
 }

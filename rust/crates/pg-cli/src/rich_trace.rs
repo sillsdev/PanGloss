@@ -1,8 +1,9 @@
-//! Renders opt-in rich trace-details v5 envelopes.
+//! Renders opt-in rich trace-details envelopes: v5, or v6 when `ruleCosts` is requested.
 
 use std::time::Duration;
 
 use pg_grammar::model::Grammar;
+use pg_grammar::stats_identity::StatsIdentityCatalog;
 use pg_parse::{project_parse_analysis, ParseOutcome, ParseProjectionError};
 use pg_rules::stats::{self, Direction, ObjectKind, OverlayPhase, StatsRow};
 use pg_rules::trace::{
@@ -333,14 +334,78 @@ fn stats_json(rows: &[StatsRow], work_steps: usize) -> Value {
     });
     let mut categories = serde_json::Map::from_iter(categories);
     let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
-    let unattributed = (work_steps as u64)
-        .checked_sub(attributed)
-        .expect("object work steps exceed the word budget");
+    let unattributed = (work_steps as u64).saturating_sub(attributed);
     categories.insert(
         "unattributed".to_owned(),
         json!({"work_steps": unattributed}),
     );
     categories.into()
+}
+
+/// How many objects `ruleCosts` lists when the request does not say.
+pub const DEFAULT_RULE_COSTS: usize = 8;
+
+/// The `ruleCosts` object: the `top_n` costliest objects of one word's parse, ranked by the work steps they reserved, plus the remainder the figures leave unattributed. One entry per `(kind, object, stratum, direction)`, summed over its allomorph rows, so a rule that spent the budget is named whether or not the word finished. `stopped` marks a capped, timed-out or invalid-shape parse; a timed-out word's figures depend on this computer's speed, so `reproducible` is false for it. Self time is wall-clock and present only for kinds that measure it.
+pub fn rule_costs_json(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    rows: &[StatsRow],
+    outcome: &ParseOutcome,
+    top_n: usize,
+) -> Result<Value, String> {
+    type Key = (ObjectKind, u32, u8, Direction);
+    let mut grouped: std::collections::BTreeMap<Key, (&StatsRow, stats::Counters)> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let key = (row.kind, row.object_index, row.stratum.0, row.direction);
+        let entry = grouped
+            .entry(key)
+            .or_insert((row, stats::Counters::default()));
+        let c = &mut entry.1;
+        c.attempts += row.counters.attempts;
+        c.work_steps += row.counters.work_steps;
+        c.outputs += row.counters.outputs;
+        c.self_time_ns = c.self_time_ns.saturating_add(row.counters.self_time_ns);
+    }
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let unattributed = (outcome.work_steps as u64).saturating_sub(attributed);
+    let mut ranked: Vec<_> = grouped
+        .into_iter()
+        .filter(|(_, (_, c))| c.work_steps > 0)
+        .collect();
+    // BTreeMap order is the tie-break: kind, object, stratum, direction.
+    ranked.sort_by_key(|(_, (_, c))| std::cmp::Reverse(c.work_steps));
+    let object_count = ranked.len();
+    let objects = ranked
+        .into_iter()
+        .take(top_n)
+        .map(|(_, (row, c))| {
+            let identity = crate::stats_cmd::stats_row_object_identity(grammar, identities, row)?;
+            let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
+            let timed = stats::self_time_supported(row.kind);
+            Ok(json!({
+                "kind": kind_name(row.kind),
+                "key": identity.key,
+                "label": identity.label,
+                "stratum": stratum.label,
+                "direction": row.direction.as_str(),
+                "work_steps": c.work_steps,
+                "attempts": c.attempts,
+                "outputs": c.outputs,
+                "selfElapsedNs": timed.then_some(c.self_time_ns),
+            }))
+        })
+        .collect::<Result<Vec<Value>, String>>()?;
+    Ok(json!({
+        "topN": top_n,
+        "objectCount": object_count,
+        "workSteps": outcome.work_steps,
+        "attributedWorkSteps": attributed,
+        "unattributedWorkSteps": unattributed,
+        "stopped": outcome.capped || outcome.timed_out || outcome.invalid_shape,
+        "reproducible": !outcome.timed_out,
+        "objects": objects,
+    }))
 }
 
 fn overlay_phases_json(rows: &[StatsRow]) -> Value {
@@ -1079,7 +1144,9 @@ fn render_envelope_v2(
             "morphs": []
         })
     }).collect();
-    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
+    envelope_json(
+        trace, word, outcome, rows, elapsed, metadata, analyses, None,
+    )
 }
 fn grammar_analyses(outcome: &ParseOutcome, grammar: &Grammar, ctx: &RichCtx<'_>) -> Vec<Value> {
     outcome.analyses.iter().enumerate().map(|(index, (morphemes, surface))| {
@@ -1104,6 +1171,7 @@ fn grammar_analyses(outcome: &ParseOutcome, grammar: &Grammar, ctx: &RichCtx<'_>
     }).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn envelope_json(
     trace: Value,
     word: &str,
@@ -1112,19 +1180,26 @@ fn envelope_json(
     elapsed: Duration,
     metadata: &TraceMetadata,
     analyses: Vec<Value>,
+    rule_costs: Option<Value>,
 ) -> Result<String, String> {
+    // v5 stays the default so a reader pinned to it keeps working; v6 is only the version that carries ruleCosts.
+    let schema = if rule_costs.is_some() {
+        "pangloss.trace-details.v6"
+    } else {
+        "pangloss.trace-details.v5"
+    };
     let elapsed_ns = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
     let timed_ns = rows.iter().fold(0u64, |total, row| {
         total.saturating_add(row.counters.self_time_ns)
     });
-    serde_json::to_string(&json!({
-        "schemaVersion": "pangloss.trace-details.v5",
+    let mut document = json!({
+        "schemaVersion": schema,
         "word": word,
         "provenance": {
             "parser": {
                 "name": "pangloss",
                 "version": env!("CARGO_PKG_VERSION"),
-                "traceProfile": "pangloss.trace-details.v5"
+                "traceProfile": schema
             },
             "grammar": {
                 "name": metadata.grammar_name,
@@ -1157,8 +1232,11 @@ fn envelope_json(
         },
         "categories": stats_json(rows, outcome.work_steps),
         "trace": trace,
-    }))
-    .map_err(|error| format!("serialize rich trace JSON: {error}"))
+    });
+    if let Some(costs) = rule_costs {
+        document["ruleCosts"] = costs;
+    }
+    serde_json::to_string(&document).map_err(|error| format!("serialize rich trace JSON: {error}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1171,6 +1249,7 @@ pub fn render(
     rows: &[StatsRow],
     elapsed: Duration,
     metadata: &TraceMetadata,
+    rule_costs: Option<usize>,
 ) -> Result<String, String> {
     let ctx = RichCtx::new(metadata.snapshot.as_ref());
     let mut trace = match root {
@@ -1184,7 +1263,19 @@ pub fn render(
         decorate_trace_node(grammar, &ctx, sink, root, &mut trace)?;
     }
     let analyses = grammar_analyses(outcome, grammar, &ctx);
-    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
+    let rule_costs = match rule_costs {
+        Some(top_n) => Some(rule_costs_json(
+            grammar,
+            &StatsIdentityCatalog::new(grammar),
+            rows,
+            outcome,
+            top_n,
+        )?),
+        None => None,
+    };
+    envelope_json(
+        trace, word, outcome, rows, elapsed, metadata, analyses, rule_costs,
+    )
 }
 
 #[cfg(test)]

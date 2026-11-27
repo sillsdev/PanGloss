@@ -238,6 +238,7 @@ fn rich_tree_preserves_nodes_beyond_default_json_parse_depth() {
         &rows,
         Duration::ZERO,
         &TraceMetadata::default(),
+        None,
     )
     .unwrap();
     assert_eq!(rich.matches("\"type\":").count(), sink.len());
@@ -316,6 +317,7 @@ fn trace_details_for_grammar(
             &rows,
             Duration::ZERO,
             &TraceMetadata::default(),
+            None,
         )
         .unwrap(),
     )
