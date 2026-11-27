@@ -5,6 +5,17 @@ fragment under `changes/unreleased/` (see its README). The prepare step of `rust
 folds the fragments into the new version section, in file-name order, and deletes them. It refuses a
 version with neither fragments, a `## Unreleased` section nor a version section.
 
+## 0.35.4
+
+Released 2026-11-27.
+
+- A WordMaker exemplar set whose pattern opens with `[:` is now refused as an unsupported Unicode set property, as LibLCM (ICU 70.1) refuses every such pattern that is not a valid property (#221). `[:]`, `[:a\:]`, `[:L]` and `[::]` used to load as literal characters; a colon after whitespace, an escape or other characters (`[a:b]`, `[{c:h}]`, `[ :]`) is still a literal. Valid properties such as `[:L:]` were already refused because property sets are not computed.
+- Release notes are now fragments (#377): a pull request adds one `changes/unreleased/<issue>-<slug>.md` bullet instead of editing `CHANGELOG.md`, and `rust/tools/release.ps1 -Prepare` folds them into the new version section in file-name order and deletes them, so open pull requests stop conflicting on `## Unreleased`. A legacy `## Unreleased` section is still folded in first.
+- Divergence 132's status now points at machine#649 and #392 instead of the closed #381.
+- `pangloss parse --rule-costs[=N]` and the `serve` `parse` field `ruleCosts` now list the objects that reserved the most work steps for one word, so a word the parser stops on shows which rule spent the budget; with `--trace-details` or `traceDetails` the document becomes trace-details v6 and carries them, and without the request trace-details stays v5 (#390).
+- Rust CI and Conformance CI now run on the GitHub merge queue (`merge_group`), with every required job reporting, a per-group concurrency key and the docs-only skip decided from the queue's own diff.
+- `pg.ps1` heavy modes now wait for `stile admit` themselves (new `-AdmitTimeoutSeconds`, `-ReleaseBlocker`; exit 29 stile failed, exit 30 wait timed out) instead of relying on callers to run it first.
+
 ## 0.35.3
 
 Released 2026-11-26.

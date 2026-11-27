@@ -1,1 +1,0 @@
-- Release notes are now fragments (#377): a pull request adds one `changes/unreleased/<issue>-<slug>.md` bullet instead of editing `CHANGELOG.md`, and `rust/tools/release.ps1 -Prepare` folds them into the new version section in file-name order and deletes them, so open pull requests stop conflicting on `## Unreleased`. A legacy `## Unreleased` section is still folded in first.
