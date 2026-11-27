@@ -20,7 +20,7 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | analysis-memo-bounds | landed in port, memo later removed | analysis memo OOM on explosive words | divergence 045 | [entry](#analysis-memo-bounds) |
 | analysis-memo-net-cost | rejected: each step about 3x dearer and memory 363 MB against 43 MB (44 words, memo-is-a-net-cost.md) | memo overhead exceeds hits | divergence 045 | [entry](#analysis-memo-net-cost) |
 | live-frontier-streaming | landed (Fix B) | in-flight search frontier memory | none | [entry](#live-frontier-streaming) |
-| work-cap | cap landed (containment, not a speedup); #144 (explicit language bounds) still open | non-terminating words | PanGloss #144 (open) | [entry](#work-cap) |
+| work-cap | landed (the per-word cap is containment, not a speedup; #144, explicit language bounds, is still open) | non-terminating words | PanGloss #144 (open) | [entry](#work-cap) |
 | shape-table-lazy-rows | idea, owner decision needed | shape-table overhead on low-repeat grammars (+0.78% on one light grammar) | follow-up to #481 | [entry](#shape-table-lazy-rows) |
 | fst-dedupe-instances | rejected: 112 of 20,000 fuzz cases differ (machine#594) | duplicate FST traversal instances | machine#594 | [entry](#fst-dedupe-instances) |
 | fst-two-pass-traversal | rejected: arc checks down only 1.6% for 2.3x traversal instances (machine#596) | FST arc checks | machine#596 | [entry](#fst-two-pass-traversal) |
@@ -29,21 +29,21 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | expand-alternatives-memo | rejected: word clones unchanged at 4,747,013 (machine#584) | synthesis `ExpandAlternatives` | machine#584 | [entry](#expand-alternatives-memo) |
 | edge-segment-prefilter | rejected: 0 work steps saved, time only (machine#564) | affix prefilter | machine#564 | [entry](#edge-segment-prefilter) |
 | root-substring-prune | rejected: +7.7% total work (machine#572, closed unmerged); do not port | analysis outputs with no root | PanGloss #23 (open); machine#562, PR #572 | [entry](#root-substring-prune) |
-| optional-run-enumeration | open (the sound alternative to the deletion prune; estimated ceiling 68% to 75% work) | optional-segment runs in affix-process matching | machine#635 | [entry](#optional-run-enumeration) |
-| copy-agreement-empty-copy | open | copy-agreement prune keeps empty copies | machine#634 | [entry](#copy-agreement-empty-copy) |
-| share-frozen-shapes | open | deep copy of Shape per Word clone | machine#593, #592 | [entry](#share-frozen-shapes) |
-| share-frozen-featstructs | open | deep copy of feature structures per clone | machine#595, #587, #588, #589 | [entry](#share-frozen-featstructs) |
-| stratum-streaming | open | per-word memory across strata | machine#639 | [entry](#stratum-streaming) |
-| alternatives-as-diffs | open | per-word memory of folded analyses | machine#640 | [entry](#alternatives-as-diffs) |
-| required-slot-lookahead-costs | open | repeated scans in the required-slot look-ahead | machine#598; PanGloss #66, #65 | [entry](#required-slot-lookahead-costs) |
-| shared-template-slot-batches | open (port waits; slot walk exists, per-template look-ahead not ported) | per-template re-walk of trailing slots | machine#546, #566; PanGloss #66 | [entry](#shared-template-slot-batches) |
-| restriction-driven-pruning | open | restricted affixes and clitics tried on every word | PanGloss #90 | [entry](#restriction-driven-pruning) |
-| ordered-matches-rescan | open | k rescans for the k-th environment match | PanGloss #15 | [entry](#ordered-matches-rescan) |
-| template-clone-deferral | open (wall-clock only) | clone per template in analysis | machine#586 | [entry](#template-clone-deferral) |
-| fst-flat-registers | open (wall-clock only) | FST traversal registers | machine#591 | [entry](#fst-flat-registers) |
-| tracing-keeps-merging | open | tracing disables equivalent-analysis merging | machine#565 | [entry](#tracing-keeps-merging) |
-| emission-lexical-cull | open | candidates culled only after emission | machine#512 | [entry](#emission-lexical-cull) |
-| measurement-noise | open (tooling, not an idea) | Windows instruction counts spread about 0.6% per round | PanGloss #260 | [entry](#measurement-noise) |
+| optional-run-enumeration | open-upstream (the sound alternative to the deletion prune; estimated ceiling 68% to 75% work) | optional-segment runs in affix-process matching | machine#635 | [entry](#optional-run-enumeration) |
+| copy-agreement-empty-copy | open-upstream | copy-agreement prune keeps empty copies | machine#634 | [entry](#copy-agreement-empty-copy) |
+| share-frozen-shapes | open-upstream | deep copy of Shape per Word clone | machine#593, #592 | [entry](#share-frozen-shapes) |
+| share-frozen-featstructs | open-upstream | deep copy of feature structures per clone | machine#595, #587, #588, #589 | [entry](#share-frozen-featstructs) |
+| stratum-streaming | open-upstream | per-word memory across strata | machine#639 | [entry](#stratum-streaming) |
+| alternatives-as-diffs | open-upstream | per-word memory of folded analyses | machine#640 | [entry](#alternatives-as-diffs) |
+| required-slot-lookahead-costs | open-upstream | repeated scans in the required-slot look-ahead | machine#598; PanGloss #66, #65 | [entry](#required-slot-lookahead-costs) |
+| shared-template-slot-batches | open-upstream (port waits; slot walk exists, per-template look-ahead not ported) | per-template re-walk of trailing slots | machine#546, #566; PanGloss #66 | [entry](#shared-template-slot-batches) |
+| restriction-driven-pruning | issue-filed | restricted affixes and clitics tried on every word | PanGloss #90 | [entry](#restriction-driven-pruning) |
+| ordered-matches-rescan | issue-filed | k rescans for the k-th environment match | PanGloss #15 | [entry](#ordered-matches-rescan) |
+| template-clone-deferral | open-upstream (wall-clock only) | clone per template in analysis | machine#586 | [entry](#template-clone-deferral) |
+| fst-flat-registers | open-upstream (wall-clock only) | FST traversal registers | machine#591 | [entry](#fst-flat-registers) |
+| tracing-keeps-merging | open-upstream | tracing disables equivalent-analysis merging | machine#565 | [entry](#tracing-keeps-merging) |
+| emission-lexical-cull | open-upstream | candidates culled only after emission | machine#512 | [entry](#emission-lexical-cull) |
+| measurement-noise | issue-filed (tooling, not an idea) | Windows instruction counts spread about 0.6% per round | PanGloss #260 | [entry](#measurement-noise) |
 | unordered-stratum-order-explosion | measured | unordered-stratum rules explored in every order: 2.25x total, 3x to 11x on the heaviest words (one heavy Bantu grammar); the lever is synthesis of the expanded variants | none yet | [file](unordered-stratum-order-explosion.md) |
 | deletion-reinsertion | rejected: 3 counterexamples vs hc.dll ba6dfa10 (fable-pass r2 deletion-2; sillsdev/machine#655); prune cuts work 68% to 75% on one Tamil grammar but loses analyses C# finds (64 of 300 fuzz grammars as written; 7 of 300 for the per-rule narrowing) | optional re-insertion of deleted segments re-runs the template battery: +52% heavy, +16% random words (one Tamil grammar) | sillsdev/machine#655 (open PR); Machine issue not filed yet | [file](deletion-reinsertion.md) |
 | machine-655-redundant-deletion-matches | open-upstream (drops analyses on a build of the pinned tree plus the PR's source changes) | the same deletion re-insertion blowup (up to 2^N optional copies per gap), filtered upstream by a two-sided redundant-match test that drops analyses the pinned parser finds | sillsdev/machine#655; Machine issue not filed yet | [entry](#machine-655-redundant-deletion-matches) |
@@ -62,7 +62,7 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | compounding-rows-with-filter-key | idea, owner approval needed | shape graph skips compounding | none yet | [entry](#compounding-rows-with-filter-key) |
 | static-commutation-sleep-sets | rejected: 1.0x to 1.1x estimated (19 of 22 free rules on one edge; rule census) | order multiplicity of commuting unapplications | none | [entry](#static-commutation-sleep-sets) |
 | synthesis-rewrite-preparation-hoist | in-progress | candidate-independent preparation inside the synthesis site scan: about 15% of instructions on mid-weight words of one heavy Bantu grammar | PanGloss #535 | [entry](#synthesis-rewrite-preparation-hoist) |
-| allocator-share | in-progress (three slices being built) | malloc, free and realloc are 29.3%, 22.0% and 10.6% of parse instructions on three grammars (load excluded); six slices, preloaded alternative allocator deferred | PanGloss #548 | [entry](#allocator-share) |
+| allocator-share | in-progress (three slices being built) | the allocator (malloc, free and realloc together) is 29.3%, 22.0% and 10.6% of parse instructions on three grammars respectively (load excluded; totals, not per call); six slices, preloaded alternative allocator deferred | PanGloss #548 | [entry](#allocator-share) |
 | synthesis-of-dying-variants | measured; split into the four design rows below | 99.9% of synthesis work on the heaviest word is on variants that die; 81.6% of one word's variants die on the first re-applied rule | PanGloss #550 | [entry](#synthesis-of-dying-variants) |
 | compound-first-member-search | in-progress | compound rules search the whole root trie once per split: 8.3x on a compounding grammar, 99.4% of it with no eligible first member | PanGloss #437; machine#657 | [entry](#compound-first-member-search) |
 | acceptance-pass-prefilter | measured (one-grammar census; two grammar cells owed): win 1.27% of work, dangerous cell 0 | register-free live-state pass before each affix traversal; if failed attempts were free: 2.45x to 7.1x work on one Tamil word set, 1.31x to 1.67x Sena, 1.06x to 1.08x Mbugwe (bounds) | none yet; relates machine#596, #564 | [entry](#acceptance-pass-prefilter) |
@@ -90,7 +90,7 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | synthesis-length-bound | rejected: no isolated measurement (unsound in machine#601, Gate A) | synthesis variants | machine#601 | [entry](#synthesis-length-bound) |
 | allomorph-validity-before-phonology | rejected: only 5% to 6% of variants reach phonology (death census) | synthesis variants | none | [entry](#allomorph-validity-before-phonology) |
 | synthesis-factored-alternative-product | rejected: no isolated measurement (needs the keyed table of synthesis-prefix-table) | synthesis variants | none | [entry](#synthesis-factored-alternative-product) |
-| rejected-2026-11-27-research | rejected: no isolated measurement for most; each bullet carries its own number or says so | seventeen dead ends with the reason each died | see list | [list](#rejected-2026-11-27-research-do-not-re-propose) |
+| rejected-2026-11-27-research | rejected: no isolated measurement (most bullets have none; each bullet carries its own number or says so) | seventeen dead ends with the reason each died | see list | [list](#rejected-2026-11-27-research-do-not-re-propose) |
 
 Do not re-propose without new evidence: machine#601 and PanGloss #103 list the dead ends.
 
@@ -147,17 +147,17 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where:** `rust/crates/pg-rules/src/shape_graph.rs`; C# `CombinationRuleCascade.ApplyRules`, `AnalysisAffixProcessRule.Apply`.
 - **Gain:** measured across the sweep: instructions down 13% to 85% on the heaviest Tamil grammars, about 3% to 85% elsewhere; Mbugwe's capped word ends 17.6x fewer steps. Regression of +0.78% on one light grammar (see shape-table-lazy-rows). v0.35.0 sweep, work steps: Tamil heaviest-24 variant 750M to 114M (0.152x), its core list 20.2G to 13.2G, the base core 11.7G to 9.9G, Mbugwe 7.79G to 4.95G (28 memory-capped and 9 timed-out words remain). The graph moved the point where the heaviest Mbugwe words give out (one word that needed 16.4G steps before now ends in a memory cap at 100 MiB after 0.93G), it did not remove their growth: see unordered-stratum-order-explosion and optional-run-enumeration. Compounding is excluded from the graph (idea compounding-rows-with-filter-key); other row kinds are ideas (phonological-analysis-rows, template-slot-dominance-rows).
 - **Parity:** results identical on every swept grammar; key is the full shape plus rule and `prune_disagreeing_copies`.
-- **Memo/cache?** yes, approved. **Prior art:** none external. **Issues:** PanGloss #481; machine#653 (C# shares it). **Next:** machine port by the `conformance` lead.
+- **Memo/cache?** yes, approved (PanGloss #481, PR #488; `CLAUDE.md`). **Prior art:** none external. **Issues:** PanGloss #481; machine#653 (C# shares it). **Next:** machine port by the `conformance` lead.
 
 ### match-memo
 - **Status:** landed (PR #480, issue #477); the structural fix behind it is shape-table.
 - **Blowup:** a derivational affix restricted by a From category pushes unrelated words to the work limit.
 - **Mechanism:** memoise rule matches per parse. **Where:** analysis rule matching in `pg-rules`. **Gain:** see PR #480. **Parity:** landed without full breakage analysis, which is why `land-an-optimization` exists.
-- **Memo/cache?** yes. **Issues:** PanGloss #477. **Next:** none.
+- **Memo/cache?** yes (owner approval required): landed in PR #480 without it and superseded by shape-table. **Issues:** PanGloss #477. **Next:** none.
 
 ### root-trie-cache
 - **Status:** landed. Per-word, keyed by exact stratum and shape, 1 MiB of accounted allocation, immutable index results only (`CLAUDE.md`). **Issues:** PanGloss #92.
-- **Blowup:** repeated root-trie searches. **Parity:** overlay suppression, filtering, dedup and materialisation run on every lookup. **Memo/cache?** yes, approved.
+- **Blowup:** repeated root-trie searches. **Parity:** overlay suppression, filtering, dedup and materialisation run on every lookup. **Memo/cache?** yes, approved (PanGloss #92; `CLAUDE.md`).
 
 ### analysis-memo-bounds
 - **Status:** landed then removed with the memo (divergence 045). **Source:** `docs/research/analysis-memo-explosion.md`, `docs/research/2026-09-10-analysis-memo-fixes-for-machine.md`.
@@ -179,7 +179,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 ### shape-table-lazy-rows
 - **Status:** idea; needs an owner decision because it departs from the approved "store on first sight" design. **Source:** v0.35.0 Tamil analysis in the lane's sweep record.
 - **Blowup:** the shape table costs about 21k instructions per word (about 1.2% of a light grammar) on words with no repeats. **Mechanism:** intern on the second sighting with an allocation-free seen-set; the smaller safe variant computes `accounted()` incrementally (about 10M of 55M).
-- **Parity:** row creation timing only; results identical. **Memo/cache?** yes (changes an approved one). **Issues:** follow-up PanGloss issue filed after v0.35.0 (search "accounted"). **Next:** measure the incremental `accounted()` first; confirm with instruction-compare on the same list.
+- **Parity:** row creation timing only; results identical. **Memo/cache?** yes (owner approval required) (changes an approved one). **Issues:** follow-up PanGloss issue filed after v0.35.0 (search "accounted"). **Next:** measure the incremental `accounted()` first; confirm with instruction-compare on the same list.
 
 ### fst-dedupe-instances
 - **Status:** rejected: 112 of 20,000 fuzz cases differ (machine#594). Deduplicating traversal instances by (State, AnnotationIndex) is unsound in general form. FST-side; no FST work without the owner.
@@ -211,7 +211,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Status:** open on the Machine side (machine#634). The copy-agreement prune keeps matches with an empty copy, so every word gets a spurious whole-word candidate and the search reruns; parses unchanged. The Rust side refuses empty copies and aligns copies with a DP (`copy_agreement_refuses_match`, `copies_can_align` in `rust/crates/pg-rules/src/morph.rs`; `docs/divergences/049-copy-agreement-prune.md`). Remaining: all n-1 splits of `X => X X` are enumerated before the check (quadratic in word length): idea online-copy-length-guard. **Next:** Machine fix.
 
 ### share-frozen-shapes
-- **Status:** open (machine#593, related #592). `Word.CloneForEngine` shares a frozen Shape; clone 36% to 9% of a heavy profile, peak memory 11 GB to 6 GB (survey). **Memo/cache?** no, but retained shared state: check with the owner before a port.
+- **Status:** open (machine#593, related #592). `Word.CloneForEngine` shares a frozen Shape; clone 36% to 9% of a heavy profile, peak memory 11 GB to 6 GB (survey). **Memo/cache?** yes (owner approval required): retained shared state; check with the owner before a port.
 
 ### share-frozen-featstructs
 - **Status:** open (machine#595; micro-variants #587, #588, #589 have no isolated measurement). About 15% of a heavy Sena profile, never isolated (survey).
@@ -293,7 +293,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Mechanism:** extend the shape graph from (rule, shape) rows to (template, next slot, shape) rows, folding equal-key slot-walk states into one walk (Johnson-style tabling of the walk): 2^k subsets become at most k x distinct shapes.
 - **Where:** `pg-rules/src/shape_graph.rs` (new row kind), `pg-rules/src/stratum.rs` (`template_unapply_slots`, `walk_slot_trie`). C#: `AnalysisAffixTemplateRule`.
 - **Gain:** estimate, grammar dependent (Amharic and Sena slot grammars); the rule-level rows already remove the matching cost, so the residual is path bookkeeping and per-path Word clones. **Parity:** high care: the key must include every per-path field the walk reads (trail, rule counts, template state, syntactic features), and the multiset of final Words, duplicates and order must be replayed.
-- **Memo/cache?** yes: a new row kind inside the approved per-word graph; ask the owner.
+- **Memo/cache?** yes (owner approval required): a new row kind inside the approved per-word graph; ask the owner.
 - **Prior art:** Johnson 1995, memoization in top-down parsing (not re-read); Aycock and Horspool 2002, practical Earley parsing (https://webhome.cs.uvic.ca/~nigelh/Publications/PracticalEarleyParsing.pdf). **Issues:** PanGloss #495, machine#653. **Next:** a census of repeated (template, slot, shape, key) tuples per word on Mbugwe and Sena; proceed only if repeats exceed 2x.
 
 ### unread-register-projection
@@ -319,7 +319,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Mechanism:** rows keyed (phonological rule id, shape node) holding the ordered outputs of `rewrite::analyze_*` and `metathesis::analyze_*`, which read only the shape (the argument that justifies the morphological-rule rows). First arrival computes, later arrivals read, charged like a graph row (never above recompute cost).
 - **Where:** `pg-rules/src/stratum.rs` (the phonological rule loop in `analyze`), `pg-rules/src/shape_graph.rs`, `pg-rules/src/rewrite.rs`, `pg-rules/src/metathesis.rs`. C#: `AnalysisStratumRule.Apply` phonological loop.
 - **Gain:** unknown; zero when each stratum receives few same-shape inputs. Census: `analyze` inputs against distinct (stratum, shape) per word; `pg-rules/src/branch_census.rs` is the template. **Parity:** low (only the first result is used, the rule is a function of shape); trace events must be replayed; capped partial runs must not store rows.
-- **Memo/cache?** yes: extends the approved shape graph, which `CLAUDE.md` approves for affix and realizational rules only. **Prior art:** Kaplan and Kay 1994, rules as functions of the input string (https://aclanthology.org/J94-3001/). **Issues:** none yet (relates #481). **Next:** the census on the Tamil, Swahili and Cebuano samples; build only if distinct shapes are under 50% of inputs.
+- **Memo/cache?** yes (owner approval required): extends the approved shape graph, which `CLAUDE.md` approves for affix and realizational rules only. **Prior art:** Kaplan and Kay 1994, rules as functions of the input string (https://aclanthology.org/J94-3001/). **Issues:** none yet (relates #481). **Next:** the census on the Tamil, Swahili and Cebuano samples; build only if distinct shapes are under 50% of inputs.
 
 ### synthesis-input-dedup
 - **Status:** idea (measurement first).
@@ -327,7 +327,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Mechanism:** group expanded candidates by an exact synthesis-input key (root allomorph, ordered trail, syntactic features and every field `synthesize_*` reads), synthesise one per class and multiply the outcome. Use the exact key, not a commutation guess.
 - **Where:** `pg-parse/src/morpher.rs` (the two `expand_alternatives` loops), `pg-rules/src/stratum.rs` (`synthesize_stratum*`), `pg-rules/src/word.rs`. C#: `Morpher.Synthesize` loop.
 - **Gain:** estimate: up to the collapse ratio of synthesis time on completing words, but only for classes with identical inputs; if expanded alternatives are already exact-key distinct (the push-time prune ensures it for `WordKey` plus syntactic features) the gain is near zero. **Parity:** low with an exact key; synthesis order, trace, counters and work units change; duplicate counts need the class multiplicity carried through.
-- **Memo/cache?** borderline (a per-word table of synthesis outcomes by key); treat as needing owner approval. **Prior art:** Oepen and Carroll 2000 (unpack once per equivalence class). **Issues:** none yet. **Next:** extend `HC_ALT_YIELD` to count distinct exact synthesis-input keys among expanded candidates; stop if distinct is about equal to expanded. At variant level the idea is dead on the heavy Bantu grammar: see [synthesis-whole-variant-dedup](#synthesis-whole-variant-dedup).
+- **Memo/cache?** yes (owner approval required): a per-word table of synthesis outcomes by key. **Prior art:** Oepen and Carroll 2000 (unpack once per equivalence class). **Issues:** none yet. **Next:** extend `HC_ALT_YIELD` to count distinct exact synthesis-input keys among expanded candidates; stop if distinct is about equal to expanded. At variant level the idea is dead on the heavy Bantu grammar: see [synthesis-whole-variant-dedup](#synthesis-whole-variant-dedup).
 
 ### compounding-rows-with-filter-key
 - **Status:** idea (needs owner approval).
@@ -335,7 +335,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Mechanism:** add the filter's identity (an interned id of the root-filter state) to the row key, so a row is valid for one (rule, shape, filter) triple.
 - **Where:** `pg-rules/src/shape_graph.rs` (`RowKey`, `consult`), `pg-rules/src/morph.rs` (`analyze_cached_with_root_filter_traced`, `ana_compound`), `pg-rules/src/stratum.rs` (the compounding arm). C#: `AnalysisCompoundingRule.Apply`.
 - **Gain:** estimate; only compound-heavy grammars, and only if the filter takes few distinct values per word. **Parity:** medium: the filter must be a pure value, and non-head lookups must not be skipped in a way that changes root-search cache statistics or work charges.
-- **Memo/cache?** yes (extends the approved graph). **Prior art:** the local shape graph only. **Issues:** none yet. **Next:** a census of compounding applications against distinct (rule, shape, filter) on the compounding fixtures.
+- **Memo/cache?** yes (owner approval required) (extends the approved graph). **Prior art:** the local shape graph only. **Issues:** none yet. **Next:** a census of compounding applications against distinct (rule, shape, filter) on the compounding fixtures.
 
 ### static-commutation-sleep-sets
 - **Status:** idea 2026-11-27; rejected: 1.0x to 1.1x estimated (19 of 22 free rules on one edge; rule census). Of 22 free rules in the heavy Bantu stratum 19 are prefixes and 2 are suffixes, same-edge pairs never commute, and at most 38 of 231 pairs are candidates at all; estimated gain 1.0x to 1.1x. The dynamic diamond variant is subsumed by the shape graph, which already computes both orders.
@@ -442,7 +442,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where in PanGloss:** `pg-parse` `root_answers.rs`, `morpher.rs` `has_root`; `pg-rules` `stratum.rs` `keeps_alternatives`. In C#: none (analysis keeps all alternatives at the pin).
 - **Expected gain:** measured in #262 on the heaviest word of one heavy Bantu grammar at a 5M cap: without the table +3.80% instructions, with it +0.36% (not re-measured here). Up to 40,621 canonicals per pass (measured, 5M cap; 58,215 at the memory cap) against at most about 135 held shapes (estimated), so a repeat factor of up to about 300 per held shape (estimated; the real factor needs the phase B counter). No effect where no stratum call reaches 1,024 words.
 - **Parity risk:** none, argued. A pure function of (stratum, shape) within one parse; the answer only drops alternatives of a canonical that lookup cannot root; work is unmetered and identical.
-- **Memo/cache?** yes. Outside the root-trie exception and the shape graph; owner decision. The per-node trie bits of compound-first-member-search do not transfer (with no category filter every trie node has an accept below it).
+- **Memo/cache?** yes (owner approval required). Outside the root-trie exception and the shape graph; owner decision. The per-node trie bits of compound-first-member-search do not transfer (with no category filter every trie node has an accept below it).
 - **Prior art:** PanGloss #262 (adds the table, 4.5% figure).
 - **Issues:** sillsdev/PanGloss#559, #262.
 - **Next step:** phase B measurement (issue #559): one binary with the switch unset, off, walk and no-table; identity, callgrind and peak memory on the heavy and explosive words.
@@ -490,7 +490,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where in PanGloss:** `rust/crates/pg-rules/src/rewrite.rs` (`MutNode`, `MutShape::segs`); `pg-shape` already interns whole shapes per parse.
 - **Expected gain:** estimate: a part of the allocator share (29.3%, 22.0% and 10.6% of parse instructions on three grammars, measured); the part removing per-node vectors is not separated.
 - **Parity risk:** none (representation only) provided equality stays full-value on a hash hit.
-- **Memo/cache?** a per-word interner like the existing shape interner; name it to the owner.
+- **Memo/cache?** yes (owner approval required): a per-word interner like the existing shape interner; name it to the owner.
 - **Prior art:** Filliatre and Conchon 2006 (unique integer tags; equality by tag).
 - **Issues:** none yet.
 - **Next step:** count lane-vector allocations per rewrite call; decide after allocator slices S1 to S3 land.
@@ -502,7 +502,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where in PanGloss:** `rust/crates/pg-rules/src/stratum.rs` (synthesis functions); the trail would need a shape id per entry.
 - **Expected gain:** unknown.
 - **Parity risk:** high. Exact only if un-application is a complete inverse of every rule, which the generate-and-test design does not promise (Maxwell 1994: over-generation is expected and filtered). The Machine record has one unsound member of this family (a synthesis length bound that rejected valid parses).
-- **Memo/cache?** no table, but retained shape ids per trail entry.
+- **Memo/cache?** yes (owner approval required): no table, but retained shape ids per trail entry.
 - **Prior art:** Maxwell 1994; Kaplan and Kay 1994.
 - **Issues:** none yet.
 - **Next step:** a census: for every candidate that matches the surface, test conformance at each step. One violation on any conformance grammar kills it.
@@ -518,7 +518,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 
 ### subsumption-packing-of-analysis-shapes
 - **Status:** rejected: 0 subsumable pairs among 16,176 and 12,595 expansions (nogood-lattice census, machine record).
-- **Finding:** also unsound for order (retroactive packing moves results first seen under the earlier state, and first-seen order is parity) and unpacking must re-check each item against the specific structure, which is the synthesis already run per alternative. Oepen and Carroll 2000 have no multiplicity or order contract. Forward-only packing of equal states is the fold that exists. **Next step:** none. **Memo/cache?** yes (a chart).
+- **Finding:** also unsound for order (retroactive packing moves results first seen under the earlier state, and first-seen order is parity) and unpacking must re-check each item against the specific structure, which is the synthesis already run per alternative. Oepen and Carroll 2000 have no multiplicity or order contract. Forward-only packing of equal states is the fold that exists. **Next step:** none. **Memo/cache?** yes (owner approval required) (a chart).
 
 ### quick-check-path-vectors
 - **Status:** rejected: no isolated measurement (the idea is present: lane bundles are already flat bit lanes, and gate-before-match plus the edge index are the precompiled rule filter).
@@ -526,11 +526,11 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 
 ### call-subsumption-tabling
 - **Status:** rejected: 1.12x collapse against a 1.3 gate (narrow state key, machine record).
-- **Finding:** answering a specific call from a more general call's table needs the answers re-filtered, and the general call's answer order is not the order the specific call would produce. XSB manual: subsumption "is not a panacea". **Next step:** none. **Memo/cache?** yes.
+- **Finding:** answering a specific call from a more general call's table needs the answers re-filtered, and the general call's answer order is not the order the specific call would produce. XSB manual: subsumption "is not a panacea". **Next step:** none. **Memo/cache?** yes (owner approval required).
 
 ### generalised-nogood-learning
 - **Status:** rejected: 0 subsumable nogoods in the machine record; 112 of 20,000 fuzz cases differ for the unsound form (machine#594).
-- **Finding:** a learned nogood is sound only if its conflict set lists every input the failed check read; the traversal-dedup rejection is that failure mode. The prefix form is kept as [trail-prefix-synthesis-sharing](#trail-prefix-synthesis-sharing). Prior art: Prosser 1993. **Next step:** none. **Memo/cache?** yes.
+- **Finding:** a learned nogood is sound only if its conflict set lists every input the failed check read; the traversal-dedup rejection is that failure mode. The prefix form is kept as [trail-prefix-synthesis-sharing](#trail-prefix-synthesis-sharing). Prior art: Prosser 1993. **Next step:** none. **Memo/cache?** yes (owner approval required).
 
 ### dynamic-partial-order-reduction
 - **Status:** rejected: at most 1.14x of stratum work (state-repeat census, order-class repeats 21.0M plus 11.5M of 262.0M).
@@ -580,7 +580,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where in PanGloss:** `rust/crates/pg-parse/src/morpher.rs` (the synthesis loop). In C#: `Morpher.SynthesizeSequential`.
 - **Expected gain:** unmeasured after recorded-allomorph-replay.
 - **Parity risk:** high: the key must hold every field synthesis reads.
-- **Memo/cache?** yes: needs owner approval (a capped, word-scoped table). **Prior art:** machine#584, machine#601 row 6. **Issues:** none yet.
+- **Memo/cache?** yes (owner approval required): needs owner approval (a capped, word-scoped table). **Prior art:** machine#584, machine#601 row 6. **Issues:** none yet.
 - **Next step:** measure the remaining sharing after recorded-allomorph-replay with the death-census counter, then ask the owner only if it is still large.
 
 ### synthesis-trail-replay-of-syntactic-state
@@ -589,7 +589,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 
 ### synthesis-whole-variant-dedup
 - **Status:** rejected: 12,127 of 12,127 variants distinct by (root shape, trail) on one heavy word (death census; machine#584 found 11% exact duplicates elsewhere).
-- **Finding:** unlike the alternative-level duplicates behind [synthesis-input-dedup](#synthesis-input-dedup), nothing is left to merge at variant level. **Next step:** none. **Memo/cache?** yes.
+- **Finding:** unlike the alternative-level duplicates behind [synthesis-input-dedup](#synthesis-input-dedup), nothing is left to merge at variant level. **Next step:** none. **Memo/cache?** yes (owner approval required).
 
 ### synthesis-length-bound
 - **Status:** rejected: no isolated measurement (already unsound in machine#601 Gate A; no new evidence).
@@ -601,7 +601,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 
 ### synthesis-factored-alternative-product
 - **Status:** rejected: no isolated measurement (needs the keyed table of synthesis-prefix-table; no call-scoped form found).
-- **Finding:** keeping the alternative product factored through synthesis needs a keyed table, so it is the same owner decision. **Next step:** none. **Memo/cache?** yes.
+- **Finding:** keeping the alternative product factored through synthesis needs a keyed table, so it is the same owner decision. **Next step:** none. **Memo/cache?** yes (owner approval required).
 
 ### Rejected 2026-11-27 research (do not re-propose)
 From the exponent-clamping and graph-sharing research drafts of 2026-11-27. Each died on reasoning from the code and the cited measurements; none was built. Restate one only with new evidence. Every bullet starts with its status in the form `rejected: <number> <unit> (<source>)`, or `rejected: no isolated measurement (<reason>)` where none exists.

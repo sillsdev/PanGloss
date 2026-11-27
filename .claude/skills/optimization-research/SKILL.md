@@ -57,6 +57,14 @@ Add a row to the table in `docs/research/optimization/README.md` and an entry in
 long) using the format in `references/ledger-format.md`. Record rejections and dead ends with the number that killed them. Update an existing
 entry rather than adding a duplicate. Other agents' drafts arrive in `docs/research/optimization/drafts/`; fold them into the ledger and delete the draft.
 
+Two mechanical checks enforce this, so a wrong ledger fails instead of being noticed later:
+- **Ledger lint** (`rust/tools/ledger-check.ps1`, run by `rust/tools/tests/ledger-check.tests.ps1` in `pg.ps1 -Mode preland` and CI tool-tests): every row
+  has an allowed status, every `rejected` row or entry has a killing number (a value with a unit or a ratio, plus an issue, PR or command), every
+  entry link resolves, and idea names are unique. The one exception is `rejected: no isolated measurement (<reason>)`: accepted and counted, and the idea may be
+  re-proposed once someone measures it, the measurement then replacing the exception. Run it alone with `pwsh rust/tools/ledger-check.ps1`.
+- **PR `Ledger:` line** (`.github/workflows/ledger-line.yml`, pull requests only): a PR that changes parser code (paths listed in
+  `ledger-check.ps1`) needs `Ledger: <row name>` or `Ledger: n/a (<reason>)` in its description.
+
 ### 5. File or update issues
 
 Search first (`gh issue list ... --state all --search`), then update before you file.

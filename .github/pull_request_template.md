@@ -7,6 +7,14 @@
 <!-- Link verified issues and relevant Machine reports/divergence entries.
 Use closing keywords only when the whole issue is addressed. State exclusions and follow-ups. -->
 
+## Ledger
+
+<!-- Parser changes (pg-rules, pg-parse, pg-grammar compile, pg-fst traverse, ...) need one line below:
+`Ledger: <row name>` from docs/research/optimization/README.md, or `Ledger: n/a (<reason>)`.
+Other PRs may delete this section. Checked by .github/workflows/ledger-line.yml. -->
+
+Ledger: n/a (<reason>)
+
 ## Release note
 
 <!-- A user-visible change adds one `changes/unreleased/<issue>-<slug>.md` fragment (a Markdown bullet).
