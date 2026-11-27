@@ -1,1 +1,0 @@
-- `parse` and `batch --without` now also leave out phonological rules, compound rules, affix templates and ad hoc co-occurrence rules, parsing exactly as a grammar with that rule deleted; an affix template slot or any other object is refused with its kind (#397).

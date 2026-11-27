@@ -1,1 +1,0 @@
-- `pangloss readings-histogram <batch.tsv> [--json]` counts the words of a `batch` run by Readings per word (0, 1, 2, ...), with words that did not finish `ok` listed apart (#396); new command only, no existing output changes. See `docs/formats/batch-tsv.md`.
