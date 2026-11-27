@@ -3429,6 +3429,27 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    let graph_node = (recorder.is_none() && mstats.is_none())
+        .then(|| rule.allomorphs.first())
+        .flatten()
+        .and_then(|first| Some((crate::shape_graph::node(&word.shape)?, first.id.0)));
+    if let Some((node, rule_key)) = graph_node {
+        if let Some(edges) = crate::shape_graph::row(node, rule_key, prune_disagreeing_copies) {
+            let mut output = Vec::with_capacity(edges.len());
+            for (allomorph, shape) in edges {
+                if !pg_fst::work::consume() {
+                    return Vec::new();
+                }
+                let mut w = word.clone();
+                w.shape = shape;
+                w.syn_fs = new_syn.clone();
+                w.analysis_allomorph = allomorph;
+                output.push(w);
+            }
+            return output;
+        }
+    }
+    let graph_work0 = pg_fst::work::active_budget().map_or(0, |b| b.used());
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
@@ -3477,6 +3498,21 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    if let Some((node, rule_key)) = graph_node {
+        if !pg_fst::work::stopped() {
+            let work = pg_fst::work::active_budget().map_or(0, |b| b.used()) - graph_work0;
+            crate::shape_graph::set_row(
+                node,
+                rule_key,
+                prune_disagreeing_copies,
+                output
+                    .iter()
+                    .map(|w| (w.analysis_allomorph, w.shape.clone()))
+                    .collect(),
+                work,
+            );
+        }
+    }
     output
 }
 
@@ -3875,6 +3911,26 @@ fn ana_realizational_cached<const COLLECT_STATS: bool>(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    let graph_node = mstats
+        .is_none()
+        .then(|| rule.allomorphs.first())
+        .flatten()
+        .and_then(|first| Some((crate::shape_graph::node(&word.shape)?, first.id.0)));
+    if let Some((node, rule_key)) = graph_node {
+        if let Some(edges) = crate::shape_graph::row(node, rule_key, prune_disagreeing_copies) {
+            let mut output = Vec::with_capacity(edges.len());
+            for (_, shape) in edges {
+                if !pg_fst::work::consume() {
+                    return Vec::new();
+                }
+                let mut w = word.clone();
+                w.shape = shape;
+                w.real_fs = real_fs.clone();
+                output.push(w);
+            }
+            return output;
+        }
+    }
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
@@ -3907,6 +3963,17 @@ fn ana_realizational_cached<const COLLECT_STATS: bool>(
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    if let Some((node, rule_key)) = graph_node {
+        if !pg_fst::work::stopped() {
+            crate::shape_graph::set_row(
+                node,
+                rule_key,
+                prune_disagreeing_copies,
+                output.iter().map(|w| (None, w.shape.clone())).collect(),
+                0,
+            );
+        }
+    }
     output
 }
 

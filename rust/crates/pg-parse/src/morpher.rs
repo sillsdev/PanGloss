@@ -1066,6 +1066,7 @@ impl<'g> Morpher<'g> {
 
         let values = pg_rules::shared_values::SharedValues::default();
         let _work_scope = budget.enter();
+        let _shape_graph = pg_rules::shape_graph::begin();
         for _ in word.chars() {
             if !budget.analysis_unit() {
                 let mut outcome = empty_outcome(false);
