@@ -75,6 +75,9 @@ mod reserved_word_boundary;
 #[path = "../slotted_suffix_left_environment.rs"]
 mod slotted_suffix_left_environment;
 
+#[path = "../without_rules.rs"]
+mod without_rules;
+
 #[path = "../wide_table_segment_identity.rs"]
 mod wide_table_segment_identity;
 
