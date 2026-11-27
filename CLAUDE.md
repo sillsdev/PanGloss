@@ -83,6 +83,7 @@ Each is enforced. The enforcement explains itself when it fires, so this is a ta
 | Bare `cargo build`, `cargo test`, `cargo check`, `cargo clippy`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
 | Every compile mode refuses a tree CI would refuse, before tests or a build start: rustfmt is applied, comment hygiene is fatal, clippy runs with `-D warnings` | `pg.ps1`: exit 41 (hygiene), exit 40 (clippy); `rust/tools/tests/lint-gate.tests.ps1` |
 | No release from a commit whose `Rust CI` run is not green | `release preflight` waits for the exact tagged source commit in `.github/workflows/rust-gates.yml` |
+| Heavy modes wait for host admission (`stile admit`) before any slot or cargo; stile absent or `PANGLOSS_SKIP_ADMIT=1` skips visibly | `pg.ps1` `Wait-StileAdmission`: exit 29 (stile failed), exit 30 (wait timed out); `rust/tools/tests/admit-gate.tests.ps1` |
 | A managed build runs in the foreground, never `run_in_background` | `.claude/hooks/block-backgrounded-build.py` |
 | Never scan from a filesystem root | `.claude/hooks/block-root-find.py` |
 | `-Mode conformance-test` must claim `-Scope local\|all`; no default | exit 20, and `pg_conformance_fixtures::discover` panics on an unset `PANGLOSS_CONFORMANCE_SCOPE` |

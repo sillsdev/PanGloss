@@ -48,6 +48,10 @@
   different worktrees. Picked to avoid colliding with cargo's own exit codes (101 on build failure)
   and PowerShell's reserved low range.
 
+  Host-admission exit codes (29-30), raised by Wait-StileAdmission before any slot is taken or cargo
+  starts: 29 `stile admit` failed with anything other than 0 (start) or 10 (wait) -- fail closed;
+  30 `stile admit` still said wait (10) when -AdmitTimeoutSeconds ran out, so nothing was started.
+
   Up-front gate exit codes (40-41), raised before tests or a build start so a tree CI would refuse
   never gets that far: 40 clippy failed (`-D warnings`, the same command CI runs), 41 comment
   hygiene found violations or could not run.
@@ -1289,6 +1293,10 @@ $script:ExitCodeOracleUnavailable = 25
 $script:ExitCodeOracleDivergence = 26
 # -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
 $script:ExitCodeReleaseArtifactNotExported = 28
+# `stile admit` failed with an exit code other than 0 or 10; the machine's verdict is unknown, so nothing starts.
+$script:ExitCodeAdmit = 29
+# `stile admit` kept answering "wait" (exit 10) until -AdmitTimeoutSeconds elapsed.
+$script:ExitCodeAdmitTimeout = 30
 # Clippy (or the type-check under it) failed before tests or a build started; CI's clippy job would fail the same tree.
 $script:ExitCodeLint = 40
 # -Mode preland: at least one pre-land check failed or could not run.
@@ -2677,4 +2685,68 @@ if ($IsLinux) {
     $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Windows -ToolRoot $PSScriptRoot
 } else {
     $script:PanGlossPlatformAdapter = [PSCustomObject]@{ Platform = 'Unknown'; Overrides = @() }
+}
+
+function Clear-StileAdmissionMarker {
+    <#
+      .DESCRIPTION
+      Removes PANGLOSS_ADMITTED only if this invocation's Wait-StileAdmission set it, so a pg.ps1 run
+      in-process from a long-lived pwsh does not leave the marker behind to skip later admissions. A run
+      that found the marker already set by its parent never owns it and leaves it alone.
+    #>
+    if ($script:AdmitMarkerOwned) { $env:PANGLOSS_ADMITTED = $null; $script:AdmitMarkerOwned = $false }
+}
+
+function Wait-StileAdmission {
+    <#
+      .DESCRIPTION
+      Blocks until `stile admit` says start (exit 0), so a heavy pg.ps1 mode never starts cargo while
+      the host is overloaded. Returns 0 to proceed (admitted or deliberately skipped) or the pg.ps1
+      exit code to stop with: $script:ExitCodeAdmit for any stile exit other than 0 or 10 (fail
+      closed), $script:ExitCodeAdmitTimeout when 10 persists for -MaxWaitSeconds. Skips, with one
+      visible line, when PANGLOSS_SKIP_ADMIT=1, when PANGLOSS_ADMITTED=1 (a parent pg.ps1 was already
+      admitted, e.g. preland's child runs) or when stile is not on PATH (CI). Sets PANGLOSS_ADMITTED=1
+      only after being admitted. -Runner and -Sleeper exist so tests need no real stile or clock.
+    #>
+    param(
+        [int]$Jobs = 1,
+        [string]$Mode = '',
+        [int]$MaxWaitSeconds = 3600,
+        [string]$ReleaseBlocker = '',
+        [scriptblock]$Runner = $null,
+        [scriptblock]$Sleeper = { param($Seconds) Start-Sleep -Seconds $Seconds }
+    )
+    if ($env:PANGLOSS_SKIP_ADMIT -eq '1') { Write-Host '[pg] admit: skipped (PANGLOSS_SKIP_ADMIT=1)'; return 0 }
+    if ($env:PANGLOSS_ADMITTED -eq '1') { Write-Host '[pg] admit: skipped (parent pg.ps1 already admitted)'; return 0 }
+    if (-not $Runner) {
+        if (-not (Get-Command stile -ErrorAction SilentlyContinue)) { Write-Host '[pg] admit: skipped (stile not on PATH)'; return 0 }
+        $Runner = { param($StileArgs) $o = & stile @StileArgs 2>&1; [PSCustomObject]@{ Code = $LASTEXITCODE; Out = (($o | Out-String).Trim()) } }
+    }
+    $place = if ($IsWindows) { 'windows' } else { 'wsl' }
+    $stileArgs = @('admit', '--jobs', "$([Math]::Max(1, $Jobs))", '--placement', $place)
+    if ($ReleaseBlocker) { $stileArgs += @('--release-blocker', $ReleaseBlocker) }
+    $started = Get-Date
+    $delay = 15
+    while ($true) {
+        $r = & $Runner $stileArgs
+        if ($r.Code -eq 0) {
+            $env:PANGLOSS_ADMITTED = '1'
+            $script:AdmitMarkerOwned = $true
+            Write-Host "[pg] admit: admitted for -Mode $Mode ($($r.Out))"
+            return 0
+        }
+        if ($r.Code -ne 10) {
+            Write-Host "[pg] admit: stile admit failed (exit $($r.Code)): $($r.Out)" -ForegroundColor Red
+            Write-Host '[pg] nothing was started. Fix stile, or set PANGLOSS_SKIP_ADMIT=1 only if you own the box.' -ForegroundColor Yellow
+            return $script:ExitCodeAdmit
+        }
+        $waited = [int]((Get-Date) - $started).TotalSeconds
+        if ($waited -ge $MaxWaitSeconds) {
+            Write-Host "[pg] admit: still waiting ($($r.Out)) after ${waited}s; nothing was started. Retry later, or set PANGLOSS_SKIP_ADMIT=1 only if you own the box." -ForegroundColor Red
+            return $script:ExitCodeAdmitTimeout
+        }
+        Write-Host "[pg] admit: waiting ($($r.Out)); ${waited}s elapsed, recheck in ${delay}s"
+        & $Sleeper $delay
+        $delay = [Math]::Min(60, [int]($delay * 1.5))
+    }
 }
