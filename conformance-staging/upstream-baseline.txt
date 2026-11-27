@@ -31,8 +31,6 @@ edge-cases/metathesis-middle-context
 edge-cases/mpr-group-overwrite-without-realizational
 edge-cases/mpr-overwrite-order-dependence
 edge-cases/multi-table-metathesis-shared-representation
-edge-cases/narrowing-boundary-first-alpha-lhs
-edge-cases/narrowing-boundary-order-alpha-lhs
 edge-cases/nullable-copy-partition-alpha-ltr
 edge-cases/nullable-copy-partition-alpha-rtl
 edge-cases/nullable-copy-partition-ltr

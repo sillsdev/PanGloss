@@ -121,6 +121,8 @@ machine:edge-cases/metathesis-swap-then-gap	TunedSurfaceProbed	refused
 machine:edge-cases/morphotactic-attribute-breadth	TunedSurfaceProbed	refused
 machine:edge-cases/mpr-gated-exception	TunedSurfaceProbed	refused
 machine:edge-cases/mpr-wide-inflection-classes	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/narrowing-boundary-first-alpha-lhs	TunedSurfaceProbed	refused
+machine:edge-cases/narrowing-boundary-order-alpha-lhs	TunedSurfaceProbed	refused
 machine:edge-cases/nfa-literal-allomorph-environment	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/non-clitic-after-final-template-layout	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/null-prefix-root-initial-deletion-later-suffix	TunedSurfaceProbed	refused
@@ -291,8 +293,6 @@ staging:edge-cases/metathesis-reversed-switch-order	TunedSurfaceProbed	refused
 staging:edge-cases/mpr-group-overwrite-without-realizational	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/mpr-overwrite-order-dependence	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/multi-table-metathesis-shared-representation	TunedSurfaceProbed	oracle_exact
-staging:edge-cases/narrowing-boundary-first-alpha-lhs	TunedSurfaceProbed	refused
-staging:edge-cases/narrowing-boundary-order-alpha-lhs	TunedSurfaceProbed	refused
 staging:edge-cases/nullable-copy-partition-alpha-ltr	TunedSurfaceProbed	refused
 staging:edge-cases/nullable-copy-partition-alpha-rtl	TunedSurfaceProbed	refused
 staging:edge-cases/nullable-copy-partition-ltr	TunedSurfaceProbed	refused

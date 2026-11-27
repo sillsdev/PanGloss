@@ -68,6 +68,8 @@ machine:edge-cases/merge-subrules-pos-simultaneous-template,yes,0,0,0,ok
 machine:edge-cases/merge-then-metathesis,yes,0,0,0,ok
 machine:edge-cases/morphotactic-attribute-breadth,yes,0,0,0,ok
 machine:edge-cases/mpr-gated-exception,yes,0,0,0,ok
+machine:edge-cases/narrowing-boundary-first-alpha-lhs,yes,0,0,0,ok
+machine:edge-cases/narrowing-boundary-order-alpha-lhs,yes,0,0,0,ok
 machine:edge-cases/non-clitic-after-final-template-layout,yes,0,0,0,ok
 machine:edge-cases/nullable-disagree-bounded-ltr-left,yes,0,0,0,ok
 machine:edge-cases/nullable-disagree-bounded-ltr-right,yes,0,0,0,ok
@@ -152,8 +154,6 @@ staging:edge-cases/loader-isactive-breadth,yes,0,0,0,ok
 staging:edge-cases/mpr-group-overwrite-without-realizational,yes,0,0,0,ok
 staging:edge-cases/mpr-overwrite-order-dependence,yes,0,0,0,ok
 staging:edge-cases/multi-table-metathesis-shared-representation,yes,0,0,0,ok
-staging:edge-cases/narrowing-boundary-first-alpha-lhs,yes,0,0,0,ok
-staging:edge-cases/narrowing-boundary-order-alpha-lhs,yes,0,0,0,ok
 staging:edge-cases/pos-scoped-deletion-blocks-metathesis,yes,4,1,856,ok
 staging:edge-cases/realizational-reduplication-no-proposal-route,yes,0,0,0,ok
 staging:edge-cases/rewrite-analysis-feature-neutralization,yes,0,0,0,ok

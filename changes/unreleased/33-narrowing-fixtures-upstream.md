@@ -1,0 +1,1 @@
+- The conformance suite pin moves to babd5f4 and the two narrowing-boundary alpha-lhs fixtures now come from it instead of conformance-staging (#33).
