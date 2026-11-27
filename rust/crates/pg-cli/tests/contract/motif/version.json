@@ -1,0 +1,22 @@
+{
+  "description": "The identity probe Motif runs: `pangloss --version`, from which Motif reads the first x.y.z version in stdout plus stderr.",
+  "scenario": "version",
+  "steps": [
+    {
+      "argv": [
+        "--version"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "semver": true
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/ParserExecutableIdentity.cs ReadVersionAsync",
+      "name": "version",
+      "stdout": "version"
+    }
+  ]
+}

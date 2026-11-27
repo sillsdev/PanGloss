@@ -245,6 +245,18 @@ fn describe_projection(doc: &Value) -> Value {
     })
 }
 
+/// True when `text` holds an `x.y.z` version, the pattern Motif's identity probe matches.
+fn has_semver(text: &str) -> bool {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .any(|t| {
+            let parts: Vec<&str> = t.split('.').collect();
+            parts.len() >= 3
+                && parts[..3]
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+}
+
 /// Reads one captured file or stream the way Motif reads it, as the value an `expect` records.
 fn capture(kind: &str, bytes: &[u8]) -> Value {
     let text = String::from_utf8_lossy(bytes);
@@ -276,6 +288,7 @@ fn capture(kind: &str, bytes: &[u8]) -> Value {
             Value::Object(groups.into_iter().collect())
         }
         "tsv" => json!({ "tsv": normalise_tsv(text) }),
+        "version" => json!({ "semver": has_semver(text) }),
         "text" => json!({ "nonEmpty": !text.trim().is_empty() }),
         "exists" => json!({ "nonEmpty": !bytes.is_empty() }),
         other => panic!("unknown capture kind {other}"),
@@ -410,6 +423,10 @@ fn regenerate(reason: &str) {
 fn motif_contract_fixtures_match_the_shipped_binary() {
     if let Ok(reason) = std::env::var(REGENERATE) {
         assert!(
+            std::env::var_os("CI").is_none(),
+            "{REGENERATE} rewrites the fixtures and must not be set in CI"
+        );
+        assert!(
             !reason.trim().is_empty(),
             "{REGENERATE} must say why the contract changes (and name the changes/unreleased fragment)"
         );
@@ -444,6 +461,9 @@ fn motif_contract_fixtures_match_the_shipped_binary() {
 
 #[test]
 fn fixtures_were_changed_only_through_the_regenerate_command() {
+    if std::env::var_os(REGENERATE).is_some() {
+        return;
+    }
     let ledger = std::fs::read_to_string(contract_dir().join("CHANGES.md")).unwrap();
     let last = ledger
         .lines()
