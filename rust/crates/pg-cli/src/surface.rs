@@ -268,8 +268,6 @@ fn interfaces() -> InterfacesDescribe {
             "effects": crate::serve_effects::describe(),
             "inventory": crate::serve_inventory::describe(),
             "match": crate::serve_match::describe(),
-            "shadowedAllomorphs": crate::serve_shadowed::describe(),
-            "health": crate::serve_health::describe(),
         }),
     }
 }
@@ -787,7 +785,7 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--shadowed",
         takes_value: false,
-        summary: "add the shadowed-alternates report of `serve`'s shadowedAllomorphs op: a grammar.allomorph.shadowed warning per proven alternate and the whole report under `shadowed_alternates`; act only on its removableGuids.",
+        summary: "add the shadowed-alternates report: a grammar.allomorph.shadowed warning per proven alternate and the whole report under `shadowed_alternates`; act only on its removableGuids.",
     },
     FlagSpec {
         name: "--include-selectable",

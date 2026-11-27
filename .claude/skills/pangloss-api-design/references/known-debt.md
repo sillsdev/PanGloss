@@ -41,4 +41,4 @@ surface; fix them in one release window with Motif, with no aliases or legacy sp
 - `--without` object kinds widened in #531 after #509 said entries and allomorphs only, with no capability bit to probe.
 - No Motif caller and no plan (caller map, 2026-11-27), with the owner's decisions of the same day: `--without` and `--retire` are
   supported API (stable, kept for future capability); `--rule-costs`, `--query-fields`, `--include-selectable` are frozen (no growth);
-  serve `health` and `shadowedAllomorphs` are removed outright (PR in progress; `grammar-health` and `--shadowed` are the one route); serve `shutdown` stays. Planned: `--shadowed` (motif#438), `generate --requests` (motif#278).
+  serve `shutdown` stays. Planned: `--shadowed` (motif#438), `generate --requests` (motif#278).
