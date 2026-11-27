@@ -451,6 +451,8 @@ mod required_slot_check;
 mod required_slot_lookahead_tests;
 #[cfg(test)]
 mod required_slot_order_tests;
+#[cfg(test)]
+mod required_slot_review_tests;
 
 #[cfg(test)]
 mod shape_graph_tests;

@@ -81,7 +81,7 @@ fn grammar() -> Grammar {
 }
 
 /// How many slot tests fired on `text` for one template, in shadow mode, with the outputs of the shadow run.
-fn fired(g: &Grammar, tid: u32, text: &str) -> u64 {
+pub(super) fn fired(g: &Grammar, tid: u32, text: &str) -> u64 {
     required_slots::take_shadow();
     run(g, RequiredSlotLookahead::Shadow, TemplateId(tid), text);
     let counts = required_slots::take_shadow();

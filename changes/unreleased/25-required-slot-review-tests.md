@@ -1,0 +1,1 @@
+- Added Rust tests mirroring the required-slot look-ahead cases machine #575 gained after the port (boundary-only infix, empty unbounded run, optional node before a prefix, inner material inside the outer suffix); the look-ahead already behaved the same, so no behaviour changes (#25).
