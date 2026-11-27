@@ -183,10 +183,21 @@ function Test-LedgerFile {
         if ($status -eq 'rejected' -and (Test-LedgerNoMeasurementException $cells[1])) {
             $script:LedgerExceptionCount++
         } elseif ($status -eq 'rejected') {
-            $text = ($cells -join ' ') + "`n" + $entryText
+            $text = (@($cells[0..3]) -join ' ') + "`n" + $entryText
             if (-not (Test-LedgerKillingNumber $text)) {
                 $errors += "$where : a rejected idea needs its killing number: a value with a unit or a ratio (for example '+7.7% work', '1.1x', '0 steps') and a source (issue, PR or command) in the row or its entry. Fix: add both to the Status cell or the entry."
             }
+        }
+    }
+    # A Memo/cache line that says yes needs the owner-approval phrase, unless the memo is already approved.
+    $lineNo = 0
+    foreach ($line in $ledger.Lines) {
+        $lineNo++
+        $m = [regex]::Match($line, '\*\*Memo/cache\?\*\*\s*(.*)$')
+        if (-not $m.Success) { continue }
+        $v = $m.Groups[1].Value
+        if ($v -match '(?i)^yes\b' -and $v -notmatch '(?i)^yes \(owner approval required\)' -and $v -notmatch '(?i)^yes,? approved') {
+            $errors += "ledger line $lineNo : 'Memo/cache? yes' must read exactly 'Memo/cache? yes (owner approval required)' (or 'yes, approved' for an owner-approved memo already landed). Fix: use that phrase; further detail goes after it."
         }
     }
     # Dead-end bullets ('- **<name>:** rejected ...') carry their own number or the exception.

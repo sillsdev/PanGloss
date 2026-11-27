@@ -43,7 +43,7 @@ Test-Case 'a rejected row without a killing number fails; with one and a source 
 }
 
 Test-Case 'a number without a source fails, and the entry text can supply either' {
-    $p = New-Ledger -Rows @('| alpha | rejected (1.1x) | b | none | [entry](#alpha) |')
+    $p = New-Ledger -Rows @('| alpha | rejected, 1.1x | b | none | [entry](#alpha) |')
     Assert-Equal 1 @(Test-LedgerFile -Path $p).Count
     $p2 = New-Ledger -Rows @('| alpha | rejected | b | none | [entry](#alpha) |') -Entries "### alpha`n- 1.1x more steps, see #44`n"
     Assert-Equal 0 @(Test-LedgerFile -Path $p2).Count
@@ -83,6 +83,15 @@ Test-Case 'dead-end bullets need a number or the exception' {
     $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **One:** rejected: 2.3x more instances (machine#596).`n- **Two:** rejected: no isolated measurement (out of scope).`n- **Three:** rejected: boring.`n"
     $e = @(Test-LedgerFile -Path $p)
     Assert-True ($e.Count -eq 1 -and $e[0] -match 'bullet') ($e -join ';')
+}
+
+Test-Case 'a Memo/cache yes line needs the owner-approval phrase' {
+    foreach ($ok in @('yes (owner approval required) extra', 'yes, approved.')) {
+        $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **Memo/cache?** $ok`n"
+        Assert-Equal 0 @(Test-LedgerFile -Path $p).Count $ok
+    }
+    $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **Memo/cache?** yes: capped table.`n"
+    Assert-Equal 1 @(Test-LedgerFile -Path $p).Count
 }
 
 $names = @('shape-table', 'work-cap')

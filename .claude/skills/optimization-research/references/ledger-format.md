@@ -14,7 +14,7 @@ Statuses (a qualifier may follow in parentheses or after a comma; `open` is also
 - **Where in PanGloss:** crate/file of the code that would change. In C#: the matching sillsdev/machine file.
 - **Expected gain:** a measured multiplier with its command, or an estimate (say which).
 - **Parity risk:** can it change parses versus C# HermitCrab? Which invariant makes it safe?
-- **Memo/cache?** yes or no. Beyond the root-trie exception and the shape graph needs owner approval.
+- **Memo/cache?** `no`, or `yes (owner approval required)` (the lint requires that exact phrase for any yes; `yes, approved` for one already approved and landed). Beyond the root-trie exception and the shape graph needs owner approval.
 - **Prior art:** citation, one line each on what was taken.
 - **Issues:** sillsdev/PanGloss#N, sillsdev/machine#N, or none yet.
 - **Next step:** the smallest experiment that would confirm or kill it.
