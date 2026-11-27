@@ -241,7 +241,22 @@ fn unicode_set_pattern_whitespace_and_unsupported_strings() {
     let result = analyze("", ProfileInput::Ldml { identity: "x", xml }, &[]).unwrap();
     assert_eq!(result.profile.word_forming, vec![' ', '\u{200e}']);
     for pattern in [
-        "[:L:]", "[[:L:]]", "[{}]", "[{{a}}]", "[{a{b}}]", "[{ab}-c]", "[a-{bc}]",
+        "[:L:]",
+        "[:^L:]",
+        "[:Letter:]",
+        "[:Bogus:]",
+        r"[:]",
+        r"[:a\:]",
+        "[:L]",
+        "[:a]",
+        "[::]",
+        "[:-a]",
+        "[[:L:]]",
+        "[{}]",
+        "[{{a}}]",
+        "[{a{b}}]",
+        "[{ab}-c]",
+        "[a-{bc}]",
     ] {
         let xml = format!("<ldml><exemplarCharacters>{pattern}</exemplarCharacters></ldml>");
         assert!(analyze(
@@ -254,7 +269,15 @@ fn unicode_set_pattern_whitespace_and_unsupported_strings() {
         )
         .is_err());
     }
-    for pattern in [r"[:]", r"[:a\:]", "[{a}-   ]"] {
+    for pattern in [
+        "[{a}-   ]",
+        "[a:b]",
+        "[{c:h}]",
+        r"[a\:b]",
+        "[a:]",
+        "[ :]",
+        r"[\:L\:]",
+    ] {
         let xml = format!("<ldml><exemplarCharacters>{pattern}</exemplarCharacters></ldml>");
         assert!(analyze(
             "",
