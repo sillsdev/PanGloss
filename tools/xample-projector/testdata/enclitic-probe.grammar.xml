@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>EncliticProbe</Name>
+    <!--
+      Minimal fixture for XampleProjector's own build.ps1 -Mode test: exercises enclitic authoring
+      (the enclitic-of option pairs eX with mrX and eY with mrY). HCLoader emits a FieldWorks enclitic entry as one
+      clitic MorphologicalRule (no part of speech, in the stratum named Clitics, listed in that stratum's
+      morphologicalRules) plus one stem LexicalEntry copy in the same stratum; author pairs the two back into ONE
+      entry of the enclitic morph type. The prohibition names the enclitic by BOTH of its ids and the stem eK, so
+      the two rules are the same MoMorphAdhocProhib and kx must not parse while k and ky do. Synthetic
+      segments only; not a HermitCrab conformance fixture and not staged anywhere else.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posV"><Name>v</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cX"><Representations><Representation>x</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eK" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aK"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>K</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrX mrY">
+        <Name>Clitics</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrX">
+            <Name>mrX</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subX">
+                <MorphologicalInput><PhoneticSequence id="stemX"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemX" /><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>X</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrY">
+            <Name>mrY</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subY">
+                <MorphologicalInput><PhoneticSequence id="stemY"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemY" /><InsertSegments><PhoneticShape>y</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>Y</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eX" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>X</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eY" partOfSpeech="posV">
+            <Allomorphs><Allomorph id="aY"><PhoneticShape>y</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>Y</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+    <MorphemeCoOccurrenceRules>
+      <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="mrX" otherMorphemes="eK" adjacency="anywhere" />
+      <MorphemeCoOccurrenceRule type="exclude" primaryMorpheme="eX" otherMorphemes="eK" adjacency="anywhere" />
+    </MorphemeCoOccurrenceRules>
+  </Language>
+</HermitCrabInput>

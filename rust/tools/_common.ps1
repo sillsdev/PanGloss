@@ -4,13 +4,12 @@
   target-dir redirection, sccache wiring, a cross-worktree build-concurrency gate, resource admission,
   worktree-scoped cleanup of orphaned processes and stale build caches,
   and the preflight surface (exit codes, worktree base-commit contract, target ownership, corpus
-  manifest validation, conformance-submodule auto-init) that pg.ps1 gates a run on.
+  manifest validation, conformance-suite fetch) that pg.ps1 gates a run on.
 
   Dot-source from build.ps1/test.ps1/pg.ps1: . "$PSScriptRoot\_common.ps1"
 
   Full design rationale for the resource-governance mechanisms below (target-dir SSD/HDD placement,
-  the CPU/memory reserve model, the build-slot mutex design, orphan reaping, and the conformance-
-  submodule sparse checkout) is consolidated in
+  the CPU/memory reserve model, the build-slot mutex design, and orphan reaping) is consolidated in
   docs/research/build-resource-governance.md, alongside the measured incidents in the repo's own
   CLAUDE.md that motivated each one. Comments in this file point there rather than re-deriving the
   argument at every call site.
@@ -45,9 +44,13 @@
   Preflight exit codes (10-19), one per distinct failure so a caller can branch without parsing text:
   10 wrong worktree base, 11 missing corpus file, 12 low disk, 13 sccache unavailable, 14 bad target
   ownership, 15 build-slot wait timeout, 16 zero corpus cases executed, 17 low memory, 18 conformance
-  submodule missing and could not auto-init, 19 the invoked script and the caller's cwd resolve to
+  suite missing and could not be fetched, 19 the invoked script and the caller's cwd resolve to
   different worktrees. Picked to avoid colliding with cargo's own exit codes (101 on build failure)
   and PowerShell's reserved low range.
+
+  Host-admission exit codes (29-30), raised by Wait-StileAdmission before any slot is taken or cargo
+  starts: 29 `stile admit` failed with anything other than 0 (start) or 10 (wait) -- fail closed;
+  30 `stile admit` still said wait (10) when -AdmitTimeoutSeconds ran out, so nothing was started.
 
   Up-front gate exit codes (40-41), raised before tests or a build start so a tree CI would refuse
   never gets that far: 40 clippy failed (`-D warnings`, the same command CI runs), 41 comment
@@ -145,6 +148,8 @@ function Get-SpawnFloorGB {
 
 $script:MemoryPerCompileJobGB = if ($env:PANGLOSS_MEM_PER_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_JOB_GB } else { 1.5 }
 $script:MemoryPerLtoLinkJobGB = if ($env:PANGLOSS_MEM_PER_LTO_JOB_GB) { [double]$env:PANGLOSS_MEM_PER_LTO_JOB_GB } else { 2 }
+# Test-process ceiling (this PC froze above it); -TestThreads or PANGLOSS_MAX_TEST_THREADS overrides.
+$script:MaxTestThreads = if ($env:PANGLOSS_MAX_TEST_THREADS) { [int]$env:PANGLOSS_MAX_TEST_THREADS } else { 6 }
 $script:MemoryPerTestProcessGB = if ($env:PANGLOSS_MEM_PER_TEST_GB) { [double]$env:PANGLOSS_MEM_PER_TEST_GB } else { 2.5 }
 
 function Get-MemoryPerProcessGB {
@@ -405,6 +410,127 @@ function Split-CargoFeatureArgs {
     [PSCustomObject]@{ CargoArgs = @($cargo) }
 }
 
+function ConvertTo-NextestRunnerArgs {
+    <#
+      .DESCRIPTION
+      libtest spells ignored-test selection `--ignored` / `--include-ignored`; nextest spells it
+      `--run-ignored ignored-only|all`, and passes a bare libtest flag through to the binary where it
+      selects nothing useful. Translate so a caller's flags mean the same on both runners. A lone `--`
+      left with nothing after it is dropped.
+    #>
+    param([string[]]$ExtraArgs = @(), [bool]$AlreadyRunsIgnored = $false)
+    $pre = @()
+    $post = @()
+    $afterSeparator = $false
+    foreach ($arg in $ExtraArgs) {
+        if ($arg -eq '--' -and -not $afterSeparator) { $afterSeparator = $true; continue }
+        if ($arg -eq '--ignored') { $pre += @('--run-ignored', 'ignored-only') }
+        elseif ($arg -eq '--include-ignored') { if (-not $AlreadyRunsIgnored) { $pre += @('--run-ignored', 'all') } }
+        elseif ($afterSeparator) { $post += $arg }
+        else { $pre += $arg }
+    }
+    if ($post.Count -gt 0) { return @($pre) + @('--') + @($post) }
+    return $pre
+}
+
+function Get-WorkspacePackages {
+    <# .DESCRIPTION Workspace members from `cargo metadata`: name, repo-relative dir, whether a library target (doctests) exists, and workspace dependency names. #>
+    param([Parameter(Mandatory)][string]$RustRoot, [Parameter(Mandatory)][string]$RepoRoot)
+    $json = & cargo metadata --format-version 1 --no-deps --locked --manifest-path (Join-Path $RustRoot 'Cargo.toml') 2>$null
+    if ($LASTEXITCODE -ne 0) { throw 'cargo metadata failed' }
+    $meta = ($json -join "`n") | ConvertFrom-Json
+    $repo = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath.TrimEnd('/', '\')
+    $names = @($meta.packages | ForEach-Object { $_.name })
+    foreach ($pkg in $meta.packages) {
+        $dir = (Split-Path -Parent $pkg.manifest_path).Replace('\', '/')
+        $rel = $dir.Substring($repo.Length).TrimStart('/')
+        [PSCustomObject]@{
+            Name   = $pkg.name
+            Dir    = $rel
+            HasLib = [bool]($pkg.targets | Where-Object { $_.kind -contains 'lib' -or $_.kind -contains 'rlib' -or $_.kind -contains 'proc-macro' })
+            Deps   = @($pkg.dependencies | ForEach-Object { $_.name } | Where-Object { $names -contains $_ } | Sort-Object -Unique)
+        }
+    }
+}
+
+function Get-AffectedScope {
+    <#
+      .DESCRIPTION
+      Map repo-relative changed paths to workspace packages. Global = the change can alter any test
+      (workspace manifest/lock, toolchain, nextest config, shared fixtures), so the caller runs the
+      whole suite. Docs, CI files and PowerShell tooling touch no Rust test and map to nothing.
+      Closure = changed packages plus every workspace package that depends on them (what nextest's
+      rdeps() selects), used to scope doctests.
+    #>
+    param([string[]]$ChangedPaths = @(), [Parameter(Mandatory)]$Packages)
+    $globalPrefixes = @('rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/.config/', 'rust/.cargo/', '.cargo/',
+        'conformance-staging/', 'conformance.commit', 'machine/', 'samples/', 'rust/examples/')
+    $inert = @('rust/README.md', 'rust/tools/', 'rust/docs/', 'docs/', '.github/', '.claude/', 'openspec/', 'research/', 'reports/')
+    $changed = @{}
+    foreach ($raw in $ChangedPaths) {
+        $path = $raw.Replace('\', '/').TrimStart('./')
+        if (-not $path) { continue }
+        foreach ($g in $globalPrefixes) {
+            if ($path -eq $g.TrimEnd('/') -or $path.StartsWith($g)) {
+                return [PSCustomObject]@{ Global = $true; Reason = "$path is shared by every crate"; Changed = @(); Closure = @() }
+            }
+        }
+        $owner = $Packages | Where-Object { $path.StartsWith($_.Dir + '/') } | Sort-Object { $_.Dir.Length } -Descending | Select-Object -First 1
+        if ($owner) { $changed[$owner.Name] = $true; continue }
+        if ($inert | Where-Object { $path.StartsWith($_) }) { continue }
+        if ($path.StartsWith('rust/')) {
+            return [PSCustomObject]@{ Global = $true; Reason = "$path is under rust/ but belongs to no crate"; Changed = @(); Closure = @() }
+        }
+    }
+    $closure = @{}
+    foreach ($n in $changed.Keys) { $closure[$n] = $true }
+    do {
+        $grew = $false
+        foreach ($pkg in $Packages) {
+            if (-not $closure[$pkg.Name] -and ($pkg.Deps | Where-Object { $closure[$_] })) { $closure[$pkg.Name] = $true; $grew = $true }
+        }
+    } while ($grew)
+    [PSCustomObject]@{ Global = $false; Reason = ''; Changed = @($changed.Keys | Sort-Object); Closure = @($closure.Keys | Sort-Object) }
+}
+
+function Get-ChangedPaths {
+    <# .DESCRIPTION Paths changed since the merge-base with $Base, committed or not, including untracked files. #>
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$Base = 'origin/main')
+    $mb = (& git -C $RepoRoot merge-base $Base HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $mb) { throw "cannot find a merge-base with '$Base'; pass -AffectedBase <ref>" }
+    @(& git -C $RepoRoot diff --name-only $mb) + @(& git -C $RepoRoot ls-files --others --exclude-standard) | Where-Object { $_ } | Sort-Object -Unique
+}
+
+function Get-DoctestInvocation {
+    <# .DESCRIPTION The `cargo test --doc` run that accompanies a nextest run, scoped like it. #>
+    param(
+        [Parameter(Mandatory)][bool]$DebugProfile,
+        [Parameter(Mandatory)][int]$TestThreads,
+        [string]$Package = '',
+        [string[]]$Packages = @(),
+        [string]$Filter = '',
+        [bool]$FailFast = $false,
+        [string[]]$ExtraArgs = @()
+    )
+    $testProfile = if ($script:TestOptProfile) { $script:TestOptProfile } else { 'pg-test-opt' }
+    $cargoArgs = @('test', '--doc', '--locked')
+    if (-not $DebugProfile) { $cargoArgs += @('--profile', $testProfile) }
+    if ($Package) { $cargoArgs += @('-p', $Package) }
+    foreach ($name in $Packages) { $cargoArgs += @('-p', $name) }
+    # Only the cargo-level scope flags carry over; nextest-only flags (--run-ignored, -E, ...) would be errors here.
+    for ($i = 0; $i -lt $ExtraArgs.Count; $i++) {
+        $arg = $ExtraArgs[$i]
+        if ($arg -eq '--') { break }
+        if ($arg -in @('--workspace', '--all-features', '--no-default-features')) { $cargoArgs += $arg }
+        elseif ($arg -in @('--features', '-F', '-p', '--package', '--exclude') -and $i + 1 -lt $ExtraArgs.Count) { $cargoArgs += @($arg, $ExtraArgs[++$i]) }
+        elseif ($arg -match '^(--features|-F|--package|--exclude)=') { $cargoArgs += $arg }
+    }
+    if (-not $FailFast) { $cargoArgs += '--no-fail-fast' }
+    $trailing = @('--test-threads', "$TestThreads")
+    if ($Filter) { $trailing = @($Filter) + $trailing }
+    return @($cargoArgs + @('--') + $trailing)
+}
+
 function Get-CargoTestInvocation {
     param(
         [ValidateSet('quick', 'test', 'corpus-test', 'conformance-test')][Parameter(Mandatory)][string]$Mode,
@@ -460,13 +586,14 @@ function Get-CargoTestInvocation {
         }
     }
 
+    $cargoArgs += '--locked'
     if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 
     $cargoExtraArgs = @()
     $runnerExtraArgs = @()
     if ($UseNextest) {
-        $runnerExtraArgs = @($ExtraArgs)
+        $runnerExtraArgs = @(ConvertTo-NextestRunnerArgs -ExtraArgs $ExtraArgs -AlreadyRunsIgnored ($Mode -eq 'corpus-test'))
     } else {
         # Cargo flags belong before cargo test's `--`; a caller uses its own `--` to start libtest args.
         $runnerSeparator = [array]::IndexOf([string[]]$ExtraArgs, '--')
@@ -531,6 +658,7 @@ function Get-ExampleFeaturePackages {
         }
     }
 }
+$script:ClippyGatedFeatures = @('pg-cli/cost-calibration')
 function Get-ClippyInvocation {
     <#
       .DESCRIPTION
@@ -551,6 +679,8 @@ function Get-ClippyInvocation {
     }
     if (-not $PSBoundParameters.ContainsKey('ExamplePackages')) { $ExamplePackages = @(Get-ExampleFeaturePackages -DefaultOnly:(-not $Package -and $ExtraArgs -notcontains '--workspace')) }
     $features = @($ExamplePackages | Where-Object { -not $Package -or $_ -eq $Package } | ForEach-Object { "$_/examples" })
+    # Feature-gated code that no default build compiles would rot unlinted, so CI lints it too.
+    $features += @($script:ClippyGatedFeatures | Where-Object { -not $Package -or $_.StartsWith("$Package/") })
     if ($features.Count -gt 0) { $cargoArgs += @('--features', ($features -join ',')) }
     if ($Package) { $cargoArgs += @('-p', $Package) }
     if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
@@ -1148,7 +1278,7 @@ $script:ExitCodeBadTargetOwnership = 14
 $script:ExitCodeBuildSlotTimeout = 15
 $script:ExitCodeZeroCorpusCases = 16
 $script:ExitCodeLowMemory = 17
-$script:ExitCodeConformanceSubmoduleMissing = 18
+$script:ExitCodeConformanceSuiteMissing = 18
 # The invoked script and the CWD it is run from resolve to different worktrees -- nothing is wrong with either tree alone.
 $script:ExitCodeWorktreeMismatch = 19
 # conformance-test invoked without -Scope; recovery is a caller decision, not an environment repair.
@@ -1163,6 +1293,10 @@ $script:ExitCodeOracleUnavailable = 25
 $script:ExitCodeOracleDivergence = 26
 # -Mode release compiled but produced nothing exportable: the deliverable exists only in a reclaimable cache, so the build is not a pass.
 $script:ExitCodeReleaseArtifactNotExported = 28
+# `stile admit` failed with an exit code other than 0 or 10; the machine's verdict is unknown, so nothing starts.
+$script:ExitCodeAdmit = 29
+# `stile admit` kept answering "wait" (exit 10) until -AdmitTimeoutSeconds elapsed.
+$script:ExitCodeAdmitTimeout = 30
 # Clippy (or the type-check under it) failed before tests or a build started; CI's clippy job would fail the same tree.
 $script:ExitCodeLint = 40
 # -Mode preland: at least one pre-land check failed or could not run.
@@ -1697,67 +1831,99 @@ function Test-CorpusPresent {
     }
 }
 
-# Conformance submodule (machine/conformance) -- sparse, path-scoped auto-init.
-# docs/research/build-resource-governance.md
+# Conformance suite (conformance/, a clone of sillsdev/fieldworks-parser-conformance at conformance.commit).
+# docs/design/conformance-suite.md
 
-function Get-ConformanceSubmoduleSentinel {
-    # Proof the working tree is actually usable, not just that `machine/` exists: `clone --no-checkout` leaves only a gitlink.
-    param([string]$RepoRoot = (Get-RepoRoot))
-    return (Join-Path $RepoRoot 'machine\conformance\constructs.txt')
-}
+$script:ConformanceSuiteUrl = 'https://github.com/sillsdev/fieldworks-parser-conformance.git'
 
-function Test-ConformanceSubmodulePresent {
-    # The fast, idempotent check every caller does FIRST: the common case must cost exactly one Test-Path call.
-    param([string]$RepoRoot = (Get-RepoRoot))
-    return (Test-Path (Get-ConformanceSubmoduleSentinel -RepoRoot $RepoRoot) -PathType Leaf)
-}
-
-function Get-ConformancePinnedCommit {
+function Get-ConformancePin {
     <#
       .DESCRIPTION
-      The gitlink SHA the SUPERPROJECT's own tree records for `machine` -- read from `git ls-tree`,
-      never `.gitmodules`' branch name, since a branch can move but the tree entry cannot. Returns
-      $null (never throws) on any failure; the caller folds an unresolved pin into its own actionable
-      message.
+      The full commit SHA in the root file `conformance.commit` (one line). Returns $null (never throws)
+      when the file is missing or does not hold exactly one 40-hex SHA; the caller folds that into its message.
     #>
     param([string]$RepoRoot = (Get-RepoRoot))
-    $out = & git -C $RepoRoot ls-tree HEAD -- machine 2>$null
+    $path = Join-Path $RepoRoot 'conformance.commit'
+    if (-not (Test-Path -LiteralPath $path)) { return $null }
+    $lines = @(Get-Content -LiteralPath $path | Where-Object { $_.Trim() })
+    if ($lines.Count -ne 1 -or $lines[0].Trim() -notmatch '^[0-9a-f]{40}$') { return $null }
+    return $lines[0].Trim()
+}
+
+function Get-ConformanceSuiteOverride {
+    # HC_CONFORMANCE_SUITE=<path> points every consumer at a local copy and skips the pin check; $null when unset.
+    if ($env:HC_CONFORMANCE_SUITE) { return $env:HC_CONFORMANCE_SUITE }
+    return $null
+}
+
+function Get-ConformanceSuiteDir {
+    # Where the suite is read from: the override when set, otherwise `<repo>/conformance`.
+    param([string]$RepoRoot = (Get-RepoRoot))
+    $override = Get-ConformanceSuiteOverride
+    if ($override) { return $override }
+    return (Join-Path $RepoRoot 'conformance')
+}
+
+function Get-SubmodulePinnedCommit {
+    <#
+      .DESCRIPTION
+      The gitlink SHA the SUPERPROJECT's own tree records for the submodule at $Path (the `machine`
+      oracle) -- read from `git ls-tree`, never `.gitmodules`' branch name, since a branch can move but
+      the tree entry cannot. Returns $null (never throws) on any failure.
+    #>
+    param([string]$RepoRoot = (Get-RepoRoot), [Parameter(Mandatory)][string]$Path)
+    $out = & git -C $RepoRoot ls-tree HEAD -- $Path 2>$null
     if (-not $out) { return $null }
-    # Format: "160000 commit <40-hex-sha>\tmachine" (160000 = gitlink mode).
+    # Format: "160000 commit <40-hex-sha>\t<path>" (160000 = gitlink mode).
     if ($out -match '^\d+\s+commit\s+([0-9a-f]{40})\b') { return $Matches[1] }
     return $null
 }
 
-function Get-ConformanceSubmoduleSizeMB {
-    # Reported alongside a successful init so the record states what happened (sparse ~3.6MB vs. fallback ~41MB), not just "ok".
-    param([string]$RepoRoot = (Get-RepoRoot))
-    $dir = Join-Path $RepoRoot 'machine'
-    if (-not (Test-Path $dir)) { return 0 }
-    $bytes = (Get-ChildItem $dir -Recurse -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
-    if (-not $bytes) { return 0 }
-    return [math]::Round($bytes / 1MB, 1)
+function Get-ConformanceDriverFileNames {
+    # Non-Windows .NET builds the extensionless apphost; `.exe` stays accepted there so a hand-made symlink keeps working.
+    if ($IsLinux -or $IsMacOS) { return @('hc-conformance', 'hc-conformance.exe') }
+    return @('hc-conformance.exe')
 }
+
+function Get-DefaultMachineCheckouts {
+    # Windows keeps the owner's known checkouts; elsewhere a `machine` sibling of the MAIN clone (found via the git common dir, so a worktree resolves it too).
+    param([string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+    if ($IsWindows) { return @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine') }
+    $mainClone = $RepoRoot
+    $commonLines = @(& git -C $RepoRoot rev-parse --path-format=absolute --git-common-dir 2>$null)
+    $commonExit = $LASTEXITCODE  # read before narrowing the lines
+    if ($commonExit -eq 0 -and $commonLines.Count -gt 0) { $mainClone = Split-Path -Parent $commonLines[0].Trim() }
+    return @(Join-Path (Split-Path -Parent $mainClone) 'machine')
+}
+
+. "$PSScriptRoot/_conformance-driver.ps1"
 
 function Find-PinMatchedConformanceDriver {
     <#
       .DESCRIPTION
-      Finds an already-built `hc-conformance.exe` whose Machine worktree HEAD is exactly
-      $PinCommit, so the driver's fixture loader matches the pinned fixture format. Probes the
-      documented `.worktrees\pin-<sha>` location first, then every worktree of each Machine checkout
-      (`PANGLOSS_MACHINE_CHECKOUTS`, `;`-separated, overrides the defaults). Returns an object with
-      Ok, ExePath, and Detail; Detail names every probed location and the build recipe on a miss.
+      Finds a validated cached driver, then clean pin-matched worktree binaries (including the
+      local submodule), then publishes a temporary export of the pin. Machine checkout defaults
+      can be overridden with PANGLOSS_MACHINE_CHECKOUTS (;-separated). Returns Ok, ExePath, Detail;
+      a failed build names the cache path and prerequisite that could not be satisfied.
     #>
-    param([Parameter(Mandatory)][string]$PinCommit)
+    param([Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$PinCommit,
+        [string]$RepoRoot = (Get-RepoRoot), [ValidateRange(1, 12)][int]$Jobs = 4)
 
-    $checkouts = if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
-        @($env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ })
+    # The outer @() keeps a single checkout an array; otherwise `$checkouts[0]` below is that path's first character.
+    $checkouts = @(if ($env:PANGLOSS_MACHINE_CHECKOUTS) {
+        $env:PANGLOSS_MACHINE_CHECKOUTS -split ';' | Where-Object { $_ }
     } else {
-        @('C:\Users\johnm\Documents\repos\machine', 'H:\repos\machine')
-    }
-    $relative = 'src\SIL.Machine.Morphology.HermitCrab.Conformance\bin\{0}\net10.0\hc-conformance.exe'
+        Get-DefaultMachineCheckouts
+    })
+    $sources = @((Join-Path $RepoRoot 'machine')) + $checkouts
+    $cached = Get-CachedConformanceDriver -PinCommit $PinCommit -Sources $sources
+    if ($cached) { return $cached }
+    $driverNames = Get-ConformanceDriverFileNames
+    $relative = [IO.Path]::Combine('src', 'SIL.Machine.Morphology.HermitCrab.Conformance', 'bin', '{0}', 'net10.0', '{1}')
     $worktrees = [System.Collections.Generic.List[string]]::new()
+    $worktrees.Add((Join-Path $RepoRoot 'machine'))
     foreach ($checkout in $checkouts) {
-        $worktrees.Add((Join-Path $checkout ".worktrees\pin-$PinCommit"))
+        $worktrees.Add((Join-Path (Join-Path $checkout '.worktrees') "pin-$PinCommit"))
         if (-not (Test-Path -LiteralPath $checkout)) { continue }
         $current = $null
         foreach ($line in @(& git -C $checkout worktree list --porcelain 2>$null)) {
@@ -1768,14 +1934,21 @@ function Find-PinMatchedConformanceDriver {
     # A worktree with local source edits, or an exe older than its HEAD commit, may not be the pin's driver.
     $probed = @()
     foreach ($config in 'Release', 'Debug') {
-        foreach ($wt in $worktrees) {
-            $exe = Join-Path $wt ($relative -f $config)
+        $candidates = foreach ($wt in $worktrees) {
+            foreach ($name in $driverNames) { [PSCustomObject]@{ Worktree = $wt; Exe = Join-Path $wt ($relative -f $config, $name) } }
+        }
+        foreach ($candidate in $candidates) {
+            $wt = $candidate.Worktree
+            $exe = $candidate.Exe
             $probed += $exe
             if (-not (Test-Path -LiteralPath $exe)) { continue }
-            $worktreeRoot = & git -C $wt rev-parse --show-toplevel 2>$null | Select-Object -First 1
+            # Read each exit code before narrowing to the first line: a pipeline that stops git early leaves a stale $LASTEXITCODE.
+            $worktreeRootLines = @(& git -C $wt rev-parse --show-toplevel 2>$null)
             $worktreeRootExit = $LASTEXITCODE
-            $headCommit = & git -C $wt rev-parse --verify HEAD 2>$null | Select-Object -First 1
+            $worktreeRoot = $worktreeRootLines | Select-Object -First 1
+            $headCommitLines = @(& git -C $wt rev-parse --verify HEAD 2>$null)
             $headCommitExit = $LASTEXITCODE
+            $headCommit = $headCommitLines | Select-Object -First 1
             $candidateRoot = [IO.Path]::GetFullPath($wt).TrimEnd('\', '/')
             $reportedRoot = if ($worktreeRoot) { [IO.Path]::GetFullPath($worktreeRoot.Trim()).TrimEnd('\', '/') } else { '' }
             $pathComparison = if ($IsWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
@@ -1785,7 +1958,8 @@ function Find-PinMatchedConformanceDriver {
                 $probed[-1] += " (not a worktree at requested pin $PinCommit; HEAD: $actualHead)"
                 continue
             }
-            if (@(& git -C $wt status --porcelain --untracked-files=no -- src 2>$null).Count -gt 0) { $probed[-1] += ' (worktree has source edits)'; continue }
+            $sourceChanges = @(& git -C $wt status --porcelain --untracked-files=no 2>$null)
+            if ($LASTEXITCODE -ne 0 -or $sourceChanges.Count -gt 0) { $probed[-1] += ' (worktree has source edits or status unavailable)'; continue }
             $committed = & git -C $wt log -1 --format=%ct HEAD 2>$null
             if ($committed -and (Get-Item -LiteralPath $exe).LastWriteTimeUtc -lt [DateTimeOffset]::FromUnixTimeSeconds([long]$committed).UtcDateTime) {
                 $probed[-1] += ' (older than its HEAD commit)'; continue
@@ -1793,151 +1967,102 @@ function Find-PinMatchedConformanceDriver {
             return [PSCustomObject]@{ Ok = $true; ExePath = (Resolve-Path -LiteralPath $exe).Path; Detail = "pin-matched driver at $exe" }
         }
     }
-    $first = $checkouts[0]
-    $detail = "no hc-conformance.exe built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
-        "Build one: git -C $first worktree add --detach .worktrees\pin-$PinCommit $PinCommit; " +
-        "dotnet build $first\.worktrees\pin-$PinCommit\src\SIL.Machine.Morphology.HermitCrab.Conformance -c Release"
+    $built = New-CachedConformanceDriver -PinCommit $PinCommit -Sources ($sources + @($worktrees)) -Jobs $Jobs
+    if ($built.Ok) { return $built }
+    $detail = "no conformance driver ($($driverNames -join ' or ')) built from Machine commit $PinCommit. Probed: $($probed -join '; '). " +
+        $built.Detail
     return [PSCustomObject]@{ Ok = $false; ExePath = $null; Detail = $detail }
 }
 
-function Initialize-ConformanceSubmodule {
+function Sync-ConformanceSuite {
     <#
       .DESCRIPTION
-      Makes `machine/conformance` show up without anyone running `git submodule update` by hand.
-      Callers: pg.ps1 preflight (fail-CLOSED with $script:ExitCodeConformanceSubmoduleMissing before
-      Cargo starts if this returns Ok=$false), `pg.ps1 -Mode new-worktree` (best-effort, so a fresh
-      worktree is born ready), `-Mode doctor` (reports the state), and rust/tools/conformance.ps1 (a
-      standalone front end onto this same function).
+      Makes `conformance/` a `git clone --filter=blob:none` of the suite at exactly the commit named in
+      `conformance.commit`, with no manual git step. Callers: pg.ps1 preflight (fail-CLOSED with
+      $script:ExitCodeConformanceSuiteMissing before Cargo starts when Ok=$false), `pg.ps1 -Mode
+      new-worktree` (best-effort, so a fresh worktree is born ready), `-Mode doctor`, preland, and
+      rust/tools/conformance.ps1 (a standalone front end onto this same function).
+
+      - HC_CONFORMANCE_SUITE=<path> set: that directory is used as is and the pin is not checked.
+      - Already at the pin: two local git reads, no network, no git writes.
+      - At another commit: moved to the pin (fetching it if missing) unless the checkout has
+        uncommitted changes, in which case it is left alone and Ok=$false names what to do.
+      - Absent: cloned into a temp directory beside it and renamed, so a half clone never sits at `conformance/`.
+
+      The `machine` submodule (the oracle's source) is not touched here.
 
       Returns a PSCustomObject with:
-        Ok               bool -- $true means machine/conformance/constructs.txt exists NOW.
-        AlreadyPresent   bool -- $true means the fast path fired; nothing was invoked.
-        Mode             'already-present' | 'sparse' | 'fallback-full' | 'failed'
+        Ok               bool -- $true means the suite is usable at the pin (or at the override).
+        Mode             'override' | 'already-present' | 'cloned' | 'moved' | 'dirty' | 'failed'
         Detail           human-readable summary, always safe to print as-is.
-        RecoveryCommand  the exact command to run by hand; '' when Ok (nothing to recover).
+        RecoveryCommand  the exact command to run by hand; '' when Ok.
     #>
     param([string]$RepoRoot = (Get-RepoRoot))
 
-    # 1. Fast idempotent path FIRST, before touching git at all.
-    if (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot) {
-        return [PSCustomObject]@{
-            Ok = $true; AlreadyPresent = $true; Mode = 'already-present'
-            Detail          = 'machine/conformance/constructs.txt present -- submodule already initialized (no git invoked)'
-            RecoveryCommand = ''
+    $recover = "pwsh `"$(Join-Path $RepoRoot 'rust/tools/conformance.ps1')`""
+    $fail = { param($mode, $detail, $cmd) [PSCustomObject]@{ Ok = $false; Mode = $mode; Detail = $detail; RecoveryCommand = $cmd } }
+
+    $override = Get-ConformanceSuiteOverride
+    if ($override) {
+        if (-not (Test-Path -LiteralPath (Join-Path $override 'constructs.txt'))) {
+            return & $fail 'failed' "HC_CONFORMANCE_SUITE=$override is not a conformance suite checkout (no constructs.txt there)" 'unset HC_CONFORMANCE_SUITE, or point it at a checkout of the suite'
         }
+        return [PSCustomObject]@{ Ok = $true; Mode = 'override'; Detail = "using HC_CONFORMANCE_SUITE=$override (pin not checked)"; RecoveryCommand = '' }
     }
 
-    $machineDir = Join-Path $RepoRoot 'machine'
-    # Named once so every failure branch below quotes the identical recovery command.
-    $fullFallbackCmd = "git -C `"$RepoRoot`" submodule update --init -- machine"
-
-    $pinned = Get-ConformancePinnedCommit -RepoRoot $RepoRoot
-    if (-not $pinned) {
-        return [PSCustomObject]@{
-            Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-            Detail          = "could not resolve the machine submodule's pinned commit (git -C `"$RepoRoot`" ls-tree HEAD -- machine returned nothing) -- is .gitmodules / the machine gitlink present at all? Run by hand: $fullFallbackCmd"
-            RecoveryCommand = $fullFallbackCmd
-        }
+    $pin = Get-ConformancePin -RepoRoot $RepoRoot
+    if (-not $pin) {
+        return & $fail 'failed' "conformance.commit is missing or does not hold exactly one full 40-hex commit SHA (looked in $RepoRoot)" "restore conformance.commit from git: git -C `"$RepoRoot`" checkout -- conformance.commit"
     }
+    $suiteDir = Join-Path $RepoRoot 'conformance'
+    $short = $pin.Substring(0, 12)
 
-    Write-Host "[conformance] machine/conformance not found -- initializing the machine submodule (sparse: conformance/ only, ~3.6MB, not the ~41MB full checkout)..." -ForegroundColor Cyan
-
-    # 2. Sparse, path-scoped init -- skip cloning if a machine/.git gitlink shows an earlier attempt got that far.
-    $alreadyCloned = Test-Path (Join-Path $machineDir '.git')
-    if (-not $alreadyCloned) {
-        # Harmless no-op if already registered; keeps `git submodule status`/`sync`/`foreach` working normally.
-        & git -C $RepoRoot submodule init -- machine 2>&1 | Out-Null
-
-        $gitmodulesPath = Join-Path $RepoRoot '.gitmodules'
-        $url = (& git config -f $gitmodulesPath --get submodule.machine.url 2>$null)
-        $branch = (& git config -f $gitmodulesPath --get submodule.machine.branch 2>$null)
-        if (-not $url) {
-            return [PSCustomObject]@{
-                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-                Detail          = "could not read submodule.machine.url from $gitmodulesPath -- run by hand: $fullFallbackCmd"
-                RecoveryCommand = $fullFallbackCmd
-            }
+    if (Test-Path -LiteralPath $suiteDir) {
+        if (-not (Test-Path -LiteralPath (Join-Path $suiteDir '.git'))) {
+            return & $fail 'failed' "$suiteDir exists but is not a git clone; move it aside and re-run" "mv `"$suiteDir`" `"$suiteDir.old`"; $recover"
         }
-
-        # Worktree-scoped modules/ location, matching `git submodule update`'s own layout, so two worktrees never contend for one gitdir.
-        $absoluteGitDir = (& git -C $RepoRoot rev-parse --absolute-git-dir 2>$null)
-        if (-not $absoluteGitDir) {
-            return [PSCustomObject]@{
-                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-                Detail          = "could not resolve this worktree's git-dir (git rev-parse --absolute-git-dir) -- run by hand: $fullFallbackCmd"
-                RecoveryCommand = $fullFallbackCmd
-            }
+        $head = (& git -C $suiteDir rev-parse HEAD 2>$null)
+        $headExit = $LASTEXITCODE
+        $head = if ($headExit -eq 0 -and $head) { "$head".Trim() } else { '' }
+        if ($head -eq $pin) {
+            return [PSCustomObject]@{ Ok = $true; Mode = 'already-present'; Detail = "conformance is at the pinned commit $short (local git reads only, no network)"; RecoveryCommand = '' }
         }
-        $modulesDir = Join-Path $absoluteGitDir.Trim() 'modules'
-        New-Item -ItemType Directory -Force -Path $modulesDir | Out-Null
-        $targetGitDir = Join-Path $modulesDir 'machine'
-
-        $cloneArgs = @('clone', '--no-checkout', '--separate-git-dir', $targetGitDir)
-        if ($branch) { $cloneArgs += @('--branch', $branch) }
-        $cloneArgs += @($url, $machineDir)
-        $cloneOut = & git @cloneArgs 2>&1
+        # A different commit: a stale suite must never run silently, but local edits must never be thrown away.
+        $dirty = @(& git -C $suiteDir status --porcelain 2>$null)
+        if ($dirty.Count -gt 0) {
+            return & $fail 'dirty' "conformance/ is at $(if ($head) { $head.Substring(0, 12) } else { 'an unreadable commit' }) but conformance.commit pins $short, and conformance/ has uncommitted changes ($($dirty.Count) path(s)); left alone. Commit or discard them in $suiteDir, or set HC_CONFORMANCE_SUITE to use that copy as is." $recover
+        }
+        $moveCmd = "git -C `"$suiteDir`" fetch origin $pin; git -C `"$suiteDir`" checkout --detach $pin"
+        & git -C $suiteDir cat-file -e "$pin^{commit}" 2>$null
         if ($LASTEXITCODE -ne 0) {
-            # Likely no network reachable; name the exact recovery command so offline reads as legible, not "fine".
-            return [PSCustomObject]@{
-                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-                Detail          = "git clone of the machine submodule failed (exit $LASTEXITCODE): $($cloneOut -join ' | ') -- if this is a network error, initialization cannot happen offline; run once connectivity is available: $fullFallbackCmd"
-                RecoveryCommand = $fullFallbackCmd
+            Write-Host "[conformance] fetching $short ..." -ForegroundColor Cyan
+            $out = & git -C $suiteDir fetch --no-tags origin $pin 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                return & $fail 'failed' "conformance/ is at another commit and fetching the pinned $short failed (offline?): $($out -join ' | ')" $moveCmd
             }
         }
-    }
-
-    # 3. Cone-mode sparse-checkout, then materialize just the pinned commit's conformance/ subtree.
-    $sparseOk = $true
-    $sparseErr = ''
-    $o1 = & git -C $machineDir sparse-checkout init --cone 2>&1
-    if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "sparse-checkout init --cone (exit $LASTEXITCODE): $($o1 -join ' | ')" }
-    if ($sparseOk) {
-        $o2 = & git -C $machineDir sparse-checkout set conformance 2>&1
-        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "sparse-checkout set conformance (exit $LASTEXITCODE): $($o2 -join ' | ')" }
-    }
-    if ($sparseOk) {
-        # `clone --branch` fetches only that branch, and a pinned commit the branch has since moved past is then absent -- the same hazard this recipe already avoids by not using `--depth`. Fetching the SHA by name is cheap when it is already present.
-        $o3 = & git -C $machineDir fetch --no-tags origin $pinned 2>&1
-        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "fetch $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o3 -join ' | ')" }
-    }
-    if ($sparseOk) {
-        $o4 = & git -C $machineDir checkout $pinned 2>&1
-        if ($LASTEXITCODE -ne 0) { $sparseOk = $false; $sparseErr = "checkout $($pinned.Substring(0, 12)) (exit $LASTEXITCODE): $($o4 -join ' | ')" }
-    }
-
-    if (-not $sparseOk) {
-        # A working checkout beats a broken clever one, rather than leaving the submodule half-initialized.
-        Write-Host "[conformance] sparse checkout failed ($sparseErr) -- falling back to `git submodule update --init`." -ForegroundColor Yellow
-        $fbOut = & git -C $RepoRoot submodule update --init -- machine 2>&1
-        if ($LASTEXITCODE -ne 0 -or -not (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
-            return [PSCustomObject]@{
-                Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-                Detail          = "sparse checkout failed ($sparseErr) AND the full-checkout fallback also failed (exit $LASTEXITCODE): $($fbOut -join ' | ') -- run by hand: $fullFallbackCmd"
-                RecoveryCommand = $fullFallbackCmd
-            }
+        Write-Host "[conformance] moving conformance/ to the pinned commit $short ..." -ForegroundColor Cyan
+        $out = & git -C $suiteDir checkout --detach $pin 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return & $fail 'failed' "checkout of the pinned $short failed: $($out -join ' | ')" $moveCmd
         }
-        $sizeMB = Get-ConformanceSubmoduleSizeMB -RepoRoot $RepoRoot
-        return [PSCustomObject]@{
-            Ok = $true; AlreadyPresent = $false; Mode = 'fallback-full'
-            Detail          = "sparse checkout failed ($sparseErr) -- fell back to a full submodule checkout (~${sizeMB}MB). Sparse cone mode may not work in this git/environment; investigate before assuming every worktree gets the cheap path."
-            RecoveryCommand = ''
-        }
+        return [PSCustomObject]@{ Ok = $true; Mode = 'moved'; Detail = "conformance moved to the pinned commit $short"; RecoveryCommand = '' }
     }
 
-    if (-not (Test-ConformanceSubmodulePresent -RepoRoot $RepoRoot)) {
-        return [PSCustomObject]@{
-            Ok = $false; AlreadyPresent = $false; Mode = 'failed'
-            Detail          = "sparse submodule init reported success but $(Get-ConformanceSubmoduleSentinel -RepoRoot $RepoRoot) is still missing -- something is wrong beyond a network failure; run by hand: $fullFallbackCmd"
-            RecoveryCommand = $fullFallbackCmd
-        }
+    # Absent: clone beside it, then rename, so an interrupted clone never leaves a half checkout at conformance/.
+    $tmp = Join-Path $RepoRoot ".conformance-clone-$PID"
+    if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    Write-Host "[conformance] conformance/ not found -- cloning the suite at $short ..." -ForegroundColor Cyan
+    $out = & git clone --quiet --filter=blob:none --no-checkout $script:ConformanceSuiteUrl $tmp 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $out = & git -C $tmp checkout --quiet --detach $pin 2>&1
     }
-
-    $sizeMB = Get-ConformanceSubmoduleSizeMB -RepoRoot $RepoRoot
-    return [PSCustomObject]@{
-        Ok = $true; AlreadyPresent = $false; Mode = 'sparse'
-        Detail          = "sparse checkout of machine/conformance complete (~${sizeMB}MB, cone mode -- not the ~41MB full checkout)"
-        RecoveryCommand = ''
+    if ($LASTEXITCODE -ne 0) {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+        return & $fail 'failed' "cloning the suite at $short failed (offline, or the commit is not in $script:ConformanceSuiteUrl): $($out -join ' | ')" $recover
     }
+    Move-Item -LiteralPath $tmp -Destination $suiteDir
+    return [PSCustomObject]@{ Ok = $true; Mode = 'cloned'; Detail = "conformance cloned at $short"; RecoveryCommand = '' }
 }
 
 # --- Disk reserve: pure decision logic, unit-testable without touching a real disk. ---
@@ -2053,8 +2178,8 @@ function Remove-ManagedWorktree {
 
       Deletes the directory and prunes rather than calling `git worktree remove`, which refuses
       outright on a worktree containing a submodule ("working trees containing submodules cannot be
-      moved or removed") -- and `new-worktree` initializes `machine` in every worktree it creates.
-      `git submodule deinit -f` first does not change that answer.
+      moved or removed"), such as one that initialized `machine`. `git submodule deinit -f` first does
+      not change that answer. The ignored `conformance/` clone goes with the directory.
 
       Dry run is the default: without -Apply nothing is deleted and nothing is pruned, and the
       reported target dirs are what removal WOULD free -- classified against the live-slug list this
@@ -2273,7 +2398,7 @@ function Write-Preflight {
     }
     Write-Host "sccache: $($SccacheHealth.State) -- $($SccacheHealth.Detail)" -ForegroundColor $(if ($SccacheHealth.Ok -or $SccacheHealth.State -eq 'disabled') { 'Gray' } else { 'Red' })
     if ($ConformanceCheck) {
-        Write-Host "conformance submodule ($($ConformanceCheck.Mode)): $($ConformanceCheck.Detail)" -ForegroundColor $(if ($ConformanceCheck.Ok) { 'Gray' } else { 'Red' })
+        Write-Host "conformance suite ($($ConformanceCheck.Mode)): $($ConformanceCheck.Detail)" -ForegroundColor $(if ($ConformanceCheck.Ok) { 'Gray' } else { 'Red' })
     }
     if ($CorpusState) {
         if ($CorpusState.Ok) {
@@ -2560,4 +2685,68 @@ if ($IsLinux) {
     $script:PanGlossPlatformAdapter = Import-PanGlossPlatformAdapter -Platform Windows -ToolRoot $PSScriptRoot
 } else {
     $script:PanGlossPlatformAdapter = [PSCustomObject]@{ Platform = 'Unknown'; Overrides = @() }
+}
+
+function Clear-StileAdmissionMarker {
+    <#
+      .DESCRIPTION
+      Removes PANGLOSS_ADMITTED only if this invocation's Wait-StileAdmission set it, so a pg.ps1 run
+      in-process from a long-lived pwsh does not leave the marker behind to skip later admissions. A run
+      that found the marker already set by its parent never owns it and leaves it alone.
+    #>
+    if ($script:AdmitMarkerOwned) { $env:PANGLOSS_ADMITTED = $null; $script:AdmitMarkerOwned = $false }
+}
+
+function Wait-StileAdmission {
+    <#
+      .DESCRIPTION
+      Blocks until `stile admit` says start (exit 0), so a heavy pg.ps1 mode never starts cargo while
+      the host is overloaded. Returns 0 to proceed (admitted or deliberately skipped) or the pg.ps1
+      exit code to stop with: $script:ExitCodeAdmit for any stile exit other than 0 or 10 (fail
+      closed), $script:ExitCodeAdmitTimeout when 10 persists for -MaxWaitSeconds. Skips, with one
+      visible line, when PANGLOSS_SKIP_ADMIT=1, when PANGLOSS_ADMITTED=1 (a parent pg.ps1 was already
+      admitted, e.g. preland's child runs) or when stile is not on PATH (CI). Sets PANGLOSS_ADMITTED=1
+      only after being admitted. -Runner and -Sleeper exist so tests need no real stile or clock.
+    #>
+    param(
+        [int]$Jobs = 1,
+        [string]$Mode = '',
+        [int]$MaxWaitSeconds = 3600,
+        [string]$ReleaseBlocker = '',
+        [scriptblock]$Runner = $null,
+        [scriptblock]$Sleeper = { param($Seconds) Start-Sleep -Seconds $Seconds }
+    )
+    if ($env:PANGLOSS_SKIP_ADMIT -eq '1') { Write-Host '[pg] admit: skipped (PANGLOSS_SKIP_ADMIT=1)'; return 0 }
+    if ($env:PANGLOSS_ADMITTED -eq '1') { Write-Host '[pg] admit: skipped (parent pg.ps1 already admitted)'; return 0 }
+    if (-not $Runner) {
+        if (-not (Get-Command stile -ErrorAction SilentlyContinue)) { Write-Host '[pg] admit: skipped (stile not on PATH)'; return 0 }
+        $Runner = { param($StileArgs) $o = & stile @StileArgs 2>&1; [PSCustomObject]@{ Code = $LASTEXITCODE; Out = (($o | Out-String).Trim()) } }
+    }
+    $place = if ($IsWindows) { 'windows' } else { 'wsl' }
+    $stileArgs = @('admit', '--jobs', "$([Math]::Max(1, $Jobs))", '--placement', $place)
+    if ($ReleaseBlocker) { $stileArgs += @('--release-blocker', $ReleaseBlocker) }
+    $started = Get-Date
+    $delay = 15
+    while ($true) {
+        $r = & $Runner $stileArgs
+        if ($r.Code -eq 0) {
+            $env:PANGLOSS_ADMITTED = '1'
+            $script:AdmitMarkerOwned = $true
+            Write-Host "[pg] admit: admitted for -Mode $Mode ($($r.Out))"
+            return 0
+        }
+        if ($r.Code -ne 10) {
+            Write-Host "[pg] admit: stile admit failed (exit $($r.Code)): $($r.Out)" -ForegroundColor Red
+            Write-Host '[pg] nothing was started. Fix stile, or set PANGLOSS_SKIP_ADMIT=1 only if you own the box.' -ForegroundColor Yellow
+            return $script:ExitCodeAdmit
+        }
+        $waited = [int]((Get-Date) - $started).TotalSeconds
+        if ($waited -ge $MaxWaitSeconds) {
+            Write-Host "[pg] admit: still waiting ($($r.Out)) after ${waited}s; nothing was started. Retry later, or set PANGLOSS_SKIP_ADMIT=1 only if you own the box." -ForegroundColor Red
+            return $script:ExitCodeAdmitTimeout
+        }
+        Write-Host "[pg] admit: waiting ($($r.Out)); ${waited}s elapsed, recheck in ${delay}s"
+        & $Sleeper $delay
+        $delay = [Math]::Min(60, [int]($delay * 1.5))
+    }
 }

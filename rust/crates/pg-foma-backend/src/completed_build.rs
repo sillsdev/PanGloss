@@ -7,19 +7,17 @@
 
 use std::fmt;
 
-use foma::lexcread::fsm_lexc_parse_string;
-use foma::options::FomaOptions;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::analyzer::{prepare_network_for_apply, read_foma_binary_payload, FomaProposer};
+use crate::analyzer::{read_foma_binary_payload, FomaProposer};
+use pg_foma::construction::{ConstructionReport, FstCompileConfig};
 use crate::backend_runtime::{finished_net_digest, grammar_identity};
 use crate::characterization::ClosureTerminal;
 use crate::composite::FomaAnalyzer;
 use crate::emit::{EmitReport, FomaTier};
 use crate::enumerate::EmissionStrategy;
-use crate::templated_compile::compile_templated_morphotactics;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AttemptId(String);
@@ -54,14 +52,23 @@ fn fresh_attempt_id() -> Result<AttemptId, String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileAttempt {
     attempt_id: AttemptId,
+    config: FstCompileConfig,
 }
 
 impl CompileAttempt {
     pub fn try_new() -> Result<Self, String> {
         Ok(Self {
             attempt_id: fresh_attempt_id()?,
+            config: FstCompileConfig::default(),
         })
     }
+
+    pub fn with_config(mut self, config: FstCompileConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    pub fn config(&self) -> &FstCompileConfig { &self.config }
 
     pub fn attempt_id(&self) -> &AttemptId {
         &self.attempt_id
@@ -70,19 +77,18 @@ impl CompileAttempt {
     pub(crate) fn from_worker_wire(attempt_id: impl Into<String>) -> Result<Self, String> {
         Ok(Self {
             attempt_id: AttemptId::new(attempt_id)?,
+            config: FstCompileConfig::default(),
         })
     }
 }
 
 /// Which kind of route-specific evidence made a completed payload eligible for selection.
 ///
-/// The proof is deliberately not interchangeable: a templated emission certificate never claims
-/// to have run TunedSurface closure, and a TunedSurface closure certificate never stands in for a
-/// templated emitter's Full report.
+/// The proof is deliberately not interchangeable: each backend names its own kind, so one
+/// backend's certificate never stands in for another's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionProofKind {
     TunedClosure,
-    TemplatedFullEmission,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,17 +98,12 @@ enum CompletionProof {
         worklist_empty: bool,
         pending_successor_count: usize,
     },
-    TemplatedFullEmission {
-        uncovered_count: usize,
-        skipped_count: usize,
-    },
 }
 
 impl CompletionProof {
     fn kind(&self) -> CompletionProofKind {
         match self {
             Self::TunedClosure { .. } => CompletionProofKind::TunedClosure,
-            Self::TemplatedFullEmission { .. } => CompletionProofKind::TemplatedFullEmission,
         }
     }
 }
@@ -114,6 +115,7 @@ impl CompletionProof {
 /// the report/diagnostic layers can project this value without owning the payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletedBackendBuildEvidence {
+    construction: ConstructionReport,
     requested_strategy: EmissionStrategy,
     realized_strategy: EmissionStrategy,
     grammar_identity: String,
@@ -126,6 +128,8 @@ pub struct CompletedBackendBuildEvidence {
 }
 
 impl CompletedBackendBuildEvidence {
+    pub fn construction(&self) -> &ConstructionReport { &self.construction }
+
     pub fn requested_strategy(&self) -> EmissionStrategy {
         self.requested_strategy
     }
@@ -163,7 +167,8 @@ impl CompletedBackendBuildEvidence {
     }
 
     pub fn is_trusted_complete(&self) -> bool {
-        if self.requested_strategy != self.realized_strategy
+        if self.construction.selected != Some(pg_foma::construction::ConstructionStrategy::SurfaceEnum)
+            || self.requested_strategy != self.realized_strategy
             || self.attempt_id.is_empty()
             || self.model_fingerprint.is_empty()
             || self.payload_fingerprint.is_empty()
@@ -180,13 +185,6 @@ impl CompletedBackendBuildEvidence {
                     pending_successor_count,
                 },
             ) => *worklist_empty && *pending_successor_count == 0,
-            (
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                CompletionProof::TemplatedFullEmission {
-                    uncovered_count,
-                    skipped_count,
-                },
-            ) => *uncovered_count == 0 && *skipped_count == 0,
             _ => false,
         }
     }
@@ -219,15 +217,9 @@ impl CompletedBackendBuild {
                 worklist_empty: *worklist_empty,
                 pending_successor_count: *pending_successor_count,
             },
-            CompletionProof::TemplatedFullEmission {
-                uncovered_count,
-                skipped_count,
-            } => CompletionProofWire::TemplatedFullEmission {
-                uncovered_count: *uncovered_count,
-                skipped_count: *skipped_count,
-            },
         };
         CompletedBackendBuildWire {
+            construction: self.evidence.construction.clone(),
             requested_strategy: self.evidence.requested_strategy.label().to_string(),
             realized_strategy: self.evidence.realized_strategy.label().to_string(),
             grammar_identity: self.evidence.grammar_identity.clone(),
@@ -249,6 +241,8 @@ impl CompletedBackendBuild {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompletedBackendBuildWire {
+    #[serde(default)]
+    pub construction: ConstructionReport,
     pub requested_strategy: String,
     pub realized_strategy: String,
     pub grammar_identity: String,
@@ -267,10 +261,6 @@ pub enum CompletionProofWire {
         terminal: ClosureTerminal,
         worklist_empty: bool,
         pending_successor_count: usize,
-    },
-    TemplatedFullEmission {
-        uncovered_count: usize,
-        skipped_count: usize,
     },
 }
 
@@ -310,10 +300,7 @@ impl SelectedBackendBuild {
         validate_payload(&self.build)?;
         let net = read_foma_binary_payload(&self.build.payload_bytes)
             .map_err(|error| CompletedBuildError::PayloadRead(error.to_string()))?;
-        let mut proposer = FomaProposer::from_precompiled_network_without_emit_report(&net);
-        if self.strategy() == EmissionStrategy::TemplatedUnderlyingTokens {
-            proposer = proposer.with_segment_query_encoder(crate::emit::surface_table(grammar));
-        }
+        let proposer = FomaProposer::from_precompiled_network_without_emit_report(&net);
         Ok(FomaAnalyzer::from_precompiled_proposer(grammar, proposer))
     }
 }
@@ -321,6 +308,7 @@ impl SelectedBackendBuild {
 /// Failure at the trusted compiler/runtime boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompletedBuildError {
+    ConstructionRefused(Box<ConstructionReport>),
     UnsupportedStrategy(EmissionStrategy),
     /// The capability envelope refused this backend before any emission ran, mirroring
     /// `crate::analyzer::FomaError::CapabilityRefused`.
@@ -366,12 +354,13 @@ pub enum CompletedBuildError {
         health: crate::health::HealthReport,
     },
     /// Production admission could not be decided, so nothing is admitted.
-    PartialFactsUnavailable(String),
+    GrammarHealthUnavailable(String),
 }
 
 impl fmt::Display for CompletedBuildError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ConstructionRefused(report) => write!(f, "FST construction refused: {}", serde_json::to_string(report).map_err(|_| fmt::Error)?),
             Self::UnsupportedStrategy(strategy) => {
                 write!(f, "unsupported completed-build strategy {strategy:?}")
             }
@@ -445,7 +434,7 @@ impl fmt::Display for CompletedBuildError {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
-            Self::PartialFactsUnavailable(error) => write!(
+            Self::GrammarHealthUnavailable(error) => write!(
                 f,
                 "production admission could not be decided, so nothing is admitted: {error}"
             ),
@@ -474,8 +463,8 @@ pub fn compile_completed_backend(
         requested_strategy,
         request,
     )?;
-    let admission = crate::production_admission::assess_completed_fst(grammar, requested_strategy)
-        .map_err(|error| CompletedBuildError::PartialFactsUnavailable(error.to_string()))?;
+    let admission = crate::grammar_admission::assess_completed_fst(grammar, requested_strategy)
+        .map_err(|error| CompletedBuildError::GrammarHealthUnavailable(error.to_string()))?;
     if admission.blocks_publication() {
         drop(measured);
         return Err(CompletedBuildError::NotProductionReady {
@@ -504,75 +493,26 @@ pub(crate) fn compile_tuned_surface_for_measurement(
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
     let requested_strategy = EmissionStrategy::TunedSurfaceProbed;
     let grammar_id = grammar_identity(grammar);
-    let emitted = crate::emit::emit_tuned_surface_for_request(grammar);
-    let report = emitted.report;
+    let (compiled, profile) = crate::analyzer::compile_proposer_for_measurement_with_config(grammar, request.config());
+    let proposer = compiled.map_err(|_| CompletedBuildError::ConstructionRefused(Box::new(profile.construction.clone())))?;
+    let report = proposer.report.as_ref().ok_or_else(|| CompletedBuildError::IncompleteEvidence("construction produced no emit report".to_string()))?;
+    validate_emit_report(report)?;
     let closure = report.closure_evidence.as_ref().ok_or_else(|| {
-        CompletedBuildError::IncompleteEvidence(
-            "TunedSurface emitted no closure certificate".to_string(),
-        )
+        CompletedBuildError::IncompleteEvidence("TunedSurface emitted no closure certificate".to_string())
     })?;
     validate_closure(closure)?;
-    validate_emit_report(&report)?;
-    let mut network = fsm_lexc_parse_string(&FomaOptions::default(), None, &emitted.lexc_source)
-        .ok_or_else(|| {
-            CompletedBuildError::Compiler("TunedSurface lexc failed to compile".to_string())
-        })?;
-    prepare_network_for_apply(&mut network);
-    let model_fingerprint = finished_net_digest(&network);
     let completion_proof = CompletionProof::TunedClosure {
         terminal: closure.terminal,
         worklist_empty: closure.evidence.worklist_empty,
         pending_successor_count: closure.evidence.pending_successor_count,
     };
-    let proposer = FomaProposer::from_precompiled_network(&network, report);
     build_from_proposer(
         requested_strategy,
         grammar_id,
         request,
         proposer,
-        model_fingerprint,
         completion_proof,
-    )
-}
-
-/// `TemplatedUnderlyingTokens`'s own measurement compile, called through `crate::backend::Backend::compile_for_measurement`.
-pub(crate) fn compile_templated_underlying_for_measurement(
-    grammar: &Grammar,
-    selection: &crate::backend_selection::BackendSelection,
-    request: &CompileAttempt,
-) -> Result<CompletedBackendBuild, CompletedBuildError> {
-    let requested_strategy = EmissionStrategy::TemplatedUnderlyingTokens;
-    let grammar_id = grammar_identity(grammar);
-    // Refused before emitting, per ADR-0001, mirroring `analyzer::FomaProposer::new`'s own gate.
-    if let Err(diagnostics) =
-        crate::capability_gate::refuse_unless_admitted_in(selection, requested_strategy)
-    {
-        return Err(CompletedBuildError::CapabilityRefused(diagnostics));
-    }
-    let output = compile_templated_morphotactics(grammar)
-        .map_err(|error| CompletedBuildError::Compiler(error.to_string()))?;
-    let report = output.proposer.report.as_ref().ok_or_else(|| {
-        CompletedBuildError::IncompleteEvidence("templated compiler emitted no report".to_string())
-    })?;
-    validate_emit_report(report)?;
-    let skipped = output.profile.skipped_rules.len() + report.counts.allomorphs_skipped;
-    if skipped != 0 {
-        return Err(CompletedBuildError::IncompleteEvidence(format!(
-            "templated compiler skipped {skipped} rule/allomorph items"
-        )));
-    }
-    let completion_proof = CompletionProof::TemplatedFullEmission {
-        uncovered_count: report.uncovered.len(),
-        skipped_count: skipped,
-    };
-    let model_fingerprint = finished_net_digest(&output.network);
-    build_from_proposer(
-        requested_strategy,
-        grammar_id,
-        request,
-        output.proposer,
-        model_fingerprint,
-        completion_proof,
+        profile.construction,
     )
 }
 
@@ -605,6 +545,9 @@ fn validate_selected_build(
     expected_grammar_identity: &str,
 ) -> Result<(), CompletedBuildError> {
     let evidence = &build.evidence;
+    if evidence.construction.requested_config.as_ref() != Some(request.config()) {
+        return Err(CompletedBuildError::IncompleteEvidence("completed construction does not match the requested configuration".to_string()));
+    }
     if evidence.grammar_identity != expected_grammar_identity {
         return Err(CompletedBuildError::GrammarIdentityMismatch {
             expected: expected_grammar_identity.to_string(),
@@ -680,11 +623,6 @@ fn validate_emit_report(report: &EmitReport) -> Result<(), CompletedBuildError> 
             report.tier
         )));
     }
-    if !report.uncovered.is_empty() || report.counts.allomorphs_skipped != 0 {
-        return Err(CompletedBuildError::IncompleteEvidence(
-            "emitter reported uncovered or skipped material".to_string(),
-        ));
-    }
     Ok(())
 }
 
@@ -693,8 +631,8 @@ fn build_from_proposer(
     grammar_identity: String,
     request: &CompileAttempt,
     proposer: FomaProposer,
-    model_fingerprint: String,
     completion_proof: CompletionProof,
+    construction: ConstructionReport,
 ) -> Result<CompletedBackendBuild, CompletedBuildError> {
     let payload_bytes = proposer
         .foma_binary_payload()
@@ -706,14 +644,9 @@ fn build_from_proposer(
     let network = read_foma_binary_payload(&payload_bytes)
         .map_err(|error| CompletedBuildError::PayloadRead(error.to_string()))?;
     let actual_model_fingerprint = finished_net_digest(&network);
-    if actual_model_fingerprint != model_fingerprint {
-        return Err(CompletedBuildError::ModelFingerprintMismatch {
-            expected: model_fingerprint,
-            actual: actual_model_fingerprint,
-        });
-    }
     let (state_count, arc_count) = (network.statecount, network.arccount);
     let evidence = CompletedBackendBuildEvidence {
+        construction,
         requested_strategy,
         realized_strategy: requested_strategy,
         grammar_identity,

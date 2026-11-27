@@ -1,0 +1,32 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-20
+# Normal parse rows: hc-conformance self-check at Machine 1ddef2bd (see ../../PROVENANCE.md).
+# The why-not expectation for tada lives in whynot.yaml beside this file and is PENDING RUNNER SUPPORT: no
+# engine can produce why-not results yet, so it was not taken from an engine run (PROTOCOL.md section 11).
+# Synthetic; no real language. One ad hoc allomorph prohibition on a prefix entry.
+language: AdhocProhibitionWhyNot
+inspired_by: ["an ad hoc allomorph prohibition ta- ~ da: the one case where a word is rejected by a single co-occurrence rule"]
+sources: ["HCLoader.cs:2163-2189 (LoadAllomorphCoOccurrenceRules)"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: da
+    note: >-
+      Control: bare stem da parses.
+    parses:
+      - signature: "DA|da"
+        rules: []
+        exercises: ["MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule"]
+  - word: taga
+    note: >-
+      Control: ga has no prohibition, so the prefix attaches.
+    parses:
+      - signature: "TA+GA|taga"
+        rules: [mrTa]
+        exercises: ["MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule"]
+  - word: tada
+    note: >-
+      The prohibition ta- ~ da is declared on the prefix allomorph. The one derivation TA+DA is excluded, so the
+      word has no analysis. See whynot.yaml for the why-not row.
+    expect_fail: true
+    blocked_by: [subTa]
+    exercises: ["MorphemeCoOccurrenceRule/AllomorphCoOccurrenceRule"]

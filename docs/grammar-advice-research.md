@@ -144,16 +144,6 @@ Location and action: Use the finding description to identify the affected item a
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:132`; INTEGRITY.
 
-### `fwdata.metathesis-approximation`
-
-Cause: The FieldWorks importer converts this rule to an approximation rather than preserving its exact metathesis behavior.
-
-Location and action: In Grammar > Phonological Rules, review the emitted rule description and compare affected words; report a valid rule whose behavior is not preserved.
-
-Verified inspection destinations: Grammar > Phonological Rules (tool verified; no specific editable field established).
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:139`; RULE.
-
 ### `fwdata.stale-adhoc-prohibition`
 
 Cause: An ad hoc morpheme rule names an inflectional affix whose slot is outside every enabled template.
@@ -173,16 +163,6 @@ Location and action: In Lexicon > Lexicon Edit, inspect Lexeme Form and Allomorp
 Verified inspection destinations: Lexicon > Lexicon Edit > Lexeme Form; Lexicon > Lexicon Edit > Allomorphs.
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:153`; LEX.
-
-### `fwdata.unsupported-morph-type`
-
-Cause: The allomorph uses a morph type this importer cannot represent.
-
-Location and action: In Lexicon > Lexicon Edit, check the warning's named morph type; select a supported type only if it matches the intended analysis.
-
-Verified inspection destinations: Lexicon > Lexicon Edit > Morph Type.
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:160`; LEX.
 
 ### `fwdata.unknown-morph-type-guid`
 
@@ -568,11 +548,11 @@ Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form; Le
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:433`; LEX.
 
-### `grammar.allomorph.reduplication-unsupported`
+### `grammar.allomorph.reduplication-invalid`
 
-Cause: The allomorph uses a reduplication pattern that this parser does not run.
+Cause: The allomorph's reduplication pattern is malformed, so it was skipped.
 
-Location and action: In Lexicon > Lexicon Edit, keep the intended pattern and report it; do not replace it unless an equivalent supported analysis is known.
+Location and action: In Lexicon > Lexicon Edit, correct the pattern in Allomorphs > Form so every bracketed class has an index that appears in the environment.
 
 Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form.
 
@@ -670,7 +650,7 @@ Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:503`; TEMPLATE.
 
 ### `grammar.template.slot-no-rules`
 
-Cause: No usable inflectional affix was loaded for this template slot.
+Cause: No inflectional affixes were loaded for the named slot in its affix template, so parsing skips that slot.
 
 Location and action: In Grammar > Category Edit > Affix Templates, right-click the intended slot and choose Add inflectional affix(es) to that slot. Select an appropriate existing affix only if the slot is unintentionally empty. If affixes are already assigned, resolve their individual loading findings; check Grammatical Info. > Category and Slots in Lexicon > Lexicon Edit.
 
@@ -728,16 +708,6 @@ Location and action: Report the type and marker details to PanGloss. The failing
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:545`; VARIANT, INTEGRITY.
 
-### `grammar.rule.metathesis-unsupported`
-
-Cause: The compiler skips this metathesis rule; it does not approximate or run it.
-
-Location and action: In Grammar > Phonological Rules, keep the valid rule and report it if words rely on its behavior; inspect affected words with a parse trace.
-
-Verified inspection destinations: Grammar > Phonological Rules (tool verified; no specific editable field established).
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:552`; RULE.
-
 ### `grammar.rule.build-failed`
 
 Cause: The phonological rule could not be represented in the compiled grammar.
@@ -778,15 +748,15 @@ Verified inspection destinations: Grammar > Phonological Rules (tool verified; n
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:580`; RULE.
 
-### `grammar.strata.custom-unsupported`
+### `grammar.strata.unknown-rule`
 
-Cause: Custom strata are replaced by the parser's default strata.
+Cause: The Strata parser parameter names a rule, entry or template the project does not have; the name is ignored and the rest of the strata are built.
 
-Correction status: **no verified grammar correction for this kind**. Custom strata are valid data that PanGloss replaces with defaults; no equivalent grammar correction is established. Existing support/recovery guidance may remain; no editable grammar field is proposed.
+Correction status: **no verified grammar correction for this kind**. The Strata field is free text with no object to reselect.
 
-Location and action: No grammar edit is required for valid custom strata; report the configuration if it is needed for the analysis.
+Location and action: In the parser parameters, correct or remove the unknown name in the Strata field. The predefined names are Phonology, CompoundRules, Templates, Morphology and Clitics; any other name must match a phonological rule, morphological rule, affix template or lexical entry name exactly.
 
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:587`; SETTINGS, INTEGRITY.
+Sources: HCLoader `CreateStrata` (`InvalidStrata`); SETTINGS.
 
 ### `grammar.adhoc-prohibition.unresolved`
 
@@ -868,16 +838,6 @@ Verified inspection destinations: Grammar > Phonemes > In Orthography as; Gramma
 
 Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:643`; LEX, PHON.
 
-### `conversion.unsupported-construct`
-
-Cause: PanGloss cannot check this reduplication pattern against the phoneme inventory.
-
-Location and action: In Lexicon > Lexicon Edit, inspect the allomorph form. Keep an accurate pattern and report it; change it only if an equivalent supported representation is known.
-
-Verified inspection destinations: Lexicon > Lexicon Edit > Allomorphs > Form.
-
-Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:650`; LEX.
-
 ### `substrate.position-unmapped`
 
 Cause: PanGloss's character-position mapping failed for this allomorph.
@@ -892,6 +852,6 @@ Sources: PG `rust/crates/pg-snapshot/src/warning_metadata.rs:657`; LEX.
 
 Retain the existing advice mechanism and all 88 identifiers. Preserve guidance for support, recovery, intentionally unused data, and unsupported accurate data; those are next steps, not promises of a FieldWorks grammar fix. Strengthen the confirmed corrections above. Add a test covering the **runtime diagnostics** for all catalog kinds so a nonempty catalog string that fails to reach Motif is caught. Also require a verified tool/menu destination or an explicit per-kind reason when none is established. Unknown future producer codes remain outside the registered catalog and retain the existing raw-message fallback.
 
-The malformed-project and intermediate-snapshot kinds cannot be assigned a universal grammar correction. The no-correction reasons above are deliberate. `hc-partial-reason-unspecified` likewise has no specific correction. Metathesis, complex phonological values, reduplication, custom strata, and other valid unsupported constructs have known inspection locations or reporting steps; the sources do not prove a generally equivalent rewrite.
+The malformed-project and intermediate-snapshot kinds cannot be assigned a universal grammar correction. The no-correction reasons above are deliberate. `hc-partial-reason-unspecified` likewise has no specific correction. Metathesis, complex phonological values, reduplication, and other valid unsupported constructs have known inspection locations or reporting steps; the sources do not prove a generally equivalent rewrite.
 
 The first managed check command, `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode check -Package pg-grammar`, exited 21 before Cargo: no finite memory.max cap in visible current cgroup ancestry. Validation requires the configured host cgroup hierarchy; it must not be bypassed with bare Cargo. Herdr delegation is unavailable inside this lane (socket access denied), and the named agent-handoff skill was not present in the searched skill locations.

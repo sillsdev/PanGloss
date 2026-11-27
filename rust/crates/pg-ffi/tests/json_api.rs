@@ -36,7 +36,7 @@ unsafe fn call(
 #[test]
 fn abi_version_preserves_binary_parse_and_exposes_structured_json_errors() {
     // ABI v3: hc_parse_word's binary wire format and the JSON API are untouched by the guess-opt-in pair.
-    assert_eq!(hc_abi_version(), 3);
+    assert_eq!(hc_abi_version(), 4);
     let handle = load();
     let mut binary = HcResultBuf::EMPTY;
     assert_eq!(

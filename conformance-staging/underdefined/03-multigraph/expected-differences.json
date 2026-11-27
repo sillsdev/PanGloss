@@ -17,7 +17,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     },
     {
@@ -29,7 +29,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     },
     {
@@ -48,7 +48,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     },
     {
@@ -60,7 +60,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, chumas, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     },
     {
@@ -72,7 +72,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, cuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     },
     {
@@ -84,7 +84,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, huma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# cannot segment undefined c/h and drops the root; PanGloss completes the selected literal usage, including negative words with defined provisional letters but no analysis."
     }
   ]

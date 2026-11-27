@@ -11,9 +11,7 @@ use pg_grammar::model::{
 use pg_parse::{Morpher, ParseOptions};
 
 fn load(path: &str) -> Grammar {
-    let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../machine/conformance")
-        .join(path);
+    let full = pg_conformance_fixtures::suite_root().join(path);
     let xml = std::fs::read_to_string(&full).unwrap_or_else(|e| panic!("{}: {e}", full.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("failed to load {path}: {e}"))
 }
@@ -105,6 +103,7 @@ fn minimal_redup_grammar() -> Grammar {
             is_template_rule: false,
             is_clitic_rule: None,
             allomorphs: vec![AffixAllomorphDef {
+                xml_key: String::new(),
                 id: AllomorphId(0),
                 environments: vec![],
                 co_occurrence: vec![],

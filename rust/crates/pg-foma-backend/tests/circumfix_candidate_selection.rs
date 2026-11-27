@@ -1,24 +1,14 @@
 //! Containment + order-independence tests for circumfix composite-mechanism precedence (C1/C2/C3).
 //! See `docs/research/circumfix-composite-precedence-census.md`.
 
-use std::path::PathBuf;
-
 use pg_foma::emit;
 use pg_foma::peel::ReduplicationPeeler;
 use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
-/// Repo root, from this crate's own `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD.
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-/// Loads a staged fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
+/// Loads a fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
 fn load_staged(name: &str) -> Grammar {
-    let path = repo_root()
-        .join("conformance-staging/edge-cases")
-        .join(name)
-        .join("grammar.xml");
+    let path = pg_conformance_fixtures::require_fixture("edge-cases", name).grammar_path();
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml).unwrap_or_else(|e| panic!("{name}: grammar failed to load: {e}\n{xml}"))
@@ -32,7 +22,7 @@ fn load(xml: &str) -> Grammar {
 fn assert_full_containment(g: &Grammar, surface: &str) {
     let (proposer, _) = pg_foma::analyzer::compile_proposer_unproven_with_profile(g);
     let mut proposer = proposer.expect("development-only proposer must compile");
-    let morpher = Morpher::new(g, 20_000);
+    let morpher = Morpher::new(g, 2_000_000);
     let oracle = morpher.parse_word_opts(surface, &ParseOptions::default());
     assert!(
         !oracle.structured.is_empty(),

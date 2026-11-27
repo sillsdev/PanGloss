@@ -54,7 +54,7 @@ impl ProposedWord {
 }
 
 type ConfirmedBuckets = Vec<Vec<(WordAnalysis, String, String)>>;
-type TimedConfirmedBuckets = (ConfirmedBuckets, Duration);
+type TimedConfirmedBuckets = (ConfirmedBuckets, pg_parse::StopReasons, Duration);
 
 /// `Ok` payload of `FomaAnalyzer::propose_candidates_with_diagnostics_budgeted`: the deduped
 /// candidate set plus peel/diagnostics bookkeeping.
@@ -155,6 +155,8 @@ pub struct FomaOutcome {
     /// `structured.len()` — kept as its own field (rather than making callers re-derive it) since
     /// it is the OTHER half of the same headline number (candidates_generated vs confirmed).
     pub confirmed: usize,
+    /// Which limits stopped the confirming parser (work, time, memory, capture, shape). When any is set, `analyses` is at best a prefix (the plain and batch paths return none) and every consumer must treat the word as incomplete, not as having no analyses.
+    pub confirmation_stop: pg_parse::StopReasons,
     /// Whether `crate::peel::ReduplicationPeeler::peel_candidates` returned at least one
     /// candidate for this word (regardless of whether it survived the union dedup against
     /// `propose`'s own output) — the redup gate's own diagnostic ("redup words
@@ -184,16 +186,18 @@ pub struct FomaWordDiagnostics {
     pub confirm_batch_calls: usize,
     pub confirmation_groups: usize,
     pub confirmation_calls: usize,
-    /// Full-HC oracle step ticks consumed confirming this word -- see
-    /// `confirm::ConfirmBatchDiagnostics::confirmation_steps` for why this, and not the call count,
+    /// Full-HC oracle work steps consumed confirming this word -- see
+    /// `confirm::ConfirmBatchDiagnostics::confirmation_work` for why this, and not the call count,
     /// is the unit worth ranking candidates on.
-    pub confirmation_steps: usize,
+    pub confirmation_work: usize,
+    /// At least one restricted confirmation search stopped without a complete result.
+    pub confirmation_incomplete: bool,
     /// Raw proposer paths `apply_up` yielded for this word (direct proposal plus every proposal a
     /// reduplication peel requested), before tag-decode/dedup -- equal to `proposal.raw_paths`,
     /// duplicated at this level so a caller pricing propose-side work reads it next to
-    /// `confirmation_steps` instead of reaching through `proposal`. See
+    /// `confirmation_work` instead of reaching through `proposal`. See
     /// `crate::backend_optimizer::Score::key`'s doc for why propose-side work needs its own counted
-    /// unit alongside confirm-side steps.
+    /// unit alongside confirm-side work.
     pub raw_paths: usize,
     pub confirmed_analyses: usize,
     pub confirmation_elapsed: Duration,
@@ -257,16 +261,14 @@ pub enum FomaApplyOutcome {
 fn accumulate_proposal_counts(total: &mut ProposalCounts, next: ProposalCounts) {
     total.raw_paths += next.raw_paths;
     total.unique_candidates += next.unique_candidates;
+    total.normalized_alternatives += next.normalized_alternatives;
 }
 
 fn remaining_apply_budget_from_counts(budget: &ApplyBudget, used: &ProposalCounts) -> ApplyBudget {
-    ApplyBudget::with_caps(
-        budget
-            .path_cap()
-            .map(|limit| limit.saturating_sub(used.raw_paths)),
-        budget
-            .candidate_cap()
-            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    budget.remaining(
+        used.raw_paths,
+        used.unique_candidates,
+        used.normalized_alternatives,
     )
 }
 
@@ -276,6 +278,7 @@ fn accumulate_proposal_diagnostics(total: &mut ProposalDiagnostics, next: Propos
     total.decoded_paths += next.decoded_paths;
     total.malformed_paths += next.malformed_paths;
     total.unique_candidates += next.unique_candidates;
+    total.normalized_alternatives += next.normalized_alternatives;
     total.traversal_elapsed += next.traversal_elapsed;
     total.decode_dedup_elapsed += next.decode_dedup_elapsed;
 }
@@ -322,6 +325,21 @@ pub fn propose_union_peel_with_diagnostics(
                         .candidate_cap()
                         .expect("candidate trip requires a candidate cap"),
                 ),
+                ApplyDimension::NormalizedCandidates => (
+                    proposal.normalized_alternatives,
+                    budget
+                        .normalization_cap()
+                        .expect("normalization trip requires a normalization cap"),
+                ),
+                ApplyDimension::StemBound
+                | ApplyDimension::Confirmation(_)
+                | ApplyDimension::ProductStates
+                | ApplyDimension::ProductArcs
+                | ApplyDimension::ProductSteps
+                | ApplyDimension::ProductBytes
+                | ApplyDimension::PinGroups => {
+                    unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
+                }
             };
             return Err((dimension, value, limit, proposal, proposal_calls));
         }
@@ -360,6 +378,21 @@ pub fn propose_union_peel_with_diagnostics(
                     .candidate_cap()
                     .expect("candidate trip requires a candidate cap"),
             ),
+            ApplyDimension::NormalizedCandidates => (
+                proposal.normalized_alternatives,
+                budget
+                    .normalization_cap()
+                    .expect("normalization trip requires a normalization cap"),
+            ),
+            ApplyDimension::StemBound
+            | ApplyDimension::Confirmation(_)
+            | ApplyDimension::ProductStates
+            | ApplyDimension::ProductArcs
+            | ApplyDimension::ProductSteps
+            | ApplyDimension::ProductBytes
+            | ApplyDimension::PinGroups => {
+                unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
+            }
         };
         return Err((dimension, value, limit, proposal, proposal_calls));
     }
@@ -388,20 +421,18 @@ pub fn propose_union_peel_with_diagnostics(
 }
 
 fn remaining_apply_budget(budget: &ApplyBudget, used: &ProposalDiagnostics) -> ApplyBudget {
-    ApplyBudget::with_caps(
-        budget
-            .path_cap()
-            .map(|limit| limit.saturating_sub(used.raw_paths)),
-        budget
-            .candidate_cap()
-            .map(|limit| limit.saturating_sub(used.unique_candidates)),
+    budget.remaining(
+        used.raw_paths,
+        used.unique_candidates,
+        used.normalized_alternatives,
     )
 }
 
 /// Whether a confirmation call should account for its own topology.
 ///
 /// Filtering forces the accounting on regardless: a shadow run exists to price the candidates it
-/// would have removed, and that price is only readable from the per-chunk record.
+/// would have removed, and that price is only readable from the per-chunk record. The stop flags
+/// are collected under both, so a plain call is as cheap as before without ever hiding a stop.
 pub(crate) enum ConfirmDetail {
     Plain,
     Diagnostic,
@@ -471,10 +502,9 @@ pub(crate) fn filter_then_confirm(
     let mut report = FilterShadowReport::inactive(settings.mode(), candidates.len());
     let Some(filter) = settings.filter().filter(|_| settings.is_active()) else {
         let (buckets, confirm) = match detail {
-            ConfirmDetail::Plain => (
-                confirm::confirm_batch(g, owners, morpher, candidates, word),
-                confirm::ConfirmBatchDiagnostics::default(),
-            ),
+            ConfirmDetail::Plain => {
+                confirm::confirm_batch_stopping(g, owners, morpher, candidates, word)
+            }
             ConfirmDetail::Diagnostic => {
                 confirm::confirm_batch_with_diagnostics(g, owners, morpher, candidates, word)
             }
@@ -607,6 +637,21 @@ impl<'g> FomaAnalyzer<'g> {
         )
     }
 
+    /// `(effective cap, built bound)` when the confirming `Morpher` accepts more stems per word than the compound construction covers, else `None`. The effective cap is the `Morpher`'s limited by the rule-count ceiling, since no derivation can use more stems than that.
+    pub fn stem_bound_trip(&self) -> Option<(usize, usize)> {
+        let counts = &self.proposer.report.as_ref()?.counts;
+        if counts.compound_stem_bound == 0 {
+            return None;
+        }
+        let cap = (self.morpher.max_stem_count() as usize).min(counts.compound_depth_ceiling);
+        (cap > counts.compound_stem_bound).then_some((cap, counts.compound_stem_bound))
+    }
+
+    /// Effective peel bound, exposed for reproducible differential manifests.
+    pub fn peel_chain_depth_cap(&self) -> Option<usize> {
+        self.peel_budget.chain_depth_cap
+    }
+
     /// How this analyzer filters candidates before confirming them.
     pub fn candidate_filter(&self) -> &CandidateFilterSettings {
         &self.filter
@@ -657,7 +702,9 @@ impl<'g> FomaAnalyzer<'g> {
             word,
             ConfirmDetail::Plain,
         );
-        for bucket in run.buckets {
+        // A stopped confirmation returns a prefix of the analyses, so none are returned and the flag says why.
+        let confirmation_stop = run.confirm.stop;
+        for bucket in run.buckets.into_iter().filter(|_| !confirmation_stop.any()) {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
                 analyses.push((join, surface));
@@ -665,6 +712,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
 
         FomaOutcome {
+            confirmation_stop,
             confirmed: structured.len(),
             analyses,
             structured,
@@ -681,8 +729,8 @@ impl<'g> FomaAnalyzer<'g> {
     /// confirmation runs: partial candidates are never confirmed, because a partial confirm would
     /// produce an analysis set that looks authoritative and is not.
     ///
-    /// `ApplyBudget::unbounded` can never trip, so `Self::analyze_word` delegating here is a
-    /// behavior-preserving no-op for every existing caller.
+    /// A confirmation that stops on any limit of its own (work, time, memory, capture, shape)
+    /// returns `ApplyDimension::Confirmation` with no analyses, for the same reason.
     pub fn analyze_word_budgeted(&mut self, word: &str, budget: &ApplyBudget) -> FomaApplyOutcome {
         let (candidates, peel_used, peel_chain_depth_error) =
             match self.propose_candidates_budgeted(word, budget) {
@@ -708,6 +756,14 @@ impl<'g> FomaAnalyzer<'g> {
             word,
             ConfirmDetail::Plain,
         );
+        // A stopped confirmation returns a prefix of the analyses, so none are returned.
+        if run.confirm.incomplete {
+            return FomaApplyOutcome::Incomplete {
+                dimension: ApplyDimension::Confirmation(run.confirm.stop),
+                value: run.confirm.confirmation_work,
+                limit: 0,
+            };
+        }
         for bucket in run.buckets {
             for (wa, join, surface) in bucket {
                 structured.push(wa);
@@ -716,6 +772,7 @@ impl<'g> FomaAnalyzer<'g> {
         }
 
         FomaApplyOutcome::Complete(FomaOutcome {
+            confirmation_stop: pg_parse::StopReasons::default(),
             confirmed: structured.len(),
             analyses,
             structured,
@@ -735,6 +792,9 @@ impl<'g> FomaAnalyzer<'g> {
         (Vec<Candidate>, bool, Option<ComposeError>),
         (ApplyDimension, usize, usize),
     > {
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            return Err((ApplyDimension::StemBound, cap, bound));
+        }
         let mut used = ProposalCounts::default();
         let trip = |dimension: ApplyDimension, used: &ProposalCounts| match dimension {
             ApplyDimension::DecodedPaths => (
@@ -749,6 +809,22 @@ impl<'g> FomaAnalyzer<'g> {
                     .candidate_cap()
                     .expect("candidate trip requires a candidate cap"),
             ),
+            ApplyDimension::NormalizedCandidates => (
+                dimension,
+                used.normalized_alternatives,
+                budget
+                    .normalization_cap()
+                    .expect("normalization trip requires a normalization cap"),
+            ),
+            ApplyDimension::StemBound
+            | ApplyDimension::Confirmation(_)
+            | ApplyDimension::ProductStates
+            | ApplyDimension::ProductArcs
+            | ApplyDimension::ProductSteps
+            | ApplyDimension::ProductBytes
+            | ApplyDimension::PinGroups => {
+                unreachable!("a proposer trips neither the stem bound, confirmation nor a cascade-product cap")
+            }
         };
 
         let direct_budget = remaining_apply_budget_from_counts(budget, &used);
@@ -889,6 +965,7 @@ impl<'g> FomaAnalyzer<'g> {
             }
         }
         let outcome = FomaOutcome {
+            confirmation_stop: confirmation.stop,
             confirmed: structured.len(),
             analyses,
             structured,
@@ -903,7 +980,8 @@ impl<'g> FomaAnalyzer<'g> {
             confirm_batch_calls: 1,
             confirmation_groups: confirmation.confirmation_groups,
             confirmation_calls: confirmation.confirmation_calls,
-            confirmation_steps: confirmation.confirmation_steps,
+            confirmation_work: confirmation.confirmation_work,
+            confirmation_incomplete: confirmation.incomplete,
             confirmed_analyses: outcome.confirmed,
             confirmation_elapsed,
             filter: run.filter,
@@ -920,6 +998,15 @@ impl<'g> FomaAnalyzer<'g> {
         word: &str,
         budget: &ApplyBudget,
     ) -> std::result::Result<ProposeCandidatesOk, ProposeCandidatesErr> {
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            return Err((
+                ApplyDimension::StemBound,
+                cap,
+                bound,
+                ProposalDiagnostics::default(),
+                0,
+            ));
+        }
         propose_union_peel_with_diagnostics(
             self.g,
             &mut self.proposer,
@@ -932,6 +1019,12 @@ impl<'g> FomaAnalyzer<'g> {
 
     /// `propose(word)` union `peel_candidates(word, propose)`, deduped by `(morphemes, root_index)`; the pre-confirm half of `Self::analyze_word`/`Self::analyze_words`, factored out to run sequentially over every word.
     fn propose_candidates(&mut self, word: &str) -> (Vec<Candidate>, bool, Option<ComposeError>) {
+        // The unbudgeted result type has no incomplete channel, so a mismatched cap must stop here rather than yield a complete-looking row.
+        if let Some((cap, bound)) = self.stem_bound_trip() {
+            panic!(
+                "the confirming parser accepts {cap} stems per word but this proposer was built for {bound}; use a budgeted analysis, which reports the word incomplete"
+            );
+        }
         let mut candidates: Vec<Candidate> = self.proposer.propose(word);
 
         // Disjoint field borrows: `proposer` and the `peel_candidates` call below touch different fields, so no conflict; `self.peel_budget` is `Copy`, copied out for the same reason.
@@ -1118,8 +1211,8 @@ impl<'g> FomaAnalyzer<'g> {
     /// path here reaches it as `&self.morpher` through `crate::confirm::confirm_batch`, `RuleCache`
     /// is documented read-only after `build` (and is already shared across every
     /// `pangloss batch --threads=N` worker as a single `&RuleCache`), and it carries no per-word
-    /// state — a `parse_word` call's mutable state lives in its own `StepBudget`/`AnalyzerConfig`,
-    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`cap`,
+    /// state — a `parse_word` call's mutable state lives in its own `WordBudget`/`AnalyzerConfig`,
+    /// not on the `Morpher`. The only `Morpher` fields a caller can vary (`work_cap`,
     /// `word_timeout`, `max_stem_count`) are construction-time knobs, so a supplied `Morpher` also
     /// lets a caller set them once for a whole batch of analyzers. Pair with
     /// `Self::into_parts_with_morpher` to hand it back for the next one.
@@ -1231,7 +1324,7 @@ pub fn confirm_proposed_words(
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect();
         finish_confirmed(proposed, buckets_per_word)
@@ -1248,11 +1341,30 @@ pub fn confirm_proposed_words_in_pool(
     proposed: Vec<ProposedWord>,
     pool: &rayon::ThreadPool,
 ) -> Vec<(FomaOutcome, Duration)> {
+    confirm_proposed_words_in_pool_with_morpher(
+        g,
+        owners,
+        words,
+        proposed,
+        pool,
+        &Morpher::new(g, usize::MAX),
+    )
+}
+
+/// `confirm_proposed_words_in_pool` with the caller's confirming `Morpher`, so its limits apply to every word.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn confirm_proposed_words_in_pool_with_morpher(
+    g: &Grammar,
+    owners: &[Option<MorphemeOwner>],
+    words: &[String],
+    proposed: Vec<ProposedWord>,
+    pool: &rayon::ThreadPool,
+    morpher: &Morpher<'_>,
+) -> Vec<(FomaOutcome, Duration)> {
     if words.is_empty() {
         return Vec::new();
     }
     assert_eq!(words.len(), proposed.len(), "one proposal record per word");
-    let morpher = Morpher::new(g, usize::MAX);
     let buckets_per_word: Vec<TimedConfirmedBuckets> = pool.install(|| {
         words
             .par_iter()
@@ -1262,13 +1374,13 @@ pub fn confirm_proposed_words_in_pool(
                 let run = filter_then_confirm(
                     g,
                     owners,
-                    &morpher,
+                    morpher,
                     &proposal.filter,
                     &proposal.candidates,
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect()
     });
@@ -1334,7 +1446,7 @@ pub fn confirm_proposed_words_in_pool_with_probe(
                     word,
                     ConfirmDetail::Plain,
                 );
-                (run.buckets, t0.elapsed())
+                (run.buckets, run.confirm.stop, t0.elapsed())
             })
             .collect()
     });
@@ -1348,25 +1460,29 @@ fn finish_confirmed(
     proposed
         .into_iter()
         .zip(buckets_per_word)
-        .map(|(proposal, (buckets, confirm_elapsed))| {
-            let candidates_generated = proposal.candidates.len();
-            let mut analyses = Vec::new();
-            let mut structured = Vec::new();
-            for bucket in buckets {
-                for (wa, join, surface) in bucket {
-                    structured.push(wa);
-                    analyses.push((join, surface));
+        .map(
+            |(proposal, (buckets, confirmation_stop, confirm_elapsed))| {
+                let candidates_generated = proposal.candidates.len();
+                let mut analyses = Vec::new();
+                let mut structured = Vec::new();
+                // A stopped confirmation returns a prefix of the analyses, so none are returned.
+                for bucket in buckets.into_iter().filter(|_| !confirmation_stop.any()) {
+                    for (wa, join, surface) in bucket {
+                        structured.push(wa);
+                        analyses.push((join, surface));
+                    }
                 }
-            }
-            let outcome = FomaOutcome {
-                confirmed: structured.len(),
-                analyses,
-                structured,
-                candidates_generated,
-                peel_used: proposal.peel_used,
-                peel_chain_depth_error: proposal.peel_chain_depth_error,
-            };
-            (outcome, proposal.propose_elapsed + confirm_elapsed)
-        })
+                let outcome = FomaOutcome {
+                    confirmation_stop,
+                    confirmed: structured.len(),
+                    analyses,
+                    structured,
+                    candidates_generated,
+                    peel_used: proposal.peel_used,
+                    peel_chain_depth_error: proposal.peel_chain_depth_error,
+                };
+                (outcome, proposal.propose_elapsed + confirm_elapsed)
+            },
+        )
         .collect()
 }

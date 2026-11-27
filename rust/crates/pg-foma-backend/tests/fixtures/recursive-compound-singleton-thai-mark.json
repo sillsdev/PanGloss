@@ -1,0 +1,9 @@
+{
+  "a": [{"identity":{"morphemes":["x"],"rootIndex":0,"category":"v"},"count":1}],
+  "a+่p": [{"identity":{"morphemes":["x","w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","w"],"rootIndex":1,"category":"v"},"count":1}],
+  "a่p": [{"identity":{"morphemes":["x","w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","w"],"rootIndex":1,"category":"v"},"count":1}],
+  "p่p": [{"identity":{"morphemes":["y","w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["y","w"],"rootIndex":1,"category":"v"},"count":1}],
+  "่p": [{"identity":{"morphemes":["w"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","y"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["x","y"],"rootIndex":1,"category":"v"},"count":1}],
+  "่p+a+p": [],
+  "่pa": [{"identity":{"morphemes":["w","x"],"rootIndex":0,"category":"v"},"count":1},{"identity":{"morphemes":["w","x"],"rootIndex":1,"category":"v"},"count":1}]
+}

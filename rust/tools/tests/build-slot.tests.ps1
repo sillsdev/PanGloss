@@ -28,6 +28,8 @@ $script:BuildSlotMutexPrefix = "Global\PanGlossTestSlot$PID-"
 $script:RunSlotMutexPrefix = "Global\PanGlossTestSlot$PID--run-"
 $script:CommonPath = (Resolve-Path "$PSScriptRoot\..\_common.ps1").Path
 $script:ProbeDir = New-TestTempDir -Prefix 'pg-slot-probe'
+$script:ProbeHangGuardMs = 900000
+$script:HolderReadyGuardMs = 900000
 
 # A child that tries to take a slot and reports the outcome, then releases immediately.
 Set-Content -Path (Join-Path $script:ProbeDir 'probe.ps1') -Encoding UTF8 -Value @'
@@ -57,7 +59,11 @@ function Invoke-SlotProbe {
     $p = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $out `
         -ArgumentList @('-NoProfile', '-File', (Join-Path $script:ProbeDir 'probe.ps1'),
         $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots", "$TimeoutSec", $Pool)
-    $p.WaitForExit(60000) | Out-Null
+    # Hang guard only: pwsh start-up plus dot-sourcing _common.ps1 takes minutes on a loaded machine, so this is generous and names what hung.
+    if (-not $p.WaitForExit($script:ProbeHangGuardMs)) {
+        Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+        throw "slot probe (pool=$Pool slots=$Slots timeout=${TimeoutSec}s pid=$($p.Id)) did not finish within $($script:ProbeHangGuardMs / 1000)s"
+    }
     return ((Get-Content $out -Raw) -split "`n" | Where-Object { $_ -match 'ACQUIRED|DENIED' } | Select-Object -First 1).Trim()
 }
 
@@ -67,19 +73,29 @@ function Start-SlotHolder {
     $p = Start-Process -FilePath 'pwsh' -PassThru -NoNewWindow -RedirectStandardOutput $out `
         -ArgumentList @('-NoProfile', '-File', (Join-Path $script:ProbeDir 'holder.ps1'),
         $script:CommonPath, $script:BuildSlotMutexPrefix, "$Slots", $Pool)
-    foreach ($attempt in 1..100) {
+    # Hang guard only; the child normally reports in a second or two but start-up scales with machine load.
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $script:HolderReadyGuardMs) {
         Start-Sleep -Milliseconds 100
         if ((Test-Path $out) -and ((Get-Content $out -Raw) -match 'HOLDING')) { return $p }
-        if ($p.HasExited) { throw "holder child exited early: $(Get-Content $out -Raw)" }
+        if ($p.HasExited) { throw "holder child (pool=$Pool slots=$Slots) exited early: $(Get-Content $out -Raw)" }
     }
-    throw 'holder child never reported HOLDING'
+    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+    throw "holder child (pool=$Pool slots=$Slots pid=$($p.Id)) never reported HOLDING within $($script:HolderReadyGuardMs / 1000)s"
+}
+
+function Wait-SlotHolderExit {
+    param($Holder)
+    if (-not $Holder.WaitForExit($script:ProbeHangGuardMs)) {
+        throw "killed slot holder (pid=$($Holder.Id)) did not exit within $($script:ProbeHangGuardMs / 1000)s"
+    }
 }
 
 Test-Case 'a slot is acquired and released, and can be reacquired' {
-    $a = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
+    $a = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 120
     Assert-True ($null -ne $a) 'first acquire must succeed on an idle pool'
     Exit-ResourceSlot -Slot $a
-    $b = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
+    $b = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 120
     Assert-True ($null -ne $b) 'a released slot must be reusable'
     Exit-ResourceSlot -Slot $b
 }
@@ -97,7 +113,7 @@ Test-Case 'MaxConcurrent is honoured per invocation, not frozen by the first cal
     $holder = Start-SlotHolder -Slots 1          # holds slot0 only
     try {
         Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2) '1-slot caller sees a full pool'
-        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 2 -TimeoutSec 5) '2-slot caller may still take slot1'
+        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 2 -TimeoutSec 120) '2-slot caller may still take slot1'
     } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
 }
 
@@ -106,7 +122,7 @@ Test-Case 'the Linux polling wait skips a slot another process holds and takes t
     $holder = Start-SlotHolder -Slots 1          # holds slot0 only
     $mutexes = @(0, 1 | ForEach-Object { New-ResourceSlotMutex -Name "$($script:BuildSlotMutexPrefix)$_" })
     try {
-        Assert-Equal 1 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 5000) 'slot0 is held, so slot1 must be taken'
+        Assert-Equal 1 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 120000) 'slot0 is held, so slot1 must be taken'
         $mutexes[1].ReleaseMutex()
     } finally {
         Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
@@ -122,7 +138,8 @@ Test-Case 'the Linux polling wait times out when every slot is held' {
         $index = Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 600 -PollMs 100
         $sw.Stop()
         Assert-Equal ([System.Threading.WaitHandle]::WaitTimeout) $index 'a fully held pool must time out'
-        Assert-True ($sw.ElapsedMilliseconds -lt 5000) "the timeout must be honoured (took $($sw.ElapsedMilliseconds)ms)"
+        # Lower bound only: an upper wall-clock bound measures machine load, not the wait. A hang is caught by the harness.
+        Assert-True ($sw.ElapsedMilliseconds -ge 550) "the wait must not give up before its timeout (took $($sw.ElapsedMilliseconds)ms of 600ms)"
     } finally {
         Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue
         $mutexes | ForEach-Object { $_.Dispose() }
@@ -132,10 +149,10 @@ Test-Case 'the Linux polling wait times out when every slot is held' {
 Test-Case 'the Linux polling wait recovers a slot whose holder was killed' {
     $holder = Start-SlotHolder -Slots 1
     Stop-Process -Id $holder.Id -Force
-    Start-Sleep -Milliseconds 750
+    Wait-SlotHolderExit $holder   # the kernel reclaims the slot at exit; a fixed sleep races under load
     $mutexes = @(New-ResourceSlotMutex -Name "$($script:BuildSlotMutexPrefix)0")
     try {
-        Assert-Equal 0 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 5000) 'an abandoned slot must be taken'
+        Assert-Equal 0 (Wait-AnyMutexByPolling -Mutexes $mutexes -TimeoutMs 120000) 'an abandoned slot must be taken'
         $mutexes[0].ReleaseMutex()
     } finally { $mutexes | ForEach-Object { $_.Dispose() } }
 }
@@ -153,8 +170,8 @@ Test-Case 'a slot whose holder is KILLED is reclaimed by the kernel, not leaked'
     $holder = Start-SlotHolder -Slots 1
     Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2) 'precondition: the slot is genuinely held'
     Stop-Process -Id $holder.Id -Force
-    Start-Sleep -Milliseconds 750
-    Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 15) `
+    Wait-SlotHolderExit $holder   # the kernel reclaims the slot at exit; a fixed sleep races under load
+    Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 120) `
         'the slot MUST be reclaimable after its holder was killed -- this is the deadlock regression'
 }
 
@@ -163,13 +180,13 @@ Test-Case 'the build and run pools do not exclude each other' {
     $holder = Start-SlotHolder -Slots 1 -Pool 'build'
     try {
         Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'build') 'precondition: the build pool is genuinely full'
-        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 5 -Pool 'run') 'a full build pool must leave the run pool free'
+        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 120 -Pool 'run') 'a full build pool must leave the run pool free'
     } finally { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
 
     $runHolder = Start-SlotHolder -Slots 1 -Pool 'run'
     try {
         Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'run') 'precondition: the run pool is genuinely full'
-        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 5 -Pool 'build') 'a full run pool must leave the build pool free'
+        Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 120 -Pool 'build') 'a full run pool must leave the build pool free'
     } finally { Stop-Process -Id $runHolder.Id -Force -ErrorAction SilentlyContinue }
 }
 
@@ -177,8 +194,8 @@ Test-Case 'a killed run-slot holder is reclaimed by the kernel, same as a build 
     $holder = Start-SlotHolder -Slots 1 -Pool 'run'
     Assert-Equal 'DENIED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 2 -Pool 'run') 'precondition: the slot is genuinely held'
     Stop-Process -Id $holder.Id -Force
-    Start-Sleep -Milliseconds 750
-    Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 15 -Pool 'run') `
+    Wait-SlotHolderExit $holder   # the kernel reclaims the slot at exit; a fixed sleep races under load
+    Assert-Equal 'ACQUIRED' (Invoke-SlotProbe -Slots 1 -TimeoutSec 120 -Pool 'run') `
         'the run pool must self-heal on a dead holder exactly as the build pool does'
 }
 
@@ -199,7 +216,7 @@ Test-Case 'the two pools keep separate ledgers' {
 Test-Case 'Exit-ResourceSlot tolerates null and a double release without throwing' {
     # Runs inside a finally, so it must never itself throw and mask a build failure underneath it.
     Exit-ResourceSlot -Slot $null
-    $s = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 5
+    $s = Enter-ResourceSlot -Pool 'build' -MaxConcurrent 2 -TimeoutSeconds 120
     Exit-ResourceSlot -Slot $s
     Exit-ResourceSlot -Slot $s
     Assert-True $true 'no throw'

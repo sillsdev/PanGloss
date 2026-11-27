@@ -1,13 +1,15 @@
 # 045 — Analysis memoization removed from HC-Rust; C# retains it
 
 ## Kind
+Note: "steps" and "--step-cap" in this entry are the analysis-attempt count and its flag, both since removed; the measurements are kept as recorded.
+
 Behavioural under a budget. The memo is an efficiency mechanism, but it saves *steps*, and under a
 `--step-cap` the step count decides whether a word completes. Removing it therefore changes which
 words return a result on a pathological grammar — see "The cost" below. With no cap, removal is
 efficiency-only: the parse set is identical.
 
 ## Status
-Removed in Rust, deliberate, reported upstream. Supersedes 031 and 032; moots 023 and 025.
+Permanent: removed in Rust, deliberate, reported upstream. Supersedes 031 and 032; moots 023 and 025.
 
 ## C# site
 `AnalysisScope.cs`, `AnalysisStateKey.cs`, `AnalysisStratumRule` / `AnalysisAffixTemplatesRule`.

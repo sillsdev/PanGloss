@@ -93,8 +93,8 @@ fn example(id: &str, entry: &str, underlying: &str, expected: &[&str]) -> serde_
 
 fn request(examples: Vec<serde_json::Value>) -> serde_json::Value {
     serde_json::json!({
-        "version": 1,
-        "limits": {"stepCap": 50_000_000u64, "workCap": 1_000_000u64, "timeoutMs": 30_000u64},
+        "version": 2,
+        "limits": {"workCap": 1_000_000u64, "timeoutMs": 30_000u64},
         "examples": examples,
     })
 }
@@ -183,8 +183,6 @@ fn malformed_and_over_bound_requests_are_refused_without_output() {
     rejects(request(too_many), "examples");
 
     for (field, value) in [
-        ("stepCap", 0u64),
-        ("stepCap", 50_000_001),
         ("workCap", 0u64),
         ("workCap", 5_000_000_001),
         ("timeoutMs", 0),
@@ -195,8 +193,11 @@ fn malformed_and_over_bound_requests_are_refused_without_output() {
         rejects(r, field);
     }
     let mut wrong_version = request(vec![good_example()]);
-    wrong_version["version"] = serde_json::json!(2);
+    wrong_version["version"] = serde_json::json!(1);
     rejects(wrong_version, "version");
+    let mut old_step_cap = request(vec![good_example()]);
+    old_step_cap["limits"]["stepCap"] = serde_json::json!(50_000_000u64);
+    rejects(old_step_cap, "stepCap");
     let mut bad_context = request(vec![good_example()]);
     bad_context["examples"][0]["context"] = serde_json::json!({"kind": "guess"});
     rejects(bad_context, "invalid request");
@@ -224,7 +225,7 @@ fn result_binds_the_grammar_and_request_bytes() {
         &request(vec![good_example()]),
     );
     let out = execute(&run).unwrap();
-    assert_eq!(out["version"], 1);
+    assert_eq!(out["version"], 2);
     assert_eq!(
         out["grammarSha256"],
         sha256_hex(&fs::read(&run.grammar).unwrap())
@@ -241,12 +242,10 @@ fn result_binds_the_grammar_and_request_bytes() {
     assert_eq!(out["build"], crate::build_info::embedded_build_info());
     assert_eq!(out["measuredEntryCount"], 1);
     assert_eq!(out["limits"]["scope"], "orderedPhonologyFolds");
-    assert_eq!(out["limits"]["stepCap"], 50_000_000u64);
     assert_eq!(out["limits"]["workCap"], 1_000_000u64);
     assert_eq!(out["limits"]["timeoutMs"], 30_000u64);
-    assert_eq!(out["limits"]["stepAllocation"], "balancedByRequestOrder");
+    assert_eq!(out["limits"]["workAllocation"], "balancedByRequestOrder");
     assert_eq!(out["limits"]["timeAllocation"], "sharedMonotonicDeadline");
-    assert_eq!(out["rows"][0]["effectiveLimits"]["stepCap"], 50_000_000u64);
     assert_eq!(out["rows"][0]["effectiveLimits"]["workCap"], 1_000_000u64);
     let row_timeout_ms = out["rows"][0]["effectiveLimits"]["timeoutMs"]
         .as_u64()
@@ -284,11 +283,8 @@ fn citation_metadata_changes_file_provenance_but_not_executable_request_identity
 
 #[test]
 fn request_wide_caps_are_split_without_exceeding_the_total() {
-    let steps: Vec<u64> = (0..3).map(|index| cap_for_row(10, 3, index)).collect();
     let work: Vec<u64> = (0..3).map(|index| cap_for_row(8, 3, index)).collect();
-    assert_eq!(steps, [4, 3, 3]);
     assert_eq!(work, [3, 3, 2]);
-    assert_eq!(steps.iter().sum::<u64>(), 10);
     assert_eq!(work.iter().sum::<u64>(), 8);
 }
 
@@ -318,7 +314,7 @@ fn agree_and_disagree_follow_set_membership_over_a_completed_surface() {
     assert_eq!(rows[0]["resolvedContext"], rows[0]["requestedContext"]);
     assert_eq!(rows[0]["underlying"], "pa");
     assert_eq!(rows[0]["expected"], serde_json::json!(["ba", "ga"]));
-    assert!(rows[0]["steps"].as_u64().unwrap() > 0);
+    assert!(rows[0].get("steps").is_none());
     assert!(rows[0]["workSteps"].as_u64().unwrap() > 0);
     assert_eq!(rows[0]["capped"], false);
     assert_eq!(rows[0]["timedOut"], false);

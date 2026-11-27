@@ -43,9 +43,9 @@ fn execution_limits_are_configurable_but_cannot_be_disabled() {
 }
 
 #[test]
-fn protocol_eight_request_frames_are_rejected_before_compile() {
+fn protocol_nine_request_frames_are_rejected_before_compile() {
     let mut request = CompileWorkerRequest::new("stale.xml", GrammarFormat::Xml);
-    request.protocol_version = 8;
+    request.protocol_version = 9;
     let body = serde_json::to_vec(&request).expect("serialize stale request");
     let mut input = Vec::new();
     input.extend_from_slice(&(body.len() as u64).to_le_bytes());
@@ -60,8 +60,8 @@ fn protocol_eight_request_frames_are_rejected_before_compile() {
     match result.outcome {
         CompileWorkerOutcome::ProtocolViolation { detail } => {
             assert!(detail.contains("protocol_version"), "detail: {detail}");
-            assert!(detail.contains("8"), "detail: {detail}");
             assert!(detail.contains("9"), "detail: {detail}");
+            assert!(detail.contains("10"), "detail: {detail}");
         }
         other => panic!("expected ProtocolViolation, got {other:?}"),
     }

@@ -53,9 +53,44 @@
             "items": {
               "$ref": "#/$defs/morph"
             }
+          },
+          "morphSpans": {
+            "description": "Present only with batch --morph-spans; see docs/parse-analysis-format.md.",
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/morphSpans" }
+            ]
+          },
+          "signature": {
+            "description": "Present only with batch --query-fields: the morph signatures joined by +.",
+            "type": "string",
+            "minLength": 1
           }
         }
       }
+    },
+    "readingCount": {
+      "description": "Present only with batch --query-fields: analyses plus unavailable readings.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure": {
+      "description": "Present only with batch --query-fields: null when the word has a reading, else why it has none.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "workSteps", "workCap"],
+          "properties": {
+            "status": {
+              "enum": ["noParse", "workCap", "captureCap", "memoryCap", "timeout", "invalidShape"]
+            },
+            "workSteps": { "type": ["integer", "null"], "minimum": 0 },
+            "workCap": { "type": ["integer", "null"], "minimum": 1 }
+          }
+        }
+      ]
     },
     "unavailable": {
       "type": "array",
@@ -93,6 +128,69 @@
     }
   ],
   "$defs": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["segments", "offsets", "text"],
+      "properties": {
+        "segments": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+        "offsets": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }] },
+        "text": { "type": ["string", "null"] }
+      }
+    },
+    "spanRule": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["kind", "id", "name", "guid"],
+          "properties": {
+            "kind": { "type": "string" },
+            "id": { "type": "string" },
+            "name": { "type": ["string", "null"] },
+            "guid": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "morphSpans": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "segmentCount", "morphemes", "unattributed"],
+      "properties": {
+        "surface": { "type": "string" },
+        "segmentCount": { "type": "integer", "minimum": 0 },
+        "morphemes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item", "spans", "reason", "rule"],
+            "properties": {
+              "item": { "type": "integer", "minimum": 0 },
+              "spans": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "$ref": "#/$defs/span" } }] },
+              "reason": { "type": ["string", "null"] },
+              "rule": { "$ref": "#/$defs/spanRule" }
+            }
+          }
+        },
+        "unattributed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["segments", "offsets", "text", "reason", "rule"],
+            "properties": {
+              "segments": { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 },
+              "offsets": { "oneOf": [{ "type": "null" }, { "type": "array", "items": { "type": "integer", "minimum": 0 }, "minItems": 2, "maxItems": 2 }] },
+              "text": { "type": ["string", "null"] },
+              "reason": { "type": "string" },
+              "rule": { "$ref": "#/$defs/spanRule" }
+            }
+          }
+        }
+      }
+    },
     "guid": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -131,6 +229,18 @@
             "string",
             "null"
           ]
+        },
+        "entry": {
+          "description": "Present only with batch --query-fields: the source LexEntry guid, null for a morph with no lexical entry.",
+          "anyOf": [
+            { "$ref": "#/$defs/guid" },
+            { "type": "null" }
+          ]
+        },
+        "signature": {
+          "description": "Present only with batch --query-fields: entry:msa[:inflType], with - for a missing entry.",
+          "type": "string",
+          "minLength": 1
         }
       }
     }

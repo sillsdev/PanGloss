@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic grammar for the why-not CLI tests; every form is invented. -->
+<HermitCrabInput>
+  <Language>
+    <Name>WhyNotEnvironments</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cl"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cm"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cn"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="co"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncK"><Name>kOnly</Name><Segment segment="ck" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncT"><Name>tOnly</Name><Segment segment="ct" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="linear" morphologicalRules="mrSufK mrSufT">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrSufK" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>mrSufK</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSufK">
+                <MorphologicalInput><PhoneticSequence id="insubSufK"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="insubSufK" /><InsertSegments><PhoneticShape>k</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SUFK</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="mrSufT" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>mrSufT</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSufT">
+                <MorphologicalInput><PhoneticSequence id="insubSufT"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="insubSufT" /><InsertSegments><PhoneticShape>t</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SUFT</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="eSal" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aSal">
+                <PhoneticShape>sal</PhoneticShape>
+                <ExcludedEnvironments>
+                  <Environment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncK" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </ExcludedEnvironments>              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>SAL</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eMon" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aMon">
+                <PhoneticShape>mon</PhoneticShape>
+                <RequiredEnvironments>
+                  <Environment>
+                    <RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncT" /></PhoneticSequence></PhoneticTemplate></RightEnvironment>
+                  </Environment>
+                </RequiredEnvironments>              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>MON</MorphemeId>
+          </LexicalEntry>
+          <LexicalEntry id="eLos" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aLos">
+                <PhoneticShape>los</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>LOS</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

@@ -14,7 +14,6 @@
 //! ## Deliberate scope cuts vs `Fst.cs` (all behavior-preserving for the acceptor; see report)
 //! - transducer outputs: `enqueueCount ≡ 0`, `Outputs ≡ ∅` — collapses the common-prefix/dequeue
 //!   logic in `GetAllArcsForInput` and the "remaining"/output arcs in `CreateOptimizedState`;
-//! - `Minimize()` (Matcher.cs:100): skipped — language/capture/priority/order preserving;
 //! - lazy matching: no lazy quantifier in the model, so `IsLazy ≡ false` and `IsLazyAcceptingState`
 //!   is not ported (the `ResultCompare` lazy flip, Fst.cs:427, stays inert);
 //! - traversal is direction-aware (L2R and R2L), mirroring `Fst.Transduce`'s `_dir` handling:
@@ -64,7 +63,7 @@ pub const CURRENT_POSITION: i32 = -1;
 
 /// A register-copy command (C# `TagMapCommand`): `dest ← src`, or `dest ← current position` when
 /// `src == CURRENT_POSITION`.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Cmd {
     pub dest: i32,
     pub src: i32,

@@ -1,0 +1,2 @@
+{"word":"tada","expect":[{"morpheme":"TA","allomorph":"subTa"},{"morpheme":"DA","allomorph":"aDa"}]}
+{"word":"taga","expect":[{"morpheme":"TA","allomorph":"subTa"},{"morpheme":"GA","allomorph":"aGa"}]}

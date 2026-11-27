@@ -25,7 +25,7 @@ pangloss parse <grammar> <word> --trace --trace-format=json --trace-details
 
 This flag is valid only for JSON tracing on `parse`. With `--trace` alone it writes the document to standard output; with `--trace=<path>` it writes the document to that file. `--gloss` and `--natural-gloss` cannot be combined with it because they produce text output.
 
-The `pangloss.trace-details.v3` object contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md). The CLI-emitted [historical v2 example](examples/trace-details-v2-matinlu.json) documents the previous profile. `search` reports completion flags, parser steps, and parser `elapsedNs`; it does not contain per-node timers. `categories` retains the existing aggregate counters and timing availability. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
+The `pangloss.trace-details.v5` object (v6 when `--rule-costs` is given) contains the v1 search and category fields plus parser provenance, writing systems, stable document-local analysis IDs, FieldWorks projection status, captured morph display data when a snapshot supplies it, typed source identities, attempted morph snapshots, branch outcomes, and owner-published failure context. The exact contract is in [trace-details-v2.md](trace-details-v2.md). The CLI-emitted [historical v2 example](examples/trace-details-v2-matinlu.json) documents the previous profile. `search` reports completion flags, `workSteps`, and parser `elapsedNs`; it does not contain per-node timers. `categories` includes work-step attribution with an explicit remainder, and, in v6 only, `ruleCosts` ranks the costliest objects. The ordinary `--trace` tree remains embedded under `trace`, with its source order and fields preserved.
 
 The detailed mode runs the same unmerged traced search described below. It adds no per-node timers or inferred failure details. Omitting `--trace-details` uses the ordinary trace tree without rich payload fields. Compound analysis attempts use their own `CompoundingRuleAnalysis` event type in both modes.
 
@@ -41,8 +41,7 @@ in the tree differs between the two — `text` and `json` are two renderings of 
 trace.
 
 Tracing exists only on `parse`, one word per invocation. `batch` — the many-words-at-once command
-— cannot trace. `parse --trace` has no configurable `--step-cap` flag; it uses PanGloss's finite
-default step cap and reports whether that cap fired in the details envelope.
+— cannot trace. `parse --trace` accepts `--work-cap` and `--word-timeout-ms`, and reports whether either limit fired in the details envelope.
 ## A traced parse is not the same search as an ordinary one
 
 **Read this before drawing any conclusion from step counts or timing in a trace.** An ordinary
@@ -57,7 +56,7 @@ other's rule attempts and failures would simply be missing from what you're look
 So a trace is not a recording of what an ordinary parse did. It is a second, larger parse, run
 deliberately unmerged so nothing that was tried gets hidden. A word that parses in a few hundred
 steps ordinarily can generate a much larger trace, and a word that would not have finished within
-an ordinary parse's step budget may not finish within a traced one either — tracing makes the
+an ordinary parse's work cap may not finish within a traced one either — tracing makes the
 search bigger, not smaller or faster.
 
 ## The shape of the tree
@@ -74,7 +73,7 @@ derive the word. A node can have zero or more children, and every field below ex
 | `subrule` | Which numbered subrule (a rule's own internal alternative, indexed from 0) fired. Only meaningful on a rule-application node; absent everywhere else, and absent on a rule-level gate that rejects a rule before any subrule is tried (see below). |
 | `inputShape` | The plain surface form of the word going *into* this step, in whatever character table its stratum uses. Boundary and morpheme-break marks are not shown — this is the bare string of segments, not the annotated analysis. |
 | `outputShape` | The same, for the word coming *out of* this step. A node reporting a failure to apply carries `inputShape` (what it was given); a node reporting a successful step carries `outputShape` (what it produced). |
-| `failureReason` | Present only when this step refused to apply. One of the 23 reasons catalogued below. |
+| `failureReason` | Present only when this step refused to apply. One of the 25 reasons catalogued below. |
 | `children` | The steps nested under this one — always present, `[]` when there are none. |
 
 **A rule-level gate has no subrule.** C# reports such a rejection with subrule index `-1` (for
@@ -84,7 +83,7 @@ stores that `-1` as `None` (`pg-rules/src/trace.rs`, `TraceNode::subrule_index: 
 `subrule` key for it: the key is never `-1` and never `null`. The text rendering likewise omits
 ` subrule=`. A consumer that expects C#'s `-1` should treat an absent `subrule` on a node that has a
 `failureReason` as "rejected before any subrule". Divergence
-[092](../divergences/092-compounding-analysis-trace-node-shape.md) covers the related difference in
+[092](../divergences/README.md#retired-entries) covers the related difference in
 which node type a compounding analysis attempt becomes.
 
 Nesting is depth: a rule's own attempt to apply becomes the parent of everything that happened
@@ -156,10 +155,10 @@ A `WordAnalysis` root can, and typically does, contain more than one candidate p
 the other candidates the unmerged search tried and rejected, not evidence that the word itself
 failed.
 
-## The 23 failure reasons
+## The 25 failure reasons
 
 Every node whose attempt to apply or unapply was refused carries a `failureReason`, one of these
-23 values (`pg-rules/src/trace.rs`'s `FailureReason` enum). Several of the mechanisms they name are
+25 values (`pg-rules/src/trace.rs`'s `FailureReason` enum). Several of the mechanisms they name are
 documented in full in `hc-mechanics.md` and `grammar-format.md` in this same directory; this list
 gives the short, plain-language version of each and points at the fuller explanation where one
 exists.
@@ -176,6 +175,7 @@ exists.
 | `HeadPattern` / `NonHeadPattern` | Same as `Pattern`, but specifically for a compounding rule's head member or non-head member. |
 | `RequiredSyntacticFeatureStruct` | A required feature structure (a bundle of agreement features, not a single one) was not satisfied. |
 | `HeadRequiredSyntacticFeatureStruct` / `NonHeadRequiredSyntacticFeatureStruct` | Same, for a compound's head or non-head member specifically. |
+| `LexicalLookupFeatures` | Lexical lookup skipped a matched root allomorph because its entry's syntactic features do not unify with the word's; no synthesis is attempted (machine#627). |
 | `HeadProdRestrictMprFeatures` / `NonHeadProdRestrictMprFeatures` | A production restriction stated in terms of MPR (lexical-class) features failed for the compound's head or non-head member. |
 | `RequiredMprFeatures` | An MPR feature the rule requires (see `hc-mechanics.md`'s "two different class mechanisms" section) was not present on the word. |
 | `ExcludedMprFeatures` | An MPR feature the rule specifically excludes was present. |

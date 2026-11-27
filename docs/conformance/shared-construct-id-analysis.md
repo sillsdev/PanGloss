@@ -37,12 +37,12 @@ I checked each of the four by reading the covering fixtures' grammars directly, 
 the aggregate count:
 
 1. **`UnorderedMorphRuleApplication`** — genuine.
-   `machine/conformance/languages/polysynthetic-stratal-derivation-chain/grammar.xml` declares
+   `conformance/languages/polysynthetic-stratal-derivation-chain/grammar.xml` declares
    `morphologicalRuleOrder="unordered"` at lines 240, 290, and 408, and `coverage.csv:138,140` tags
    that fixture's words with `Stratum (Linear/Unordered rule order)`. So an actually-unordered
    stratum is exercised by a passing fixture that tags the id.
 2. **`Epenthesis`** — genuine.
-   `machine/conformance/languages/suffixing-vowel-harmony/grammar.xml` contains a rewrite rule with
+   `conformance/languages/suffixing-vowel-harmony/grammar.xml` contains a rewrite rule with
    an empty `PhoneticInput` (the DTD's insertion-only convention), and `coverage.csv:246,251,256`
    tags its words with the Iterative id. `unitide` vs the `expect_fail` `untda` is an insertion case
    on its face.

@@ -1,7 +1,6 @@
 //! A run-scoped evaluator cache must never change a score, certification, or winner relative to the uncached path, and a cache prepared for fewer occurrences than requested must fail closed rather than select silently.
 
 use pg_conformance_fixtures::require_fixture;
-use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::{enumerate::enumerate_default, junctions::PhonologyProbe};
 use pg_foma_backend::backend_optimizer::{pareto_frontier, select_confirmed, Certification};
 use pg_foma_backend::backend_registry::{MaterializerContext, Registry};
@@ -11,7 +10,12 @@ use pg_foma_backend::backend_runtime::{
 
 fn fixture() -> (pg_grammar::model::Grammar, Vec<String>) {
     let fixture = require_fixture("edge-cases", "backend-gated-generic");
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar");
+    let xml = fixture.load_grammar_xml();
+    let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
+    assert_eq!(xml.matches(wide_target).count(), 1);
+    let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
+    let mut grammar = pg_grammar::load(&xml).expect("scalar deletion control must load");
+    pg_conformance_fixtures::drop_segment_deletions(&mut grammar);
     let words = fixture
         .load_words_yaml()
         .words
@@ -49,7 +53,7 @@ fn deterministic_score(
         score.arcs,
         score.proposals,
         score.confirmation,
-        score.confirmation_steps,
+        score.confirmation_work,
         score.raw_paths,
         score.key("test").0,
     )
@@ -95,52 +99,29 @@ fn cached_and_uncached_scores_and_winner_are_invariant() {
             .min_by_key(|(index, evaluation)| evaluation.score.key(&index.to_string()))
             .map(|(index, _)| index)
     };
+    assert!(
+        winner(&uncached).is_some(),
+        "the cache control must confirm a candidate"
+    );
     assert_eq!(winner(&uncached), winner(&cached));
 }
 
 #[test]
-fn prepared_oracle_is_shared_and_composed_backends_do_not_emit_another_backend() {
+fn prepared_oracle_is_shared_across_every_candidate() {
     let (grammar, words) = fixture();
     let all_plans = plans(&grammar);
-    let (whole, composed): (Vec<_>, Vec<_>) = all_plans
-        .into_iter()
-        .partition(|plan| plan.strategy().is_whole_grammar());
-    let composed = composed
-        .into_iter()
-        .filter(|plan| plan.strategy() == EmissionStrategy::PlanComposed)
-        .take(2)
-        .collect::<Vec<_>>();
-    assert!(
-        !whole.is_empty(),
-        "fixture must have a whole-grammar candidate"
-    );
-    assert!(
-        composed.len() >= 2,
-        "fixture must have two composed candidates"
-    );
+    assert!(!all_plans.is_empty(), "fixture must have a candidate");
 
-    let mut whole_cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
         .expect("oracle preparation must succeed for this fixture");
     evaluate_plans_with_cache(
         &grammar,
-        &whole,
+        &all_plans,
         &words,
         RuntimeBudget::default(),
-        &mut whole_cache,
+        &mut cache,
     );
-    assert_eq!(whole_cache.oracle_calls(), words.len());
-
-    let mut composed_cache =
-        RunEvaluationCache::prepare(&grammar, &words, RuntimeBudget::default())
-            .expect("oracle preparation must succeed for this fixture");
-    evaluate_plans_with_cache(
-        &grammar,
-        &composed,
-        &words,
-        RuntimeBudget::default(),
-        &mut composed_cache,
-    );
-    assert_eq!(composed_cache.oracle_calls(), words.len());
+    assert_eq!(cache.oracle_calls(), words.len());
 }
 
 #[test]
@@ -280,24 +261,31 @@ fn cache_excess_duplicate_occurrence_is_truncated_and_keeps_occurrences_distinct
 fn unrelated_excluded_prepared_row_does_not_poison_requested_pilot_subset() {
     let (grammar, _) = fixture();
     let plans = plans(&grammar);
-    let prepared = vec!["tulik".to_string(), "menulik".to_string()];
+    let prepared = vec!["tulik".to_string(), "membalo".to_string()];
     let requested = vec!["tulik".to_string()];
     let mut cache = RunEvaluationCache::prepare(
         &grammar,
         &prepared,
         RuntimeBudget {
-            oracle_step_cap: Some(5),
+            oracle_work_cap: Some(250),
             ..RuntimeBudget::default()
         },
     )
     .expect("oracle preparation must succeed for this fixture");
+
+    assert_eq!(
+        cache.corpus_evidence(&prepared).excluded,
+        1,
+        "the unrelated row must actually be excluded"
+    );
+    assert_eq!(cache.corpus_evidence(&requested).excluded, 0);
 
     let evaluations = evaluate_plans_with_cache(
         &grammar,
         &plans,
         &requested,
         RuntimeBudget {
-            oracle_step_cap: Some(5),
+            oracle_work_cap: Some(250),
             ..RuntimeBudget::default()
         },
         &mut cache,

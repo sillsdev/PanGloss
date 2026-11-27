@@ -1,12 +1,12 @@
 name: Conformance CI
 
-# Runs the engine-agnostic morphological-parser conformance suite (`machine/conformance`, an
-# all-synthetic-language fixture set -- see machine/conformance/README.md and PROTOCOL.md) as a
+# Runs the engine-agnostic morphological-parser conformance suite (`conformance`, an
+# all-synthetic-language fixture set -- see conformance/README.md and PROTOCOL.md) as a
 # regression gate: builds pangloss (release) and the suite's own C# adapter driver, then diffs
 # pangloss's parse output against the suite's checked-in ground truth (each fixture's
 # `words.yaml`, materialized by the driver into `words.txt`/`expected.tsv`) via
-# `rust/tools/run-conformance.sh`. This is self-contained given the `machine` submodule checked
-# out below -- the driver derives its expected output straight from committed `words.yaml` text,
+# `rust/tools/run-conformance.sh`. This is self-contained given the `conformance` (suite, cloned at `conformance.commit`) and
+# `machine` (oracle driver source, a submodule) checked out below -- the driver derives its expected output straight from committed `words.yaml` text,
 # it does NOT shell out to a live C# HermitCrab oracle at run time (self-check mode is the only
 # mode that does that, and this workflow doesn't use self-check mode).
 #
@@ -14,10 +14,10 @@ name: Conformance CI
 #   0 = every attempted fixture passed, or every failure is a documented, accepted divergence
 #       (rust/tools/known-conformance-divergences.txt) -- gate passes.
 #   1 = at least one UNEXPECTED failure (a real conformance regression) -- gate fails.
-#   2 = a harness-level error (missing `machine` submodule, missing pangloss binary, malformed
+#   2 = a harness-level error (missing `conformance` suite or `machine` submodule, missing pangloss binary, malformed
 #       fixture metadata) -- NOT a conformance verdict either way. Treated as a gate failure
 #       here too (see the "Run conformance suite" step below) rather than a silent skip: this
-#       workflow always checks out the submodule itself (see below), so exit 2 in practice means
+#       workflow always fetches the suite and the submodule itself (see below), so exit 2 in practice means
 #       something is wrong with the CI environment, not with the fixtures or pangloss, and that is
 #       worth surfacing loudly during a refactor rather than quietly waving through.
 
@@ -26,28 +26,114 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Merge queue: every required job runs and reports here (no draft skip, no coverage).
+  merge_group:
+    types: [checks_requested]
 
 env:
   CARGO_TERM_COLOR: always
 
+# One run per pull request: a new push cancels the superseded run. Runs on main are never cancelled.
+# A merge group keys on its own queue ref and never cancels: each group's run is the final gate for it.
+# Pushes key on the commit, so a queued run for one commit is never replaced by a later one (release
+# preflight waits for the run on its exact commit). The reusable rust-gates.yml sets no group: inside a
+# called workflow github.workflow is the caller's name, so the same group would deadlock the caller.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Decides whether the diff holds anything beyond docs. A skipped job reports success to branch
+  # protection, so the jobs below skip on `code != true` instead of the workflow using `paths-ignore`
+  # (a workflow that never starts leaves its required checks pending forever). Pushes to main always run.
+  changes:
+    name: changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - id: filter
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -euo pipefail
+          code=true
+          files=""
+          if [[ "$EVENT" == pull_request ]]; then
+            # If the listing fails, run everything rather than fail the job.
+            files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)') || {
+              echo "::warning::could not list the pull request files; running everything"
+              files=""
+            }
+          elif [[ "$EVENT" == merge_group ]]; then
+            # The queue's own diff: everything the group adds to the base. The compare API lists at most
+            # 300 files, so a listing that long may be truncated and runs everything.
+            files=$(gh api "repos/$REPO/compare/$MG_BASE...$MG_HEAD" --paginate --jq '.files[] | .filename, (.previous_filename // empty)') || {
+              echo "::warning::could not compare the merge group; running everything"
+              files=""
+            }
+            if [[ $(grep -c . <<< "$files") -ge 300 ]]; then
+              echo "::warning::merge group diff may be truncated; running everything"
+              files=""
+            fi
+          fi
+          if [[ -n "$files" ]]; then
+            code=false
+            while IFS= read -r f; do
+              # Docs-only means every changed path is prose: a .md file outside rust/ or a top-level
+              # LICENSE*. Other files under docs/ (tests include_str! docs/divergences/evidence/**)
+              # and .md under rust/ (make_report_golden.md) are code. The .md files that tests read
+              # are code too: CLAUDE.md and .claude/ (agent_docs_resolve_gate, build_command_contract),
+              # docs/divergences/ (divergence_catalogue_gate), docs/diagnostics/ and
+              # docs/grammar-diagnostics-reference.md (pg-grammar help paths), docs/fst-plan/ and
+              # docs/research/subrecipes/ (pg-foma-backend contracts), docs/formats/ and
+              # docs/grammar-facts-format.md (pg-facts).
+              case "$f" in
+                rust/*|CLAUDE.md|AGENTS.md|.claude/*|docs/divergences/*|docs/diagnostics/*|docs/fst-plan/*|docs/research/subrecipes/*|docs/formats/*|docs/grammar-facts-format.md|docs/grammar-diagnostics-reference.md) code=true; echo "code change: $f"; break ;;
+                *.md|LICENSE*) ;;
+                *) code=true; echo "code change: $f"; break ;;
+              esac
+            done <<< "$files"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "code changes selected: $code"
+
   conformance:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     name: synthetic conformance suite (default engine)
     runs-on: ubuntu-latest
     # Defensive upper bound only -- normal runs finish in well under a minute once built (see
     # rust/tools/run-conformance.sh's own local timings). A risky compiler refactor could in
     # principle introduce a genuine infinite loop in the default engine's search (neither
-    # --step-cap nor --word-timeout-ms is passed by run-conformance.sh today), so this caps the
+    # --work-cap nor --word-timeout-ms is passed by run-conformance.sh today), so this caps the
     # damage to a bounded, clearly-reported job timeout instead of an hours-long hang.
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          # machine/conformance/ (languages/, edge-cases/, each fixture's words.yaml ground
-          # truth) lives in the `machine` submodule (sillsdev/machine, `conformance-framework`
-          # branch). Non-recursive, matching rust-ci.yml's own checkout of this same submodule:
-          # `machine` carries no nested submodules of its own.
+          # `machine` (sillsdev/machine, the oracle pin) supplies the driver's source, checked out
+          # non-recursive as in rust-ci.yml: the pinned `machine` has no nested submodules. The suite
+          # (conformance/: languages/, edge-cases/, each fixture's words.yaml ground truth) is not a
+          # submodule; the next step clones it at the commit conformance.commit names.
           submodules: true
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -72,6 +158,6 @@ jobs:
           exit_code=$?
           set -e
           if [ "$exit_code" = 2 ]; then
-            echo "::error::run-conformance.sh exited 2 -- a harness-level error (missing machine submodule, missing pangloss binary, or malformed fixture metadata), NOT a conformance regression. See the job log above for which one. Treated as a gate failure (not a silent skip): this workflow checks out the submodule and builds pangloss itself, so this should never happen here -- fix the CI environment rather than re-running."
+            echo "::error::run-conformance.sh exited 2 -- a harness-level error (missing conformance suite or machine submodule, missing pangloss binary, or malformed fixture metadata), NOT a conformance regression. See the job log above for which one. Treated as a gate failure (not a silent skip): this workflow checks out the submodule and builds pangloss itself, so this should never happen here -- fix the CI environment rather than re-running."
           fi
           exit "$exit_code"

@@ -29,7 +29,7 @@ For a completed no-parse result, compare the word with its expected analysis. Ch
 
 Read the parse trace to see the furthest step reached and which alternatives were tried. A rule-order issue and allomorph disjunctive order are separate mechanisms. Reordering helps only when the trace and the relevant ordering conditions point to it.
 
-Read the diagnostic for a missing or unsupported allomorph, natural class, feature, or rule before editing valid source data. An unresolved member in an explicit segment-list class can cause the whole class to be skipped; unresolved feature constraints can be omitted while the rest of a feature-defined class remains. A metathesis rule that the compiler marks unsupported is skipped.
+Read the diagnostic for a missing or unsupported allomorph, natural class, feature, or rule before editing valid source data. An unresolved member in an explicit segment-list class can cause the whole class to be skipped; unresolved feature constraints can be omitted while the rest of a feature-defined class remains.
 
 If the search stopped at a limit, rerun with suitable resources before drawing conclusions from the partial trace. If it completed without a parse, use the trace and diagnostics to test one likely cause at a time.
 

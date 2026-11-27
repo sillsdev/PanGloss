@@ -326,10 +326,9 @@ pub enum EntryRef {
         /// downcast, HCLoader.cs:657-679).
         variant_entry_types: Vec<Guid>,
     },
-    /// ← `LexEntryRef` with `ComplexEntryTypesRS` populated (compounds, idioms, derivatives
-    /// recorded as their own headword pointing back at components). Not walked by `HCLoader`
-    /// today (it only follows the `Variant` shape) — carried for completeness /
-    /// forward-compatibility with a future compiler that reconstructs complex forms.
+    /// ← `LexEntryRef` with `ComplexEntryTypesRS` populated and `VariantEntryTypesRS` empty (compounds, idioms, derivatives recorded as their own headword pointing back at components).
+    /// `HCLoader` does not distinguish the two kinds: on an entry with no senses it walks every `EntryRefsOS` item as a variant source (HCLoader.cs:641-668, 903-923), and `GetInflTypes` yields a plain (null) type when `VariantEntryTypesRS` is empty (HCLoader.cs:706-710).
+    /// The compiler therefore builds a variant from this shape exactly as from `Variant { variant_entry_types: [] }`.
     ComplexForm {
         guid: Guid,
         /// ← `LexEntryRef.ComponentLexemesRS` — the components making up this complex form.
@@ -337,6 +336,38 @@ pub enum EntryRef {
         /// ← `LexEntryRef.ComplexEntryTypesRS`.
         complex_entry_types: Vec<Guid>,
     },
+}
+
+impl EntryRef {
+    /// The `LexEntryRef` guid.
+    pub fn guid(&self) -> &str {
+        match self {
+            Self::Variant { guid, .. } | Self::ComplexForm { guid, .. } => guid,
+        }
+    }
+
+    /// The components this ref points at, whichever kind it is.
+    pub fn component_lexemes(&self) -> &[Guid] {
+        match self {
+            Self::Variant {
+                component_lexemes, ..
+            }
+            | Self::ComplexForm {
+                component_lexemes, ..
+            } => component_lexemes,
+        }
+    }
+
+    /// The variant entry types; a complex-form ref has none, as in HCLoader's `GetInflTypes`.
+    pub fn variant_entry_types(&self) -> &[Guid] {
+        match self {
+            Self::Variant {
+                variant_entry_types,
+                ..
+            } => variant_entry_types,
+            Self::ComplexForm { .. } => &[],
+        }
+    }
 }
 
 #[cfg(test)]

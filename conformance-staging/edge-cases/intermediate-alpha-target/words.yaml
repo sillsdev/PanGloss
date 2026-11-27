@@ -1,0 +1,18 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: IntermediateAlphaSubsumption
+inspired_by: ["synthetic vowel-class intermediate with repeated alpha variable"]
+sources: ["Review 0038ab86"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: aua
+    note: "Pinned C# rejects the unchanged flanks for this two-node target."
+    expect_fail: true
+  - word: iia
+    note: "A narrow binding must subsume the ambiguous right context."
+    expect_fail: true
+  - word: aii
+    note: "Pinned C# skips the first pair, then the broad middle-node binding subsumes the final a."
+    parses:
+      - signature: "ROOT|aii"
+        rules: [r1, r2]

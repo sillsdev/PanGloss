@@ -1,7 +1,7 @@
 # 086: Grammar health reports stored analyses lost to authored phonology
 
 Kind: diagnostic (deliberate XAMPLE difference; no new parse divergence).
-Status: implements the accepted promise in [ADR 0008](../adr/0008-provisional-definitions.md), requested by the integration lead on 2026-10-09.
+Status: permanent; implements the accepted promise in [ADR 0008](../adr/0008-provisional-definitions.md), requested by the integration lead on 2026-10-09.
 Related comparison: [078](078-xample-minimum-authored-phonology.md).
 
 ## Contract and owner path
@@ -15,8 +15,8 @@ Authored rules remain authoritative; the report records their effect without rej
 grammar or retrying with rules disabled.
 
 If the stored tuple cannot be resolved or synthesis cannot complete, the finding says
-`unattributed` and gives the reason. A reached synthesis step budget is reported exactly as
-`synthesis step budget reached`; it cannot be mistaken for a complete synthesis with no rule
+`unattributed` and gives the reason. A reached synthesis work cap is reported exactly as
+`synthesis work cap reached`; it cannot be mistaken for a complete synthesis with no rule
 effects.
 
 `pg-fwdata` owns extraction of the `WfiWordform`, `WfiAnalysis`, and `WfiMorphBundle` objects and

@@ -148,7 +148,7 @@ actual languages. The always-on CI gate it describes is the committed `conforman
   `constructs.txt` rows to resolve, a deleted branch takes the build down. Re-point on merge
   (tasks.md 2.3).
 - **The upstream conformance suite still contains actual-language DATA.**
-  `machine/conformance/languages/` was delanguaged by *name* only — 8 fixtures, 217 words, with real
+  `conformance/languages/` was delanguaged by *name* only — 8 fixtures, 217 words, with real
   lexemes and glosses under construct-named directories. Deliberately not acted on: it is SIL's suite
   on a shared branch, rewriting it is outward-facing, and it would mean re-deriving every ground-truth
   signature the conformance baseline rests on. **Needs a human decision** on whether the
@@ -213,7 +213,7 @@ data into a characteristics profile, composes the capability envelope from per-s
 predicates, and **hard-fails** any not-proven-faithful configuration with a typed diagnostic. Owns:
 the profile/envelope/predicate types, the default-deny characterizer (no catch-all — adding a
 `model.rs` variant breaks the build), and the **conformance-coverage CI gate** (supported ⟺ a passing in-repo
-`machine/conformance/` fixture, else the build breaks). Its first act marks every unproven
+`conformance/` fixture, else the build breaks). Its first act marks every unproven
 configuration — including `MorphRuleDef::Compounding`, `MorphRuleOrder::Unordered`, and `MprGroup` —
 behind an explicit predicate or confirm-only boundary. Everything else sequences behind this.
 
@@ -247,8 +247,8 @@ populating remedies, and recalibrating the size bands — which are a stated tar
 procedure** — the upstream adapter (`machine/conformance/adapters/hc-dotnet-wrapper.sh`) and the
 already-oracle-authored fixtures cover the consuming case, so what remained was documenting how to
 reach the oracle when a NEW fixture needs ground truth. That now lives in
-`.claude/skills/conformance-grammars/SKILL.md`; the submodule's sparse checkout omits `machine/src`,
-which is why the oracle looks unavailable by default. The original text follows for context. It is
+`.claude/skills/conformance-grammars/SKILL.md`; `pg.ps1` initializes only `conformance`, not `machine`, so `machine/src`
+is absent and the oracle looks unavailable by default. The original text follows for context. It is
 investigative evidence, never the gate itself.
 
 ## Stage 1 — the compilation refactor
@@ -276,7 +276,7 @@ events and `emit.rs` instrumentation.
 ## Stage 2 — constructs, one at a time, on the new model
 
 Each construct ships its **full kit**: a configuration-predicate capability boundary (never
-variant-level), oracle witnesses, a synthetic `machine/conformance/` fixture, big-O characterization
+variant-level), oracle witnesses, a synthetic `conformance/` fixture, big-O characterization
 + resource thresholds, a per-construct runtime-feature declaration (ADR 0004; default: fully lowered,
 contributes nothing), and diagnostics. A construct is promoted from an unproven/default-deny state to
 supported only via
@@ -377,7 +377,7 @@ items to a human/architect decision record; implements no `.rs` change itself.
 
 `run-synthetic-conformance-matrix` is **reframed** (rename target: `run-synthetic-conformance-matrix`):
 there is no terminal "certification" stage and no external reference languages. Correctness is proven
-by **conformance integration tests over the in-repo synthetic `machine/conformance/` grammars**,
+by **conformance integration tests over the in-repo synthetic `conformance/` grammars**,
 diffing the current engine against committed oracle-authored ground truth, enforced as the Stage 0A
 CI gate. Actual-language data (Sena/Amharic/Indonesian/Aweti) is **not** migrated in; typological
 coverage is expanded only with synthetic fixtures named by construct/composition (see the hard rule

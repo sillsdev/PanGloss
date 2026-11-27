@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: UnattestedIntermediateEnvironments
+inspired_by: ["ordered rounding and two conditioned changes before neutralization"]
+sources: ["read-only review of d741df3f"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ze
+    note: "xa -> x[back+,round+] -> y[back+,round+] -> z[back+,round+] -> ze. Each natural class also has an attested member."
+    parses:
+      - signature: "ROOT|ze"
+        rules: [rRound, rBackContext, rRoundContext, rNeutralize]
+  - word: ye
+    note: "The round-conditioned prefix change cannot be skipped."
+    expect_fail: true
+  - word: xe
+    note: "The back-conditioned prefix change cannot be skipped."
+    expect_fail: true
+  - word: xa
+    note: "The ordered changes are obligatory."
+    expect_fail: true

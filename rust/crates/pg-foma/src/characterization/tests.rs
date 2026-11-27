@@ -1,4 +1,5 @@
 use super::*;
+use crate::backend_selection::best_case_across_backends;
 
 /// A clean grammar (no Refuse/ConfirmOnly construct, no unbounded quantifier, small rule-interaction product) must raise no characterization finding at all.
 #[test]
@@ -86,20 +87,15 @@ fn characterization_raises_cannot_represent_finding_for_refuse_verdict() {
             panic!("expected a CannotRepresent characterization finding, got {findings:?}")
         });
     assert_eq!(finding.code, FindingCode::BackendCoverageIncomplete);
+    assert!(!findings
+        .iter()
+        .any(|f| f.code == FindingCode::BackendCoveragePartial));
     assert_eq!(finding.metric, Metric::BackendCoverageGapCount);
-    assert_eq!(
-        finding.value,
-        MetricValue::Count(finding.affected.len() as u64)
-    );
+    assert_eq!(finding.value, MetricValue::Count(1));
     assert_eq!(finding.phase, Phase::Characterization);
     assert_eq!(finding.provenance, ValueProvenance::Observed);
-    assert!(
-        finding
-            .affected
-            .iter()
-            .any(|a| a.contains("mrule 0 allomorph #0")),
-        "expected the non-peel-eligible reduplication construct named: {finding:?}"
-    );
+    assert!(finding.affected.is_empty());
+    assert!(finding.explanation.contains("grammar-health"));
 }
 
 /// Crossing `RULE_PRODUCT_WARNING_THRESHOLD` raises a `Predicted`/`LargeMultiplier` finding naming the exact product; exercised directly against a synthetic `CharacteristicsProfile` since this finding depends on nothing else in the profile.
@@ -121,4 +117,53 @@ fn rule_interaction_product_finding_fires_above_threshold_not_below() {
     below.cardinality.mrule_count = 2;
     below.cardinality.prule_count = 2; // 4 <= 64
     assert!(rule_interaction_product_finding(&below).is_none());
+}
+
+/// A grammar one compiler accepts and another refuses is not refused as a whole, yet used to produce no finding at all (G15); the finding now names the declining compilers.
+#[test]
+fn a_partly_refused_envelope_yields_an_aggregate_finding() {
+    use crate::capability::{CapabilityDiagnostic, StrategyVerdict};
+    use crate::strategy_coverage::ALL_STRATEGIES;
+    let diagnostic = CapabilityDiagnostic {
+        refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
+        predicate: "some-predicate",
+        construct: "mrule 0".to_string(),
+        witness: "w".to_string(),
+    };
+    const COMPILERS: usize = 2;
+    let decisions = |declining: &[usize]| {
+        StrategyEnvelope::from_verdicts(
+            // One strategy is registered; the verdict list repeats it to model two compilers, which is all `partial_refusal_finding` reads.
+            std::iter::repeat_n(ALL_STRATEGIES[0], COMPILERS)
+                .enumerate()
+                .map(|(i, strategy)| StrategyVerdict {
+                    strategy,
+                    decision: if declining.contains(&i) {
+                        CompileDecision::Refuse(vec![diagnostic.clone()])
+                    } else {
+                        CompileDecision::Admit
+                    },
+                })
+                .collect(),
+        )
+    };
+
+    let partial = decisions(&[0]);
+    assert_eq!(partial.global(), CompileDecision::Admit);
+    let finding = partial_refusal_finding(&partial).expect("a declining compiler must be reported");
+    assert_eq!(finding.code, FindingCode::BackendCoveragePartial);
+    assert_eq!(finding.severity, Severity::Elevated);
+    assert_eq!(finding.value, MetricValue::Count(1));
+    assert!(finding.affected.is_empty());
+    assert!(finding.explanation.contains("grammar-health"));
+
+    assert!(
+        partial_refusal_finding(&decisions(&[])).is_none(),
+        "nobody declines"
+    );
+    let everyone: Vec<usize> = (0..COMPILERS).collect();
+    assert!(
+        partial_refusal_finding(&decisions(&everyone)).is_none(),
+        "a whole-grammar refusal is the other finding's job"
+    );
 }

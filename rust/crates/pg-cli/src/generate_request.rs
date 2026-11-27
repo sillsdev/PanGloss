@@ -3,8 +3,8 @@
 use std::fs::File;
 use std::io::Read;
 
-use pg_grammar::model::Grammar;
-use pg_parse::morpher::{GenMorpheme, Morpher};
+use pg_grammar::model::{AllomorphId, Grammar};
+use pg_parse::morpher::{AllomorphFilter, GenMorpheme, Morpher};
 use pg_parse::source_identity::{
     resolve_authored_morpheme, resolve_fw_entry_msa, ResolvedMorphemeOwner, SourceIdentityError,
 };
@@ -44,6 +44,10 @@ pub(crate) enum GenerateRequestError {
         found: String,
     },
     UnsupportedFormSelection {
+        path: String,
+        form_guid: String,
+    },
+    UnknownForm {
         path: String,
         form_guid: String,
     },
@@ -101,7 +105,11 @@ impl std::fmt::Display for GenerateRequestError {
             ),
             Self::UnsupportedFormSelection { path, form_guid } => write!(
                 f,
-                "UnsupportedFormSelection: {path}={form_guid}; v1 selects an MSA and cannot constrain synthesis to a source form"
+                "UnsupportedFormSelection: {path}={form_guid}; an affix is a rule with no allomorph choice, so formGuid selects a form only for the root or a stem morpheme"
+            ),
+            Self::UnknownForm { path, form_guid } => write!(
+                f,
+                "GenerateRequestUnknownForm: {path}={form_guid} is not a form of that entry"
             ),
             Self::AuthoredIdentityUnavailable => write!(
                 f,
@@ -214,6 +222,8 @@ pub(crate) struct ValidatedMorphemeRef {
     pub(crate) entry_guid: String,
     pub(crate) msa_guid: String,
     pub(crate) msa_class: FwClass,
+    /// The MoForm GUID the request forces, when it gave one.
+    pub(crate) form_guid: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -284,15 +294,12 @@ fn validate_morpheme_ref(
                 value: form_guid.into(),
             });
         }
-        return Err(GenerateRequestError::UnsupportedFormSelection {
-            path: format!("{path}.formGuid"),
-            form_guid: form_guid.into(),
-        });
     }
     Ok(ValidatedMorphemeRef {
         entry_guid: item.entry_guid,
         msa_guid: item.msa_guid,
         msa_class,
+        form_guid: item.form_guid,
     })
 }
 
@@ -305,7 +312,7 @@ fn is_canonical_guid(value: &str) -> bool {
         })
 }
 
-fn format_msa_class(class: FwClass) -> String {
+pub(crate) fn format_msa_class(class: FwClass) -> String {
     match class {
         FwClass::MoStemMsa => "MoStemMsa",
         FwClass::MoInflAffMsa => "MoInflAffMsa",
@@ -334,10 +341,50 @@ pub(crate) fn read_request_file(
     parse_request_json(&bytes)
 }
 
-pub(crate) fn generate_request_words(
+/// What a validated request resolves to: the root, the other morphemes in request order, and the allomorph filter any `formGuid` implies.
+pub(crate) struct ResolvedRequest {
+    pub(crate) root: pg_grammar::model::LexEntryId,
+    pub(crate) others: Vec<GenMorpheme>,
+    pub(crate) filter: AllomorphFilter,
+}
+
+/// The allomorphs of `entry` whose compiled source carries `form_guid`; `UnknownForm` when none does.
+fn allomorphs_of_form(
+    grammar: &Grammar,
+    entry: pg_grammar::model::LexEntryId,
+    form_guid: &str,
+    path: &str,
+) -> Result<Vec<AllomorphId>, GenerateRequestError> {
+    let admitted: Vec<AllomorphId> = grammar.entries[entry.0 as usize]
+        .allomorphs
+        .iter()
+        .map(|allomorph| allomorph.id)
+        .filter(|id| {
+            grammar
+                .allomorph_sources
+                .get(id.0 as usize)
+                .is_some_and(|source| {
+                    source
+                        .form_guids
+                        .iter()
+                        .any(|guid| guid.as_deref() == Some(form_guid))
+                })
+        })
+        .collect();
+    if admitted.is_empty() {
+        return Err(GenerateRequestError::UnknownForm {
+            path: path.into(),
+            form_guid: form_guid.into(),
+        });
+    }
+    Ok(admitted)
+}
+
+/// The compiled owners a validated request addresses, and the allomorph filter its `formGuid`s ask for.
+pub(crate) fn resolve_request(
     grammar: &Grammar,
     request: &ValidatedGenerateRequest,
-) -> Result<Vec<String>, GenerateRequestError> {
+) -> Result<ResolvedRequest, GenerateRequestError> {
     let root = resolve_fw_entry_msa(
         grammar,
         &request.root.entry_guid,
@@ -345,22 +392,64 @@ pub(crate) fn generate_request_words(
         request.root.msa_class,
     )
     .map_err(|error| map_identity_error(error, &request.root))?;
-    let others = request
-        .morphemes
-        .iter()
-        .map(|item| {
+    let mut filter = AllomorphFilter::default();
+    if let Some(form_guid) = request.root.form_guid.as_deref() {
+        filter.root = Some(allomorphs_of_form(
+            grammar,
+            root,
+            form_guid,
+            "root.formGuid",
+        )?);
+    }
+    let mut others = Vec::with_capacity(request.morphemes.len());
+    for (index, item) in request.morphemes.iter().enumerate() {
+        let resolved =
             resolve_authored_morpheme(grammar, &item.entry_guid, &item.msa_guid, item.msa_class)
-                .map(|resolved| match resolved.owner {
-                    ResolvedMorphemeOwner::LexicalEntry(entry) => GenMorpheme::NonHead(entry),
-                    ResolvedMorphemeOwner::MorphologicalRule(rule) => GenMorpheme::Rule(rule),
+                .map_err(|error| map_identity_error(error, item))?;
+        let path = format!("morphemes[{index}].formGuid");
+        let forms = match (&resolved.owner, item.form_guid.as_deref()) {
+            (_, None) => None,
+            (ResolvedMorphemeOwner::LexicalEntry(entry), Some(guid)) => {
+                Some(allomorphs_of_form(grammar, *entry, guid, &path)?)
+            }
+            (ResolvedMorphemeOwner::MorphologicalRule(_), Some(guid)) => {
+                return Err(GenerateRequestError::UnsupportedFormSelection {
+                    path,
+                    form_guid: guid.into(),
                 })
-                .map_err(|error| map_identity_error(error, item))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+            }
+        };
+        filter.others.push(forms);
+        others.push(match resolved.owner {
+            ResolvedMorphemeOwner::LexicalEntry(entry) => GenMorpheme::NonHead(entry),
+            ResolvedMorphemeOwner::MorphologicalRule(rule) => GenMorpheme::Rule(rule),
+        });
+    }
+    Ok(ResolvedRequest {
+        root,
+        others,
+        filter,
+    })
+}
 
-    let morpher = Morpher::new(grammar, crate::DEFAULT_STEP_CAP.as_morpher_cap());
-    let outcome =
-        morpher.generate_words_bounded(root, &others, pg_featstruct::FeatureStruct::EMPTY);
+pub(crate) fn generate_request_words(
+    grammar: &Grammar,
+    request: &ValidatedGenerateRequest,
+) -> Result<Vec<String>, GenerateRequestError> {
+    let ResolvedRequest {
+        root,
+        others,
+        filter,
+    } = resolve_request(grammar, request)?;
+
+    let morpher = Morpher::new(grammar, crate::DEFAULT_GENERATION_WORK_CAP)
+        .with_generation_cap(crate::DEFAULT_GENERATION_WORK_CAP);
+    let outcome = morpher.generate_words_bounded_filtered(
+        root,
+        &others,
+        pg_featstruct::FeatureStruct::EMPTY,
+        &filter,
+    );
     if let Some(reason) = outcome.stop_reason {
         return Err(GenerateRequestError::GenerationResourceLimit {
             detail: reason.to_string(),
@@ -454,25 +543,20 @@ mod tests {
     }
 
     #[test]
-    fn generate_request_refuses_every_non_null_form_selector() {
+    fn generate_request_keeps_form_selectors_and_refuses_noncanonical_ones() {
         let root_form = request("MoStemMsa").replace(
             "\"msaClass\":\"MoStemMsa\"",
             "\"msaClass\":\"MoStemMsa\",\"formGuid\":\"00000000-0000-0000-0000-000000000031\"",
         );
-        assert!(matches!(
-            parse_request_json(root_form.as_bytes()),
-            Err(GenerateRequestError::UnsupportedFormSelection { path, .. })
-                if path == "root.formGuid"
-        ));
-
-        let item_form = request("MoStemMsa").replace(
-            "\"morphemes\":[]",
-            "\"morphemes\":[{\"entryGuid\":\"00000000-0000-0000-0000-000000000050\",\"msaGuid\":\"00000000-0000-0000-0000-000000000052\",\"msaClass\":\"MoInflAffMsa\",\"formGuid\":\"00000000-0000-0000-0000-000000000051\"}]",
+        let parsed = parse_request_json(root_form.as_bytes()).expect("a canonical formGuid parses");
+        assert_eq!(
+            parsed.root.form_guid.as_deref(),
+            Some("00000000-0000-0000-0000-000000000031")
         );
+        let noncanonical = root_form.replace("000000000031", "00000000003G");
         assert!(matches!(
-            parse_request_json(item_form.as_bytes()),
-            Err(GenerateRequestError::UnsupportedFormSelection { path, .. })
-                if path == "morphemes[0].formGuid"
+            parse_request_json(noncanonical.as_bytes()),
+            Err(GenerateRequestError::NonCanonicalGuid { path, .. }) if path == "root.formGuid"
         ));
     }
 

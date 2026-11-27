@@ -1,0 +1,27 @@
+# oracle-provenance: founding-oracle machine-commit=aab4c598
+# hc-conformance self-check built from Machine aab4c598 passes all five words (see STAGING.md); the
+# expected parse is also forward-derived below, so it does not depend on the oracle.
+# Trace: root U/u -> expand u to ii -> x deletion has no x to delete (vacuous) -> surface ii (U|ii).
+# Inverse deletion can interpose optional x between the two i; expand must capture both real RHS positions.
+language: interposed-optional-expansion-rhs
+sources: ["HCLoader.cs:2362-2374 (literal contexts), 2745-2786 (natural classes); machine/conformance/fieldworks-producibility.tsv"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ii
+    note: "Positive control: expand u to ii survives the interposed Optional x, so the analysis is U|ii."
+    parses:
+      - signature: "U|ii"
+        rules: [expand]
+  - word: u
+    note: "Negative control: the lone u is not a surface of the expansion."
+    expect_fail: true
+  - word: i
+    note: "Negative control: a single i has no expansion to ii."
+    expect_fail: true
+  - word: iii
+    note: "Negative control: three i have no analysis under expand u to ii."
+    expect_fail: true
+  - word: ixi
+    note: "Negative control: a real x is not deletable by analysis, which only re-inserts Optional ones."
+    expect_fail: true

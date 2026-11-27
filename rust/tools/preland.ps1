@@ -5,12 +5,19 @@
 
   Checks, each named in the summary with its duration, or SKIPPED with the reason:
     clippy        `pg.ps1 -Mode check` (rustfmt, comment hygiene, CI's clippy). Always.
+    source-guards the complete pg-cli source_guards Cargo target, also discovered by CI. Always.
+    stats-manifest real CLI import/batch/facts round trips and stats replay. Always.
     tool-tests    every rust/tools/tests/*.tests.ps1, in parallel, as CI's Windows job runs them.
                   Always; overlaps the cargo checks below.
-    conformance   the C# Machine driver over machine/conformance with a freshly built `pangloss` as
+    conformance   the C# Machine driver over conformance with a freshly built `pangloss` as
                   its adapter, filtered by known-conformance-divergences.txt exactly as
                   run-conformance.sh does in Conformance CI. `pangloss` is built with the
                   pg-test-opt profile check and test share. Path-gated.
+    pg-cli-gates  the package set of CI's `FST nextest (ci profile)` and its doctests: pg-foma,
+                  pg-foma-runtime, pg-foma-backend and pg-cli with `--features pg-cli/foma-tools`, nextest
+                  `ci` profile, pg-test-opt, --locked, conformance scope all (#351). Path-gated on the
+                  union of those four crates' closures (`cargo metadata`, optional deps included), the
+                  non-crate inputs pg-cli tests read, and the shared build inputs.
     scoreboard    pg-foma-backend's backend_scoreboard_gate. Path-gated on its crate closure
                   (read from `cargo metadata`), conformance-staging/, and the `machine` pin.
 
@@ -20,6 +27,7 @@
   Usage:
     rust\tools\pg.ps1 -Mode preland
     rust\tools\pg.ps1 -Mode preland -Base origin/main -All
+    pwsh rust/tools/preland.ps1 -Plan    # print each check's gate decision and the pg.ps1 args, run nothing
 
   Exit codes: 0 every check that ran passed; $script:ExitCodePrelandFailed (42) otherwise,
   including a check that could not run (missing driver, unmatched pin, unresolvable binary).
@@ -28,6 +36,8 @@
 param(
     [string]$Base = 'origin/main',
     [switch]$All,
+    [switch]$Plan,
+    [ValidateRange(0, 12)][int]$Jobs = 0,
     [ValidateRange(1, 32)][int]$ToolTestThrottle = 8
 )
 
@@ -109,6 +119,21 @@ function Get-WorkspaceCrateClosure {
     return @($dirs | Sort-Object)
 }
 
+# Mirrors the fst-test job in rust-gates.yml (`--package=x`: pg.ps1 binds -p and --package to its own -Package); pg.ps1 adds --locked, pg-test-opt, the doctests and the conformance scope.
+$script:PgCliGatePackages = @('pg-foma', 'pg-foma-runtime', 'pg-foma-backend', 'pg-cli')
+$script:PgCliGateArgs = @('-Mode', 'test') + @($script:PgCliGatePackages | ForEach-Object { "--package=$_" }) + @('--features', 'pg-cli/foma-tools', '--profile', 'ci')
+# Files pg-cli's tests read from outside the crate closure.
+$script:PgCliGateInputs = @('samples/data/', 'conformance-staging/underdefined/', 'docs/divergences/', 'docs/formats/', 'rust/tools/fixtures/', 'rust/.config/nextest.toml')
+
+function Get-PrelandPlan {
+    <#
+      .DESCRIPTION
+      Pure: one line per path-gated check, naming whether it runs, why, and the pg.ps1 arguments.
+    #>
+    param([Parameter(Mandatory)]$Gates)
+    foreach ($g in $Gates) { "{0,-13} {1,-7} {2}  [pg.ps1 {3}]" -f $g.Check, $(if ($g.Run) { 'RUN' } else { 'SKIP' }), $g.Reason, ($g.PgArgs -join ' ') }
+}
+
 function Get-PrelandChangedPaths {
     <#
       .DESCRIPTION
@@ -186,6 +211,7 @@ function Invoke-PrelandPg {
       exit code with the captured lines.
     #>
     param([Parameter(Mandatory)][string[]]$PgArgs)
+    if ($Jobs -gt 0) { $PgArgs += @('-Jobs', "$Jobs") }
     $pg = Join-Path $PSScriptRoot 'pg.ps1'
     Write-Host "[preland] pg.ps1 $($PgArgs -join ' ')" -ForegroundColor Cyan
     $lines = [System.Collections.Generic.List[string]]::new()
@@ -201,6 +227,7 @@ function Start-PrelandPg {
       oversubscribing.
     #>
     param([Parameter(Mandatory)][string[]]$PgArgs)
+    if ($Jobs -gt 0) { $PgArgs += @('-Jobs', "$Jobs") }
     $log = Join-Path ([System.IO.Path]::GetTempPath()) "pg-preland-$PID-$([guid]::NewGuid().ToString('N')).log"
     Write-Host "[preland] started concurrently: pg.ps1 $($PgArgs -join ' ')" -ForegroundColor Cyan
     $argList = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'pg.ps1')) + $PgArgs
@@ -235,7 +262,7 @@ $changes = Get-PrelandChangedPaths -RepoRoot $repoRoot -Base $Base
 $force = if ($All) { 'forced by -All' } elseif (-not $changes.Ok) { "forced: $($changes.Detail)" } else { '' }
 Write-Host "[preland] $(if ($changes.Ok) { $changes.Detail } else { $changes.Detail + ' -- running every check' })" -ForegroundColor Cyan
 
-$shared = @('machine', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/tools/preland.ps1')
+$shared = @('machine', 'conformance', 'rust/Cargo.toml', 'rust/Cargo.lock', 'rust/rust-toolchain.toml', 'rust/tools/preland.ps1')
 $scoreboardRoots = $null
 $scoreboardLabel = ''
 try {
@@ -246,10 +273,32 @@ try {
     $scoreboardRoots = @()
     if (-not $force) { $force = "forced: crate closure unavailable ($($_.Exception.Message))" }
 }
+$pgCliRoots = $null
+$pgCliLabel = ''
+$pgCliForce = $force
+try {
+    $pgCliClosure = @($script:PgCliGatePackages | ForEach-Object { Get-WorkspaceCrateClosure -RustRoot $rustRoot -RepoRoot $repoRoot -Package $_ } | Sort-Object -Unique)
+    $pgCliRoots = $pgCliClosure + $script:PgCliGateInputs + $shared
+    $pgCliLabel = "the $($pgCliClosure.Count)-crate closure of $($script:PgCliGatePackages -join ', '), $($script:PgCliGateInputs -join ', '), $($shared -join ', ')"
+} catch {
+    $pgCliRoots = @()
+    if (-not $pgCliForce) { $pgCliForce = "forced: pg-cli crate closure unavailable ($($_.Exception.Message))" }
+}
 $conformanceRoots = @('rust/crates/pg-cli/', 'docs/formats/', 'rust/tools/run-conformance.sh',
     'rust/tools/known-conformance-divergences.txt', '.github/workflows/conformance-ci.yml') + $shared
 $scoreboardGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $scoreboardRoots -ForceReason $force -RootsLabel $scoreboardLabel
 $conformanceGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $conformanceRoots -ForceReason $force
+$pgCliGate = Get-PrelandGateDecision -ChangedPaths $changes.Paths -Roots $pgCliRoots -ForceReason $pgCliForce -RootsLabel $pgCliLabel
+
+if ($Plan) {
+    Write-Host '[preland] plan (nothing is run):' -ForegroundColor Cyan
+    Get-PrelandPlan -Gates @(
+        [PSCustomObject]@{ Check = 'pg-cli-gates'; Run = $pgCliGate.Run; Reason = $pgCliGate.Reason; PgArgs = $script:PgCliGateArgs },
+        [PSCustomObject]@{ Check = 'scoreboard'; Run = $scoreboardGate.Run; Reason = $scoreboardGate.Reason; PgArgs = @('-Mode', 'test', '-Package', 'pg-foma-backend', '-TestTarget', 'backend_scoreboard_gate') },
+        [PSCustomObject]@{ Check = 'conformance'; Run = $conformanceGate.Run; Reason = $conformanceGate.Reason; PgArgs = @('-Mode', 'build', '-Package', 'pg-cli', '-TestOptBuild') }
+    ) | ForEach-Object { Write-Host "  $_" }
+    exit 0
+}
 
 # Tool tests take no build slot and touch no cargo state, so they overlap the cargo checks.
 $toolTestFiles = @(Get-ChildItem -Path (Join-Path $PSScriptRoot 'tests') -Filter '*.tests.ps1' | Sort-Object Name)
@@ -261,16 +310,15 @@ $toolJob = $toolTestFiles | ForEach-Object -ThrottleLimit $ToolTestThrottle -AsJ
 }
 Write-Host "[preland] tool-tests: $($toolTestFiles.Count) script(s) started in parallel (throttle $ToolTestThrottle)" -ForegroundColor Cyan
 
-# Both gated checks read machine/conformance; grading a submodule off the staged pin grades fixtures CI never sees.
+# Both gated checks read conformance/; $pinCommit is the oracle build (the `machine` gitlink), matched to a prebuilt driver.
 $fixtureProblem = $null
+$pinCommit = ((& git -C $repoRoot ls-files -s machine 2>$null) -split '\s+')[1]
 if ($scoreboardGate.Run -or $conformanceGate.Run) {
-    $submodule = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
-    $pinCommit = ((& git -C $repoRoot ls-files -s machine 2>$null) -split '\s+')[1]
-    $headCommit = (& git -C (Join-Path $repoRoot 'machine') rev-parse HEAD 2>$null | Select-Object -First 1)
-    if (-not $submodule.Ok) {
-        $fixtureProblem = "machine/conformance unavailable: $($submodule.Detail)"
-    } elseif (-not $pinCommit -or $pinCommit -ne $headCommit) {
-        $fixtureProblem = "machine submodule HEAD $headCommit is not the staged pin $pinCommit, so these fixtures are not the ones CI tests. Run preland in the worktree being landed; stage a deliberate pin move, or check out $pinCommit in machine/"
+    $suite = Sync-ConformanceSuite -RepoRoot $repoRoot
+    if (-not $suite.Ok) {
+        $fixtureProblem = "conformance unavailable: $($suite.Detail)"
+    } elseif ($suite.Mode -eq 'override') {
+        $fixtureProblem = "HC_CONFORMANCE_SUITE is set, so the fixtures are not the ones conformance.commit pins and CI tests; unset it to run preland"
     }
 }
 
@@ -278,6 +326,41 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $check = Invoke-PrelandPg -PgArgs @('-Mode', 'check')
 Add-Result 'clippy' $(if ($check.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pg.ps1 -Mode check exit $($check.ExitCode)" (Get-SlotWaitSeconds $check.Lines)
 $compiles = ($check.ExitCode -eq 0)
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $guards = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-cli', '-TestTarget', 'source_guards')
+    Add-Result 'source-guards' $(if ($guards.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "CI source and dependency guards exit $($guards.ExitCode)" (Get-SlotWaitSeconds $guards.Lines)
+} else {
+    Add-Result 'source-guards' 'FAIL' 0 'not attempted: clippy failed'
+}
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $manifest = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-cli', '-TestTarget', 'stats_manifest_roundtrip')
+    Add-Result 'stats-manifest' $(if ($manifest.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "writer/reader compatibility and identity controls exit $($manifest.ExitCode)" (Get-SlotWaitSeconds $manifest.Lines)
+} else {
+    Add-Result 'stats-manifest' 'FAIL' 0 'not attempted: clippy failed'
+}
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if (-not $pgCliGate.Run) {
+    Add-Result 'pg-cli-gates' 'SKIPPED' 0 $pgCliGate.Reason
+} elseif ($compiles) {
+    $cliGates = Invoke-PrelandPg -PgArgs $script:PgCliGateArgs
+    Add-Result 'pg-cli-gates' $(if ($cliGates.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "$($pgCliGate.Reason); CI FST features, ci profile exit $($cliGates.ExitCode)" (Get-SlotWaitSeconds $cliGates.Lines)
+} else {
+    Add-Result 'pg-cli-gates' 'FAIL' 0 'not attempted: clippy failed'
+}
+
+$sw = [Diagnostics.Stopwatch]::StartNew()
+if ($compiles) {
+    $parity = Invoke-PrelandPg -PgArgs @('-Mode', 'test', '-Package', 'pg-analyzer', '-TestTarget', 'wordmaker_parity')
+    Add-Result 'wordmaker-parity' $(if ($parity.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }) $sw.Elapsed.TotalSeconds "pinned reference and negative controls exit $($parity.ExitCode)"
+} else {
+    Add-Result 'wordmaker-parity' 'FAIL' 0 'not attempted: clippy failed'
+}
+
 
 # The scoreboard is one long test; once it is past cargo's build lock, the pangloss build overlaps it.
 $scoreboardRun = $null
@@ -303,7 +386,8 @@ if (-not $conformanceGate.Run) {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $verdict = $null
     $build = $null
-    $driver = Find-PinMatchedConformanceDriver -PinCommit $pinCommit
+    $driverJobs = if ($Jobs -gt 0) { $Jobs } else { 4 }
+    $driver = Find-PinMatchedConformanceDriver -PinCommit $pinCommit -Jobs $driverJobs
     if (-not $driver.Ok) {
         $verdict = $driver.Detail
     } else {
@@ -321,7 +405,7 @@ if (-not $conformanceGate.Run) {
             $verdict = "built, but the build output named no pangloss that exists (resolved: '$pangloss')"
         } else {
             Write-Host "[preland] conformance: pangloss $pangloss (written $((Get-Item -LiteralPath $pangloss).LastWriteTimeUtc.ToString('u'))); driver $($driver.ExePath)" -ForegroundColor Cyan
-            $driverLines = @(& $driver.ExePath --fixtures (Join-Path $repoRoot 'machine/conformance') `
+            $driverLines = @(& $driver.ExePath --fixtures (Join-Path $repoRoot 'conformance') `
                     --adapter "$pangloss batch {grammar} {words} {output}" --capabilities phonology 2>&1 | ForEach-Object { "$_" })
             $driverExit = $LASTEXITCODE
             $driverLines | Where-Object { $_ -notmatch '^\[PASS\]' } | ForEach-Object { Write-Host "  $_" }

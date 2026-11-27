@@ -18,7 +18,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
     },
     {
@@ -30,7 +30,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumax, contains an undefined phoneme at 4.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
     },
     {
@@ -42,7 +42,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mumay, contains an undefined phoneme at 4.",
         "pangloss_invalid_shape": true
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for undefined input letters and drops an unsegmentable suffix; PanGloss completes authored literal x. Unreferenced y remains invalid, returned as an invalid-shape result rather than an HC exception."
     }
   ]

@@ -2,8 +2,15 @@
 
 This repo's own conformance fixtures, committed ahead of upstream acceptance. See
 `docs/conformance-staging-plan.md` for the design and `.claude/skills/conformance-grammars/SKILL.md`
-for the authoring, staging, and graduation workflow. Every fixture directory carries its own
-`STAGING.md` recording why it exists, what it pins, and which oracle produced its signatures.
+for the authoring, staging, and graduation workflow. Every fixture directory carries its own `STAGING.md` recording why it exists, what it pins, and
+which oracle produced its signatures, plus an `upstream:` line that is one of:
+
+- `upstream: https://github.com/sillsdev/fieldworks-parser-conformance/pull/<N>` (N positive, no leading zero)
+- `upstream: not-producible: row <N> <reason>`, N a row of `conformance/docs/fieldworks-cannot-say.md`
+
+Staging is a waiting room for upstream review, never the destination.
+`staged_fixtures_have_upstream_pr_or_not_producible_reason` enforces this; `upstream-baseline.txt` lists
+the fixtures still lacking the line and may only shrink.
 
 ## Categories
 

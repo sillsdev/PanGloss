@@ -1,0 +1,406 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "selectorMorph": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "authored"
+            },
+            "entryGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "msaGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "senseGuid": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "formGuids": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "inflTypeGuid": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parts": {
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "formGuid": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                      },
+                      "placement": {
+                        "enum": [
+                          "prefix",
+                          "suffix",
+                          "infix",
+                          "root",
+                          "circumfix_left",
+                          "circumfix_right"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "formGuid",
+                      "placement"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "entryGuid",
+            "msaGuid"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "structural_zero"
+            },
+            "inflTypeGuid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "required": [
+            "kind",
+            "inflTypeGuid"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "guessed"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "unavailable"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "featureSelector": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "enum": [
+            "syntactic",
+            "realizational"
+          ]
+        },
+        "featurePathGuids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1
+        },
+        "valueGuids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "match": {
+          "const": "exact"
+        }
+      },
+      "required": [
+        "domain",
+        "featurePathGuids",
+        "valueGuids",
+        "match"
+      ],
+      "additionalProperties": false
+    },
+    "targetSelector": {
+      "type": "object",
+      "properties": {
+        "rootIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 18446744073709551615
+        },
+        "morphs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/selectorMorph"
+          },
+          "minItems": 1
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/featureSelector"
+          }
+        }
+      },
+      "required": [
+        "rootIndex",
+        "morphs"
+      ],
+      "additionalProperties": false
+    },
+    "generationSelector": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "exact_chain"
+            },
+            "root": {
+              "$ref": "#/$defs/selectorMorph"
+            },
+            "chain": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/selectorMorph"
+              }
+            },
+            "expectedSurface": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root",
+            "chain"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "cell"
+            },
+            "root": {
+              "$ref": "#/$defs/selectorMorph"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/featureSelector"
+              },
+              "minItems": 1
+            },
+            "expectedSurface": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root",
+            "features"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": "pangloss.diagnostic.v1"
+        },
+        "expectedGrammar": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "semantics": {
+                  "enum": [
+                    "snapshot-semantic-sha256-v1",
+                    "source-bytes-sha256-v1"
+                  ]
+                }
+              },
+              "required": [
+                "hash",
+                "semantics"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "writingSystem": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "spellingPolicy": {
+          "oneOf": [
+            {
+              "const": "exact"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "maxLength": 128,
+              "x-maxUtf8Bytes": 128,
+              "x-maxEncodedJsonBytes": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "row": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "requestId": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 128,
+                    "x-maxUtf8Bytes": 128,
+                    "x-maxEncodedJsonBytes": 256
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "selector": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/targetSelector"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "row"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "generation_request"
+        },
+        "schemaVersion": {
+          "const": "pangloss.diagnostic.v1"
+        },
+        "requestId": {
+          "type": "string",
+          "maxLength": 128,
+          "x-maxUtf8Bytes": 128,
+          "x-maxEncodedJsonBytes": 256
+        },
+        "selector": {
+          "$ref": "#/$defs/generationSelector"
+        }
+      },
+      "required": [
+        "type",
+        "schemaVersion",
+        "selector"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

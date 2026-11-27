@@ -7,9 +7,10 @@ use rusqlite::{params, Connection, TransactionBehavior};
 use tempfile::NamedTempFile;
 
 use crate::context::FactsContext;
+use crate::light::Profile;
 use crate::metadata::{fixed_sections, ProducerIdentity, SectionStatus};
 use crate::stats::{StatsExpectation, StatsInput, StatsProjection};
-use crate::{FactsError, FactsResult};
+use crate::{FactsError, FactsOptions, FactsResult};
 
 struct Publication<'a> {
     output_path: &'a Path,
@@ -34,6 +35,7 @@ struct Publication<'a> {
     grammar: Option<&'a pg_grammar::model::Grammar>,
     stats: Option<StatsProjection>,
     sections: Vec<SectionStatus>,
+    profile: Profile,
 }
 
 struct MetadataInput<'a> {
@@ -49,6 +51,8 @@ struct MetadataInput<'a> {
     options_sha256: &'a str,
     compile_status: &'a str,
     run_manifest_sha256: Option<&'a str>,
+    /// JSON list of what a light file omits; `None` for a full file, which has no such column.
+    light_omissions: Option<&'a str>,
 }
 
 pub fn write_facts(
@@ -62,7 +66,7 @@ pub fn write_facts(
         context_bytes,
         output_path,
         producer,
-        None,
+        FactsOptions::default(),
         |_| {},
     )
 }
@@ -80,7 +84,28 @@ pub fn write_facts_with_stats(
         context_bytes,
         output_path,
         producer,
-        Some(stats_input),
+        FactsOptions {
+            stats: Some(stats_input),
+            ..FactsOptions::default()
+        },
+        |_| {},
+    )
+}
+
+/// Builds a facts file as `options` ask: light or full, with or without a frozen stats run.
+pub fn write_facts_with_options(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    options: FactsOptions<'_>,
+) -> Result<FactsResult, FactsError> {
+    write_facts_inner(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        options,
         |_| {},
     )
 }
@@ -90,17 +115,123 @@ fn write_facts_inner<F>(
     context_bytes: &[u8],
     output_path: impl AsRef<Path>,
     producer: ProducerIdentity<'_>,
-    stats_input: Option<StatsInput<'_>>,
+    facts_options: FactsOptions<'_>,
     before_schema: F,
 ) -> Result<FactsResult, FactsError>
 where
     F: FnOnce(&Connection),
 {
+    write_facts_core(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        facts_options,
+        None,
+        before_schema,
+    )
+}
+
+/// A successful default-options compile's results, apart from the grammar.
+pub struct CompiledParts {
+    pub inventory: InventoryDelta,
+    pub decisions: Vec<LoadDecision>,
+    pub compile_issues: Vec<ConversionIssue>,
+    pub environment_resolutions: Vec<pg_grammar::compile::EnvironmentResolution>,
+    pub compiled_outputs: Vec<pg_grammar::compile::CompiledOutput>,
+    pub compiled_mappings: Vec<pg_grammar::compile::CompiledMapping>,
+    pub compiled_allomorph_order: Vec<pg_grammar::compile::CompiledAllomorphOrder>,
+    pub allomorph_gates: Vec<pg_grammar::compile::AllomorphGateOutcome>,
+    pub allomorph_output_ids: Vec<Option<u32>>,
+}
+
+/// Like [`write_facts_with_options`] but records the caller's compile of the same Snapshot.
+pub fn write_facts_with_compiled(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    options: FactsOptions<'_>,
+    compiled: (&CompiledParts, &pg_grammar::model::Grammar),
+) -> Result<FactsResult, FactsError> {
+    write_facts_core(
+        source_bytes,
+        context_bytes,
+        output_path,
+        producer,
+        options,
+        Some(compiled),
+        |_| {},
+    )
+}
+
+type FreshCompile = (
+    CompiledParts,
+    Option<pg_grammar::model::Grammar>,
+    &'static str,
+);
+
+fn compile_fresh(snapshot: &Snapshot, options: CompileOptions) -> Result<FreshCompile, FactsError> {
+    match compile_project_with(snapshot, options) {
+        Ok(output) => Ok((
+            CompiledParts {
+                inventory: output.inventory,
+                decisions: output.load_decisions,
+                compile_issues: output.issues,
+                environment_resolutions: output.environment_resolutions,
+                compiled_outputs: output.compiled_outputs,
+                compiled_mappings: output.compiled_mappings,
+                compiled_allomorph_order: output.compiled_allomorph_order,
+                allomorph_gates: output.allomorph_gates,
+                allomorph_output_ids: output.allomorph_output_ids,
+            },
+            Some(output.grammar),
+            "completed",
+        )),
+        Err(pg_grammar::GrammarError::Conversion(error)) => Ok((
+            CompiledParts {
+                inventory: error.inventory,
+                decisions: error.load_decisions,
+                compile_issues: error.issues,
+                environment_resolutions: error.environment_resolutions,
+                compiled_outputs: error.compiled_outputs,
+                compiled_mappings: error.compiled_mappings,
+                compiled_allomorph_order: error.compiled_allomorph_order,
+                allomorph_gates: error.allomorph_gates,
+                allomorph_output_ids: Vec::new(),
+            },
+            None,
+            "refused",
+        )),
+        Err(error) => Err(FactsError::Compile(error.to_string())),
+    }
+}
+
+fn write_facts_core<F>(
+    source_bytes: &[u8],
+    context_bytes: &[u8],
+    output_path: impl AsRef<Path>,
+    producer: ProducerIdentity<'_>,
+    facts_options: FactsOptions<'_>,
+    precompiled: Option<(&CompiledParts, &pg_grammar::model::Grammar)>,
+    before_schema: F,
+) -> Result<FactsResult, FactsError>
+where
+    F: FnOnce(&Connection),
+{
+    let FactsOptions {
+        light,
+        stats: stats_input,
+    } = facts_options;
+    let profile = Profile::new(light);
     let context = FactsContext::parse(context_bytes)?;
     let source = std::str::from_utf8(source_bytes)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
-    pg_assess::jcs::parse_strict_json(source)
+    let strict = pg_assess::jcs::parse_strict_json(source)
         .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    // The strict parse is the only one the fingerprint needs; its error surfaces where it always did.
+    let fingerprint = pg_assess::snapshot_value_fingerprint(&strict, producer.compiler_version);
+    drop(strict);
     let snapshot = Snapshot::from_json(source).map_err(|error| match error {
         pg_snapshot::SnapshotError::UnsupportedVersion { found } => {
             FactsError::UnsupportedSnapshotVersion(found)
@@ -119,12 +250,8 @@ where
 
     let source_sha256 = pg_assess::source_sha256(source_bytes);
     let grammar_hash = snapshot.grammar_hash();
-    let model_fingerprint = pg_assess::model_fingerprint(
-        pg_assess::SourceKind::Snapshot,
-        source,
-        producer.compiler_version,
-    )
-    .map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
+    let model_fingerprint =
+        fingerprint.map_err(|error| FactsError::InvalidSnapshot(error.to_string()))?;
     if let Some(expected) = &context.expected_model_fingerprint {
         if expected != &model_fingerprint {
             return Err(FactsError::ModelMismatch {
@@ -137,8 +264,15 @@ where
     let options = CompileOptions::default();
     let options_json = options.canonical_projection_json();
     let options_sha256 = pg_assess::sha256_bytes(options_json.as_bytes());
-    let (
-        compile_status,
+    let fresh;
+    let (parts, grammar, compile_status) = match precompiled {
+        Some((parts, grammar)) => (parts, Some(grammar), "completed"),
+        None => {
+            fresh = compile_fresh(&snapshot, options)?;
+            (&fresh.0, fresh.1.as_ref(), fresh.2)
+        }
+    };
+    let CompiledParts {
         inventory,
         decisions,
         compile_issues,
@@ -147,40 +281,11 @@ where
         compiled_mappings,
         compiled_allomorph_order,
         allomorph_gates,
-        grammar,
         allomorph_output_ids,
-    ) = match compile_project_with(&snapshot, options) {
-        Ok(output) => (
-            "completed",
-            output.inventory,
-            output.load_decisions,
-            output.issues,
-            output.environment_resolutions,
-            output.compiled_outputs,
-            output.compiled_mappings,
-            output.compiled_allomorph_order,
-            output.allomorph_gates,
-            Some(output.grammar),
-            output.allomorph_output_ids,
-        ),
-        Err(pg_grammar::GrammarError::Conversion(error)) => (
-            "refused",
-            error.inventory,
-            error.load_decisions,
-            error.issues,
-            error.environment_resolutions,
-            error.compiled_outputs,
-            error.compiled_mappings,
-            error.compiled_allomorph_order,
-            error.allomorph_gates,
-            None,
-            Vec::new(),
-        ),
-        Err(error) => return Err(FactsError::Compile(error.to_string())),
-    };
+    } = parts;
     let stats = match stats_input {
         Some(input) => {
-            let Some(grammar) = grammar.as_ref() else {
+            let Some(grammar) = grammar else {
                 return Err(FactsError::StatsRunUnavailable(
                     "stats projection requires a completed production compile".into(),
                 ));
@@ -208,18 +313,16 @@ where
             pg_snapshot::SourceInventoryStatus::ImportedComplete
                 | pg_snapshot::SourceInventoryStatus::ImportedWithFatalIssues
         );
-    let load_accounting_complete = crate::load::accounting_is_complete(
-        &snapshot.conversion_provenance,
-        &inventory,
-        &decisions,
-    );
-    let sections = fixed_sections(
+    let load_accounting_complete =
+        crate::load::accounting_is_complete(&snapshot.conversion_provenance, inventory, decisions);
+    let mut sections = fixed_sections(
         compile_status == "completed",
         source_inventory_complete,
         snapshot.morphology.adhoc_prohibition_groups.is_some(),
         load_accounting_complete,
         stats.is_some(),
     );
+    profile.declare(&mut sections);
     let result = publish(
         Publication {
             output_path: output_path.as_ref(),
@@ -232,18 +335,19 @@ where
             options_json: &options_json,
             options_sha256: &options_sha256,
             compile_status,
-            inventory: &inventory,
-            decisions: &decisions,
-            compile_issues: &compile_issues,
-            environment_resolutions: &environment_resolutions,
-            compiled_outputs: &compiled_outputs,
-            allomorph_output_ids: &allomorph_output_ids,
-            compiled_mappings: &compiled_mappings,
-            compiled_allomorph_order: &compiled_allomorph_order,
-            allomorph_gates: &allomorph_gates,
-            grammar: grammar.as_ref(),
+            inventory,
+            decisions,
+            compile_issues,
+            environment_resolutions,
+            compiled_outputs,
+            allomorph_output_ids,
+            compiled_mappings,
+            compiled_allomorph_order,
+            allomorph_gates,
+            grammar,
             stats,
             sections,
+            profile,
         },
         before_schema,
     )?;
@@ -277,6 +381,7 @@ where
         grammar,
         stats,
         sections,
+        profile,
     } = publication;
     if output_path.exists() {
         return Err(FactsError::OutputExists);
@@ -306,6 +411,9 @@ where
         before_schema(&connection);
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         transaction.execute_batch(include_str!("schema.sql"))?;
+        for index in profile.dropped_indexes() {
+            transaction.execute_batch(&format!("DROP INDEX \"{index}\";"))?;
+        }
         // Authored and compiled rows may spell one GUID in two cases until the canonical pass runs.
         transaction.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
         insert_metadata(
@@ -325,10 +433,12 @@ where
                 run_manifest_sha256: stats
                     .as_ref()
                     .map(|projection| projection.manifest_sha256.as_str()),
+                light_omissions: profile.omissions_json()?.as_deref(),
             },
         )?;
         for section in &sections {
-            transaction.execute(
+            crate::sql::execute(
+                &transaction,
                 "INSERT INTO artifact_section(section, status, source_scope, reason_code) VALUES (?1, ?2, ?3, ?4)",
                 params![section.section, section.status, section.source_scope, section.reason_code],
             )?;
@@ -346,6 +456,7 @@ where
             snapshot,
             decisions,
             compile_status == "completed",
+            profile,
         )?;
         let feature_structures = crate::features::insert_authored(&transaction, snapshot)?;
         crate::morphology::insert_definitions(&transaction, snapshot, &feature_structures)?;
@@ -358,13 +469,17 @@ where
             inventory,
             compile_issues,
             decisions,
+            profile,
         )?;
+        // One pass over every decision here; the phonology and reference writers look owners up in it.
+        let owner_loads = crate::owner_loads::OwnerLoads::new(decisions);
         crate::phonology::insert_authored(
             &transaction,
             snapshot,
             &feature_structures,
             environment_resolutions,
             decisions,
+            &owner_loads,
             grammar,
         )?;
         crate::compiled::insert(
@@ -373,25 +488,33 @@ where
             compiled_mappings,
             compiled_allomorph_order,
             &form_segments,
+            profile,
         )?;
         crate::settings::insert_parser_config(&transaction, snapshot, grammar)?;
         crate::references::insert(
             &transaction,
             snapshot,
             decisions,
+            &owner_loads,
             environment_resolutions,
             allomorph_gates,
             crate::references::CompiledInputs {
                 grammar,
                 mappings: compiled_mappings,
                 form_segments: &form_segments,
+                profile,
             },
         )?;
         if let Some(stats) = &stats {
             crate::stats::insert(&transaction, stats)?;
         }
         crate::guid::canonicalize_stored_guids(&transaction)?;
-        transaction.execute("UPDATE artifact_meta SET complete=1 WHERE singleton=1", [])?;
+        // complete=1 says the write finished and verified; a light file's omissions are in its sections and light_omissions.
+        crate::sql::execute(
+            &transaction,
+            "UPDATE artifact_meta SET complete=1 WHERE singleton=1",
+            [],
+        )?;
         transaction.commit()?;
         verify_database(&connection)?;
     }
@@ -446,6 +569,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
             "PRAGMA journal_mode=DELETE;\n",
             "PRAGMA synchronous=FULL;\n",
             "PRAGMA foreign_keys=ON;\n",
+            "PRAGMA ignore_check_constraints=ON;\n",
             "PRAGMA application_id={};\n",
             "PRAGMA user_version={};"
         ),
@@ -453,6 +577,7 @@ fn configure_database(connection: &Connection) -> Result<(), FactsError> {
         crate::FACT_SCHEMA_VERSION
     );
     connection.execute_batch(&pragmas)?;
+    connection.set_prepared_statement_cache_capacity(crate::sql::STATEMENT_CACHE_CAPACITY);
     Ok(())
 }
 
@@ -460,7 +585,8 @@ fn insert_metadata(
     tx: &rusqlite::Transaction<'_>,
     metadata: MetadataInput<'_>,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO artifact_meta(singleton, application_id, schema_version, format, writer_version, compiler_version, source_revision, build_identity, snapshot_format, snapshot_version, provenance_schema_version, source_inventory_status, source_sha256, grammar_hash, model_fingerprint, baseline_token_json, baseline_key, input_kind, dry_run_digest, compile_options_json, compile_options_sha256, compile_status, complete, run_manifest_sha256) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 0, ?22)",
         params![
             crate::APPLICATION_ID,
@@ -487,6 +613,17 @@ fn insert_metadata(
             metadata.run_manifest_sha256,
         ],
     )?;
+    if let Some(omissions) = metadata.light_omissions {
+        // Only a light file carries the column, so a full file stays byte-identical to one built before it existed.
+        tx.execute_batch(
+            "ALTER TABLE artifact_meta ADD COLUMN light_omissions TEXT COLLATE BINARY;",
+        )?;
+        crate::sql::execute(
+            tx,
+            "UPDATE artifact_meta SET light_omissions=?1 WHERE singleton=1",
+            [omissions],
+        )?;
+    }
     Ok(())
 }
 
@@ -499,7 +636,9 @@ fn source_inventory_status(status: pg_snapshot::SourceInventoryStatus) -> &'stat
     }
 }
 
+/// Turns CHECK enforcement back on first: `integrity_check` skips CHECK constraints while it is off.
 fn verify_database(connection: &Connection) -> Result<(), FactsError> {
+    connection.execute_batch("PRAGMA ignore_check_constraints=OFF;")?;
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(FactsError::Integrity(integrity));
@@ -539,13 +678,16 @@ mod tests {
     };
     use tempfile::tempdir;
 
-    use super::write_facts_inner;
+    use rusqlite::Connection;
+
+    use super::{configure_database, verify_database, write_facts_inner};
     use crate::metadata::ProducerIdentity;
+    use crate::FactsError;
+    use crate::FactsOptions;
 
     const CONTEXT: &[u8] = br#"{"format":"pangloss-facts-context","version":1,"baselineToken":{"id":"commit-count"},"inputKind":"baseline","dryRunDigest":null}"#;
 
-    #[test]
-    fn facts_write_commits_schema_and_rows_once() {
+    fn fixture_source() -> Vec<u8> {
         let snapshot = Snapshot::new(
             Project {
                 name: "Commit-count fixture".into(),
@@ -578,7 +720,77 @@ mod tests {
             Morphology::default(),
             Lexicon::default(),
         );
-        let source = snapshot.to_json().into_bytes();
+        snapshot.to_json().into_bytes()
+    }
+
+    const PRODUCER: ProducerIdentity<'static> = ProducerIdentity {
+        compiler_version: "0.8.3",
+        source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+
+    #[test]
+    fn precompiled_facts_equal_the_facts_that_compile_and_use_the_given_results() {
+        let source = fixture_source();
+        let snapshot = Snapshot::from_json(std::str::from_utf8(&source).unwrap()).unwrap();
+        let (parts, grammar, _) =
+            super::compile_fresh(&snapshot, pg_grammar::compile::CompileOptions::default())
+                .unwrap();
+        let grammar = grammar.expect("fixture compiles");
+        let temporary = tempdir().unwrap();
+        let fresh = temporary.path().join("fresh.sqlite");
+        let reused = temporary.path().join("reused.sqlite");
+        let tampered = temporary.path().join("tampered.sqlite");
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &fresh,
+            PRODUCER,
+            FactsOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+        super::write_facts_with_compiled(
+            &source,
+            CONTEXT,
+            &reused,
+            PRODUCER,
+            FactsOptions::default(),
+            (&parts, &grammar),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read(&fresh).unwrap(),
+            std::fs::read(&reused).unwrap()
+        );
+
+        // The given results are what is recorded: a changed result changes the file.
+        let mut altered = parts;
+        altered.compile_issues.push(pg_snapshot::ConversionIssue {
+            code: pg_snapshot::ImportWarningCode::SourceProvenanceUnknown,
+            class: pg_snapshot::IssueClass::AmbiguousSource,
+            source: None,
+            fatal: false,
+            message: "marker".into(),
+        });
+        super::write_facts_with_compiled(
+            &source,
+            CONTEXT,
+            &tampered,
+            PRODUCER,
+            FactsOptions::default(),
+            (&altered, &grammar),
+        )
+        .unwrap();
+        assert_ne!(
+            std::fs::read(&fresh).unwrap(),
+            std::fs::read(&tampered).unwrap()
+        );
+    }
+
+    #[test]
+    fn facts_write_commits_schema_and_rows_once() {
+        let source = fixture_source();
         let temporary = tempdir().unwrap();
         let output = temporary.path().join("facts.sqlite");
         let commits = Arc::new(AtomicUsize::new(0));
@@ -588,12 +800,8 @@ mod tests {
             &source,
             CONTEXT,
             &output,
-            ProducerIdentity {
-                compiler_version: "0.8.3",
-                source_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                build_identity: "pangloss/0.8.3+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            },
-            None,
+            PRODUCER,
+            FactsOptions::default(),
             move |connection| {
                 connection.commit_hook(Some(move || {
                     hook_commits.fetch_add(1, Ordering::SeqCst);
@@ -608,5 +816,156 @@ mod tests {
             1,
             "schema and facts rows should share one write transaction"
         );
+    }
+
+    /// A facts file built with CHECKs ignored holds a bad row only if verify fails to find it.
+    #[test]
+    fn verify_reports_a_row_that_violates_a_check_planted_during_the_build() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'not-a-status', 'x')",
+                [],
+            )
+            .unwrap();
+        let during_build: String = connection
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            during_build, "ok",
+            "the planted row is invisible while CHECKs are ignored"
+        );
+
+        match verify_database(&connection) {
+            Err(FactsError::Integrity(message)) => assert!(
+                message.contains("CHECK constraint failed"),
+                "unexpected message: {message}"
+            ),
+            other => panic!("verify must report the CHECK violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_clean_database_passes_verify_with_checks_enforced_again() {
+        let temporary = tempdir().unwrap();
+        let connection = Connection::open(temporary.path().join("facts.sqlite")).unwrap();
+        configure_database(&connection).unwrap();
+        connection
+            .execute_batch(include_str!("schema.sql"))
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO artifact_section(section, status, source_scope) VALUES ('project', 'complete', 'x')",
+                [],
+            )
+            .unwrap();
+        verify_database(&connection).unwrap();
+        let ignoring: i64 = connection
+            .query_row("PRAGMA ignore_check_constraints", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(ignoring, 0);
+    }
+
+    fn names_in(directory: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn the_output_name_appears_only_after_the_file_is_built_and_verified() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let directory = temporary.path().to_path_buf();
+        let output = directory.join("facts.sqlite");
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let hook_seen = Arc::clone(&seen);
+        let hook_output = output.clone();
+        let hook_directory = directory.clone();
+
+        write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            FactsOptions::default(),
+            move |connection| {
+                connection.commit_hook(Some(move || {
+                    hook_seen
+                        .lock()
+                        .unwrap()
+                        .push((hook_output.exists(), names_in(&hook_directory)));
+                    false
+                }));
+            },
+        )
+        .unwrap();
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (output_existed, names) = &seen[0];
+        assert!(
+            !output_existed,
+            "the final name must not exist while rows are written"
+        );
+        assert!(
+            !names.is_empty() && names.iter().all(|name| name.starts_with(".tmp")),
+            "only temporary files exist mid-write: {names:?}"
+        );
+        assert_eq!(names_in(&directory), ["facts.sqlite"]);
+    }
+
+    #[test]
+    fn an_aborted_write_leaves_neither_the_output_nor_a_temporary_file() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            FactsOptions::default(),
+            |connection| {
+                connection.commit_hook(Some(|| true));
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(names_in(temporary.path()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_stored_model_fingerprint_is_that_of_the_source_text() {
+        let source = fixture_source();
+        let temporary = tempdir().unwrap();
+        let output = temporary.path().join("facts.sqlite");
+
+        let result = write_facts_inner(
+            &source,
+            CONTEXT,
+            &output,
+            PRODUCER,
+            FactsOptions::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        let expected = pg_assess::model_fingerprint(
+            pg_assess::SourceKind::Snapshot,
+            std::str::from_utf8(&source).unwrap(),
+            PRODUCER.compiler_version,
+        )
+        .unwrap();
+        assert_eq!(result.model_fingerprint, expected);
     }
 }

@@ -84,7 +84,7 @@ accept state), it does not add any machinery. This is exactly the shape the task
 
 ## Measured before/after
 
-No reference or edge-case fixture in `machine/conformance/` or `conformance-staging/` declares
+No reference or edge-case fixture in `conformance/` or `conformance-staging/` declares
 `isBound="true"` on any allomorph today (confirmed by grep across both trees) — this construct is
 presently untouched by any shipped grammar in this repo's corpus. That means:
 
@@ -149,7 +149,7 @@ claim until the commands below were actually executed.
    neither touches `emit.rs`/`capability.rs`/any file this change modified, and both are pre-existing
    (reproduced identically on the reverted-`emit.rs` run too).
 5. **Conformance fixture suite** (`pg.ps1 -Mode test -Package pg-parse -ExtraArgs --status-level,fail,--no-fail-fast`,
-   covers `pg_conformance_fixtures::discover()` over `machine/conformance/**` +
+   covers `pg_conformance_fixtures::discover()` over `conformance/**` +
    `conformance-staging/**` via `conformance_fixtures_gate.rs`): `Summary [ 0.946s] 146 tests run:
    146 passed, 43 skipped`. Clean.
 
@@ -167,7 +167,7 @@ this commit.
 - **Real-corpus (Sena) before/after states/arcs measurement**: not attempted — the private corpus
   this worktree would need (`samples/data/sena-hc.xml`) is absent (gitignored, not copied into a
   fresh worktree per this repo's own `pg.ps1 new-worktree` note). No fixture in the *public*
-  `machine/conformance`/`conformance-staging` trees uses `isBound` either, so there is currently no
+  `conformance`/`conformance-staging` trees uses `isBound` either, so there is currently no
   measurable effect on any existing corpus at all — the change is a proven no-op there and a
   proven-safe reduction on the one synthetic fixture built to exercise it.
 - **`bare_root_surfaces`-equivalent obligatory-inflection discharge for the general (non-bound, or

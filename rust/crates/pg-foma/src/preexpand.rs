@@ -160,6 +160,8 @@ pub(crate) struct CompositeRec {
     /// `render_all_variants` — or because a rule's own disjunctive allomorphs produce more than
     /// one distinct rendering for the same tag pair).
     pub variants: Vec<String>,
+    /// One optional boundary at any interior gap, represented by shared lexc continuations.
+    pub boundary_insertions: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -271,7 +273,7 @@ fn morph_order_tags(w: &Word, known: &[(MorphemeId, String)]) -> Option<String> 
 
 /// One rule-allomorph's precomputed ordinary-surface strings, hoisted out of `reachable_via_ordinary_emission`'s hot path; see `build_allomorph_variants`.
 pub(crate) struct AllomorphVariants {
-    /// `surface_variants(text) ∪ phon.variants(text)` for one allomorph's `InsertSegments` text.
+    /// Literal and position-preserving probe variants for one allomorph's `InsertSegments` text.
     ordinary: Vec<String>,
     /// `phon.deletion_junctions(text)`, prefix-side only, mirroring `emit.rs`'s `{roots}Stripped` convention.
     deletion: Vec<String>,
@@ -299,7 +301,7 @@ pub(crate) fn build_allomorph_variants(
                 .map(|(v, _)| v)
                 .unwrap_or_default();
             if let Some(p) = phon {
-                ordinary.extend(p.variants(text));
+                ordinary.extend(p.variants_for_composite_redundancy(text));
             }
             let deletion = phon.map(|p| p.deletion_junctions(text)).unwrap_or_default();
             Some(AllomorphVariants { ordinary, deletion })
@@ -342,7 +344,12 @@ pub(crate) fn reachable_via_ordinary_emission(
 }
 
 /// Every literal spelling a probed segment node can honestly mean; fast path returns just the node's own concrete representations, falling back to a full lane-unifiable table search when identity was cleared or invalidated: docs/research/pg-foma-preexpand-design-notes.md.
-fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
+fn matching_reps_local(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &pg_shape::CdSet,
+    lanes: &[u64],
+) -> Vec<String> {
     if char_def != NO_CHAR_DEF {
         let cd = table.get(CharDefId(char_def));
         if flat_unifiable(lanes, &cd.matching_lanes()) {
@@ -360,7 +367,11 @@ fn matching_reps_local(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Ve
                     .unifiable_cds(CharDefId(char_def))
                     .is_some_and(|b| b.contains(id.0))
         } else {
-            true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
+            // NO_CHAR_DEF (post-rewrite abstract node): lane unification, gated only by the spellings it was restricted to.
+            match cd_set {
+                pg_shape::CdSet::Members(bits) => bits.contains(id.0),
+                pg_shape::CdSet::Unrestricted => true,
+            }
         };
         if !member {
             continue;
@@ -379,7 +390,7 @@ fn render_all_variants(table: &CharDefTable, segs: &[ProbeSeg]) -> Vec<String> {
         if seg.deleted {
             continue;
         }
-        let reps = matching_reps_local(table, seg.char_def, &seg.lanes);
+        let reps = matching_reps_local(table, seg.char_def, &seg.cd_set, &seg.lanes);
         if reps.is_empty() {
             return Vec::new();
         }
@@ -482,7 +493,9 @@ fn extend(
             continue;
         }
         for w in synth_out {
-            let Some(segs) = surface_probe::probe_synthesize(ctx.g, &w.shape, ctx.cache) else {
+            let Some(segs) =
+                surface_probe::probe_synthesize_for(ctx.g, &w.shape, ctx.cache, &w.syn_fs, &w.mpr)
+            else {
                 continue;
             };
             // Computed once per synthesized `w`, not once per recursive call, so this stays O(pairs_probed) rather than O(pairs_probed x variants^depth): only the set of strings a step considers grows, the recursion tree does not branch on it.
@@ -532,6 +545,7 @@ fn extend(
                             .collect(),
                         tag_lexc,
                         variants: new_variants,
+                        boundary_insertions: false,
                     });
                     if is_infix {
                         acc.report.interdigitation_entries += 1;
@@ -646,7 +660,7 @@ fn process_root_work(
         };
         let mut word = Word::new(shape, root_stratum);
         word.syn_fs = entry_fs.clone();
-        word.mpr = entry.mpr;
+        word.mpr = entry.mpr.clone();
         word.root_allomorph = Some(allo.id);
         word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
 

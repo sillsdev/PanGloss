@@ -12,6 +12,21 @@ pangloss batch grammar.json words.txt results.tsv \
   --stats-manifest stats-run.json --threads 1
 ~~~
 
+Add `--stats-compact` to opt in to compact cache schema 14. Full caches remain schema 13.
+The manifest format stays version 2: `cache.schema_version` distinguishes the representations,
+and the digest still covers the exact checkpointed SQLite bytes. Both `pangloss stats` and
+`pangloss facts --stats ... --stats-manifest ...` accept a compact cache. Its stratum/allomorph
+locators are zero sentinels for compatibility with existing cost queries, not measured breakdowns;
+readers must check the schema version before offering those views. See
+[compact cache behavior](../../docs/optimize-grammar-with-stats.md) for retained counters and replay limits.
+
+For word timing and correctness runs, add `--stats-profile word-only`. The manifest declares
+the top-level field `"profile": "word-only"` and cache schema 15. A missing profile denotes
+`full` and must match schema 13 or 14. Readers must verify this pairing against the cache.
+Word-only manifests retain the source, ordered input and completion identities. Read their
+word measurements with `pangloss stats --group word`. The object projection in
+`pangloss facts --stats` returns `missing_object_facts` for this profile.
+
 The cache must be absent or an existing zero-byte file before the batch starts. The command
 refuses a populated cache, duplicate effective word forms, a nonzero --start, a preexisting
 manifest, or any alias among the grammar, word list, TSV, analyses output, cache and manifest
@@ -19,7 +34,7 @@ paths, including a hard link to an existing input (compared by file identity, no
 spelling). The manifest flag requires both --stats and an explicit --cache. Without the manifest
 flag, batch keeps its existing cache reuse, TSV, analyses and multiplicity behavior.
 
-The manifest has format pangloss-batch-stats-manifest, version 1, and these sections:
+The manifest has format pangloss-batch-stats-manifest, version 2 (version 1 carried a separate step cap and a numeric work cap), and these sections:
 
 | Section | Recorded values |
 |---|---|
@@ -27,7 +42,7 @@ The manifest has format pangloss-batch-stats-manifest, version 1, and these sect
 | compiler | Package version and embedded build identity |
 | cache | SHA-256 and byte length of the closed SQLite file, stats schema version and counter-semantics version |
 | run | The sole cache run_id, actual engine, grammar hash, options hash and exact options JSON stored in the cache |
-| batch | Effective engine, threads, step/work caps, timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
+| batch | Effective engine, threads, work cap (`unbounded` or a positive count), per-word memory cap in bytes (number or `null` when disabled), search-budget semantics, timeout, guess and final-template options, start index, and whether an analyses sidecar was requested |
 | input | The ordered, trimmed, nonempty effective word list, its count and the SHA-256 of its compact JSON array encoding |
 | completion | A row for each input index with complete, incomplete, or invalid_shape status and the raw cap/timeout/shape flags; aggregate counts include missing |
 
@@ -38,6 +53,13 @@ for Snapshot inputs with `SemanticLossPolicy::Refuse`; provisional definitions a
 and have no option. The projection is
 `null` for legacy HC XML, which does not use the Snapshot compiler. Paths and cache timestamps are
 not recorded as identity.
+
+`word_mem_cap` belongs to the measurement identity because it can stop a search early.
+Facts checks it against the cache's `run.options_json` and retains it in
+`stats_run.batch_options_json`. A missing field in older version-2 manifests and run options
+means no recorded cap, as does `null`; a numeric cap must agree on both sides. Unknown fields
+remain errors. The manifest stays version 2 and the facts schema stays version 9: this repairs
+the reader of an existing writer field and preserves it in an existing JSON column.
 
 The producer writes all words through one stats transaction, commits it, checkpoints the WAL and
 closes the cache. It then opens one read transaction to confirm the sole run, its options and owner
@@ -58,3 +80,12 @@ rows before publication. P8 still validates the manifest against its exact Snaps
 compile options, rechecks the cache digest and run metadata, and reads counters under one
 SQLite-consistent view. The manifest does not provide source GUID bridges, counter support, or a
 durable history of cache runs.
+
+With `batch --stats --cache-pack`, the exact cache digest and length cover the packed
+SQLite envelope. Packing precedes manifest publication. `pangloss stats` and facts
+export validate and expand packed facts automatically. For other direct fact
+queries, `pangloss stats-cache unpack --cache <path> --out <temporary-path>` leaves
+the frozen source and its digest unchanged. In-place pack/unpack changes bytes and
+invalidates any previously recorded digest; never mutate published evidence.
+
+The full profile collects feature predicates. [Feature gates](../../docs/formats/stats-cache.md)

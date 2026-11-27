@@ -183,11 +183,7 @@ pub fn measure(label: &str, grammar: &Grammar, words: &[String]) -> ScoredFixtur
             label: "conf-matrix",
             plan: baseline_plan.clone(),
             adapter: strategy,
-            role: if strategy == EmissionStrategy::PlanComposed {
-                CandidateRole::Baseline
-            } else {
-                CandidateRole::Alternative
-            },
+            role: CandidateRole::Baseline,
         };
 
         let observed = evaluate_plans_observed_with_cache(

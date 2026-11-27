@@ -261,3 +261,243 @@ fn frozen_build_mutate_freeze_columns_round_trip() {
         ]
     );
 }
+
+/// A `Shape` clone shares one allocation, and editing goes through `ShapeBuilder::from_shape` into a fresh shape, so the original (and every other clone) is unchanged and equality stays by content.
+#[test]
+fn cloned_shape_edit_leaves_original_unchanged() {
+    let original = build_cvc();
+    let clone = original.clone();
+    assert_eq!(original, clone);
+
+    let mut b = ShapeBuilder::from_shape(&clone);
+    b.delete(2);
+    let edited = b.freeze();
+
+    assert_ne!(edited, original);
+    assert_eq!(original, clone, "the clone is untouched too");
+    assert_eq!(original.len(), 5, "two anchors plus three segments");
+    assert_eq!(original.char_def(1), 10);
+    assert_eq!(original.char_def(2), 11);
+    assert_eq!(original.char_def(3), 10);
+    assert_eq!(edited.len(), 4, "the edit landed in the new shape");
+    assert_eq!(edited.char_def(2), 10);
+    // Rebuilding the same content is equal and hashes alike.
+    let rebuilt = ShapeBuilder::from_shape(&original).freeze();
+    assert_eq!(rebuilt, original);
+}
+
+/// The budget constant is the size of the seven inline columns plus `feat_width` (64-bit layout; wasm32 pointers are narrower).
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn inline_columns_bytes_matches_the_column_layout() {
+    use std::mem::size_of;
+    assert_eq!(
+        INLINE_COLUMNS_BYTES + CONTENT_HASH_BYTES,
+        size_of::<ShapeData>()
+    );
+    let by_hand = 7 * size_of::<Box<[u8]>>() + size_of::<u32>();
+    assert_eq!(INLINE_COLUMNS_BYTES, by_hand.next_multiple_of(8));
+}
+
+/// Lane values distinct per node and per lane.
+fn lane_row(tag: u64, w: usize) -> Vec<u64> {
+    (0..w as u64).map(|k| tag * 1000 + k + 1).collect()
+}
+
+fn assert_lanes_match(b: &ShapeBuilder, model: &[Vec<u64>]) {
+    assert_eq!(b.len(), model.len());
+    for (i, row) in model.iter().enumerate() {
+        assert_eq!(b.node_lanes(i), row.as_slice(), "lane row {i} out of place");
+    }
+}
+
+#[test]
+fn insert_and_delete_keep_feature_lanes_aligned_at_start_middle_and_end() {
+    for w in [2usize, 3, 5] {
+        let mut seed = ShapeBuilder::with_features(w as u32);
+        for tag in 1..=4u64 {
+            seed.push_segment(tag as u32);
+            seed.modify(tag as usize, &lane_row(tag, w));
+        }
+        // Anchors, then the four interior rows, then the right anchor.
+        let mut b = ShapeBuilder::from_shape(&seed.finish());
+        let mut model: Vec<Vec<u64>> = (0..b.len()).map(|i| b.node_lanes(i).to_vec()).collect();
+        assert_eq!(model.len(), 6);
+        assert_lanes_match(&b, &model);
+
+        // Insert before the first interior node, mid-way, and before the right anchor.
+        for (at, next) in [(Some(1usize), 10u64), (Some(3), 11), (None, 12)] {
+            let index = at.unwrap_or(b.len() - 1);
+            let row = lane_row(next, w);
+            b.insert(index, NodeKind::Segment, 7, NodeFlags::EMPTY, &row);
+            model.insert(index, row);
+            assert_lanes_match(&b, &model);
+        }
+
+        // Delete the first interior node, a middle one, and the last interior node.
+        for at in [Some(1usize), Some(model.len() / 2 - 1), None] {
+            let index = at.unwrap_or(model.len() - 2);
+            b.delete(index);
+            model.remove(index);
+            assert_lanes_match(&b, &model);
+        }
+    }
+}
+
+#[test]
+fn equal_shapes_hash_alike_and_edits_rehash() {
+    use std::hash::BuildHasher;
+    let state = rustc_hash::FxBuildHasher;
+    let a = build_cvc();
+    let b = build_cvc();
+    assert_eq!(a, b);
+    assert_eq!(state.hash_one(&a), state.hash_one(&b));
+    assert_eq!(state.hash_one(&a), state.hash_one(a.clone()));
+    let mut edited = ShapeBuilder::from_shape(&a);
+    // `freeze` asserts the right anchor is last, so insert before it.
+    edited.insert(a.len() - 1, NodeKind::Segment, 12, NodeFlags::EMPTY, &[]);
+    assert_ne!(state.hash_one(&a), state.hash_one(edited.freeze()));
+}
+
+#[test]
+fn debug_text_does_not_depend_on_whether_the_shape_was_hashed() {
+    use std::hash::BuildHasher;
+    let a = build_cvc();
+    let before = format!("{a:?}");
+    let _ = rustc_hash::FxBuildHasher.hash_one(&a);
+    assert_eq!(before, format!("{a:?}"));
+    assert!(!before.contains("content_hash"));
+}
+
+fn members(ids: &[u32]) -> CdSet {
+    CdSet::Members(CdBits::from_ids(ids.iter().copied()))
+}
+
+fn effective(s: &Shape, i: usize) -> Option<Vec<u32>> {
+    match s.node_cd_set(i) {
+        EffectiveCdSet::Members(b) => Some((0..200).filter(|&id| b.contains(id)).collect()),
+        _ => None,
+    }
+}
+
+#[test]
+fn sparse_set_column_follows_insert_and_delete() {
+    let mut b = ShapeBuilder::new();
+    b.push_segment_with_lanes_and_set(&[], members(&[3, 4]));
+    b.push_segment(9);
+    b.push_segment_with_lanes_and_set(&[], members(&[70]));
+    let s = b.finish();
+    assert_eq!(effective(&s, 1), Some(vec![3, 4]));
+    assert_eq!(effective(&s, 2), None);
+    assert_eq!(effective(&s, 3), Some(vec![70]));
+
+    let mut b = ShapeBuilder::from_shape(&s);
+    b.insert_with_set(2, NodeFlags::EMPTY, &[], members(&[5]));
+    let t = b.freeze();
+    assert_eq!(effective(&t, 1), Some(vec![3, 4]));
+    assert_eq!(effective(&t, 2), Some(vec![5]));
+    assert_eq!(effective(&t, 3), None);
+    assert_eq!(effective(&t, 4), Some(vec![70]));
+
+    let mut b = ShapeBuilder::from_shape(&t);
+    b.delete(1);
+    b.delete(2);
+    let u = b.freeze();
+    assert_eq!(effective(&u, 1), Some(vec![5]));
+    assert_eq!(effective(&u, 2), Some(vec![70]));
+    assert_eq!(u.len(), 4);
+}
+
+#[test]
+fn explicit_unrestricted_set_equals_the_default() {
+    let mut a = ShapeBuilder::new();
+    a.push_segment_with_lanes_and_set(&[], CdSet::Unrestricted);
+    let mut b = ShapeBuilder::new();
+    b.push_segment_with_lanes_and_set(&[], members(&[1]));
+    b.set_cd_set(1, CdSet::Unrestricted);
+    let (a, b) = (a.finish(), b.finish());
+    assert_eq!(a, b);
+    assert!(b.cd_sets.is_empty());
+}
+
+/// The stored hash must stay what the per-node `Box<[CdSet]>` column produced, so hash-ordered containers iterate as before.
+#[test]
+fn content_hash_matches_the_dense_column_hash() {
+    let mut b = ShapeBuilder::with_features(1);
+    b.push_segment_with_lanes(7, &[1]);
+    b.push_segment_with_lanes_and_set(&[2], members(&[3, 70]));
+    b.push_boundary(8);
+    let s = b.finish();
+    let dense: Vec<CdSet> = (0..s.len())
+        .map(|i| match s.node_cd_set(i) {
+            EffectiveCdSet::Members(m) => CdSet::Members(m.clone()),
+            _ => CdSet::Unrestricted,
+        })
+        .collect();
+    // The pre-sparse `column_hash`, with the dense column.
+    let mut old = rustc_hash::FxHasher::default();
+    s.kinds.hash(&mut old);
+    s.char_defs.hash(&mut old);
+    s.flags.hash(&mut old);
+    s.feat_width.hash(&mut old);
+    s.feat_lanes.hash(&mut old);
+    dense.into_boxed_slice().hash(&mut old);
+    s.generated_full.hash(&mut old);
+    s.unresolved_variables.hash(&mut old);
+    assert_eq!(s.column_hash(), old.finish().max(1));
+}
+
+#[test]
+fn heap_bytes_names_every_shape_data_field() {
+    // Adding a ShapeData field breaks this destructure until heap_bytes is told whether it owns heap.
+    let mut builder = ShapeBuilder::with_features(2);
+    builder.push_segment_with_lanes(10, &[1, 2]);
+    builder.push_segment_with_lanes_and_set(&[0, 0], CdSet::Members(CdBits::from_ids([3, 70])));
+    builder.set_generated_full(1, &[2, 3]);
+    builder.set_unresolved_variables(1, &[4]);
+    let shape = builder.finish();
+    let ShapeData {
+        content_hash: _,
+        kinds,
+        char_defs,
+        flags,
+        feat_width: _,
+        feat_lanes,
+        cd_sets,
+        generated_full,
+        unresolved_variables,
+    } = &*shape.data;
+    let columns = [
+        (kinds.len() * size_of::<NodeKind>(), kinds.len()),
+        (char_defs.len() * size_of::<u32>(), char_defs.len()),
+        (flags.len() * size_of::<NodeFlags>(), flags.len()),
+        (feat_lanes.len() * size_of::<u64>(), feat_lanes.len()),
+        (cd_sets.len() * size_of::<(u32, CdSet)>(), cd_sets.len()),
+        (
+            generated_full.len() * size_of::<(u32, u32)>(),
+            generated_full.len(),
+        ),
+        (
+            unresolved_variables.len() * size_of::<(u32, u32)>(),
+            unresolved_variables.len(),
+        ),
+    ];
+    let chunk = |bytes: usize| (bytes + 8 + 15) & !15usize;
+    let owned: usize = columns
+        .iter()
+        .filter(|(_, len)| *len > 0)
+        .map(|(bytes, _)| chunk(*bytes).max(32) + 16)
+        .sum();
+    let block = chunk(2 * size_of::<usize>() + size_of::<ShapeData>());
+    let spilled: usize = cd_sets
+        .iter()
+        .map(|(_, set)| match set {
+            CdSet::Members(bits) if bits.0.spilled() => {
+                chunk(bits.0.capacity() * size_of::<u64>()).max(32)
+            }
+            _ => 0,
+        })
+        .sum();
+    assert!(spilled > 0, "the fixture must own a spilled set");
+    assert_eq!(shape.heap_bytes(), block + owned + spilled);
+}

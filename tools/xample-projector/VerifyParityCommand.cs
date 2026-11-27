@@ -313,7 +313,7 @@ namespace XampleProjector
 		{
 			var language = XmlLanguageLoader.Load(hcXmlPath);
 			// Never assign any Morpher property beyond the constructor -- every expected.tsv in
-			// machine/conformance was generated the same way (conformance/PROTOCOL.md section 8).
+			// conformance was generated the same way (conformance/PROTOCOL.md section 8).
 			var morpher = new Morpher(new TraceManager(), language);
 			var counts = new JObject();
 			foreach (var (word, expectedCount) in expectations)
@@ -385,7 +385,7 @@ namespace XampleProjector
 			foreach (var template in grammar.AffixTemplates)
 			{
 				var lcmTemplate = (IMoInflAffixTemplate)Resolve(template.Name, "MoInflAffixTemplate");
-				bool SlotIsPrefix(SlotModel slot) => grammar.MorphologicalRules[slot.RuleIds[0]].Subrules[0].IsPrefix;
+				bool SlotIsPrefix(SlotModel slot) => slot.IsPrefix;
 
 				var expectedPrefixOrder = template.Slots.Where(SlotIsPrefix).Select(s => guidMap[s.Name]).ToList();
 				var actualPrefixOrder = lcmTemplate.PrefixSlotsRS.Select(s => s.Guid).ToList();

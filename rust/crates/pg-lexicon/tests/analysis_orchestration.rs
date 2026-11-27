@@ -33,6 +33,7 @@ fn official(grammar: &pg_grammar::model::Grammar, word: &str) -> OfficialOutcome
         analyses: outcome.analyses,
         structured: outcome.structured,
         candidates_generated: outcome.candidates_generated,
+        confirmation_stop: Default::default(),
     }
 }
 
@@ -115,6 +116,7 @@ fn proposer_rejection_of_a_real_grammar_root_cannot_be_reintroduced_by_guess_ret
         analyses: vec![],
         structured: vec![],
         candidates_generated: 0,
+        confirmation_stop: Default::default(),
     };
     let outcome = runtime.analyze_word("milu", Some(rejected));
     assert!(!outcome
@@ -402,7 +404,14 @@ fn rich_generation_rejects_all_changed_canonical_root_fields_before_engine_entry
             1 => root.realization_id.push('x'),
             2 => root.lexical_spelling = "panu".into(),
             3 => root.gloss = "forged".into(),
-            4 => root.mpr.0 ^= 1,
+            4 => {
+                let bit = pg_grammar::model::MprSet::from_bits(1);
+                root.mpr = if root.mpr.contains(pg_grammar::model::MprId(0)) {
+                    root.mpr.difference(&bit)
+                } else {
+                    root.mpr.union(&bit)
+                };
+            }
             5 => root.stratum.0 = u8::MAX,
             6 => {
                 root.authority = pg_parse::RootAuthority::SuppliedOverride {
@@ -626,4 +635,81 @@ fn rich_generation_preserves_supplied_compound_non_heads_with_grammar_head() {
         .unwrap();
     assert_eq!(generated.analysis, analysis);
     assert!(generated.words.contains(&"milupanu".to_string()));
+}
+
+fn runtime_with(policy: pg_lexicon::AnalysisPolicy) -> SuppliedLexiconRuntime {
+    let grammar = Arc::new(pg_grammar::load(fixture::TOY_XML).unwrap());
+    SuppliedLexiconRuntime::with_policy(grammar, fixture::TOY_XML, policy).unwrap()
+}
+
+#[test]
+fn without_limits_gives_the_default_analyses_where_the_default_does_not_cap() {
+    let default = runtime_with(pg_lexicon::AnalysisPolicy::default());
+    let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());
+    for word in ["milu", "milusi", "kolota", "zzz"] {
+        let expected = default.analyze_word(word, None);
+        let actual = unlimited.analyze_word(word, None);
+        assert!(!expected.capped, "{word}");
+        assert!(!actual.capped, "{word}");
+        assert_eq!(actual.analyses, expected.analyses, "{word}");
+    }
+    assert!(!unlimited.analyze_word("milusi", None).analyses.is_empty());
+}
+
+#[test]
+fn without_limits_does_not_cap_where_a_small_work_cap_does() {
+    let small = runtime_with(pg_lexicon::AnalysisPolicy {
+        work_cap: 1,
+        word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+        generation_cap: 1,
+    });
+    let unlimited = runtime_with(pg_lexicon::AnalysisPolicy::without_limits());
+    let capped = small.analyze_word("milusi", None);
+    assert!(capped.capped);
+    let outcome = unlimited.analyze_word("milusi", None);
+    assert!(!outcome.capped);
+    assert!(!outcome.analyses.is_empty());
+}
+
+#[test]
+fn a_stopped_official_confirmation_surfaces_its_own_reason_flag() {
+    use pg_parse::StopReasons;
+    let (_grammar, runtime) = setup();
+    let run = |confirmation_stop| {
+        runtime.analyze_word(
+            "milu",
+            Some(OfficialOutcome {
+                analyses: vec![],
+                structured: vec![],
+                candidates_generated: 0,
+                confirmation_stop,
+            }),
+        )
+    };
+    assert!(!run(StopReasons::default()).capped);
+    let work = run(StopReasons {
+        capped: true,
+        ..Default::default()
+    });
+    assert!(work.capped && !work.word_mem_capped && !work.timed_out);
+    let memory = run(StopReasons {
+        word_mem_capped: true,
+        ..Default::default()
+    });
+    assert!(memory.word_mem_capped && !memory.capped);
+    let time = run(StopReasons {
+        timed_out: true,
+        ..Default::default()
+    });
+    assert!(time.timed_out && !time.capped);
+    let capture = run(StopReasons {
+        capture_capped: true,
+        ..Default::default()
+    });
+    assert!(capture.capture_capped && capture.capped);
+    let shape = run(StopReasons {
+        invalid_shape: true,
+        ..Default::default()
+    });
+    assert!(shape.invalid_shape);
 }

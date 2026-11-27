@@ -36,7 +36,7 @@ selectable, so this cannot certify anything wrongly; and it is a refusal, not a 
 refused word is never confirmed and its partial proposal set never reaches the oracle comparison, so
 it cannot manufacture a recall failure the way a truncated proposal set would.
 
-## `the_refused_magnitude_grows_with_the_word_and_not_with_the_grammar`: the over-generation magnitude
+## The over-generation magnitude (the test `the_refused_magnitude_grows_with_the_word_and_not_with_the_grammar` was deleted with the Plan composed backend; see `docs/fst-plan/removed-backends.md`)
 
 12^6 = 2,985,984 raw paths for `xxxxxxk` against C(12,6) = 924 real analyses is a 3,231x
 over-generation, and 12^12 for the 12-`x` word is ~8.9 x 10^12 — which is why no larger buffer fixes

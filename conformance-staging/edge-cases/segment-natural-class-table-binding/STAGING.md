@@ -175,5 +175,5 @@ the cross-table analysis for an unrelated reason inside its own rule-cascade tra
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:
-`machine/conformance/edge-cases/segment-natural-class-table-binding/`. On acceptance, delete this
+`conformance/edge-cases/segment-natural-class-table-binding/`. On acceptance, delete this
 staged copy in the same change (graduation guard enforces this mechanically).

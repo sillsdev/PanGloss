@@ -1,5 +1,7 @@
 # foma-fst-plan — Integrate foma into PanGloss, sunset the custom-spun FST
 
+> **Two backends described here are deleted (2026-11-03).** Templated underlying tokens and Plan composed no longer exist; Tuned surface probed is the only backend. What was removed, the commit that removed it and how to restore it are in [removed-backends.md](removed-backends.md).
+
 Date: 2026-07-15. Status: DONE (all phases P0–P5 complete, gates F0–F5 MET as of 2026-07-16;
 P6 is mainline post-sunset follow-on work, tracked separately, not a blocker for this plan).
 Basis: reports/01–09 (analysis + adversarial audits), plus three fresh recon passes
@@ -265,7 +267,7 @@ by `(morpheme_ids sequence, root_morpheme_index)`:
 - Sena: sample-300 corpus — required 100%.
 - Amharic: corpus words file — required 100% (after P1d closes the capability gaps).
 
-**3b. Conformance suite (machine submodule).** Run the C# conformance driver in adapter
+**3b. Conformance suite (`conformance/` suite at `conformance.commit`, driver from the `machine` pin).** Run the C# conformance driver in adapter
 mode against `pangloss batch --engine=foma` (same path as `rust/tools/run-conformance.sh`,
 which builds `pg-cli` release and drives `machine/src/SIL.Machine.Morphology.HermitCrab.
 Conformance`). Required: the foma engine's pass/fail set is identical to the default

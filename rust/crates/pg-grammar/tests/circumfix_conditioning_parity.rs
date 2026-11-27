@@ -1,4 +1,4 @@
-//! End-to-end pin for docs/divergences/039: all four cross-product cells of a conditioned-halves circumfix must parse (HCLoader.cs:1273-1332).
+//! End-to-end pin for retired divergence 039 (docs/divergences/README.md, Retired entries): all four cross-product cells of a conditioned-halves circumfix must parse (HCLoader.cs:1273-1332).
 
 use pg_snapshot::lexicon::{Allomorph, LexEntry, Lexicon, Msa};
 use pg_snapshot::morphology::{MorphType, Morphology, PartOfSpeech};

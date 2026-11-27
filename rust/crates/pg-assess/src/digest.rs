@@ -13,11 +13,12 @@
 //! cannot silently change what its digest means: a v2 projection produces visibly different values
 //! rather than colliding with v1's.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::io::{BufWriter, Write};
 
 use crate::identity::AnalysisIdentity;
-use crate::jcs::{self, JcsError};
+use crate::jcs::{self, CanonicalSink, JcsError};
 
 /// "Was this the same run?" — includes `modelFingerprint`, pipeline, effective budgets, importer
 /// and compiler versions, outcomes, analyses, and duplicate counts. Excludes `sourceSha256`
@@ -33,19 +34,42 @@ pub const OUTCOME_PROJECTION: &str = "pangloss.assessment-outcome/v1";
 /// `pg_lexicon::grammar_source_fingerprint`, which normalizes CRLF before hashing and would make a
 /// Windows-authored source and its Linux checkout hash alike.
 pub fn sha256_bytes(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::from("sha256:");
-    for byte in digest {
-        use std::fmt::Write;
-        let _ = write!(&mut out, "{byte:02x}");
-    }
-    out
+    format!("sha256:{:x}", Sha256::digest(bytes))
 }
 
 /// Digest `value` under `projection`, binding the projection name into the preimage.
 pub fn digest_projection(projection: &str, value: &Value) -> Result<String, JcsError> {
-    let preimage = json!({ "projection": projection, "value": value });
-    Ok(sha256_bytes(jcs::canonicalize(&preimage)?.as_bytes()))
+    digest_with_projection(projection, |out| jcs::write_value(value, out))
+}
+
+pub(crate) fn digest_with_projection(
+    projection: &str,
+    write_value: impl FnOnce(&mut ProjectionWriter) -> Result<(), JcsError>,
+) -> Result<String, JcsError> {
+    let mut out = ProjectionWriter::default();
+    out.push_str("{\"projection\":");
+    jcs::write_string(projection, &mut out);
+    out.push_str(",\"value\":");
+    write_value(&mut out)?;
+    out.push('}');
+    let hash = out.0.into_inner().expect("SHA-256 writes are infallible");
+    Ok(format!("sha256:{:x}", hash.finalize()))
+}
+
+pub(crate) struct ProjectionWriter(BufWriter<Sha256>);
+
+impl Default for ProjectionWriter {
+    fn default() -> Self {
+        Self(BufWriter::new(Sha256::new()))
+    }
+}
+
+impl CanonicalSink for ProjectionWriter {
+    fn push_str(&mut self, text: &str) {
+        self.0
+            .write_all(text.as_bytes())
+            .expect("SHA-256 writes are infallible");
+    }
 }
 
 /// The canonical digest of one analysis identity, used for indexing, CLI selection, and as the

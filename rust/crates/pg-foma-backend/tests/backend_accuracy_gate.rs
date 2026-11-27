@@ -11,11 +11,17 @@ use pg_foma_backend::backend_runtime::{
 };
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
-const FIXTURE: &str = "backend-gated-generic";
+const FIXTURE: &str = "featureless-single-member-class-rewrite";
 
 fn fixture(name: &str) -> (Grammar, Vec<String>) {
     let fixture = require_fixture("edge-cases", name);
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).expect("fixture grammar must load");
+    let mut xml = fixture.load_grammar_xml();
+    for (class, segment) in [("ncK", "cK"), ("ncS", "cS")] {
+        let context = format!(r#"<SimpleContext naturalClass="{class}" />"#);
+        assert_eq!(xml.matches(&context).count(), 1);
+        xml = xml.replace(&context, &format!(r#"<Segment segment="{segment}" />"#));
+    }
+    let grammar = pg_grammar::load(&xml).expect("literal rewrite control must load");
     let words = fixture
         .load_words_yaml()
         .words
@@ -102,7 +108,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
         assert_eq!(
             (
                 accuracy.counters.confirmation_calls,
-                accuracy.counters.confirmation_steps
+                accuracy.counters.confirmation_work
             ),
             (0, 0),
             "the accuracy path must perform no full-HC confirmation for {:?}: {:?}",
@@ -115,7 +121,7 @@ fn the_accuracy_path_agrees_with_certification_while_doing_no_confirmation_work(
         }
         confirming_candidates += 1;
         assert!(
-            certification.score.confirmation > 0 && certification.score.confirmation_steps > 0,
+            certification.score.confirmation > 0 && certification.score.confirmation_work > 0,
             "a confirmed candidate must have done real full-HC work, or 'zero on the fast path' \
              compares against nothing: {:?}",
             certification.score
@@ -166,18 +172,18 @@ fn a_refused_corpus_is_undetermined_and_the_check_provably_does_not_run() {
     let (grammar, words) = fixture(FIXTURE);
     let plans = registry_plans(&grammar);
     let budget = RuntimeBudget {
-        oracle_step_cap: Some(0),
+        oracle_work_cap: Some(0),
         ..RuntimeBudget::default()
     };
     let mut cache = RunEvaluationCache::prepare(&grammar, &words, budget)
-        .expect("preparation must not trip the liveness net at a zero step cap");
+        .expect("preparation must not trip the liveness net at a zero work cap");
     let assessed = assess_accuracy_with_cache(&grammar, &plans, &words, budget, &mut cache);
     assert_eq!(assessed.len(), plans.len());
     for accuracy in &assessed {
         assert!(
             matches!(&accuracy.verdict, AccuracyVerdict::NotDetermined { reason }
                 if reason.contains("oracle-capped")),
-            "a step-capped corpus must refuse the batch rather than assess a subset: {:?}",
+            "a work-capped corpus must refuse the batch rather than assess a subset: {:?}",
             accuracy.verdict
         );
         assert!(

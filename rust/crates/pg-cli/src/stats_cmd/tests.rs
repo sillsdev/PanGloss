@@ -10,6 +10,203 @@ use std::fs;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
+#[test]
+fn frozen_cache_digest_streams_empty_and_multiple_buffers_exactly() {
+    let dir = scratch_dir("streamed-cache-digest");
+    let path = dir.join("bytes");
+    for bytes in [vec![], (0..200_003).map(|n| (n % 251) as u8).collect()] {
+        fs::write(&path, &bytes).unwrap();
+        let (digest, size) = hash_cache_file(&path).unwrap();
+        assert_eq!(digest, crate::stats_manifest::sha256_digest(&bytes));
+        assert_eq!(size, bytes.len() as u64);
+    }
+    assert!(hash_cache_file(&dir.join("missing")).is_err());
+}
+
+#[test]
+fn writer_failure_in_any_chunk_preserves_only_prior_runs() {
+    exercise_batch_rollback(StatsProfile::Full);
+}
+
+#[test]
+fn word_only_writer_is_atomic_across_chunks() {
+    exercise_batch_rollback(StatsProfile::WordOnly);
+}
+
+fn exercise_batch_rollback(profile: StatsProfile) {
+    let full = profile == StatsProfile::Full;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cache.sqlite3");
+    let prepare = || {
+        prepare_batch_stats_hc(
+            "unused.xml",
+            "test-grammar",
+            &[],
+            crate::DEFAULT_WORK_CAP,
+            None,
+            None,
+            false,
+            false,
+            path.to_str(),
+            false,
+            profile,
+            WordOnlySearchOptions::default(),
+        )
+        .unwrap()
+    };
+    let word = |i, work| BatchStatsWord {
+        record: pg_stats::WordRecord {
+            form: format!("word-{i}"),
+            elapsed_ns: 0,
+            work,
+            passes: 0,
+            capped: false,
+            timed_out: false,
+            invalid_shape: false,
+            facts: full
+                .then(|| pg_stats::FactRecord {
+                    object_key: "r".into(),
+                    object_kind: pg_stats::ObjectKind::MorphRule,
+                    object_label: "Rule".into(),
+                    identity_quality: pg_stats::IdentityQuality::Authored,
+                    stratum: None,
+                    allomorph: None,
+                    morpheme: None,
+                    direction: pg_stats::Direction::Analysis,
+                    attempts: work,
+                    work,
+                    work_steps: work,
+                    outputs: 0,
+                    not_applied: 0,
+                    no_root: 0,
+                    surface_mismatch: 0,
+                    uses: 0,
+                    self_time_ns: 0,
+                })
+                .into_iter()
+                .collect(),
+            gates: full.then(|| {
+                vec![pg_stats::GateRecord {
+                    object_key: "r".into(),
+                    object_kind: pg_stats::ObjectKind::MorphRule,
+                    object_label: "Rule".into(),
+                    identity_quality: pg_stats::IdentityQuality::Authored,
+                    morpheme: None,
+                    feature_key: "f".into(),
+                    feature_kind: "mpr".into(),
+                    feature_label: "F".into(),
+                    mode: "required".into(),
+                    passed: work,
+                    blocked: 0,
+                }]
+            }),
+        },
+        prunes: full.then(pg_rules::stats::PruneCounters::default),
+    };
+
+    let snapshot = |conn: &rusqlite::Connection| {
+        let mut tables = vec!["run", "word", "cache_identity"];
+        if full {
+            tables.extend(["fact", "gate_fact"]);
+        }
+        tables
+            .into_iter()
+            .map(|table| {
+                let mut stmt = conn
+                    .prepare(&format!("SELECT * FROM {table} ORDER BY 1"))
+                    .unwrap();
+                let columns = stmt.column_count();
+                stmt.query_map([], |row| {
+                    (0..columns)
+                        .map(|index| row.get::<_, rusqlite::types::Value>(index))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for seeded in [false, true] {
+        let mut initial = prepare();
+        if seeded {
+            initial.record(word(0, 7)).unwrap();
+            finish_batch_stats_hc(initial).unwrap();
+        } else {
+            drop(initial);
+        }
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let before = snapshot(&conn);
+        for failing_word in [
+            0,
+            STATS_FLUSH_BATCH,
+            2 * STATS_FLUSH_BATCH + 1,
+            3 * STATS_FLUSH_BATCH,
+        ] {
+            let mut batch = prepare();
+            conn.execute_batch(&format!(
+                "DROP TRIGGER IF EXISTS fail_write; CREATE TRIGGER fail_write BEFORE INSERT ON word WHEN NEW.form = 'word-{failing_word}'
+                 BEGIN SELECT RAISE(ABORT, 'injected stats write failure'); END;"
+            )).unwrap();
+            let error = (0..=3 * STATS_FLUSH_BATCH)
+                .try_for_each(|i| batch.record(word(i, 1)))
+                .and_then(|()| finish_batch_stats_hc(batch))
+                .unwrap_err();
+            assert!(error.contains("injected stats write failure"), "{error}");
+            assert_eq!(
+                snapshot(&conn),
+                before,
+                "seeded={seeded}, failing word={failing_word}"
+            );
+        }
+        conn.execute_batch("DROP TRIGGER fail_write").unwrap();
+    }
+}
+
+#[test]
+fn batch_rechecks_search_budget_before_appending() {
+    for populated in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cache.sqlite3");
+        let prepare = || {
+            prepare_batch_stats_hc(
+                "unused.xml",
+                "test-grammar",
+                &[],
+                crate::DEFAULT_WORK_CAP,
+                None,
+                None,
+                false,
+                false,
+                path.to_str(),
+                false,
+                StatsProfile::Full,
+                WordOnlySearchOptions::default(),
+            )
+            .unwrap()
+        };
+        let seed = prepare();
+        let waiting = if populated {
+            finish_batch_stats_hc(seed).unwrap();
+            prepare()
+        } else {
+            let fresh = prepare();
+            finish_batch_stats_hc(seed).unwrap();
+            fresh
+        };
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute("UPDATE run SET options_json = '{}'", [])
+            .unwrap();
+        let error = finish_batch_stats_hc(waiting).unwrap_err();
+        assert!(error.contains("search-budget semantics"), "{error}");
+        let runs: u64 = conn
+            .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(runs, 1);
+    }
+}
+
 fn scratch_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -46,7 +243,7 @@ mod flag_spec_drives_the_parser {
         let mut args = base_args(&dir);
         args.push("--bogus-flag".to_string());
         let error = run_stats(&args).expect_err("an undeclared flag must be rejected");
-        assert_eq!(error, "unknown option: --bogus-flag");
+        assert_eq!(error.to_string(), "unknown option: --bogus-flag");
     }
 
     /// Drives `run_stats` with each declared flag; acceptance means "not rejected as unknown".
@@ -63,6 +260,7 @@ mod flag_spec_drives_the_parser {
             if flag.takes_value {
                 let value = match flag.name {
                     "--group" => "object",
+                    "--stats-profile" => "full",
                     "--direction" => "analysis",
                     "--sort" => "time",
                     "--format" => "text",
@@ -73,7 +271,7 @@ mod flag_spec_drives_the_parser {
             }
             let result = run_stats(&args);
             assert!(
-                !matches!(&result, Err(e) if e.starts_with("unknown option:")),
+                !matches!(&result, Err(e) if e.to_string().starts_with("unknown option:")),
                 "{}: expected the parser to accept this declared flag, got {result:?}",
                 flag.name
             );
@@ -98,6 +296,43 @@ fn fixture_grammar_and_word(category: &str, name: &str) -> (String, String) {
 /// Exercises at least one morphological/phonological rule, unlike a bare-root grammar.
 fn primary_fixture() -> (String, String) {
     fixture_grammar_and_word("languages", "metathesis-phase-isolation")
+}
+
+#[test]
+fn invalid_parser_work_index_refuses_stats_record() {
+    let (xml, word) = primary_fixture();
+    let dir = scratch_dir("invalid-parser-work");
+    let path = dir.join("grammar.xml");
+    fs::write(&path, xml).unwrap();
+    let (grammar, _) = crate::load_grammar(path.to_str().unwrap()).unwrap();
+    let identities = StatsIdentityCatalog::new(&grammar);
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let outcome = pg_parse::BatchWordOutcome {
+        outcome: morpher.parse_word_opts(&word, &pg_parse::ParseOptions::default()),
+        elapsed: std::time::Duration::ZERO,
+    };
+    let mut row = pg_rules::stats::StatsRow {
+        kind: pg_rules::stats::ObjectKind::Parser,
+        object_index: 0,
+        stratum: pg_grammar::model::StratumId(0),
+        allomorph: pg_rules::stats::ALLOMORPH_NONE,
+        direction: pg_rules::stats::Direction::Analysis,
+        counters: pg_rules::stats::Counters::default(),
+    };
+    for phase in pg_rules::stats::ParserWork::ALL {
+        row.object_index = phase.index();
+        let fact = fact_record_from_stats_row(&grammar, &identities, &row).unwrap();
+        assert_eq!(fact.object_key, format!("parser:{}", phase.name()));
+    }
+    row.object_index = u32::MAX;
+    let error = match batch_stats_word(&grammar, &identities, &word, &outcome, &[row], &[]) {
+        Ok(_) => panic!("unknown parser category must refuse the record"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("invalid parser work index 4294967295"),
+        "{error}"
+    );
 }
 
 /// Every field set to a distinct prime, so a dropped or swapped field changes the output.
@@ -160,7 +395,7 @@ fn seed_policy_cache(path: &std::path::Path, options_json: &str) -> pg_stats::St
         options_hash: "options".to_string(),
         options_json: options_json.to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome.cache.flush(&run, &[]).unwrap();
     outcome.cache
@@ -171,9 +406,9 @@ fn final_template_policy_cache_treats_legacy_missing_field_as_false() {
     let dir = scratch_dir("policy-legacy");
     let path = dir.join("cache.sqlite3");
     let cache = seed_policy_cache(&path, "{}");
-    refuse_if_final_template_policy_differs(&cache, &path, false)
+    refuse_if_final_template_policy_differs(cache.connection(), &path, false)
         .expect("legacy rows must remain compatible with the default policy");
-    let err = refuse_if_final_template_policy_differs(&cache, &path, true)
+    let err = refuse_if_final_template_policy_differs(cache.connection(), &path, true)
         .expect_err("legacy rows must refuse the result-changing policy");
     assert!(err.contains(path.to_str().unwrap()), "error: {err}");
     assert!(
@@ -196,7 +431,7 @@ fn final_template_policy_cache_rejects_malformed_prior_options() {
         let dir = scratch_dir(&format!("policy-malformed-{name}"));
         let path = dir.join("cache.sqlite3");
         let cache = seed_policy_cache(&path, json);
-        let err = refuse_if_final_template_policy_differs(&cache, &path, false)
+        let err = refuse_if_final_template_policy_differs(cache.connection(), &path, false)
             .expect_err("invalid cached options must fail loudly");
         assert!(err.contains(path.to_str().unwrap()), "error: {err}");
         assert!(err.contains(expected), "error: {err}");
@@ -212,8 +447,10 @@ fn final_template_policies_accept_separate_caches() {
         seed_policy_cache(&default_path, r#"{"always_enforce_final_templates":false}"#);
     let override_cache =
         seed_policy_cache(&override_path, r#"{"always_enforce_final_templates":true}"#);
-    refuse_if_final_template_policy_differs(&default_cache, &default_path, false).unwrap();
-    refuse_if_final_template_policy_differs(&override_cache, &override_path, true).unwrap();
+    refuse_if_final_template_policy_differs(default_cache.connection(), &default_path, false)
+        .unwrap();
+    refuse_if_final_template_policy_differs(override_cache.connection(), &override_path, true)
+        .unwrap();
 }
 
 /// A second, structurally different fixture, for the grammar-change/wipe test.
@@ -279,12 +516,22 @@ fn legacy_stats_words(
         .iter()
         .map(|word| {
             let start = Instant::now();
-            let (outcome, rows, prune_rows) = morpher.parse_word_with_stats_and_prunes(word, opts);
+            let (outcome, rows, prune_rows, gate_rows) =
+                morpher.parse_word_with_gate_stats(word, opts);
             let result = pg_parse::BatchWordOutcome {
                 outcome,
                 elapsed: start.elapsed(),
             };
-            batch_stats_word(grammar, &identities, word, &result, &rows, &prune_rows)
+            batch_stats_word_with_gates(
+                grammar,
+                &identities,
+                word,
+                &result,
+                &rows,
+                &prune_rows,
+                &gate_rows,
+            )
+            .unwrap()
         })
         .collect()
 }
@@ -308,7 +555,7 @@ fn stable_cache_snapshot(path: &std::path::Path) -> (Vec<Vec<String>>, Vec<Vec<S
             .expect("read stats snapshot")
     };
     let words = query(
-        "SELECT form, attempts, work, passes, capped, timed_out, invalid_shape \
+        "SELECT form, work, passes, capped, timed_out, invalid_shape \
              FROM word ORDER BY form",
     );
     let facts = query(
@@ -385,7 +632,7 @@ fn batch_stats_resolves_each_entries_second_allomorph_to_its_stable_identity() {
              JOIN word w ON w.word_id = f.word_id \
              JOIN object o ON o.object_id = f.object_id \
              JOIN allomorph a ON a.allomorph_id = f.allomorph_id \
-             WHERE o.kind = 'lex_entry' \
+             WHERE o.kind = 'lex_entry' AND a.key IS NOT NULL \
              ORDER BY w.form, o.key, a.key",
         )
         .expect("prepare allomorph facts query")
@@ -482,7 +729,7 @@ fn per_allomorph_report_refuses_the_wrong_owner_shape_from_legacy_hc_facts() {
              JOIN word w ON w.word_id = f.word_id
              JOIN object o ON o.object_id = f.object_id
              JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-             WHERE w.form = 'd' AND o.key = 'lex_entry:entry-second@main'
+             WHERE w.form = 'd' AND o.key = 'lex_entry:entry-second@main' AND a.key IS NOT NULL
              LIMIT 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
@@ -555,11 +802,17 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
     let counted_tsv = fs::read_to_string(&counted_out).expect("read work-columns tsv");
     let row: Vec<&str> = counted_tsv.lines().last().unwrap().split('\t').collect();
     assert_eq!(words.len(), 1);
-    assert!(words[0].work > words[0].attempts, "{:?}", words[0]);
+    let (word_work, fact_work, remainder_count, attributed): (i64, i64, i64, i64) = conn.query_row(
+        "SELECT w.work, SUM(f.work_steps), SUM(CASE WHEN o.kind = 'unattributed' THEN 1 ELSE 0 END), SUM(CASE WHEN o.kind <> 'unattributed' THEN f.work_steps ELSE 0 END) FROM word w JOIN fact f ON f.word_id = w.word_id JOIN object o ON o.object_id = f.object_id GROUP BY w.word_id",
+        [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+    ).unwrap();
+    assert_eq!(word_work, fact_work);
+    assert_eq!(remainder_count, 1);
+    assert!(attributed > 0);
     assert_eq!(
-        [words[0].attempts.to_string(), words[0].work.to_string()],
-        row[row.len() - 2..],
-        "word.attempts and word.work must be the TSV row's steps and work_steps"
+        [words[0].work.to_string()],
+        row[row.len() - 1..],
+        "word.work must be the TSV row's work_steps"
     );
     let rows = pg_stats::per_object_report(&conn, &pg_stats::PerObjectFilter::default()).unwrap();
     assert!(
@@ -575,6 +828,46 @@ fn batch_stats_produces_nonempty_object_report_and_tsv_results_stay_identical() 
         Some(morph_row.attempts),
         "the hc engine's attempts counter is Measured for morph_rule"
     );
+}
+
+#[test]
+fn batch_work_steps_reconcile_for_every_word() {
+    let (grammar_xml, word) = primary_fixture();
+    let forms = [word.clone(), format!("{word}x"), format!("{word}xx")];
+    let words_text = format!("{}\n", forms.join("\n"));
+    let dir = scratch_dir("work-steps-multi-word");
+    let cache_path = dir.join("cache.sqlite3");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &words_text,
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&args).expect("multi-word stats batch");
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT w.form, w.work,
+                COALESCE(SUM(CASE WHEN o.kind <> 'unattributed' THEN f.work_steps ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN o.kind = 'unattributed' THEN f.work_steps ELSE 0 END), 0),
+                SUM(CASE WHEN o.kind = 'unattributed' THEN 1 ELSE 0 END)
+         FROM word w LEFT JOIN fact f ON f.word_id = w.word_id
+         LEFT JOIN object o ON o.object_id = f.object_id GROUP BY w.word_id",
+        )
+        .unwrap();
+    let rows: Vec<(String, i64, i64, i64, i64)> = stmt
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), forms.len());
+    for (form, total, attributed, unattributed, remainder_count) in rows {
+        assert!(forms.contains(&form), "unexpected word {form}");
+        assert_eq!(remainder_count, 1, "{form}");
+        assert_eq!(attributed + unattributed, total, "{form}");
+    }
 }
 
 #[test]
@@ -790,7 +1083,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
     let (grammar_xml, word) = primary_fixture();
     let words_text = format!("{word}\n{word}x\n{word}y\n");
     let words = vec![word.clone(), format!("{word}x"), format!("{word}y")];
-    let step_cap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+    let work_cap = WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap());
     let timeout_ms = Some(10_000);
 
     let dir_legacy = scratch_dir("legacy-stats-snapshot");
@@ -804,8 +1097,8 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
             "--start",
             "1",
             "--guess",
-            "--step-cap",
-            "50000000",
+            "--work-cap",
+            "5000000000",
             "--word-timeout-ms",
             "10000",
             "--always-enforce-final-templates",
@@ -816,7 +1109,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
     let legacy_grammar_path = &legacy_args[0];
     let legacy_cache_path = dir_legacy.join("legacy.sqlite3");
     let (grammar, _warnings) = crate::load_grammar(legacy_grammar_path).expect("load grammar");
-    let morpher = pg_parse::Morpher::new(&grammar, step_cap.as_morpher_cap())
+    let morpher = pg_parse::Morpher::new(&grammar, work_cap.as_morpher_cap())
         .with_word_timeout(timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(true);
     let opts = pg_parse::ParseOptions::default().with_guess_root(true);
@@ -825,7 +1118,7 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
         legacy_grammar_path,
         &words,
         expected_words,
-        step_cap,
+        work_cap,
         timeout_ms,
         true,
         true,
@@ -849,8 +1142,8 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
                 "--start",
                 "1",
                 "--guess",
-                "--step-cap",
-                "50000000",
+                "--work-cap",
+                "5000000000",
                 "--word-timeout-ms",
                 "10000",
                 "--always-enforce-final-templates",
@@ -888,6 +1181,155 @@ fn batch_stats_preserves_legacy_cache_and_tsv_across_thread_counts_and_options()
 }
 
 #[test]
+fn word_only_stats_preserve_batch_rows_analyses_and_word_measurements() {
+    let dir = tempfile::tempdir().unwrap();
+    let xml = root_allomorph_grammar(&[("entry", &["a", "b"])]);
+    let mut baseline = None;
+    let mut measured_words = None;
+    for (profile, threads) in [
+        ("off", "1"),
+        ("full", "2"),
+        ("word-only", "1"),
+        ("word-only", "2"),
+    ] {
+        let cache = dir.path().join(format!("{profile}-{threads}.sqlite"));
+        let analyses = dir.path().join("analyses.jsonl");
+        let mut flags = vec![
+            "--threads",
+            threads,
+            "--work-columns",
+            "--analyses",
+            analyses.to_str().unwrap(),
+        ];
+        if profile != "off" {
+            flags.extend([
+                "--stats",
+                "--stats-profile",
+                profile,
+                "--cache",
+                cache.to_str().unwrap(),
+            ]);
+        }
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\nb\naa\n?\n", &flags);
+        crate::run_batch(&args).unwrap();
+        let rows = stable_batch_fields(&fs::read_to_string(tsv).unwrap());
+        let analyses: Vec<Value> = fs::read_to_string(analyses)
+            .unwrap()
+            .lines()
+            .map(|line| {
+                let mut row: Value = serde_json::from_str(line).unwrap();
+                assert!(row
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("elapsedMs")
+                    .unwrap()
+                    .is_number());
+                row
+            })
+            .collect();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(analyses.len(), 4);
+        let outputs = (rows, analyses);
+        if let Some(expected) = &baseline {
+            assert_eq!(expected, &outputs, "{profile} with {threads} thread(s)");
+        } else {
+            baseline = Some(outputs);
+        }
+        if profile != "off" {
+            let conn = rusqlite::Connection::open(cache).unwrap();
+            let mut query = conn.prepare("SELECT form,work,passes,capped,timed_out,invalid_shape,gates_measured,elapsed_ns FROM word ORDER BY form").unwrap();
+            let rows = query
+                .query_map([], |r| {
+                    assert!(r.get::<_, i64>(7)? > 0);
+                    assert_eq!(r.get::<_, bool>(6)?, profile == "full");
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, bool>(3)?,
+                        r.get::<_, bool>(4)?,
+                        r.get::<_, bool>(5)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(rows.len(), 4);
+            if let Some(expected) = &measured_words {
+                assert_eq!(expected, &rows);
+            } else {
+                measured_words = Some(rows);
+            }
+        }
+    }
+}
+
+#[test]
+fn word_only_resume_backfills_missing_prefix_and_reuses_compatible_rows() {
+    let xml = root_allomorph_grammar(&[("entry", &["a", "b"])]);
+    for threads in ["1", "2"] {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache.sqlite");
+        let flags = [
+            "--stats",
+            "--stats-profile=word-only",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--threads",
+            threads,
+        ];
+        let (args, _) = run_batch_args(dir.path(), &xml, "a\n", &flags);
+        assert_eq!(crate::run_batch_counted(&args).unwrap(), 1);
+        let owner = cached_run_id(&cache, "a");
+        let mut resumed = flags.to_vec();
+        resumed.extend(["--start", "2"]);
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\nb\naa\n", &resumed);
+        assert_eq!(crate::run_batch_counted(&args).unwrap(), 2);
+        assert_eq!(cached_run_id(&cache, "a"), owner);
+        assert!(cached_run_id(&cache, "b") > owner);
+        assert_eq!(cached_run_id(&cache, "aa"), cached_run_id(&cache, "b"));
+        let rows = stable_batch_fields(&fs::read_to_string(tsv).unwrap());
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1][0], "2");
+        assert_eq!(rows[1][1], "aa");
+    }
+}
+
+#[test]
+fn invalid_stats_profiles_leave_cache_and_outputs_absent() {
+    let dir = tempfile::tempdir().unwrap();
+    let xml = root_allomorph_grammar(&[("entry", &["a"])]);
+    let cache = dir.path().join("cache.sqlite");
+    for (flags, diagnostic) in [
+        (
+            vec!["--stats-profile=full"],
+            "--stats-profile requires --stats",
+        ),
+        (vec!["--stats-profile="], "expected full or word-only"),
+        (
+            vec!["--stats", "--stats-profile", "typo"],
+            "expected full or word-only",
+        ),
+        (
+            vec!["--stats", "--stats-profile=word-only", "--stats-compact"],
+            "require full stats",
+        ),
+        (
+            vec!["--stats", "--stats-profile=word-only", "--cache-pack"],
+            "require full stats",
+        ),
+    ] {
+        let mut options = vec!["--cache", cache.to_str().unwrap()];
+        options.extend(flags);
+        let (args, tsv) = run_batch_args(dir.path(), &xml, "a\n", &options);
+        let error = crate::run_batch(&args).unwrap_err();
+        assert!(error.contains(diagnostic), "{error}");
+        assert!(!tsv.exists());
+        assert!(!cache.exists());
+    }
+}
+
+#[test]
 fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
     let (grammar_xml, word) = primary_fixture();
     let dir = scratch_dir("cache-refusal-keeps-tsv");
@@ -897,7 +1339,7 @@ fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &["--stats", "--step-cap", "1000", "--cache", cache],
+        &["--stats", "--work-cap", "100000", "--cache", cache],
     );
     crate::run_batch(&first).expect("first stats batch run");
     let before = fs::read_to_string(&out_path).expect("read first tsv");
@@ -907,9 +1349,9 @@ fn batch_stats_cache_refusal_leaves_the_previous_tsv_intact() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &["--stats", "--step-cap", "2000", "--cache", cache],
+        &["--stats", "--work-cap", "200000", "--cache", cache],
     );
-    crate::run_batch(&second).expect_err("a step-cap mismatch must refuse the cache");
+    crate::run_batch(&second).expect_err("a work-cap mismatch must refuse the cache");
     assert_eq!(
         fs::read_to_string(&out_path).expect("read tsv after refusal"),
         before,
@@ -1010,7 +1452,7 @@ fn run_batch_stats_hc_second_run_on_fully_cached_words_reports_zero_prune_counte
         &grammar_path_str,
         &words,
         first_stats,
-        StepCap::Unbounded,
+        WorkCap::Unbounded,
         None,
         false,
         false,
@@ -1029,7 +1471,7 @@ fn run_batch_stats_hc_second_run_on_fully_cached_words_reports_zero_prune_counte
         &grammar_path_str,
         &words,
         second_stats,
-        StepCap::Unbounded,
+        WorkCap::Unbounded,
         None,
         false,
         false,
@@ -1131,6 +1573,8 @@ fn sample_object_row(no_root: i64) -> pg_stats::PerObjectRow {
         surface_mismatch: 0,
         uses: 1,
         self_time_ns: 150,
+        work_steps: 0,
+        words: 0,
     }
 }
 
@@ -1323,9 +1767,9 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
         "hc",
         vec![
             pg_stats::WordRecord {
+                gates: None,
                 form: "ok".to_string(),
                 elapsed_ns: 1_000,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -1334,9 +1778,9 @@ fn object_comparison_elapsed_uses_word_filter_but_not_censor_or_top_filters() {
                 facts: vec![synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 1)],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "capped".to_string(),
                 elapsed_ns: 3_000,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: true,
@@ -1495,9 +1939,11 @@ fn a_shown_row_states_its_share_of_every_matched_row_not_of_the_excerpt() {
         outputs: Some(0),
         uses: Some(0),
         work: Some(0),
+        work_steps: None,
         not_applied: Some(0),
         no_root: Some(0),
         surface_mismatch: Some(0),
+        words: None,
     };
     // One row displayed out of a matched set totalling four times its time and attempts.
     let denoms = Denominators {
@@ -1562,12 +2008,12 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     let word_record = pg_stats::WordRecord {
+        gates: None,
         form: "onlyword".to_string(),
         elapsed_ns: 1_000,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,
@@ -1584,6 +2030,7 @@ fn empty_result_distinguishes_never_recorded_from_filtered_to_nothing() {
             direction: pg_stats::Direction::Analysis,
             attempts: 5,
             work: 10,
+            work_steps: 0,
             outputs: 2,
             not_applied: 1,
             no_root: 0,
@@ -1652,7 +2099,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     let make_fact = |key: &str, morpheme_key: &str, attempts: u64| pg_stats::FactRecord {
         object_key: key.to_string(),
@@ -1665,6 +2112,7 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         direction: pg_stats::Direction::Analysis,
         attempts,
         work: attempts,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -1673,9 +2121,9 @@ fn morpheme_orientation_collapses_scattered_entries_through_the_cli() {
         self_time_ns: attempts * 10,
     };
     let word_record = pg_stats::WordRecord {
+        gates: None,
         form: "w".to_string(),
         elapsed_ns: 1_000,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,
@@ -1765,7 +2213,7 @@ fn jsonl_format_requires_group() {
         "jsonl".to_string(),
     ];
     let err = run_stats(&args).expect_err("--format jsonl with no --group must be refused");
-    assert!(err.contains("--format jsonl requires --group"));
+    assert!(err.to_string().contains("--format jsonl requires --group"));
 }
 
 #[test]
@@ -1779,7 +2227,10 @@ fn public_stats_groups_do_not_expose_internal_stratum_or_direction_orientations(
             removed.to_string(),
         ];
         let err = run_stats(&args).expect_err("removed report groups must be rejected");
-        assert!(err.contains("invalid --group"), "{removed}: {err}");
+        assert!(
+            err.to_string().contains("invalid --group"),
+            "{removed}: {err}"
+        );
     }
 }
 
@@ -1787,9 +2238,9 @@ fn synthetic_stats_cache(engine: &str, facts: Vec<pg_stats::FactRecord>) -> pg_s
     synthetic_stats_cache_with_words(
         engine,
         vec![pg_stats::WordRecord {
+            gates: None,
             form: "w".to_string(),
             elapsed_ns: 1000,
-            attempts: 4,
             work: 0,
             passes: 1,
             capped: false,
@@ -1804,9 +2255,22 @@ fn synthetic_stats_cache_with_words(
     engine: &str,
     words: Vec<pg_stats::WordRecord>,
 ) -> pg_stats::StatsCache {
+    synthetic_stats_cache_with_mode(engine, words, false)
+}
+
+fn synthetic_stats_cache_with_mode(
+    engine: &str,
+    words: Vec<pg_stats::WordRecord>,
+    compact: bool,
+) -> pg_stats::StatsCache {
     let dir = scratch_dir("contract");
     let path = dir.join("cache.sqlite3");
-    let mut outcome = pg_stats::StatsCache::open(&path, "contract-hash").unwrap();
+    let mut outcome = if compact {
+        pg_stats::StatsCache::open_compact(&path, "contract-hash")
+    } else {
+        pg_stats::StatsCache::open(&path, "contract-hash")
+    }
+    .unwrap();
     let run = pg_stats::RunMetadata {
         build_info: "test".to_string(),
         fwdata_path: "x".to_string(),
@@ -1815,7 +2279,7 @@ fn synthetic_stats_cache_with_words(
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome.cache.flush(&run, &words).unwrap();
     outcome.cache
@@ -1837,6 +2301,7 @@ fn synthetic_fact(
         direction: pg_stats::Direction::Analysis,
         attempts,
         work: 10,
+        work_steps: 0,
         outputs: 2,
         not_applied: 1,
         no_root: 0,
@@ -1917,10 +2382,7 @@ fn foma_word_report_does_not_claim_unmeasured_attempts() {
 
     let json = render_word(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
     let meta: serde_json::Value = serde_json::from_str(json.lines().next().unwrap()).unwrap();
-    assert_eq!(
-        meta["unmeasured"]["attempts"],
-        "engine=foma never records it"
-    );
+    assert_eq!(meta["unmeasured"]["work"], "engine=foma never records it");
     let row: serde_json::Value = serde_json::from_str(json.lines().nth(1).unwrap()).unwrap();
     assert!(row["attempts"].is_null(), "{row}");
 }
@@ -1930,9 +2392,9 @@ fn word_report_exports_invalid_shape_in_text_and_json() {
     let cache = synthetic_stats_cache_with_words(
         "hc",
         vec![pg_stats::WordRecord {
+            gates: None,
             form: "bad-shape".to_string(),
             elapsed_ns: 500,
-            attempts: 4,
             work: 0,
             passes: 0,
             capped: false,
@@ -1958,9 +2420,9 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
         "hc",
         vec![
             pg_stats::WordRecord {
+                gates: None,
                 form: "ok".to_string(),
                 elapsed_ns: 100,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -1969,9 +2431,9 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 facts: vec![],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "capped".to_string(),
                 elapsed_ns: 500,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: true,
@@ -1980,9 +2442,9 @@ fn word_report_applies_censor_and_top_filters_to_rows() {
                 facts: vec![],
             },
             pg_stats::WordRecord {
+                gates: None,
                 form: "timed-out".to_string(),
                 elapsed_ns: 400,
-                attempts: 1,
                 work: 0,
                 passes: 0,
                 capped: false,
@@ -2047,6 +2509,8 @@ fn newly_timed_object_kinds_render_self_time() {
             surface_mismatch: 0,
             uses: 0,
             self_time_ns: 0,
+            work_steps: 0,
+            words: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(0), "{kind}");
     }
@@ -2074,14 +2538,16 @@ fn timed_object_kinds_render_their_self_time() {
             surface_mismatch: 0,
             uses: 0,
             self_time_ns: 7,
+            work_steps: 0,
+            words: 0,
         };
         assert_eq!(object_row_view(&row).self_time_ns, Some(7), "{kind}");
     }
 }
 
 #[test]
-fn direction_filter_does_not_claim_unmeasured_lexical_synthesis_time() {
-    let row = pg_stats::PerObjectRow {
+fn direction_filter_distinguishes_measured_lexical_and_unmeasured_index_synthesis_time() {
+    let mut row = pg_stats::PerObjectRow {
         kind: "lex_entry".to_string(),
         label: "root".to_string(),
         identity_quality: "synthetic".to_string(),
@@ -2093,14 +2559,21 @@ fn direction_filter_does_not_claim_unmeasured_lexical_synthesis_time() {
         surface_mismatch: 1,
         uses: 0,
         self_time_ns: 0,
+        work_steps: 0,
+        words: 0,
     };
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
-        None
+        Some(0)
     );
     assert_eq!(
         direction_time_view(object_row_view(&row), Some("analysis")).self_time_ns,
         Some(0)
+    );
+    row.kind = "root_index".to_string();
+    assert_eq!(
+        direction_time_view(object_row_view(&row), Some("synthesis")).self_time_ns,
+        None
     );
 }
 
@@ -2234,7 +2707,7 @@ fn counter_sort_requires_one_kind() {
         args.extend(group_args.into_iter().map(str::to_string));
         args.extend(["--sort".to_string(), "attempts".to_string()]);
         let err = run_stats(&args).expect_err("cross-kind attempt sorting must be rejected");
-        assert!(err.contains("--kind"), "{err}");
+        assert!(err.to_string().contains("--kind"), "{err}");
     }
 }
 
@@ -2251,16 +2724,16 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome
         .cache
         .flush(
             &hc,
             &[pg_stats::WordRecord {
+                gates: None,
                 form: "hc-word".to_string(),
                 elapsed_ns: 1,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -2304,7 +2777,7 @@ fn stats_read_rejects_a_cache_with_multiple_engines() {
         path.to_string_lossy().into_owned(),
     ];
     let err = run_stats(&args).expect_err("mixed-engine cache reads must be hard errors");
-    assert!(err.contains("engine"), "{err}");
+    assert!(err.to_string().contains("engine"), "{err}");
 }
 
 #[test]
@@ -2320,16 +2793,16 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
         options_hash: "opts".to_string(),
         options_json: "{}".to_string(),
         created_utc: "unix:0".to_string(),
-        step_cap: None,
+        work_cap: None,
     };
     outcome
         .cache
         .flush(
             &run,
             &[pg_stats::WordRecord {
+                gates: None,
                 form: "a".to_string(),
                 elapsed_ns: 1,
-                attempts: 1,
                 work: 0,
                 passes: 1,
                 capped: false,
@@ -2357,24 +2830,31 @@ fn stats_read_rejects_a_legacy_cache_with_multiple_grammar_hashes() {
         path.to_string_lossy().into_owned(),
     ];
     let err = run_stats(&args).expect_err("mixed-grammar cache reads must be hard errors");
-    assert!(err.contains("grammar"), "{err}");
+    assert!(err.to_string().contains("grammar"), "{err}");
 }
 
 #[test]
-fn work_budget_cache_refuses_missing_semantics_and_changed_work_limits() {
-    for options in ["{}", r#"{"search_budget_semantics":1,"work_cap":100}"#] {
+fn a_cache_from_an_older_search_budget_is_refused() {
+    assert_eq!(
+        SEARCH_BUDGET_SEMANTICS, 4,
+        "the literal is pinned so a bump is a decision"
+    );
+    let previous = 3;
+    let older =
+        format!(r#"{{"search_budget_semantics":{previous},"step_cap":"200000","work_cap":100}}"#);
+    for options in ["{}".to_string(), older] {
         let dir = scratch_dir("old-work-budget");
         let path = dir.join("cache.sqlite3");
-        let cache = seed_policy_cache(&path, options);
-        let err = refuse_if_work_cap_differs(&cache, &path, 100).unwrap_err();
+        let cache = seed_policy_cache(&path, &options);
+        let err = refuse_if_search_budget_semantics_differ(cache.connection(), &path).unwrap_err();
         assert!(err.contains("search-budget semantics"), "{err}");
     }
     let dir = scratch_dir("work-budget-policy");
     let path = dir.join("cache.sqlite3");
-    let cache = seed_policy_cache(&path, r#"{"search_budget_semantics":2,"work_cap":100}"#);
-    refuse_if_work_cap_differs(&cache, &path, 100).unwrap();
-    let err = refuse_if_work_cap_differs(&cache, &path, 200).unwrap_err();
-    assert!(err.contains("work cap"), "{err}");
+    let current =
+        format!(r#"{{"search_budget_semantics":{SEARCH_BUDGET_SEMANTICS},"work_cap":"100"}}"#);
+    let cache = seed_policy_cache(&path, &current);
+    refuse_if_search_budget_semantics_differ(cache.connection(), &path).unwrap();
 }
 
 #[test]
@@ -2387,15 +2867,7 @@ fn work_budget_cache_reuses_equal_limits_and_refuses_before_truncating_tsv() {
         &dir,
         &grammar_xml,
         &format!("{word}\n"),
-        &[
-            "--stats",
-            "--step-cap",
-            "unbounded",
-            "--work-cap",
-            "10000000",
-            "--cache",
-            cache,
-        ],
+        &["--stats", "--work-cap", "10000000", "--cache", cache],
     );
     crate::run_batch(&args).unwrap();
     assert!(!fs::read_to_string(&out_path).unwrap().is_empty());
@@ -2438,7 +2910,7 @@ fn frozen_cache_refuses_to_relabel_stale_counter_semantics() {
         options_hash: "options".into(),
         options_json: "{}".into(),
         word_count: 0,
-        step_cap: None,
+        work_cap: None,
         words: Vec::new(),
     };
     let completion = crate::stats_manifest::CompletionCensus {
@@ -2461,6 +2933,15 @@ fn frozen_cache_refuses_to_relabel_stale_counter_semantics() {
 
 #[test]
 fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
+    frozen_manifest_identity(false);
+}
+
+#[test]
+fn compact_frozen_manifest_records_exact_digest_and_replays() {
+    frozen_manifest_identity(true);
+}
+
+fn frozen_manifest_identity(compact: bool) {
     let dir = scratch_dir("frozen-manifest");
     let (grammar_xml, word) = primary_fixture();
     let cache_path = dir.join("frozen-cache.sqlite3");
@@ -2469,7 +2950,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     let words_text = format!("{}\n", words.join("\n"));
     let cache = cache_path.to_string_lossy().into_owned();
     let manifest = manifest_path.to_string_lossy().into_owned();
-    let (args, out_path) = run_batch_args(
+    let (mut args, out_path) = run_batch_args(
         &dir,
         &grammar_xml,
         &words_text,
@@ -2481,16 +2962,19 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
             &manifest,
             "--threads",
             "1",
-            "--step-cap",
+            "--work-cap",
             "unbounded",
         ],
     );
 
+    if compact {
+        args.push("--stats-compact".into());
+    }
     crate::run_batch(&args).expect("frozen batch stats run");
     let value: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).expect("manifest JSON");
     assert_eq!(value["format"], "pangloss-batch-stats-manifest");
-    assert_eq!(value["version"], 1);
+    assert_eq!(value["version"], 2);
     assert_eq!(value["source"]["kind"], "hc-xml");
     assert!(value["source"]["compile_options_json"].is_null());
     assert_eq!(
@@ -2506,7 +2990,14 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
         "sha256:".len() + 64
     );
     assert_eq!(value["compiler"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(value["cache"]["schema_version"], pg_stats::SCHEMA_VERSION);
+    assert_eq!(
+        value["cache"]["schema_version"],
+        if compact {
+            pg_stats::COMPACT_SCHEMA_VERSION
+        } else {
+            pg_stats::SCHEMA_VERSION
+        }
+    );
     assert_eq!(
         value["cache"]["counter_semantics_version"],
         pg_stats::COUNTER_SEMANTICS_VERSION
@@ -2514,7 +3005,7 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     assert_eq!(value["run"]["engine"], "hc");
     assert!(value["run"]["id"].as_i64().unwrap() > 0);
     assert_eq!(value["batch"]["threads"], 1);
-    assert_eq!(value["batch"]["step_cap"], "unbounded");
+    assert_eq!(value["batch"]["work_cap"], "unbounded");
     assert_eq!(value["input"]["words"], serde_json::json!(words));
     assert_eq!(value["input"]["word_count"], 2);
     assert_eq!(
@@ -2553,7 +3044,55 @@ fn frozen_batch_manifest_records_the_exact_run_input_and_cache_identity() {
     assert_eq!(run_count, 1, "one manifest names one cache run");
     assert_eq!(run_word_count, 2);
     assert_eq!(owning_words, 2);
+    assert_eq!(pg_stats::is_compact(&conn).unwrap(), compact);
+    assert!(
+        !render_object(&conn, &Filters::default(), OutputFormat::Text)
+            .unwrap()
+            .is_empty()
+    );
+    if compact {
+        assert!(
+            render_allomorph(&conn, &Filters::default(), OutputFormat::Text)
+                .unwrap_err()
+                .contains("unavailable")
+        );
+        let filters = Filters {
+            stratum_key: Some("any".into()),
+            ..Filters::default()
+        };
+        assert!(render_object(&conn, &filters, OutputFormat::Text)
+            .unwrap_err()
+            .contains("unavailable"));
+    }
     drop(conn);
+
+    let replay_path = dir.join("replay.jsonl");
+    run_stats(&[
+        args[0].clone(),
+        "--cache".into(),
+        cache.clone(),
+        "--group".into(),
+        "object".into(),
+        "--format".into(),
+        "jsonl".into(),
+        "--out".into(),
+        replay_path.to_string_lossy().into_owned(),
+    ])
+    .expect("CLI replay from frozen cache");
+    let replay = fs::read_to_string(replay_path).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(replay.lines().next().unwrap()).unwrap();
+    if compact {
+        assert_eq!(meta["cache_mode"], "compact");
+        assert_eq!(
+            meta["unavailable_views"],
+            serde_json::json!(["allomorph", "stratum"])
+        );
+    } else {
+        assert!(
+            meta.get("cache_mode").is_none(),
+            "default replay metadata stays unchanged"
+        );
+    }
 
     let bytes = fs::read(&cache_path).unwrap();
     assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
@@ -2798,8 +3337,8 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
     let prepared = prepare_frozen_batch_stats_hc(
         &cancelled_args[0],
         std::slice::from_ref(&word),
-        crate::DEFAULT_STEP_CAP,
-        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        crate::DEFAULT_WORK_CAP,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         None,
         false,
         false,
@@ -2807,6 +3346,9 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
             .unwrap()
             .grammar_hash,
+        false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )
     .expect("prepare the fresh frozen cache");
     drop(prepared);
@@ -2823,8 +3365,8 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
     let prepared = prepare_frozen_batch_stats_hc(
         &missing_args[0],
         std::slice::from_ref(&word),
-        crate::DEFAULT_STEP_CAP,
-        crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+        crate::DEFAULT_WORK_CAP,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         None,
         false,
         false,
@@ -2832,19 +3374,21 @@ fn frozen_batch_manifest_records_partial_searches_and_refuses_missing_rows() {
         &crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml)
             .unwrap()
             .grammar_hash,
+        false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )
     .expect("prepare the fresh frozen cache");
     let source = crate::stats_manifest::SourceIdentity::from_hc_xml(&grammar_xml).unwrap();
     let err = finish_frozen_batch_stats_hc(
         prepared,
-        Vec::new(),
         &missing_dir.join("stats-run.json"),
         source,
         crate::stats_manifest::BatchOptions {
             engine: "hc",
             threads: 1,
-            step_cap: crate::DEFAULT_STEP_CAP,
-            work_cap: crate::resolved_work_cap(crate::DEFAULT_STEP_CAP, None),
+            work_cap: crate::DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
             search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
             word_timeout_ms: None,
             guess: false,
@@ -2893,4 +3437,874 @@ fn frozen_batch_manifest_rejects_colliding_paths_before_creating_outputs() {
         assert_eq!(fs::read(&words_path).unwrap(), before_words);
         assert!(!cache_path.exists());
     }
+}
+
+fn jsonl_rows_of(
+    dir: &std::path::Path,
+    grammar_path: &std::path::Path,
+    cache_path: &std::path::Path,
+    group: &str,
+) -> Vec<serde_json::Value> {
+    let out = dir.join(format!("{group}.jsonl"));
+    let args: Vec<String> = vec![
+        grammar_path.to_string_lossy().into_owned(),
+        "--group".to_string(),
+        group.to_string(),
+        "--cache".to_string(),
+        cache_path.to_string_lossy().into_owned(),
+        "--format".to_string(),
+        "jsonl".to_string(),
+        "--out".to_string(),
+        out.to_string_lossy().into_owned(),
+    ];
+    run_stats(&args).expect("run_stats jsonl");
+    fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .skip(1)
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+#[test]
+fn object_rows_report_work_steps_that_reconcile_with_word_work() {
+    let (grammar_xml, word) = primary_fixture();
+    let dir = scratch_dir("object-work-steps");
+    let cache_path = dir.join("cache.sqlite3");
+    let words = format!("{word}\n{word}x\n{word}xx\n");
+    let (batch_args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &words,
+        &["--stats", "--cache", cache_path.to_str().unwrap()],
+    );
+    crate::run_batch(&batch_args).expect("seed the cache via batch --stats");
+    let grammar_path = dir.join("grammar.xml");
+
+    let rows = jsonl_rows_of(&dir, &grammar_path, &cache_path, "object");
+    assert!(!rows.is_empty());
+    let object_total: i64 = rows
+        .iter()
+        .map(|row| {
+            row["work_steps"]
+                .as_i64()
+                .expect("every object row has work_steps")
+        })
+        .sum();
+    assert!(object_total > 0);
+    let conn = rusqlite::Connection::open(&cache_path).unwrap();
+    let (word_total, remainder): (i64, i64) = conn
+        .query_row(
+            "SELECT (SELECT SUM(work) FROM word),
+                    (SELECT COALESCE(SUM(f.work_steps), 0) FROM fact f JOIN object o ON o.object_id = f.object_id WHERE o.kind = 'unattributed')",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(object_total + remainder, word_total);
+
+    let by_kind = jsonl_rows_of(&dir, &grammar_path, &cache_path, "group");
+    assert!(!by_kind.is_empty());
+    assert!(
+        by_kind.iter().all(|row| row.get("work_steps").is_none()),
+        "only the object orientation reports work_steps"
+    );
+}
+
+#[test]
+fn wide_object_table_shows_work_steps_and_other_views_do_not() {
+    let denoms = Denominators {
+        total_time_ns: Some(100),
+        attempts_by_kind: HashMap::new(),
+    };
+    let object = object_row_view(&pg_stats::PerObjectRow {
+        work_steps: 321,
+        words: 0,
+        ..sample_object_row(0)
+    });
+    assert_eq!(object.work_steps, Some(321));
+    let (headers, cells) = render_narrow(std::slice::from_ref(&object), true, &denoms, &[]);
+    let column = headers.iter().position(|h| *h == "work_steps").unwrap();
+    assert_eq!(cells[0][column], "321");
+    let (narrow_headers, _) = render_narrow(std::slice::from_ref(&object), false, &denoms, &[]);
+    assert!(!narrow_headers.contains(&"work_steps"));
+
+    let mut other = object.clone();
+    other.work_steps = None;
+    let (other_headers, _) = render_narrow(std::slice::from_ref(&other), true, &denoms, &[]);
+    assert!(!other_headers.contains(&"work_steps"));
+    let (omitted_headers, _) = render_narrow(&[object], true, &denoms, &["work_steps"]);
+    assert!(!omitted_headers.contains(&"work_steps"));
+}
+
+#[test]
+fn compact_flag_requires_stats_before_output_creation() {
+    let dir = scratch_dir("compact-requires-stats");
+    let (grammar, word) = primary_fixture();
+    let (args, out) = run_batch_args(&dir, &grammar, &format!("{word}\n"), &["--stats-compact"]);
+    assert!(crate::run_batch(&args)
+        .unwrap_err()
+        .contains("--stats-compact requires --stats"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn jsonl_headers_advertise_compact_capabilities_and_preserve_full_output() {
+    for engine in ["hc", "foma"] {
+        for populated in [false, true] {
+            let words = || {
+                if !populated {
+                    return vec![];
+                }
+                let mut fact = synthetic_fact(pg_stats::ObjectKind::MorphRule, None, 2_000);
+                fact.outputs = 0;
+                vec![pg_stats::WordRecord {
+                    gates: None,
+                    form: "w".into(),
+                    elapsed_ns: 1000,
+                    work: 10,
+                    passes: 1,
+                    capped: false,
+                    timed_out: false,
+                    invalid_shape: false,
+                    facts: if engine == "hc" { vec![fact] } else { vec![] },
+                }]
+            };
+            let full = synthetic_stats_cache_with_mode(engine, words(), false);
+            let compact = synthetic_stats_cache_with_mode(engine, words(), true);
+            for filters in [
+                Filters::default(),
+                Filters {
+                    word: Some("absent".into()),
+                    ..Filters::default()
+                },
+            ] {
+                for render in [
+                    render_word,
+                    render_never_fires,
+                    render_object,
+                    render_morpheme,
+                ] {
+                    let full_json =
+                        render(full.connection(), &filters, OutputFormat::Jsonl).unwrap();
+                    let compact_json =
+                        render(compact.connection(), &filters, OutputFormat::Jsonl).unwrap();
+                    let mut full_lines = full_json.lines();
+                    let mut compact_lines = compact_json.lines();
+                    let full_meta: serde_json::Value =
+                        serde_json::from_str(full_lines.next().unwrap()).unwrap();
+                    let mut compact_meta: serde_json::Value =
+                        serde_json::from_str(compact_lines.next().unwrap()).unwrap();
+                    assert_eq!(compact_meta["cache_mode"], "compact", "{compact_json}");
+                    assert_eq!(
+                        compact_meta["unavailable_views"],
+                        serde_json::json!(["allomorph", "stratum"])
+                    );
+                    assert!(full_meta.get("cache_mode").is_none());
+                    assert!(full_meta.get("unavailable_views").is_none());
+                    compact_meta.as_object_mut().unwrap().remove("cache_mode");
+                    compact_meta
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("unavailable_views");
+                    assert_eq!(compact_meta, full_meta);
+                    assert_eq!(
+                        compact_lines.collect::<Vec<_>>(),
+                        full_lines.collect::<Vec<_>>()
+                    );
+                }
+            }
+            let word_json =
+                render_word(full.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
+            assert_eq!(word_json.lines().count(), if populated { 2 } else { 1 });
+            let never_json =
+                render_never_fires(full.connection(), &Filters::default(), OutputFormat::Jsonl)
+                    .unwrap();
+            assert_eq!(
+                never_json.lines().count(),
+                if populated && engine == "hc" { 2 } else { 1 }
+            );
+        }
+    }
+}
+
+#[test]
+fn packed_batch_replay_resume_and_frozen_manifest_cover_exact_packed_bytes() {
+    for compact in [false, true] {
+        let dir = scratch_dir(if compact {
+            "packed-compact"
+        } else {
+            "packed-full"
+        });
+        let (grammar_xml, word) = primary_fixture();
+        let cache = dir.join("packed.sqlite");
+        let manifest = dir.join("stats-run.json");
+        let mut extra = vec![
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--cache-pack",
+            "--threads",
+            "1",
+            "--stats-manifest",
+            manifest.to_str().unwrap(),
+        ];
+        if compact {
+            extra.push("--stats-compact");
+        }
+        let (args, _) = run_batch_args(&dir, &grammar_xml, &format!("{word}\n"), &extra);
+        crate::run_batch(&args).unwrap();
+        let raw = rusqlite::Connection::open(&cache).unwrap();
+        assert!(pg_stats::pack::is_packed(&raw).unwrap());
+        drop(raw);
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        let bytes = fs::read(&cache).unwrap();
+        assert_eq!(
+            value["cache"]["sha256"],
+            crate::stats_manifest::sha256_digest(&bytes)
+        );
+        assert_eq!(value["cache"]["bytes"], bytes.len() as u64);
+        assert_eq!(
+            value["cache"]["schema_version"],
+            if compact { 14 } else { 13 }
+        );
+        assert_eq!(
+            pg_stats::StatsCache::read_frozen_run(&cache, 1)
+                .unwrap()
+                .words
+                .len(),
+            1
+        );
+        let unpacked = dir.join("unpacked.sqlite");
+        run_stats_cache(&[
+            "unpack".into(),
+            "--cache".into(),
+            cache.to_string_lossy().into_owned(),
+            "--out".into(),
+            unpacked.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        assert_eq!(
+            fs::read(&cache).unwrap(),
+            bytes,
+            "copy-out preserves the frozen digest"
+        );
+        for group in [
+            "word",
+            "object",
+            "morpheme",
+            "group",
+            "never-fires",
+            "allomorph",
+        ] {
+            if compact && group == "allomorph" {
+                continue;
+            }
+            let packed_out = dir.join(format!("packed-{group}.jsonl"));
+            let plain_out = dir.join(format!("plain-{group}.jsonl"));
+            for (path, out) in [(&cache, &packed_out), (&unpacked, &plain_out)] {
+                run_stats(&[
+                    args[0].clone(),
+                    "--cache".into(),
+                    path.to_string_lossy().into_owned(),
+                    "--group".into(),
+                    group.into(),
+                    "--format".into(),
+                    "jsonl".into(),
+                    "--out".into(),
+                    out.to_string_lossy().into_owned(),
+                ])
+                .unwrap();
+            }
+            assert_eq!(
+                fs::read(packed_out).unwrap(),
+                fs::read(plain_out).unwrap(),
+                "{group}"
+            );
+        }
+        let resumed = dir.join("resumed");
+        fs::create_dir_all(&resumed).unwrap();
+        let mut extra = vec![
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+            "--cache-pack",
+            "--threads",
+            "1",
+        ];
+        if compact {
+            extra.push("--stats-compact");
+        }
+        extra.extend(["--start", "1"]);
+        let (resume_args, _) = run_batch_args(&resumed, &grammar_xml, &format!("{word}\n"), &extra);
+        assert_eq!(
+            crate::run_batch_counted(&resume_args).unwrap(),
+            0,
+            "packed cache reuses the measured word"
+        );
+        let final_cache = rusqlite::Connection::open(&cache).unwrap();
+        assert!(pg_stats::pack::is_packed(&final_cache).unwrap());
+    }
+}
+
+#[test]
+fn cache_pack_requires_stats_before_creating_output() {
+    let dir = scratch_dir("pack-without-stats");
+    let (grammar_xml, word) = primary_fixture();
+    let (args, out) = run_batch_args(&dir, &grammar_xml, &format!("{word}\n"), &["--cache-pack"]);
+    assert!(crate::run_batch(&args)
+        .unwrap_err()
+        .contains("--cache-pack requires --stats"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn packed_stats_corruption_emits_error_before_touching_report_output() {
+    let dir = scratch_dir("packed-corrupt-cli");
+    let (grammar_xml, word) = primary_fixture();
+    let cache = dir.join("cache.sqlite");
+    let (args, _) = run_batch_args(
+        &dir,
+        &grammar_xml,
+        &format!("{word}\n"),
+        &[
+            "--stats",
+            "--cache-pack",
+            "--cache",
+            cache.to_str().unwrap(),
+        ],
+    );
+    crate::run_batch(&args).unwrap();
+    let conn = rusqlite::Connection::open(&cache).unwrap();
+    conn.execute(
+        "UPDATE stats_pack_chunk SET data = substr(data, 1, length(data) / 2) WHERE seq = 0",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let report = dir.join("report.jsonl");
+    fs::write(&report, b"preserve prior report").unwrap();
+    let error = run_stats(&[
+        args[0].clone(),
+        "--cache".into(),
+        cache.to_string_lossy().into_owned(),
+        "--group".into(),
+        "object".into(),
+        "--format".into(),
+        "jsonl".into(),
+        "--out".into(),
+        report.to_string_lossy().into_owned(),
+    ])
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("packed stats cache")
+            && error.to_string().contains("corrupt archive chunk"),
+        "{error}"
+    );
+    assert_eq!(fs::read(&report).unwrap(), b"preserve prior report");
+    assert!(run_stats_cache(&[
+        "unpack".into(),
+        "--cache".into(),
+        cache.to_string_lossy().into_owned(),
+        "--out".into(),
+        report.to_string_lossy().into_owned()
+    ])
+    .unwrap_err()
+    .contains("output_exists"));
+    assert_eq!(fs::read(report).unwrap(), b"preserve prior report");
+}
+
+#[test]
+fn gate_stats_observe_real_exclusions_and_preserve_parse_results() {
+    let declarations = r#"<MorphologicalPhonologicalRuleFeatures><MorphologicalPhonologicalRuleFeature id="exception-tag">Exception</MorphologicalPhonologicalRuleFeature></MorphologicalPhonologicalRuleFeatures>"#;
+    for tagged in [false, true] {
+        let mut xml = PRUNE_FIRING_GRAMMAR
+            .replace("<PartsOfSpeech>", &format!("{declarations}<PartsOfSpeech>"))
+            .replace(
+                "<MorphologicalInput>",
+                "<MorphologicalInput excludedMPRFeatures=\"exception-tag\">",
+            );
+        let template_start = xml.find("<AffixTemplates>").unwrap();
+        let template_end = xml.find("</AffixTemplates>").unwrap() + "</AffixTemplates>".len();
+        xml.replace_range(template_start..template_end, "");
+        if tagged {
+            xml = xml.replace(
+                "id=\"e1\" partOfSpeech",
+                "id=\"e1\" ruleFeatures=\"exception-tag\" partOfSpeech",
+            );
+        }
+        let grammar = pg_grammar::load(&xml).unwrap();
+        for replay in [false, true] {
+            let morpher = pg_parse::Morpher::new(&grammar, usize::MAX).with_lookup_replay(replay);
+            let opts = pg_parse::ParseOptions::default();
+            let baseline = morpher.parse_word_opts("as", &opts);
+            let (outcome, _, _, gates) = morpher.parse_word_with_gate_stats("as", &opts);
+            assert_eq!(outcome.work_steps, baseline.work_steps);
+            assert_eq!(outcome.analyses, baseline.analyses);
+            assert_eq!(baseline.analyses.is_empty(), tagged);
+            let exclusions: Vec<_> = gates
+                .iter()
+                .filter(|r| matches!(r.feature, pg_rules::stats::GateFeature::Mpr(0, true)))
+                .collect();
+            assert!(!exclusions.is_empty());
+            let blocked: u64 = exclusions.iter().map(|r| r.blocked).sum();
+            let passed: u64 = exclusions.iter().map(|r| r.passed).sum();
+            if tagged {
+                assert!(blocked > 0);
+            } else {
+                assert_eq!(blocked, 0);
+                assert!(passed > 0);
+            }
+        }
+        let dir = scratch_dir("gate-layout");
+        let grammar_path = dir.join("grammar.xml");
+        fs::write(&grammar_path, &xml).unwrap();
+        for compact in [false, true] {
+            let cache_path = dir.join(if compact {
+                "compact.sqlite"
+            } else {
+                "full.sqlite"
+            });
+            let cache_str = cache_path.to_str().unwrap();
+            let extra = if compact {
+                vec![
+                    "--stats",
+                    "--stats-compact",
+                    "--cache-pack",
+                    "--cache",
+                    cache_str,
+                ]
+            } else {
+                vec!["--stats", "--cache-pack", "--cache", cache_str]
+            };
+            let (args, _) = run_batch_args(&dir, &xml, "as\n", &extra);
+            crate::run_batch(&args).unwrap();
+            let cache_pos = args.iter().position(|a| a == "--cache").unwrap();
+            let cache = pg_stats::pack::open_read(Path::new(&args[cache_pos + 1])).unwrap();
+            let replay = render_gate(&cache, &Filters::default(), OutputFormat::Jsonl).unwrap();
+            let json: Vec<Value> = replay
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            assert_eq!(json[0]["measured_words"], 1);
+            assert_eq!(json[0]["unmeasured_words"], 0);
+            assert!(json
+                .iter()
+                .any(|row| row["feature_key"] == "exception-tag" && row["mode"] == "excluded"));
+            let blocked: u64 = json
+                .iter()
+                .filter(|row| row["mode"] == "excluded")
+                .map(|row| row["blocked"].as_u64().unwrap())
+                .sum();
+            assert_eq!(blocked > 0, tagged);
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn gate_replay_distinguishes_unmeasured_from_measured_without_evaluations() {
+    let cache = synthetic_stats_cache("hc", Vec::new());
+    for measured in [false, true] {
+        cache
+            .connection()
+            .execute("UPDATE word SET gates_measured=?1", [measured])
+            .unwrap();
+        let replay =
+            render_gate(cache.connection(), &Filters::default(), OutputFormat::Jsonl).unwrap();
+        let lines: Vec<_> = replay.lines().collect();
+        assert_eq!(lines.len(), 1);
+        let meta: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(meta["measured_words"], i64::from(measured));
+        assert_eq!(meta["unmeasured_words"], i64::from(!measured));
+    }
+}
+
+#[test]
+fn syntactic_gate_identity_sorts_authored_symbol_ids() {
+    let xml = PRUNE_FIRING_GRAMMAR.replace(
+        "</PartsOfSpeech>",
+        "<PartOfSpeech id=\"posA\"><Name>A</Name></PartOfSpeech></PartsOfSpeech>",
+    );
+    let grammar = pg_grammar::load(&xml).unwrap();
+    let mut builder = pg_featstruct::FeatureStructBuilder::new();
+    builder.add(
+        grammar.syn_features.pos,
+        pg_featstruct::FeatureValue::Symbolic(pg_featstruct::SymbolBits(3)),
+    );
+    let key: Value =
+        serde_json::from_str(&syntactic_gate_key(&grammar, &builder.build()).unwrap()).unwrap();
+    let feature = &grammar.syn_features.features[grammar.syn_features.pos.0 as usize];
+    assert_eq!(key[&feature.xml_id], serde_json::json!(["posA", "posV"]));
+}
+
+#[test]
+fn gate_stats_cover_stem_name_and_phonological_exception_checks() {
+    let mut seen = std::collections::BTreeSet::new();
+    for name in ["stem-name-restricted-root-allomorph", "mpr-gated-exception"] {
+        let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+        let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+        let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+        for word in fixture
+            .load_words_yaml()
+            .words
+            .iter()
+            .filter(|w| !w.expect_skip)
+        {
+            let opts = pg_parse::ParseOptions::default();
+            let mut plain = morpher.parse_word_opts(&word.word, &opts);
+            let (mut measured, _, _, gates) = morpher.parse_word_with_gate_stats(&word.word, &opts);
+            plain.analyses.sort();
+            measured.analyses.sort();
+            assert_eq!(plain.analyses, measured.analyses);
+            assert_eq!(plain.work_steps, measured.work_steps);
+            for row in gates {
+                if row.blocked == 0 {
+                    continue;
+                }
+                use pg_rules::stats::{GateFeature, ObjectKind};
+                match (row.kind, row.feature) {
+                    (_, GateFeature::StemName(_, false)) => {
+                        seen.insert("stem-required");
+                    }
+                    (_, GateFeature::StemName(_, true)) => {
+                        seen.insert("stem-excluded");
+                    }
+                    (ObjectKind::PhonRule, GateFeature::Mpr(_, true)) => {
+                        seen.insert("phon-excluded");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert_eq!(
+        seen,
+        ["phon-excluded", "stem-excluded", "stem-required"]
+            .into_iter()
+            .collect()
+    );
+}
+
+fn gate_probe_grammar() -> String {
+    let mut xml = PRUNE_FIRING_GRAMMAR.to_string();
+    let start = xml.find("<AffixTemplates>").unwrap();
+    let end = xml.find("</AffixTemplates>").unwrap() + "</AffixTemplates>".len();
+    xml.replace_range(start..end, "");
+    xml
+}
+
+fn gate_probe_replay(xml: &str, word: &str, compact: bool, packed: bool) -> Vec<Value> {
+    let grammar = pg_grammar::load(xml).unwrap();
+    let morpher = pg_parse::Morpher::new(&grammar, usize::MAX);
+    let opts = pg_parse::ParseOptions::default();
+    let baseline = morpher.parse_word_opts(word, &opts);
+    let (observed, _, _, _) = morpher.parse_word_with_gate_stats(word, &opts);
+    assert_eq!(observed.analyses, baseline.analyses);
+    assert_eq!(observed.work_steps, baseline.work_steps);
+    assert!(!observed.capped && !observed.timed_out);
+    let dir = scratch_dir("gate-predicate-identity");
+    let cache_path = dir.join("cache.sqlite");
+    let mut extra = vec!["--stats", "--cache", cache_path.to_str().unwrap()];
+    if compact {
+        extra.push("--stats-compact");
+    }
+    if packed {
+        extra.push("--cache-pack");
+    }
+    let (args, _) = run_batch_args(&dir, xml, &format!("{word}\n"), &extra);
+    crate::run_batch(&args).unwrap();
+    let cache = pg_stats::pack::open_read(&cache_path).unwrap();
+    let replay = render_gate(&cache, &Filters::default(), OutputFormat::Jsonl).unwrap();
+    let rows: Vec<Value> = replay
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows[0]["measured_words"], 1);
+    assert_eq!(rows[0]["unmeasured_words"], 0);
+    assert_eq!(rows[0]["censored_words"], 0);
+    drop(cache);
+    fs::remove_dir_all(dir).unwrap();
+    rows.into_iter().skip(1).collect()
+}
+
+#[test]
+fn gate_realizational_analysis_persists_the_check_before_a_shape_failure() {
+    let mut xml = gate_probe_grammar();
+    let start = xml.find("<MorphologicalRule id=\"mrTpl\"").unwrap();
+    let end =
+        start + xml[start..].find("</MorphologicalRule>").unwrap() + "</MorphologicalRule>".len();
+    xml.replace_range(start..end, "");
+    xml = xml.replace("<PartsOfSpeech>", r#"<HeadFeatures><SymbolicFeature id="tense"><Name>Tense</Name><Symbols><Symbol id="past">Past</Symbol></Symbols></SymbolicFeature></HeadFeatures><PartsOfSpeech>"#)
+        .replace(r#"<MorphologicalRule id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">"#, r#"<RealizationalRule id="mrOrd">"#)
+        .replace("</MorphologicalRule>", r#"<RealizationalFeatures><FeatureValue feature="tense" symbolValues="past" /></RealizationalFeatures></RealizationalRule>"#);
+    for compact in [false, true] {
+        for packed in [false, true] {
+            let rows = gate_probe_replay(&xml, "t", compact, packed);
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0]["feature_key"], r#"{"__head__":{"tense":["past"]}}"#);
+            assert_eq!(rows[0]["mode"], "realizational-unification");
+            assert_eq!(rows[0]["passed"], 1);
+            assert_eq!(rows[0]["blocked"], 0);
+        }
+    }
+}
+
+#[test]
+fn gate_inverse_output_conflicts_have_their_own_persisted_identity() {
+    let xml = gate_probe_grammar()
+        .replace(
+            r#"morphologicalRules="mrOrd""#,
+            r#"morphologicalRules="mrOrd mrTpl""#,
+        )
+        .replace(
+            "</PartsOfSpeech>",
+            r#"<PartOfSpeech id="posN"><Name>N</Name></PartOfSpeech></PartsOfSpeech>"#,
+        );
+    for compatible in [false, true] {
+        let xml = if compatible {
+            xml.clone()
+        } else {
+            xml.replace(
+                r#"id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV""#,
+                r#"id="mrOrd" requiredPartsOfSpeech="posV" outputPartOfSpeech="posN""#,
+            )
+        };
+        let grammar = pg_grammar::load(&xml).unwrap();
+        let owner = StatsIdentityCatalog::new(&grammar)
+            .morph_rule(MRuleId(0))
+            .key
+            .clone();
+        for compact in [false, true] {
+            for packed in [false, true] {
+                let rows = gate_probe_replay(&xml, "ast", compact, packed);
+                let inner: Vec<_> = rows
+                    .iter()
+                    .filter(|row| row["object_key"] == owner)
+                    .collect();
+                assert_eq!(inner.len(), if compatible { 2 } else { 1 }, "{inner:?}");
+                let inverse: Vec<_> = inner
+                    .iter()
+                    .filter(|row| row["mode"] == "inverse-unification")
+                    .collect();
+                assert_eq!(inverse.len(), 1);
+                if compatible {
+                    let forward = inner.iter().find(|row| row["mode"] == "required").unwrap();
+                    assert_eq!(forward["feature_key"], r#"{"__pos__":["posV"]}"#);
+                    assert_eq!(forward["passed"], 1);
+                    assert_eq!(forward["blocked"], 0);
+                }
+                let output = if compatible { "posV" } else { "posN" };
+                let key: Value =
+                    serde_json::from_str(inverse[0]["feature_key"].as_str().unwrap()).unwrap();
+                assert_eq!(
+                    key,
+                    serde_json::json!({"required":{"__pos__":["posV"]},"output":{"__pos__":[output]}})
+                );
+                assert_eq!(inverse[0]["passed"], if compatible { 3 } else { 1 });
+                assert_eq!(inverse[0]["blocked"], if compatible { 0 } else { 2 });
+            }
+        }
+    }
+}
+
+#[test]
+fn wide_mpr_cache_profiles_preserve_replay_and_attribution() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let words = fixture
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|w| w.word)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let mut baseline = None;
+    for compact in [false, true] {
+        for packed in [false, true] {
+            let dir = scratch_dir("wide-mpr-cache");
+            let cache = dir.join("stats.sqlite");
+            let manifest = dir.join("manifest.json");
+            let mut extra = vec![
+                "--stats",
+                "--cache",
+                cache.to_str().unwrap(),
+                "--stats-manifest",
+                manifest.to_str().unwrap(),
+                "--threads",
+                "1",
+                "--work-cap",
+                "unbounded",
+                "--prefilter",
+                "off",
+            ];
+            if compact {
+                extra.push("--stats-compact");
+            }
+            if packed {
+                extra.push("--cache-pack");
+            }
+            let (args, output) = run_batch_args(&dir, &xml, &words, &extra);
+            crate::run_batch(&args).unwrap();
+            let frozen = pg_stats::StatsCache::read_frozen_run(&cache, 1).unwrap();
+            assert_eq!(frozen.words.len(), 74);
+            assert!(frozen
+                .words
+                .iter()
+                .all(|w| !w.capped && !w.timed_out && !w.invalid_shape));
+            assert_eq!(
+                frozen.schema_version,
+                if compact {
+                    pg_stats::COMPACT_SCHEMA_VERSION
+                } else {
+                    pg_stats::SCHEMA_VERSION
+                }
+            );
+            let conn = pg_stats::pack::open_read(&cache).unwrap();
+            let mut statement = conn.prepare("SELECT o.kind,o.key,o.label,f.direction,SUM(f.attempts),SUM(f.outputs),SUM(f.uses) FROM fact f JOIN object o USING(object_id) GROUP BY o.kind,o.key,o.label,f.direction ORDER BY o.kind,o.key,o.label,f.direction").unwrap();
+            let attribution = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert!(attribution.iter().any(|row| row.2 == "r299" && row.6 > 0));
+            let gate_replay = render_gate(&conn, &Filters::default(), OutputFormat::Jsonl).unwrap();
+            let gate_rows: Vec<Value> = gate_replay
+                .lines()
+                .skip(1)
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            for key in ["ic064", "ic255", "ic256", "ic299"] {
+                assert!(
+                    gate_rows.iter().any(|row| {
+                        row["feature_key"] == key && row["passed"].as_u64().is_some_and(|n| n > 0)
+                    }),
+                    "missing wide gate {key}: compact={compact} packed={packed}"
+                );
+            }
+            let text = fs::read_to_string(output).unwrap();
+            let results = text
+                .lines()
+                .filter_map(|line| {
+                    let cells: Vec<_> = line.split('\t').collect();
+                    (cells.len() >= 5 && cells[0].parse::<usize>().is_ok() && cells[2] != "STARTED")
+                        .then(|| {
+                            (
+                                cells[0].to_owned(),
+                                cells[3].to_owned(),
+                                cells[4].to_owned(),
+                            )
+                        })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(results.len(), 74);
+            let observed = (results, attribution, gate_rows);
+            if let Some(expected) = &baseline {
+                assert_eq!(&observed, expected, "compact={compact} packed={packed}");
+            } else {
+                baseline = Some(observed);
+            }
+            let replay_path = dir.join("replay.jsonl");
+            run_stats(&[
+                args[0].clone(),
+                "--cache".into(),
+                cache.to_string_lossy().into_owned(),
+                "--group".into(),
+                "object".into(),
+                "--format".into(),
+                "jsonl".into(),
+                "--top".into(),
+                "1000".into(),
+                "--out".into(),
+                replay_path.to_string_lossy().into_owned(),
+            ])
+            .expect("wide MPR frozen cache must replay through the CLI");
+            let replay = fs::read_to_string(replay_path).unwrap();
+            assert!(replay
+                .lines()
+                .skip(1)
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+                .any(|row| {
+                    row["label"]
+                        .as_str()
+                        .is_some_and(|label| label.ends_with("r299"))
+                        && row["uses"].as_u64().is_some_and(|uses| uses > 0)
+                }));
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&fs::read(manifest).unwrap()).unwrap();
+            assert_eq!(metadata["completion"]["complete"], 74);
+            assert_eq!(
+                metadata["cache"]["sha256"],
+                crate::stats_manifest::sha256_digest(&fs::read(cache).unwrap())
+            );
+        }
+    }
+}
+
+/// `words` is appended after every existing column, narrow and wide, and is `-` where `uses` is not measured (#396).
+#[test]
+fn words_column_is_appended_last_and_follows_uses() {
+    let mut row = sample_object_row(0);
+    row.kind = "lex_entry".to_string();
+    row.uses = 3;
+    row.words = 2;
+    let view = object_row_view(&row);
+    for wide in [false, true] {
+        let (headers, cells) = render_narrow_self_totals(std::slice::from_ref(&view), wide);
+        assert_eq!(headers.last(), Some(&"words"), "wide={wide}");
+        assert_eq!(
+            cells[0].last().map(String::as_str),
+            Some("2"),
+            "wide={wide}"
+        );
+    }
+    let (narrow, _) = render_narrow_self_totals(std::slice::from_ref(&view), false);
+    assert_eq!(
+        &narrow[..narrow.len() - 1],
+        [
+            "label",
+            "time_ms",
+            "time%",
+            "attempts",
+            "attempts%",
+            "amp",
+            "uses"
+        ],
+        "existing columns keep their order"
+    );
+    assert_eq!(row_view_to_json(&view)["words"], 2);
+    assert_eq!(row_view_to_json(&view)["uses"], 3);
+
+    let (headers, _) = render_narrow(
+        std::slice::from_ref(&view),
+        true,
+        &Denominators::of(std::slice::from_ref(&view)),
+        &["uses"],
+    );
+    assert!(
+        !headers.contains(&"words"),
+        "an engine that records no uses has no words"
+    );
+}
+
+#[test]
+fn words_is_absent_for_orientations_that_do_not_report_it() {
+    let mut view = object_row_view(&sample_object_row(0));
+    view.words = None;
+    let (headers, _) = render_narrow_self_totals(std::slice::from_ref(&view), true);
+    assert!(!headers.contains(&"words"));
+    assert!(row_view_to_json(&view).get("words").is_none());
 }

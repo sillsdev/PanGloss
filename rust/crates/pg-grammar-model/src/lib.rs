@@ -18,3 +18,5 @@ pub enum ModelError {
     #[error("duplicate character-definition representation: {0}")]
     DuplicateRepresentation(String),
 }
+
+mod mpr;

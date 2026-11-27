@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>FeaturelessModifyFromInput</Name>
+    <!-- requires: [] - no PhonologicalFeatureSystem and no phonological rule. The suffix rule
+         mrModS copies a consonant, rewrites the vowel after it to the segment class ncI ({i})
+         through ModifyFromInput, copies the rest and appends s, so synthesis sets the vowel's StrRep to {i}. The grammar is
+         featureless on purpose: with no features a segment's feature structure is its StrRep alone,
+         which is what the analysis side of ModifyFromInput has to undo. -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="ck"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ct"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cs"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ca"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="ci"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncC"><Name>C</Name><Segment segment="ck" /><Segment segment="ct" /><Segment segment="cp" /><Segment segment="cs" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="ca" /><Segment segment="ci" /></SegmentNaturalClass>
+      <SegmentNaturalClass id="ncI"><Name>I</Name><Segment segment="ci" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrModS">
+        <Name>S</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrModS" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot">
+            <Name>modS</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subModS">
+                <MorphologicalInput>
+                  <PhoneticSequence id="pc"><SimpleContext naturalClass="ncC" /></PhoneticSequence>
+                  <PhoneticSequence id="pv"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+                  <PhoneticSequence id="pr"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput>
+                  <CopyFromInput index="pc" />
+                  <ModifyFromInput index="pv"><SimpleContext naturalClass="ncI" /></ModifyFromInput>
+                  <CopyFromInput index="pr" />
+                  <InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments>
+                </MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>MODS</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="ekata" partOfSpeech="posRoot"><Allomorphs><Allomorph id="akata"><PhoneticShape>kata</PhoneticShape></Allomorph></Allomorphs><MorphemeId>KATA</MorphemeId><Gloss>kata</Gloss></LexicalEntry>
+          <LexicalEntry id="etasi" partOfSpeech="posRoot"><Allomorphs><Allomorph id="atasi"><PhoneticShape>tasi</PhoneticShape></Allomorph></Allomorphs><MorphemeId>TASI</MorphemeId><Gloss>tasi</Gloss></LexicalEntry>
+          <LexicalEntry id="epasa" partOfSpeech="posRoot"><Allomorphs><Allomorph id="apasa"><PhoneticShape>pasa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>PASA</MorphemeId><Gloss>pasa</Gloss></LexicalEntry>
+          <LexicalEntry id="ekita" partOfSpeech="posRoot"><Allomorphs><Allomorph id="akita"><PhoneticShape>kita</PhoneticShape></Allomorph></Allomorphs><MorphemeId>KITA</MorphemeId><Gloss>kita</Gloss></LexicalEntry>
+          <LexicalEntry id="esika" partOfSpeech="posRoot"><Allomorphs><Allomorph id="asika"><PhoneticShape>sika</PhoneticShape></Allomorph></Allomorphs><MorphemeId>SIKA</MorphemeId><Gloss>sika</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

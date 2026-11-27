@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>MiniGenerateTest</Name>
+    <PartsOfSpeech><PartOfSpeech id="n"><Name>Noun</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="seg6"><Name>SegId</Name>
+        <Symbols><Symbol id="idA">a</Symbol><Symbol id="idT">t</Symbol><Symbol id="idK">k</Symbol></Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="table1">
+      <Name>Orthography</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="seg1"><Representations><Representation>a</Representation></Representations>
+          <FeatureValue feature="seg6" symbolValues="idA" /></SegmentDefinition>
+        <SegmentDefinition id="segT"><Representations><Representation>t</Representation></Representations>
+          <FeatureValue feature="seg6" symbolValues="idT" /></SegmentDefinition>
+        <SegmentDefinition id="segK"><Representations><Representation>k</Representation></Representations>
+          <FeatureValue feature="seg6" symbolValues="idK" /></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="bdry1"><Representations><Representation>+</Representation></Representations></BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses></NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1">
+        <Name>main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="root" partOfSpeech="n"><MorphemeId>root-id</MorphemeId>
+            <Allomorphs><Allomorph id="root-form"><PhoneticShape>kat</PhoneticShape></Allomorph></Allomorphs>
+            <Gloss>kat</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

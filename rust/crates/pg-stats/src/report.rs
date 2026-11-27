@@ -12,7 +12,6 @@ use crate::error::StatsError;
 pub struct PerWordRow {
     pub form: String,
     pub elapsed_ns: i64,
-    pub attempts: i64,
     /// The word's work-budget reservations (`work_steps`).
     pub work: i64,
     pub passes: i64,
@@ -21,13 +20,13 @@ pub struct PerWordRow {
     pub invalid_shape: bool,
 }
 
-/// Form, actual elapsed, attempts, work, passes, and outcome flags — ordered by elapsed descending.
+/// Form, actual elapsed, work, passes, and outcome flags — ordered by elapsed descending.
 ///
 /// `elapsed_ns` is this word's whole-parse wall clock; the per-object report's `self_time_ns` is a
 /// finer per-object breakdown, so summing one does not need to reproduce the other exactly.
 pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError> {
     let mut stmt = conn.prepare(
-        "SELECT form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape
+        "SELECT form, elapsed_ns, work, passes, capped, timed_out, invalid_shape
          FROM word
          ORDER BY elapsed_ns DESC",
     )?;
@@ -35,12 +34,11 @@ pub fn per_word_report(conn: &Connection) -> Result<Vec<PerWordRow>, StatsError>
         Ok(PerWordRow {
             form: row.get(0)?,
             elapsed_ns: row.get(1)?,
-            attempts: row.get(2)?,
-            work: row.get(3)?,
-            passes: row.get(4)?,
-            capped: row.get::<_, i64>(5)? != 0,
-            timed_out: row.get::<_, i64>(6)? != 0,
-            invalid_shape: row.get::<_, i64>(7)? != 0,
+            work: row.get(2)?,
+            passes: row.get(3)?,
+            capped: row.get::<_, i64>(4)? != 0,
+            timed_out: row.get::<_, i64>(5)? != 0,
+            invalid_shape: row.get::<_, i64>(6)? != 0,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -62,6 +60,7 @@ pub fn word_elapsed_ns_total(conn: &Connection, word: Option<&str>) -> Result<i6
 /// report's own narrowing -- lets an empty result say whether that is because this kind never
 /// occurs at all, or because it exists but nothing matched the requested filter.
 pub fn kind_has_any_recorded_object(conn: &Connection, kind: &str) -> Result<bool, StatsError> {
+    crate::require_object_facts(conn)?;
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM object WHERE kind = ?1",
         params![kind],
@@ -140,6 +139,10 @@ pub struct PerObjectRow {
     /// `pg_rules::stats::StatsCollector::time_enter`'s tier. Exact, not apportioned: each row's
     /// `self_time_ns` was booked directly at that object, so this sum needs no division.
     pub self_time_ns: i64,
+    /// Parser work reservations (`fact.work_steps`) summed across this object's rows: the same unit as `word.work`, unlike `work`. The `unattributed` remainder row is not an object, so these sums plus that remainder equal the words' `work` totals.
+    pub work_steps: i64,
+    /// Distinct words in which this object has at least one use (`uses > 0` in a fact row of that word); `uses` counts appearances, this counts words. Per Rust parse only: it says nothing about what hc.dll does with the same word.
+    pub words: i64,
 }
 
 fn per_object_sql() -> String {
@@ -149,12 +152,15 @@ fn per_object_sql() -> String {
                    SUM(f.attempts) AS attempts, SUM(f.work) AS work, SUM(f.outputs) AS outputs,
                    SUM(CASE WHEN f.allomorph_id = 0 THEN f.not_applied ELSE 0 END) AS not_applied,
                    SUM(f.no_root) AS no_root, SUM(f.surface_mismatch) AS surface_mismatch,
-                   SUM(f.uses) AS uses, SUM(f.self_time_ns) AS self_time_ns
+                   SUM(f.uses) AS uses, SUM(f.self_time_ns) AS self_time_ns,
+                   SUM(f.work_steps) AS work_steps,
+                   COUNT(DISTINCT CASE WHEN f.uses > 0 THEN f.word_id END) AS words
             FROM fact f
             JOIN object o ON o.object_id = f.object_id
             JOIN word w ON w.word_id = f.word_id
             LEFT JOIN stratum s ON s.stratum_id = f.stratum_id
-            WHERE (:kind IS NULL OR o.kind = :kind)
+            WHERE o.kind <> 'unattributed'
+              AND (:kind IS NULL OR o.kind = :kind)
               AND (:object_key IS NULL OR o.key = :object_key)
               AND (:stratum_key IS NULL OR s.key = :stratum_key)
               AND (:direction IS NULL OR f.direction = :direction)
@@ -163,7 +169,7 @@ fn per_object_sql() -> String {
             GROUP BY o.object_id
         )
         SELECT kind, label, identity_quality, attempts, work, outputs, not_applied, no_root,
-               surface_mismatch, uses, self_time_ns
+               surface_mismatch, uses, self_time_ns, work_steps, words
         FROM agg
         ORDER BY {sort} DESC, object_key_sort ASC",
         sort = sort_case_sql()
@@ -177,6 +183,16 @@ pub fn per_object_report(
     conn: &Connection,
     filter: &PerObjectFilter,
 ) -> Result<Vec<PerObjectRow>, StatsError> {
+    if filter.stratum_key.is_some() && conn.is_autocommit() {
+        let transaction = conn.unchecked_transaction()?;
+        let report = per_object_report(&transaction, filter);
+        transaction.commit()?;
+        return report;
+    }
+    crate::require_object_facts(conn)?;
+    if filter.stratum_key.is_some() && crate::is_compact(conn)? {
+        return Err(StatsError::CompactViewUnavailable);
+    }
     let sql = per_object_sql();
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
@@ -202,6 +218,8 @@ pub fn per_object_report(
                 surface_mismatch: row.get(8)?,
                 uses: row.get(9)?,
                 self_time_ns: row.get(10)?,
+                work_steps: row.get(11)?,
+                words: row.get(12)?,
             })
         },
     )?;
@@ -241,6 +259,8 @@ pub struct PerAllomorphRow {
     pub uses: i64,
     /// Measured wall-clock self time summed across this `(object, allomorph)` pair's rows.
     pub self_time_ns: i64,
+    /// Distinct words in which this `(object, allomorph)` pair has at least one use; see `PerObjectRow::words`.
+    pub words: i64,
 }
 
 const PER_ALLOMORPH_SELECTED_FACTS_CTE: &str = "
@@ -257,7 +277,8 @@ const PER_ALLOMORPH_SELECTED_FACTS_CTE: &str = "
         JOIN word w ON w.word_id = f.word_id
         LEFT JOIN run r ON r.run_id = w.run_id
         LEFT JOIN allomorph a ON a.allomorph_id = f.allomorph_id
-        WHERE (:kind IS NULL OR o.kind = :kind)
+        WHERE o.kind <> 'unattributed'
+          AND (:kind IS NULL OR o.kind = :kind)
           AND (:object_key IS NULL OR o.key = :object_key)
           AND (:direction IS NULL OR f.direction = :direction)
           AND (:word IS NULL OR w.form = :word)
@@ -274,12 +295,13 @@ fn per_allomorph_sql() -> String {
                    -- Deliberately unmasked: this report groups BY allomorph, so each row is one allomorph's own count and the rule-level residue is its own `NONE` row.
                    SUM(not_applied) AS not_applied, SUM(no_root) AS no_root,
                    SUM(surface_mismatch) AS surface_mismatch, SUM(uses) AS uses,
-                   SUM(self_time_ns) AS self_time_ns
+                   SUM(self_time_ns) AS self_time_ns,
+                   COUNT(DISTINCT CASE WHEN uses > 0 THEN word_id END) AS words
             FROM selected_facts
             GROUP BY object_id, allomorph_id
         )
         SELECT object_kind, object_label, allomorph_key, allomorph_label,
-               attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns
+               attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns, words
         FROM agg
         ORDER BY self_time_ns DESC, object_key_sort ASC, allomorph_key ASC"
     )
@@ -339,6 +361,10 @@ fn per_allomorph_report_in_snapshot(
     conn: &Connection,
     filter: &PerAllomorphFilter,
 ) -> Result<Vec<PerAllomorphRow>, StatsError> {
+    crate::require_object_facts(conn)?;
+    if crate::is_compact(conn)? {
+        return Err(StatsError::CompactViewUnavailable);
+    }
     let unsafe_producer = conn
         .query_row(
             &unrepresentable_allomorph_semantics_sql(),
@@ -387,6 +413,7 @@ fn per_allomorph_report_in_snapshot(
             surface_mismatch: row.get(9)?,
             uses: row.get(10)?,
             self_time_ns: row.get(11)?,
+            words: row.get(12)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -429,7 +456,8 @@ fn per_kind_sql() -> String {
     FROM fact f
     JOIN object o ON o.object_id = f.object_id
     JOIN word w ON w.word_id = f.word_id
-    WHERE (:kind IS NULL OR o.kind = :kind)
+    WHERE o.kind <> 'unattributed'
+      AND (:kind IS NULL OR o.kind = :kind)
       AND (:direction IS NULL OR f.direction = :direction)
       AND (:word IS NULL OR w.form = :word)
       AND (:exclude_censored = 0 OR (w.capped = 0 AND w.timed_out = 0))
@@ -444,6 +472,7 @@ pub fn per_kind_report(
     conn: &Connection,
     filter: &PerKindFilter,
 ) -> Result<Vec<PerKindRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(&per_kind_sql())?;
     let rows = stmt.query_map(
         named_params! {
@@ -520,6 +549,7 @@ pub fn per_morpheme_report(
     conn: &Connection,
     filter: &PerMorphemeFilter,
 ) -> Result<Vec<PerMorphemeRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(&per_morpheme_sql())?;
     let rows = stmt.query_map(
         named_params! {
@@ -609,6 +639,7 @@ pub fn never_fires_report(
     conn: &Connection,
     filter: &NeverFiresFilter,
 ) -> Result<Vec<NeverFiresRow>, StatsError> {
+    crate::require_object_facts(conn)?;
     let mut stmt = conn.prepare(NEVER_FIRES_SQL)?;
     let rows = stmt.query_map(
         named_params! {

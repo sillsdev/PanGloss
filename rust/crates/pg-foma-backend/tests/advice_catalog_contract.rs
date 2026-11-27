@@ -7,13 +7,9 @@ use pg_foma_backend::advice_catalog::{
 
 const REQUIRED_SHAPES: &[&str] = &[
     "late-structural-reachability",
-    "nonregular-process-morphology",
     "null-cycle",
     "optional-slot-branching",
-    "plan-composed-missing-subtrees",
-    "repeated-application",
     "structural-deletion-or-truncation",
-    "unordered-interactions",
     "wide-phonology",
 ];
 

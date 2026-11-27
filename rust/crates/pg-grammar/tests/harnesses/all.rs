@@ -1,6 +1,8 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../affix_max_applications.rs"]
+mod affix_max_applications;
 #[path = "../circumfix_conditioning_parity.rs"]
 mod circumfix_conditioning_parity;
 #[path = "../circumfix_inflection_classes.rs"]
@@ -19,3 +21,6 @@ mod merge_msas;
 mod p5_closure_property;
 #[path = "../process_allomorph_inflection_classes.rs"]
 mod process_allomorph_inflection_classes;
+
+#[path = "../lean_compile_parity.rs"]
+mod lean_compile_parity;

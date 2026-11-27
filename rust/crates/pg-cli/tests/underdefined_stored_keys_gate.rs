@@ -1142,7 +1142,7 @@ fn every_measured_underdefined_case_preserves_xample_stored_keys() {
             report.warnings,
         )
         .expect("saved underdefined project must compile without a semantic-loss override");
-        let morpher = pg_parse::Morpher::new(&compiled.grammar, 1_000_000);
+        let morpher = pg_parse::Morpher::new(&compiled.grammar, 100_000_000);
         let mut observed_differences = Vec::new();
         let mut observed_losses = Vec::new();
         assert_eq!(case.words.len(), off_capture.words.len());
@@ -1260,11 +1260,18 @@ fn every_measured_underdefined_case_preserves_xample_stored_keys() {
             .map(|row| {
                 assert!(!row.reason.trim().is_empty());
                 assert!(!row.ledger.contains('/') && !row.ledger.contains('\\'));
+                // Planned work is a GitHub issue ("issue-NN"); permanent differences are ledger entries.
+                let is_issue = row
+                    .ledger
+                    .strip_prefix("issue-")
+                    .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
                 assert!(
-                    root.join("../../docs/divergences")
-                        .join(&row.ledger)
-                        .is_file(),
-                    "difference must name a real ledger entry"
+                    is_issue
+                        || root
+                            .join("../../docs/divergences")
+                            .join(&row.ledger)
+                            .is_file(),
+                    "difference must name a real ledger entry or an issue-NN"
                 );
                 row.difference
             })

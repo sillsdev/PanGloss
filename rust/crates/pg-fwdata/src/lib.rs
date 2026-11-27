@@ -18,7 +18,7 @@
 //! This crate tolerates stale or dangling data in otherwise-valid projects: dangling `objsur`
 //! targets, unrecognized morph-type GUIDs, and missing expected fields become warnings in the
 //! returned `ImportReport`. Hard errors cover I/O failures, invalid XML, non-`.fwdata` input,
-//! and malformed parser-source metadata that cannot be represented safely.
+//! malformed parser-source metadata, and malformed entry exclusion flags that cannot be represented safely.
 //! Backup archive structure and member-access failures are reported separately as `Backup`.
 #![forbid(unsafe_code)]
 
@@ -31,11 +31,11 @@ mod xml;
 
 use std::path::Path;
 
-use pg_snapshot::{ConversionProvenance, FwClass, FwObjectRef, InventoryDelta, Snapshot, Warning};
+use pg_snapshot::{FwClass, FwObjectRef, InventoryDelta, Snapshot, Warning};
 use thiserror::Error;
 
 /// Hard errors from `import_file`: I/O failures, invalid XML or non-`.fwdata` input, and source
-/// metadata whose parser selector is malformed or unsupported. Data quality issues within an
+/// metadata whose parser selector or entry exclusion flag is malformed or unsupported. Data quality issues within an
 /// otherwise-valid project become `ImportReport` warnings. `Backup` covers malformed ZIP
 /// structure, member lookup, and LDML/member access failures; parsing the embedded `.fwdata` can
 /// instead return `Xml`, `NotFwdata`, or `InvalidSource`.
@@ -57,14 +57,12 @@ pub enum ImportError {
 }
 
 /// Everything worth telling a caller about how the import went, beyond the `Snapshot` itself.
-/// Nonfatal warnings do not fail the import; fatal source issues are recorded in `provenance` and
-/// callers must refuse to publish that snapshot. Each warning carries a stable short code alongside
-/// its prose for assessment report comparison. `provenance` is the same value as the returned
-/// `Snapshot`'s own `conversion_provenance`.
+/// Nonfatal warnings do not fail the import; fatal source issues are recorded in the returned
+/// `Snapshot`'s `conversion_provenance` and callers must refuse to publish that snapshot. Each
+/// warning carries a stable short code alongside its prose for assessment report comparison.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ImportReport {
     pub warnings: Vec<Warning>,
-    pub provenance: ConversionProvenance,
     /// Analyses retained in FieldWorks wordforms; grammar compilation does not consume them.
     pub stored_analyses: Vec<StoredAnalysis>,
 }
@@ -95,17 +93,29 @@ pub struct StoredAnalysisMorph {
 /// For a direct `.fwdata` import, the input file stem becomes `project.name`; for a `.fwbackup`
 /// import, the embedded top-level `.fwdata` entry stem becomes `project.name`.
 pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    import_file_with(path, false)
+}
+
+/// As [`import_file`], but the snapshot's provenance keeps its census, source objects and issues and omits the import-stage inventory sets and load decisions, which only the facts export reads. Compiling a grammar needs nothing more, and skipping them cuts the import's peak heap by about a fifth on a large project.
+pub fn import_file_lean(path: &Path) -> Result<(Snapshot, ImportReport), ImportError> {
+    import_file_with(path, true)
+}
+
+fn import_file_with(path: &Path, lean: bool) -> Result<(Snapshot, ImportReport), ImportError> {
     if path
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
     {
-        return fwbackup::import_fwbackup(path);
+        return fwbackup::import_fwbackup(path, lean);
     }
     let graph = xml::parse_fwdata(path)?;
     let filename_stem = file_stem(path);
-    let (mut snapshot, mut warnings) = extract::extract(&graph, &filename_stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
+    let (mut snapshot, mut warnings) = if lean {
+        extract::extract_lean(&graph, &filename_stem)?
+    } else {
+        extract::extract(&graph, &filename_stem)?
+    };
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
@@ -115,7 +125,6 @@ pub fn import_file(path: &Path) -> Result<(Snapshot, ImportReport), ImportError>
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
     ))
@@ -138,7 +147,6 @@ pub fn import_file_measured(
     let filename_stem = file_stem(path);
     let (mut snapshot, mut warnings, recorder) =
         extract::extract_recording(&graph, &filename_stem)?;
-    let provenance = snapshot.conversion_provenance.clone();
     let stored_analyses =
         extract::stored_analyses(&graph, &snapshot.project.vernacular_writing_systems);
     let (ldml, ldml_warning) = read_sibling_writing_system_store(path);
@@ -152,7 +160,6 @@ pub fn import_file_measured(
         snapshot,
         ImportReport {
             warnings,
-            provenance,
             stored_analyses,
         },
         InventoryDelta::from_stage(inventory, issues),

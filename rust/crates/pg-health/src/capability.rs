@@ -5,8 +5,70 @@
 //! registry, `GrammarWideCheck`) stays in `pg_foma::capability`, which re-exports these three
 //! items at their historical path.
 
+use serde::{Deserialize, Serialize};
+
 /// A predicate's stable identity (e.g. `"simultaneous.subrule-overlap"`).
 pub type PredicateId = &'static str;
+
+/// Construction gaps that can remove valid proposals before confirmation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalRecallGap {
+    TemplateReentry,
+    PhonologicalReduplication,
+    AmbiguousSegmentSpelling,
+    TruncationComposition,
+    PartialRuleDeletionOrReduplication,
+    JunctionDeletion,
+    ReduplicationBeforeLaterAffix,
+    NarrowingClassOutput,
+    SymbolicEpenthesis,
+    RecursiveCompoundDepth,
+    RecursiveCompoundSpelling,
+    CompoundBoundarySpelling,
+    CompoundJunctionTokenization,
+    SingletonRootBoundary,
+    CompoundJunctionPhonology,
+    MetathesisAcrossMorphs,
+    EmptiedMorphReorder,
+    RecursiveCompoundAsymmetricLicense,
+    RecursiveCompoundMprRestriction,
+    RecursiveCompoundMprOutput,
+    RecursiveCompoundAffixPlacement,
+}
+
+/// Compiler-owned causes; grammar-health maps these exhaustively to author findings or budgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "details", rename_all = "snake_case")]
+pub enum CapabilityRefusal {
+    /// Temporary compiler refusal pending #177; never an author label.
+    AlphaEnvironment,
+    ProposalRecall(ProposalRecallGap),
+    CircumfixNoRoute {
+        rule: Option<u32>,
+    },
+    ReduplicationNoRoute {
+        rule: u32,
+    },
+    PatternRootShape {
+        entry: u32,
+    },
+    RootSpellingBudget {
+        entry: u32,
+        bytes: usize,
+        limit: usize,
+    },
+    StrategyCoverage,
+}
+
+/// Owner-produced witnesses before diagnostic deduplication, grouped in first-witness order.
+/// These count owner checks, not syntax nodes, lexemes or analyses.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusalOccurrenceCount {
+    pub strategy: crate::strategy::EmissionStrategy,
+    pub cause: CapabilityRefusal,
+    pub occurrences: usize,
+}
 
 /// A `Refuse` verdict's typed payload: which predicate refused, what construct/config, and a
 /// human-readable witness: compilation fails with a typed diagnostic naming the construct and
@@ -14,6 +76,7 @@ pub type PredicateId = &'static str;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use = "a capability verdict that is computed and dropped decides nothing"]
 pub struct CapabilityDiagnostic {
+    pub refusal: CapabilityRefusal,
     pub predicate: PredicateId,
     pub construct: String,
     pub witness: String,
@@ -42,3 +105,6 @@ pub enum CompileDecision {
     /// at a time.
     Refuse(Vec<CapabilityDiagnostic>),
 }
+
+#[cfg(test)]
+mod tests;

@@ -17,7 +17,7 @@ ledger, not a load-bearing compile-time refusal. See `docs/adr/0001`.
 - **Default-deny characterizer** exhaustive over the frozen `model.rs` with no catch-all: adding a
   variant breaks the build until it is characterized.
 - Add the **conformance-coverage CI gate**: a construct/config may be marked supported only when a
-  passing synthetic `machine/conformance/` fixture exercises it, else CI breaks.
+  passing synthetic `conformance/` fixture exercises it, else CI breaks.
 - First act: mark `Compounding`, `MorphRuleOrder::Unordered`, `MprGroup`, and all unproven configs
   **fail-closed**.
 

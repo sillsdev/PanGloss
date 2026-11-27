@@ -1,8 +1,9 @@
-//! Renders opt-in rich trace-details v3 envelopes.
+//! Renders opt-in rich trace-details envelopes: v5, or v6 when `ruleCosts` is requested.
 
 use std::time::Duration;
 
 use pg_grammar::model::Grammar;
+use pg_grammar::stats_identity::StatsIdentityCatalog;
 use pg_parse::{project_parse_analysis, ParseOutcome, ParseProjectionError};
 use pg_rules::stats::{self, Direction, ObjectKind, OverlayPhase, StatsRow};
 use pg_rules::trace::{
@@ -10,8 +11,176 @@ use pg_rules::trace::{
     TraceType, TreeTraceSink,
 };
 use pg_rules::word::{RuntimeRoot, Word};
-use pg_snapshot::{AffixSlot, InflectionClass, Msa, PartOfSpeech, Snapshot};
+use pg_snapshot::{
+    AffixSlot, FeatureStructure, InflectionClass, Msa, PartOfSpeech, Snapshot, WsForm,
+};
 use serde_json::{json, Value};
+
+// Only data consulted while rendering trace details survives the grammar load.
+#[derive(Clone, Debug)]
+pub struct TraceSnapshot {
+    parts_of_speech: Vec<PartOfSpeech>,
+    entries: Vec<TraceEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceEntry {
+    guid: String,
+    citation_form: Vec<WsForm>,
+    allomorphs: Vec<TraceAllomorph>,
+    msas: Vec<TraceMsa>,
+    senses: Vec<TraceSense>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceAllomorph {
+    guid: String,
+    forms: Vec<WsForm>,
+}
+
+#[derive(Clone, Debug)]
+struct TraceSense {
+    guid: String,
+    gloss: Vec<WsForm>,
+    msa: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+enum TraceMsa {
+    Stem {
+        guid: String,
+        part_of_speech: Option<String>,
+        inflection_class: Option<String>,
+        features: Option<FeatureStructure>,
+        from_parts_of_speech: Vec<String>,
+        slots: Vec<String>,
+    },
+    Inflectional {
+        guid: String,
+        part_of_speech: Option<String>,
+        slots: Vec<String>,
+        features: Option<FeatureStructure>,
+    },
+    Derivational {
+        guid: String,
+        from_part_of_speech: Option<String>,
+        to_part_of_speech: Option<String>,
+        from_inflection_class: Option<String>,
+        to_inflection_class: Option<String>,
+        from_features: Option<FeatureStructure>,
+        to_features: Option<FeatureStructure>,
+    },
+    Unclassified {
+        guid: String,
+        part_of_speech: Option<String>,
+    },
+}
+
+impl TraceMsa {
+    fn guid(&self) -> &str {
+        match self {
+            Self::Stem { guid, .. }
+            | Self::Inflectional { guid, .. }
+            | Self::Derivational { guid, .. }
+            | Self::Unclassified { guid, .. } => guid,
+        }
+    }
+}
+
+impl From<Msa> for TraceMsa {
+    fn from(msa: Msa) -> Self {
+        match msa {
+            Msa::Stem {
+                guid,
+                part_of_speech,
+                inflection_class,
+                features,
+                from_parts_of_speech,
+                slots,
+                ..
+            } => Self::Stem {
+                guid,
+                part_of_speech,
+                inflection_class,
+                features,
+                from_parts_of_speech,
+                slots,
+            },
+            Msa::Inflectional {
+                guid,
+                part_of_speech,
+                slots,
+                features,
+                ..
+            } => Self::Inflectional {
+                guid,
+                part_of_speech,
+                slots,
+                features,
+            },
+            Msa::Derivational {
+                guid,
+                from_part_of_speech,
+                to_part_of_speech,
+                from_inflection_class,
+                to_inflection_class,
+                from_features,
+                to_features,
+                ..
+            } => Self::Derivational {
+                guid,
+                from_part_of_speech,
+                to_part_of_speech,
+                from_inflection_class,
+                to_inflection_class,
+                from_features,
+                to_features,
+            },
+            Msa::Unclassified {
+                guid,
+                part_of_speech,
+            } => Self::Unclassified {
+                guid,
+                part_of_speech,
+            },
+        }
+    }
+}
+
+impl From<Snapshot> for TraceSnapshot {
+    fn from(snapshot: Snapshot) -> Self {
+        Self {
+            parts_of_speech: snapshot.morphology.parts_of_speech,
+            entries: snapshot
+                .lexicon
+                .entries
+                .into_iter()
+                .map(|entry| TraceEntry {
+                    guid: entry.guid,
+                    citation_form: entry.citation_form,
+                    allomorphs: entry
+                        .allomorphs
+                        .into_iter()
+                        .map(|form| TraceAllomorph {
+                            guid: form.guid,
+                            forms: form.forms,
+                        })
+                        .collect(),
+                    msas: entry.msas.into_iter().map(TraceMsa::from).collect(),
+                    senses: entry
+                        .senses
+                        .into_iter()
+                        .map(|sense| TraceSense {
+                            guid: sense.guid,
+                            gloss: sense.gloss,
+                            msa: sense.msa,
+                        })
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct TraceMetadata {
     pub grammar_name: Option<String>,
@@ -21,7 +190,7 @@ pub struct TraceMetadata {
     pub project_name: Option<String>,
     pub vernacular_writing_systems: Vec<String>,
     pub analysis_writing_systems: Vec<String>,
-    pub snapshot: Option<Snapshot>,
+    pub snapshot: Option<TraceSnapshot>,
 }
 
 impl Default for TraceMetadata {
@@ -38,6 +207,28 @@ impl Default for TraceMetadata {
         }
     }
 }
+impl TraceMetadata {
+    pub(crate) fn diagnostic_senses<'a>(
+        &'a self,
+        grammar: &'a Grammar,
+    ) -> std::collections::HashMap<(&'a str, &'a str), Vec<&'a str>> {
+        let mut by_owner = std::collections::HashMap::<_, Vec<_>>::new();
+        if let Some(snapshot) = &self.snapshot {
+            for entry in &snapshot.entries {
+                for sense in &entry.senses {
+                    if let Some(msa) = &sense.msa {
+                        by_owner
+                            .entry((entry.guid.as_str(), grammar.representative_msa(msa)))
+                            .or_default()
+                            .push(sense.guid.as_str());
+                    }
+                }
+            }
+        }
+        by_owner
+    }
+}
+
 pub fn metadata_from_snapshot(snapshot: Snapshot, source_kind: &str) -> TraceMetadata {
     TraceMetadata {
         grammar_name: Some(snapshot.project.name.clone()),
@@ -47,7 +238,7 @@ pub fn metadata_from_snapshot(snapshot: Snapshot, source_kind: &str) -> TraceMet
         project_name: Some(snapshot.project.name.clone()),
         vernacular_writing_systems: snapshot.project.vernacular_writing_systems.clone(),
         analysis_writing_systems: snapshot.project.analysis_writing_systems.clone(),
-        snapshot: Some(snapshot),
+        snapshot: Some(snapshot.into()),
     }
 }
 pub fn metadata_from_xml(grammar: &Grammar, hash: String) -> TraceMetadata {
@@ -85,10 +276,11 @@ fn kind_name(kind: ObjectKind) -> &'static str {
         ObjectKind::RootIndex => "rootIndex",
         ObjectKind::Guesser => "guesser",
         ObjectKind::Overlay => "overlay",
+        ObjectKind::Parser => "parser",
     }
 }
 
-fn stats_json(rows: &[StatsRow]) -> Value {
+fn stats_json(rows: &[StatsRow], work_steps: usize) -> Value {
     let kinds = [
         ObjectKind::MorphRule,
         ObjectKind::PhonRule,
@@ -96,6 +288,7 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         ObjectKind::RootIndex,
         ObjectKind::Guesser,
         ObjectKind::Overlay,
+        ObjectKind::Parser,
     ];
     let categories = kinds.into_iter().map(|kind| {
         let counters = stats::summarize_kind(rows, kind);
@@ -112,6 +305,7 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         let mut category = json!({
             "attempts": counters.attempts,
             "work": counters.work,
+            "work_steps": counters.work_steps,
             "outputs": counters.outputs,
             "notApplied": counters.not_applied,
             "noRoot": counters.no_root,
@@ -125,9 +319,93 @@ fn stats_json(rows: &[StatsRow]) -> Value {
         if kind == ObjectKind::Overlay {
             category["phases"] = overlay_phases_json(rows);
         }
+        if kind == ObjectKind::Parser {
+            let work = pg_rules::stats::ParserWork::ALL.into_iter().map(|phase| {
+                let steps: u64 = rows
+                    .iter()
+                    .filter(|row| row.kind == kind && row.object_index == phase.index())
+                    .map(|row| row.counters.work_steps)
+                    .sum();
+                (phase.name().to_owned(), json!(steps))
+            });
+            category["workStepsByPhase"] = Value::Object(serde_json::Map::from_iter(work));
+        }
         (kind_name(kind).to_owned(), category)
     });
-    serde_json::Map::from_iter(categories).into()
+    let mut categories = serde_json::Map::from_iter(categories);
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let unattributed = (work_steps as u64).saturating_sub(attributed);
+    categories.insert(
+        "unattributed".to_owned(),
+        json!({"work_steps": unattributed}),
+    );
+    categories.into()
+}
+
+/// How many objects `ruleCosts` lists when the request does not say.
+pub const DEFAULT_RULE_COSTS: usize = 8;
+
+/// The `ruleCosts` object: the `top_n` costliest objects of one word's parse, ranked by the work steps they reserved, plus the remainder the figures leave unattributed. One entry per `(kind, object, stratum, direction)`, summed over its allomorph rows, so a rule that spent the budget is named whether or not the word finished. `stopped` marks a capped, timed-out or invalid-shape parse; a timed-out word's figures depend on this computer's speed, so `reproducible` is false for it. Self time is wall-clock and present only for kinds that measure it.
+pub fn rule_costs_json(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    rows: &[StatsRow],
+    outcome: &ParseOutcome,
+    top_n: usize,
+) -> Result<Value, String> {
+    type Key = (ObjectKind, u32, u8, Direction);
+    let mut grouped: std::collections::BTreeMap<Key, (&StatsRow, stats::Counters)> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let key = (row.kind, row.object_index, row.stratum.0, row.direction);
+        let entry = grouped
+            .entry(key)
+            .or_insert((row, stats::Counters::default()));
+        let c = &mut entry.1;
+        c.attempts += row.counters.attempts;
+        c.work_steps += row.counters.work_steps;
+        c.outputs += row.counters.outputs;
+        c.self_time_ns = c.self_time_ns.saturating_add(row.counters.self_time_ns);
+    }
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    let unattributed = (outcome.work_steps as u64).saturating_sub(attributed);
+    let mut ranked: Vec<_> = grouped
+        .into_iter()
+        .filter(|(_, (_, c))| c.work_steps > 0)
+        .collect();
+    // BTreeMap order is the tie-break: kind, object, stratum, direction.
+    ranked.sort_by_key(|(_, (_, c))| std::cmp::Reverse(c.work_steps));
+    let object_count = ranked.len();
+    let objects = ranked
+        .into_iter()
+        .take(top_n)
+        .map(|(_, (row, c))| {
+            let identity = crate::stats_cmd::stats_row_object_identity(grammar, identities, row)?;
+            let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
+            let timed = stats::self_time_supported(row.kind);
+            Ok(json!({
+                "kind": kind_name(row.kind),
+                "key": identity.key,
+                "label": identity.label,
+                "stratum": stratum.label,
+                "direction": row.direction.as_str(),
+                "work_steps": c.work_steps,
+                "attempts": c.attempts,
+                "outputs": c.outputs,
+                "selfElapsedNs": timed.then_some(c.self_time_ns),
+            }))
+        })
+        .collect::<Result<Vec<Value>, String>>()?;
+    Ok(json!({
+        "topN": top_n,
+        "objectCount": object_count,
+        "workSteps": outcome.work_steps,
+        "attributedWorkSteps": attributed,
+        "unattributedWorkSteps": unattributed,
+        "stopped": outcome.capped || outcome.timed_out || outcome.invalid_shape,
+        "reproducible": !outcome.timed_out,
+        "objects": objects,
+    }))
 }
 
 fn overlay_phases_json(rows: &[StatsRow]) -> Value {
@@ -205,8 +483,8 @@ fn find_slot<'a>(parts: &'a [PartOfSpeech], id: &str) -> Option<&'a AffixSlot> {
     })
 }
 
-fn pos_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
-    id.and_then(|id| find_pos(&snapshot.morphology.parts_of_speech, id))
+fn pos_json(snapshot: &TraceSnapshot, id: Option<&str>) -> Value {
+    id.and_then(|id| find_pos(&snapshot.parts_of_speech, id))
         .map_or_else(
             || {
                 id.map(|id| json!({ "id": id, "quality": "source-id-only" }))
@@ -216,18 +494,18 @@ fn pos_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
         )
 }
 
-fn class_json(snapshot: &Snapshot, id: Option<&str>) -> Value {
-    id.and_then(|id| find_infl(&snapshot.morphology.parts_of_speech, id)).map_or_else(
+fn class_json(snapshot: &TraceSnapshot, id: Option<&str>) -> Value {
+    id.and_then(|id| find_infl(&snapshot.parts_of_speech, id)).map_or_else(
         || id.map(|id| json!({ "id": id, "quality": "source-id-only" })).unwrap_or(Value::Null),
         |class| json!({ "id": class.guid, "name": class.name, "abbreviation": class.abbreviation }),
     )
 }
 
-fn slots_json(snapshot: &Snapshot, ids: &[String]) -> Value {
+fn slots_json(snapshot: &TraceSnapshot, ids: &[String]) -> Value {
     let values: Vec<Value> = ids
         .iter()
         .map(|id| {
-            find_slot(&snapshot.morphology.parts_of_speech, id).map_or_else(
+            find_slot(&snapshot.parts_of_speech, id).map_or_else(
                 || json!({ "id": id, "quality": "source-id-only" }),
                 |slot| json!({ "id": slot.guid, "name": slot.name, "optional": slot.optional }),
             )
@@ -245,18 +523,17 @@ fn features_json(features: Option<&pg_snapshot::FeatureStructure>) -> Value {
 
 /// Per-render guid indexes (first match wins) and a rich_morph memo.
 struct RichCtx<'a> {
-    snapshot: Option<&'a Snapshot>,
-    allomorph_by_guid:
-        std::collections::HashMap<&'a str, (&'a pg_snapshot::LexEntry, &'a pg_snapshot::Allomorph)>,
-    msa_by_guid: std::collections::HashMap<&'a str, &'a Msa>,
-    sense_by_msa: std::collections::HashMap<&'a str, &'a pg_snapshot::Sense>,
+    snapshot: Option<&'a TraceSnapshot>,
+    allomorph_by_guid: std::collections::HashMap<&'a str, (&'a TraceEntry, &'a TraceAllomorph)>,
+    msa_by_guid: std::collections::HashMap<&'a str, &'a TraceMsa>,
+    sense_by_msa: std::collections::HashMap<&'a str, &'a TraceSense>,
     memo: std::cell::RefCell<std::collections::HashMap<MemoKey, Value>>,
 }
 
 type MemoKey = (String, Option<String>, Option<String>, Option<String>);
 
 impl<'a> RichCtx<'a> {
-    fn new(snapshot: Option<&'a Snapshot>) -> Self {
+    fn new(snapshot: Option<&'a TraceSnapshot>) -> Self {
         let mut ctx = Self {
             snapshot,
             allomorph_by_guid: Default::default(),
@@ -265,7 +542,7 @@ impl<'a> RichCtx<'a> {
             memo: Default::default(),
         };
         if let Some(snapshot) = snapshot {
-            for entry in &snapshot.lexicon.entries {
+            for entry in &snapshot.entries {
                 for allomorph in &entry.allomorphs {
                     ctx.allomorph_by_guid
                         .entry(allomorph.guid.as_str())
@@ -285,7 +562,7 @@ impl<'a> RichCtx<'a> {
     }
 }
 
-fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> Value {
+fn msa_fields(ctx: &RichCtx<'_>, snapshot: &TraceSnapshot, msa_id: Option<&str>) -> Value {
     let Some(msa_id) = msa_id else {
         return Value::Null;
     };
@@ -294,7 +571,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
             let mut object = serde_json::Map::new();
             object.insert("id".to_string(), json!(msa_id));
             match msa {
-                Msa::Stem {
+                TraceMsa::Stem {
                     part_of_speech,
                     inflection_class,
                     features,
@@ -330,7 +607,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                         }),
                     );
                 }
-                Msa::Inflectional {
+                TraceMsa::Inflectional {
                     part_of_speech,
                     slots,
                     features,
@@ -353,7 +630,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                     object.insert("slots".to_string(), slots_json(snapshot, &slot_ids));
                     object.insert("features".to_string(), features_json(features.as_ref()));
                 }
-                Msa::Derivational {
+                TraceMsa::Derivational {
                     from_part_of_speech,
                     to_part_of_speech,
                     from_inflection_class,
@@ -393,7 +670,7 @@ fn msa_fields(ctx: &RichCtx<'_>, snapshot: &Snapshot, msa_id: Option<&str>) -> V
                     );
                     object.insert("slot".to_string(), Value::Null);
                 }
-                Msa::Unclassified { part_of_speech, .. } => {
+                TraceMsa::Unclassified { part_of_speech, .. } => {
                     object.insert("kind".to_string(), json!("unclassified"));
                     object.insert(
                         "category".to_string(),
@@ -615,9 +892,8 @@ fn failure_context(reason: pg_rules::trace::FailureReason) -> Value {
         pg_rules::trace::FailureReason::ObligatorySyntacticFeatures
         | pg_rules::trace::FailureReason::RequiredSyntacticFeatureStruct
         | pg_rules::trace::FailureReason::HeadRequiredSyntacticFeatureStruct
-        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct => {
-            "syntacticFeatures"
-        }
+        | pg_rules::trace::FailureReason::NonHeadRequiredSyntacticFeatureStruct
+        | pg_rules::trace::FailureReason::LexicalLookupFeatures => "syntacticFeatures",
         pg_rules::trace::FailureReason::RequiredMprFeatures
         | pg_rules::trace::FailureReason::ExcludedMprFeatures
         | pg_rules::trace::FailureReason::HeadProdRestrictMprFeatures
@@ -654,10 +930,11 @@ fn trace_object_identity(grammar: &Grammar, object: TraceObject) -> Value {
     }
 }
 
-fn mpr_operands(grammar: &Grammar, set: pg_grammar::model::MprSet) -> Value {
-    json!((0..64)
-        .filter(|&index| set.0 & (1u64 << index) != 0)
-        .map(|index| {
+fn mpr_operands(grammar: &Grammar, set: &pg_grammar::model::MprSet) -> Value {
+    json!(set
+        .iter()
+        .map(|id| {
+            let index = id.0 as usize;
             match grammar.mpr_features.get(index) {
                 Some(feature) => {
                     json!({"id": feature.xml_id, "name": feature.name, "quality": "authored"})
@@ -685,7 +962,7 @@ fn rejection_evidence(grammar: &Grammar, evidence: &RejectionEvidence) -> Value 
             actual,
         } => json!({
             "kind": "mprFeatures", "failedObject": trace_object_identity(grammar, *object),
-            "operands": {"required": mpr_operands(grammar, *required), "excluded": mpr_operands(grammar, *excluded), "actual": mpr_operands(grammar, *actual)},
+            "operands": {"required": mpr_operands(grammar, required), "excluded": mpr_operands(grammar, excluded), "actual": mpr_operands(grammar, actual)},
         }),
         RejectionEvidence::CoOccurrence {
             object,
@@ -701,6 +978,10 @@ fn rejection_evidence(grammar: &Grammar, evidence: &RejectionEvidence) -> Value 
             "ruleIndex": rule_index, "require": require, "adjacency": format!("{adjacency:?}"),
             "others": others.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
             "actual": actual.iter().map(|id| trace_object_identity(grammar, *id)).collect::<Vec<_>>(),
+        }),
+        RejectionEvidence::AllomorphBlocked { blocked, blocker } => json!({
+            "kind": "allomorphBlocked", "failedObject": trace_object_identity(grammar, TraceObject::Allomorph(*blocked)),
+            "blocker": trace_object_identity(grammar, TraceObject::Allomorph(*blocker)),
         }),
         RejectionEvidence::Environments {
             object,
@@ -863,7 +1144,9 @@ fn render_envelope_v2(
             "morphs": []
         })
     }).collect();
-    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
+    envelope_json(
+        trace, word, outcome, rows, elapsed, metadata, analyses, None,
+    )
 }
 fn grammar_analyses(outcome: &ParseOutcome, grammar: &Grammar, ctx: &RichCtx<'_>) -> Vec<Value> {
     outcome.analyses.iter().enumerate().map(|(index, (morphemes, surface))| {
@@ -888,6 +1171,7 @@ fn grammar_analyses(outcome: &ParseOutcome, grammar: &Grammar, ctx: &RichCtx<'_>
     }).collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn envelope_json(
     trace: Value,
     word: &str,
@@ -896,19 +1180,26 @@ fn envelope_json(
     elapsed: Duration,
     metadata: &TraceMetadata,
     analyses: Vec<Value>,
+    rule_costs: Option<Value>,
 ) -> Result<String, String> {
+    // v5 stays the default so a reader pinned to it keeps working; v6 is only the version that carries ruleCosts.
+    let schema = if rule_costs.is_some() {
+        "pangloss.trace-details.v6"
+    } else {
+        "pangloss.trace-details.v5"
+    };
     let elapsed_ns = elapsed.as_nanos().min(u128::from(u64::MAX)) as u64;
     let timed_ns = rows.iter().fold(0u64, |total, row| {
         total.saturating_add(row.counters.self_time_ns)
     });
-    serde_json::to_string(&json!({
-        "schemaVersion": "pangloss.trace-details.v3",
+    let mut document = json!({
+        "schemaVersion": schema,
         "word": word,
         "provenance": {
             "parser": {
                 "name": "pangloss",
                 "version": env!("CARGO_PKG_VERSION"),
-                "traceProfile": "pangloss.trace-details.v3"
+                "traceProfile": schema
             },
             "grammar": {
                 "name": metadata.grammar_name,
@@ -928,7 +1219,6 @@ fn envelope_json(
             "capped": outcome.capped,
             "timedOut": outcome.timed_out,
             "invalidShape": outcome.invalid_shape,
-            "steps": outcome.steps,
             "workSteps": outcome.work_steps,
             "elapsedNs": elapsed_ns,
             "timedNs": timed_ns,
@@ -940,10 +1230,13 @@ fn envelope_json(
             "guessed": outcome.guessed,
             "analyses": analyses,
         },
-        "categories": stats_json(rows),
+        "categories": stats_json(rows, outcome.work_steps),
         "trace": trace,
-    }))
-    .map_err(|error| format!("serialize rich trace JSON: {error}"))
+    });
+    if let Some(costs) = rule_costs {
+        document["ruleCosts"] = costs;
+    }
+    serde_json::to_string(&document).map_err(|error| format!("serialize rich trace JSON: {error}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -956,6 +1249,7 @@ pub fn render(
     rows: &[StatsRow],
     elapsed: Duration,
     metadata: &TraceMetadata,
+    rule_costs: Option<usize>,
 ) -> Result<String, String> {
     let ctx = RichCtx::new(metadata.snapshot.as_ref());
     let mut trace = match root {
@@ -969,7 +1263,19 @@ pub fn render(
         decorate_trace_node(grammar, &ctx, sink, root, &mut trace)?;
     }
     let analyses = grammar_analyses(outcome, grammar, &ctx);
-    envelope_json(trace, word, outcome, rows, elapsed, metadata, analyses)
+    let rule_costs = match rule_costs {
+        Some(top_n) => Some(rule_costs_json(
+            grammar,
+            &StatsIdentityCatalog::new(grammar),
+            rows,
+            outcome,
+            top_n,
+        )?),
+        None => None,
+    };
+    envelope_json(
+        trace, word, outcome, rows, elapsed, metadata, analyses, rule_costs,
+    )
 }
 
 #[cfg(test)]

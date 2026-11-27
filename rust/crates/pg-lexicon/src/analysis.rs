@@ -8,19 +8,43 @@ use std::collections::BTreeMap;
 /// Construction-time policy for every authoritative overlay-aware `Morpher` owned by a runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnalysisPolicy {
-    pub step_cap: usize,
+    /// Per-word work cap for parsing; confirmation may spend up to one sixteenth more.
+    pub work_cap: usize,
+    /// Per-word counted retained parser-state ceiling; `None` disables it.
+    pub word_mem_cap: Option<usize>,
+    /// Limit on one bounded generation run, in work steps and seed choices.
+    pub generation_cap: usize,
 }
 
 impl AnalysisPolicy {
     pub const fn browser_default() -> Self {
-        Self { step_cap: 100_000 }
+        Self {
+            work_cap: 10_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 100_000,
+        }
     }
 
     pub const fn native_abi_v1() -> Self {
-        Self { step_cap: 500_000 }
+        Self {
+            work_cap: 50_000_000,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 500_000,
+        }
+    }
+
+    /// No work limit: a pathological word runs until it finishes, and the counters remain. Where `usize`
+    /// is 32 bits (wasm32), `usize::MAX` is 4,294,967,295 work steps, so a word can still report capped
+    /// there, and the reserve above it saturates. An unlimited word can run for many minutes and can
+    /// exhaust linear memory and trap, not merely run long.
+    pub const fn without_limits() -> Self {
+        Self {
+            work_cap: usize::MAX,
+            word_mem_cap: None,
+            generation_cap: usize::MAX,
+        }
     }
 }
-
 impl Default for AnalysisPolicy {
     fn default() -> Self {
         Self::browser_default()
@@ -32,6 +56,8 @@ pub struct OfficialOutcome {
     pub analyses: Vec<(String, String)>,
     pub structured: Vec<WordAnalysis>,
     pub candidates_generated: usize,
+    /// Which limits stopped the confirming parser; `analyses` is empty by omission when any is set, and each reason surfaces as the `UnifiedAnalysis` flag of the same name.
+    pub confirmation_stop: pg_parse::StopReasons,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +65,9 @@ pub struct UnifiedAnalysis {
     pub analyses: Vec<(String, String)>,
     pub structured: Vec<WordAnalysis>,
     pub capped: bool,
+    /// The retained-capture ceiling (not the step cap) stopped the search; `capped` is also true then.
+    pub capture_capped: bool,
+    pub word_mem_capped: bool,
     pub invalid_shape: bool,
     pub timed_out: bool,
     pub guessed: bool,
@@ -122,6 +151,11 @@ impl SuppliedLexiconRuntime {
         let mut analyses = Vec::new();
         let mut structured = Vec::new();
         let mut candidates_generated = normal.candidates_generated;
+        let confirmation_stop = official
+            .as_ref()
+            .map_or_else(pg_parse::StopReasons::default, |official| {
+                official.confirmation_stop
+            });
         if let Some(official) = official {
             candidates_generated += official.candidates_generated;
             for (pair, analysis) in official.analyses.into_iter().zip(official.structured) {
@@ -141,9 +175,12 @@ impl SuppliedLexiconRuntime {
         }
 
         let mut guessed = false;
-        let mut capped = normal.capped;
-        let mut invalid_shape = normal.invalid_shape;
-        let mut timed_out = normal.timed_out;
+        let mut capped =
+            normal.capped || confirmation_stop.capped || confirmation_stop.capture_capped;
+        let mut capture_capped = normal.capture_capped || confirmation_stop.capture_capped;
+        let mut word_mem_capped = normal.word_mem_capped || confirmation_stop.word_mem_capped;
+        let mut invalid_shape = normal.invalid_shape || confirmation_stop.invalid_shape;
+        let mut timed_out = normal.timed_out || confirmation_stop.timed_out;
         if structured.is_empty() && !invalid_shape && guess_fallback {
             let guess_options = ParseOptions::default().with_guess_only(true);
             let fallback = morpher.parse_word_opts(word, &guess_options);
@@ -155,6 +192,8 @@ impl SuppliedLexiconRuntime {
             }
             guessed = fallback.guessed;
             capped |= fallback.capped;
+            capture_capped |= fallback.capture_capped;
+            word_mem_capped |= fallback.word_mem_capped;
             invalid_shape |= fallback.invalid_shape;
             timed_out |= fallback.timed_out;
         }
@@ -162,6 +201,8 @@ impl SuppliedLexiconRuntime {
             analyses,
             structured,
             capped,
+            capture_capped,
+            word_mem_capped,
             invalid_shape,
             timed_out,
             guessed,

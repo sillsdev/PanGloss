@@ -62,21 +62,21 @@ fn main() {
     let mut threads: usize = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1);
-    let mut step_cap: usize = 200_000;
+    let mut work_cap: usize = 20_000_000;
     let mut word_timeout_ms: u64 = 10_000;
 
     let mut it = args[1..].iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--threads" => threads = it.next().unwrap().parse().unwrap(),
-            "--step-cap" => step_cap = it.next().unwrap().parse().unwrap(),
+            "--work-cap" => work_cap = it.next().unwrap().parse().unwrap(),
             "--word-timeout-ms" => word_timeout_ms = it.next().unwrap().parse().unwrap(),
             "--dump-pos-only" => {}
             s => positional.push(s),
         }
     }
     let [fwdata_path, words_path] = positional[..] else {
-        eprintln!("usage: spellcheck_measure <grammar (.fwdata|.json|.xml)> <wordforms.txt> [--threads N] [--step-cap N] [--word-timeout-ms N]");
+        eprintln!("usage: spellcheck_measure <grammar (.fwdata|.json|.xml)> <wordforms.txt> [--threads N] [--work-cap N] [--word-timeout-ms N]");
         std::process::exit(2);
     };
 
@@ -147,11 +147,11 @@ fn main() {
         .collect();
     eprintln!("\nloaded {} wordforms from {words_path}", words.len());
 
-    let morpher = Morpher::new(&grammar, step_cap)
+    let morpher = Morpher::new(&grammar, work_cap)
         .with_word_timeout(Some(Duration::from_millis(word_timeout_ms)));
 
     eprintln!(
-        "parsing {} words (threads={threads}, step_cap={step_cap}, word_timeout_ms={word_timeout_ms}) ...",
+        "parsing {} words (threads={threads}, work_cap={work_cap}, word_timeout_ms={word_timeout_ms}) ...",
         words.len()
     );
     let t1 = std::time::Instant::now();
@@ -168,14 +168,14 @@ fn main() {
     let mut total_analyses = 0usize;
     let mut analyses_with_syn_fs_beyond_pos = 0usize;
     let mut analyses_with_nonempty_mpr = 0usize;
-    let mut mpr_union: u64 = 0;
+    let mut mpr_union = pg_grammar::model::MprSet::EMPTY;
     let mut guessed_analyses = 0usize;
 
     // Backoff-rung class tables (D1/D4). Key -> count of analyses in that class.
     let mut rung1_full_decomp_synfs: HashMap<String, u32> = HashMap::new(); // morpheme seq + full syn_fs
     let mut rung2_pos_synfs: HashMap<String, u32> = HashMap::new(); // pos + full syn_fs
     let mut rung3_pos_head: HashMap<String, u32> = HashMap::new(); // pos + head features only (approx feature subset)
-    let mut rung4_pos_mpr: HashMap<(Option<u32>, u64), u32> = HashMap::new(); // pos + mpr
+    let mut rung4_pos_mpr: HashMap<(Option<u32>, pg_grammar::model::MprSet), u32> = HashMap::new(); // pos + mpr
     let mut rung5_pos: HashMap<Option<u32>, u32> = HashMap::new(); // pos alone
     let mut rung6_openclosed: HashMap<&'static str, u32> = HashMap::new(); // open/closed
 
@@ -315,9 +315,9 @@ fn main() {
                     entry.1 += 1;
                 }
             }
-            if mpr.0 != 0 {
+            if !mpr.is_empty() {
                 analyses_with_nonempty_mpr += 1;
-                mpr_union |= mpr.0;
+                mpr_union = mpr_union.union(mpr);
             }
             record_feature_occurrences(
                 syn_fs,
@@ -343,7 +343,7 @@ fn main() {
             *rung3_pos_head.entry(r3key).or_insert(0) += 1;
 
             // Rung 4: POS + mpr.
-            *rung4_pos_mpr.entry((*pos_id, mpr.0)).or_insert(0) += 1;
+            *rung4_pos_mpr.entry((*pos_id, mpr.clone())).or_insert(0) += 1;
 
             // Rung 5: POS alone.
             *rung5_pos.entry(*pos_id).or_insert(0) += 1;
@@ -363,7 +363,7 @@ fn main() {
     println!("grammar: {fwdata_path}");
     println!("wordforms input: {words_path} ({} words)", words.len());
     println!(
-        "pipeline: pg_parse::Morpher (Rust-HermitCrab-only, full-search) via hc_parse_batch, threads={threads}, step_cap={step_cap}, word_timeout_ms={word_timeout_ms}"
+        "pipeline: pg_parse::Morpher (Rust-HermitCrab-only, full-search) via hc_parse_batch, threads={threads}, work_cap={work_cap}, word_timeout_ms={word_timeout_ms}"
     );
     println!();
     println!("--- Coverage ---");
@@ -376,7 +376,7 @@ fn main() {
         "timed_out (word_timeout_ms exceeded): {timed_out} ({:.2}%)",
         pct(timed_out, words.len())
     );
-    println!("capped (step_cap hit, partial result kept): {capped}");
+    println!("capped (work_cap hit, partial result kept): {capped}");
     println!(
         "zero_analyses (valid shape, 0 confirmed analyses): {zero_analyses} ({:.2}%)",
         pct(zero_analyses, words.len())
@@ -437,7 +437,7 @@ fn main() {
     );
     println!(
         "distinct mpr bits ever observed (popcount of union): {}",
-        mpr_union.count_ones()
+        mpr_union.iter().count()
     );
     println!(
         "guessed analyses: {guessed_analyses} ({:.2}%)",

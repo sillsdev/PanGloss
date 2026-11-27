@@ -239,6 +239,8 @@ struct AnalysisJson {
     analyses: Vec<(String, String)>,
     structured: Vec<pg_parse::WordAnalysis>,
     capped: bool,
+    /// The per-word retained parser-state memory budget interrupted the search; `capped` is also true.
+    word_mem_capped: bool,
     invalid_shape: bool,
     timed_out: bool,
     guessed: bool,
@@ -252,6 +254,7 @@ grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
         analyses: a.analyses,
         structured: a.structured,
         capped: a.capped,
+        word_mem_capped: a.word_mem_capped,
         invalid_shape: a.invalid_shape,
         timed_out: a.timed_out,
         guessed: a.guessed,
@@ -263,8 +266,8 @@ grammar_api!(hc_analyze_word_json, WordRequest, |h, r| {
 // The runtime owns revision and canonical-root validation; the ABI only transports its result.
 grammar_api!(
     hc_generate_words_json,
-    pg_lexicon::GenerationRequest,
-    |h, r| h.runtime.generate_analysis(r)
+    pg_lexicon::HostGenerationRequest,
+    |h, r| h.runtime.generate_host_analysis(r)
 );
 
 #[no_mangle]

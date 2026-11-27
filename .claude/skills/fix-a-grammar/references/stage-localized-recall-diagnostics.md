@@ -49,7 +49,7 @@ require unrelated homophones, and do not accept an arbitrary reading as proof fo
 
 ## Bounded construction
 
-- Declare oracle step/time limits, per-operation time limits, state/arc ceilings, and a memory
+- Declare oracle work/time limits, per-operation time limits, state/arc ceilings, and a memory
   budget before running. A finite automaton operation is not necessarily operationally bounded.
   Return `inconclusive_budget_exceeded`, never `absent`, when any cap or watchdog fires.
 - Load the grammar and compile each stage once. Reuse those stage networks for every probe.

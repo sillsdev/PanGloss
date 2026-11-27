@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Synthetic. A metathesis rule with a MIDDLE context: the two switches t and k have one
+     segment, i, between them: t i k -> k i t. Synthesis leaves the middle segment in its slot.
+     Analysis does not: AnalysisMetathesisRuleSpec rebuilds its search pattern from the nodes before
+     the first switch group and after the last one only, so the middle context is dropped and the
+     search is for k immediately followed by t. Root tika therefore surfaces as kita, and kita is
+     never analysed back to it. -->
+<HermitCrabInput>
+  <Language>
+    <Name>MetathesisMiddleContext</Name>
+    <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem></PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions><SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition><SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition><SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition><SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable>
+    <NaturalClasses><SegmentNaturalClass id="ncA"><Name>a</Name><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="ncI"><Name>i</Name><Segment segment="cI" /></SegmentNaturalClass><SegmentNaturalClass id="ncT"><Name>t</Name><Segment segment="cT" /></SegmentNaturalClass><SegmentNaturalClass id="ncK"><Name>k</Name><Segment segment="cK" /></SegmentNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <MetathesisRule id="mt" leftSwitch="x2" rightSwitch="x0"><Name>mt</Name><StructuralDescription><PhoneticTemplate><PhoneticSequence><SimpleContext id="x0" naturalClass="ncT" /><SimpleContext id="x1" naturalClass="ncI" /><SimpleContext id="x2" naturalClass="ncK" /></PhoneticSequence></PhoneticTemplate></StructuralDescription></MetathesisRule>
+    </PhonologicalRuleDefinitions>
+    <Strata><Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" phonologicalRules="mt"><Name>Main</Name><LexicalEntries><LexicalEntry id="etika" partOfSpeech="posN"><Allomorphs><Allomorph id="atika"><PhoneticShape>tika</PhoneticShape></Allomorph></Allomorphs><MorphemeId>TIKA</MorphemeId><Gloss>tika</Gloss></LexicalEntry><LexicalEntry id="ekita" partOfSpeech="posN"><Allomorphs><Allomorph id="akita"><PhoneticShape>kita</PhoneticShape></Allomorph></Allomorphs><MorphemeId>KITA</MorphemeId><Gloss>kita</Gloss></LexicalEntry></LexicalEntries></Stratum></Strata>
+  </Language>
+</HermitCrabInput>

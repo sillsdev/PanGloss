@@ -1,81 +1,5 @@
 use super::*;
 
-fn test_orthographic_characters() -> BTreeSet<char> {
-    pg_grammar::load(TEST_XML)
-        .expect("test fixture loads")
-        .orthographic_characters()
-}
-
-#[test]
-fn tokenize_reconstructs_input_exactly() {
-    let text = "Mwana ali na nyumba, m'phole-m'phole.\n16 Iwe.";
-    let orthography = test_orthographic_characters();
-    let pieces = tokenize(text, &orthography);
-    let rejoined: String = pieces
-        .iter()
-        .map(|p| match p {
-            Piece::Word(s) => *s,
-            Piece::Other(s) => *s,
-        })
-        .collect();
-    assert_eq!(rejoined, text);
-}
-
-#[test]
-fn grammar_punctuation_and_combining_representation_stay_word_material() {
-    let orthography = test_orthographic_characters();
-    let pieces = tokenize("!e\u{301}", &orthography);
-    assert_eq!(pieces.len(), 1);
-    assert!(matches!(pieces[0], Piece::Word("!e\u{301}")));
-}
-
-#[test]
-fn undeclared_combining_mark_stays_attached_to_word_material() {
-    let orthography = test_orthographic_characters();
-    let pieces = tokenize("e\u{300}", &orthography);
-    assert_eq!(pieces.len(), 1);
-    assert!(matches!(pieces[0], Piece::Word("e\u{300}")));
-}
-
-#[test]
-fn ascii_apostrophe_remains_word_material() {
-    let orthography = test_orthographic_characters();
-    let pieces = tokenize("b'b", &orthography);
-    assert_eq!(pieces.len(), 1);
-    assert!(matches!(pieces[0], Piece::Word("b'b")));
-}
-
-#[test]
-fn whitespace_boundary_stays_a_text_separator() {
-    let orthography = test_orthographic_characters();
-    assert!(
-        orthography.contains(&' '),
-        "fixture exposes its authored space boundary"
-    );
-    let pieces = tokenize("hi there", &orthography);
-    assert!(matches!(
-        pieces.as_slice(),
-        [Piece::Word("hi"), Piece::Other(" "), Piece::Word("there")]
-    ));
-}
-
-#[test]
-fn whitespace_grapheme_with_known_mark_remains_other_text() {
-    let orthography = test_orthographic_characters();
-    assert!(orthography.contains(&'\u{301}'));
-    let pieces = tokenize(" \u{301}", &orthography);
-    assert!(matches!(pieces.as_slice(), [Piece::Other(" \u{301}")]));
-}
-
-#[test]
-fn tokenize_splits_words_from_punctuation_and_digits() {
-    // "hi" / ", 16" / "th" / "?": punctuation, whitespace, and digits merge into one "other" run; only word-vs-other transitions split pieces.
-    let orthography = test_orthographic_characters();
-    let pieces = tokenize("hi, 16th?", &orthography);
-    let kinds: Vec<bool> = pieces.iter().map(|p| matches!(p, Piece::Word(_))).collect();
-    assert_eq!(kinds, vec![true, false, true, false]);
-}
-
 // A small, hand-built, original HermitCrab XML fixture, just enough to exercise affix_glosses/build_realize_map; PanGlossGrammar's wasm-bindgen methods can't easily be driven from a plain cargo test, so these tests target the plain-Rust helpers directly.
 const TEST_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
@@ -185,4 +109,63 @@ fn build_realize_map_treats_blank_sidecar_the_same_as_none() {
     let with_none = build_realize_map(&g, None).expect("builds with None");
     let with_blank = build_realize_map(&g, Some("   \n")).expect("builds with blank sidecar");
     assert_eq!(with_none, with_blank);
+}
+
+#[test]
+fn without_work_limits_removes_the_cap_that_new_keeps() {
+    let limited = PanGlossGrammar::new(TEST_XML, None).expect("loads");
+    let unlimited = PanGlossGrammar::without_work_limits(TEST_XML, None).expect("loads");
+    assert_eq!(
+        limited.runtime.analysis_policy(),
+        pg_lexicon::AnalysisPolicy::browser_default()
+    );
+    assert_eq!(
+        unlimited.runtime.analysis_policy(),
+        pg_lexicon::AnalysisPolicy::without_limits()
+    );
+}
+
+#[test]
+fn wide_mpr_browser_payload_round_trips_supplied_generation() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let xml = fixture.load_grammar_xml();
+    let host = PanGlossGrammar::without_work_limits(&xml, None).unwrap();
+    let signature = host
+        .runtime
+        .catalog()
+        .signatures()
+        .iter()
+        .find(|s| s.mpr.iter().any(|m| m.id == "ic299"))
+        .unwrap()
+        .id
+        .clone();
+    host.runtime
+        .add(pg_lexicon::AddRequest {
+            stem: "pala".into(),
+            gloss: String::new(),
+            signatures: vec![signature],
+            expected_revision: None,
+        })
+        .unwrap();
+    let parsed = host.runtime.analyze_word("palasaaaaaai", None);
+    let analysis = parsed
+        .structured
+        .iter()
+        .find(|a| a.supplied_root.is_some())
+        .unwrap();
+    let json = serde_json::to_value(analysis).unwrap();
+    assert_eq!(
+        json["suppliedRoot"]["mpr"],
+        serde_json::json!({"version":1,"ids":[299]})
+    );
+    let decoded = serde_json::from_value(json).unwrap();
+    let generated = host
+        .runtime
+        .generate_host_analysis(pg_lexicon::GenerationRequest {
+            revision: parsed.revision,
+            analysis: decoded,
+        })
+        .unwrap();
+    assert_eq!(generated.words, vec!["palasaaaaaai"]);
 }

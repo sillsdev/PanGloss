@@ -1,7 +1,7 @@
 # 089 — Grammar health finishes when a stored-analysis comparison cannot
 
 Kind: diagnostic (no parse divergence)
-Status: implemented in Rust; no C# counterpart
+Status: permanent diagnostic by design; implemented in Rust, no C# counterpart
 
 ## Sites
 
@@ -12,7 +12,7 @@ Status: implemented in Rust; no C# counterpart
 ## Difference
 
 No parse path changes. `pg-parse` and `pg-rules` are untouched; each wordform is parsed with the
-same Morpher, step cap and work cap as before.
+same Morpher and work cap (now one cap, 100 times the old attempt cap) as before.
 
 Before this change, the comparison of [086](086-stored-analyses-lost-to-authored-phonology.md)
 returned an error as soon as one wordform reached the analysis cap, and `grammar-health` exited 1

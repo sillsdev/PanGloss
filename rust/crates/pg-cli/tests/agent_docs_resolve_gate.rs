@@ -50,13 +50,14 @@ const REPO_ROOTS: &[&str] = &[
     "docs/",
     ".claude/",
     "conformance-staging/",
+    "conformance/",
     "machine/",
     "samples/",
     "openspec/",
 ];
 
-/// Absent by design in a fresh worktree: the submodule is sparse to `machine/conformance/` and `samples/` is gitignored corpus data (docs/design/conformance-submodule.md).
-const ABSENT_BY_DESIGN: &[&str] = &["machine/src", "samples/"];
+/// Absent by design in a fresh worktree: `pg.ps1` fetches `conformance/` but does not init `machine/` (the oracle's source), and `samples/` is gitignored corpus data (docs/design/conformance-suite.md).
+const ABSENT_BY_DESIGN: &[&str] = &["machine/", "samples/"];
 
 fn checkable(token: &str) -> bool {
     REPO_ROOTS.iter().any(|r| token.starts_with(r))
@@ -78,7 +79,17 @@ fn every_path_named_in_an_agent_doc_exists() {
             if !checkable(&token) {
                 continue;
             }
-            if !root.join(&token).exists() {
+            // `conformance/` is the suite clone, or the directory HC_CONFORMANCE_SUITE names instead.
+            let resolved = match (
+                token.strip_prefix("conformance/"),
+                std::env::var_os("HC_CONFORMANCE_SUITE"),
+            ) {
+                (Some(rest), Some(dir)) if !dir.is_empty() => {
+                    std::path::PathBuf::from(dir).join(rest)
+                }
+                _ => root.join(&token),
+            };
+            if !resolved.exists() {
                 dead.push(format!("{}: `{token}`", doc.display()));
             }
         }
@@ -105,6 +116,14 @@ fn the_gate_can_actually_see_a_dead_path() {
     assert!(!checkable("C:\\Users\\x\\y.exe"));
     assert!(!checkable("conformance-staging/**"));
     assert!(checkable("rust/tools/pg.ps1"));
+    assert!(
+        checkable("conformance/PROTOCOL.md"),
+        "the suite clone is a repo path"
+    );
+    assert!(
+        !checkable("machine/src/SIL.Machine"),
+        "the oracle's source is not checked out by pg.ps1"
+    );
     // The four shapes that made the first version of this gate useless.
     assert!(
         !checkable("sillsdev/machine"),
@@ -114,6 +133,6 @@ fn the_gate_can_actually_see_a_dead_path() {
         !checkable("perf/pr494-priority-union"),
         "a git branch is not a path"
     );
-    assert!(!checkable("languages/bantu-verbal"), "submodule-relative");
+    assert!(!checkable("languages/bantu-verbal"), "suite-relative");
     assert!(!checkable("recipes/schema.json"), "skill-relative");
 }

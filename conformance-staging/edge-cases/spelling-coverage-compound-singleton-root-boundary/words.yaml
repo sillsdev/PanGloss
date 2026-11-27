@@ -1,0 +1,247 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; suite a0094a3f97ddaa4a4dc4c4718ba6ea44869e254d.
+language: SpellingCompoundSingletonRootBoundary
+requires: [morpher-settings]
+morpher:
+  MaxRoots: 2
+fieldworks_producible: false
+fieldworks_producible_notes: "row 29 of fieldworks-cannot-say.md: a root spells + between two of its own segments, which HCLoader does not write"
+words:
+  - word: "a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a"
+        rules: []
+  - word: "p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p"
+        rules: []
+  - word: "aa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a+?a"
+        rules: [cr1]
+      - signature: "X|a+?a"
+        rules: [cr2]
+  - word: "ap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|a+?p"
+        rules: [cr1]
+      - signature: "X+Y|a+?p"
+        rules: [cr2]
+  - word: "pa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+X|p+?a"
+        rules: [cr1]
+      - signature: "Y+X|p+?a"
+        rules: [cr2]
+  - word: "pp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p+?p"
+        rules: [cr1]
+      - signature: "Y|p+?p"
+        rules: [cr2]
+  - word: "ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t+?a"
+        rules: []
+  - word: "sa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X|sa"
+        rules: [PRE]
+  - word: "sp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y|sp"
+        rules: [PRE]
+  - word: "ata"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr1]
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr2]
+  - word: "asa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE|a+?sa"
+        rules: [PRE, cr2]
+  - word: "asp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+PRE+Y|a+?sp"
+        rules: [PRE, cr2]
+  - word: "a+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X|a+?a"
+        rules: [cr1]
+      - signature: "X|a+?a"
+        rules: [cr2]
+  - word: "a+p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Y|a+?p"
+        rules: [cr1]
+      - signature: "X+Y|a+?p"
+        rules: [cr2]
+  - word: "pta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr1]
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr2]
+  - word: "psa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE+X|p+?sa"
+        rules: [PRE, cr2]
+  - word: "psp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+PRE|p+?sp"
+        rules: [PRE, cr2]
+  - word: "p+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+X|p+?a"
+        rules: [cr1]
+      - signature: "Y+X|p+?a"
+        rules: [cr2]
+  - word: "p+p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y|p+?p"
+        rules: [cr1]
+      - signature: "Y|p+?p"
+        rules: [cr2]
+  - word: "taa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr1]
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr2]
+  - word: "tap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr1]
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr2]
+  - word: "t+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t+?a"
+        rules: []
+  - word: "saa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X|sa+?a"
+        rules: [PRE, cr1]
+      - signature: "PRE+X|sa+?a"
+        rules: [PRE, cr1]
+      - signature: "PRE+X|sa+?a"
+        rules: [PRE, cr2]
+  - word: "sap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+X+Y|sa+?p"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Y|sa+?p"
+        rules: [PRE, cr1]
+      - signature: "PRE+X+Y|sa+?p"
+        rules: [PRE, cr2]
+  - word: "spa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y+X|sp+?a"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y+X|sp+?a"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y+X|sp+?a"
+        rules: [PRE, cr2]
+  - word: "spp"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Y|sp+?p"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y|sp+?p"
+        rules: [PRE, cr1]
+      - signature: "PRE+Y|sp+?p"
+        rules: [PRE, cr2]
+  - word: "sta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "PRE+Z|st+?a"
+        rules: [PRE]
+  - word: "at+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr1]
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr2]
+  - word: "a+ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr1]
+      - signature: "X+Z|a+?t+?a"
+        rules: [cr2]
+  - word: "pt+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr1]
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr2]
+  - word: "p+ta"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr1]
+      - signature: "Y+Z|p+?t+?a"
+        rules: [cr2]
+  - word: "tata"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z|t+?a+?t+?a"
+        rules: [cr1]
+      - signature: "Z|t+?a+?t+?a"
+        rules: [cr2]
+  - word: "ta+a"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr1]
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr2]
+  - word: "ta+p"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr1]
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr2]
+  - word: "t+aa"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr1]
+      - signature: "Z+X|t+?a+?a"
+        rules: [cr2]
+  - word: "t+ap"
+    note: Pinned C# occurrence and rule-trace multiset.
+    parses:
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr1]
+      - signature: "Z+Y|t+?a+?p"
+        rules: [cr2]

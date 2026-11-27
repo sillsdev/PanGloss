@@ -29,6 +29,7 @@ Language Pack. Build reports and word-assessment reports are separate immutable 
 | `pg-fst` | pattern compile, FSA traversal, registers (CSR arc storage) |
 | `pg-rules` | phonological + morphological rules, templates, strata, cascades |
 | `pg-parse` | Morpher pipeline: segment → analyze → lookup → synthesize → dedup |
+| `pg-cost` | Deterministic parse cost: fixed weights over work units, bytes allocated and allocator calls |
 | `pg-ffi` | C ABI (`cdylib`) with `catch_unwind` boundary |
 | `pg-cli` | `pangloss` binary: batch, parity-diff, bench (mirrors C# `hc batch` TSV) |
 | `pg-snapshot` | PanGloss's owned, versioned JSON project-snapshot format (serde model + IO + validation) |
@@ -83,6 +84,64 @@ On a machine running many parallel worktrees (e.g. `.claude/worktrees/*`), prefe
 `rust/tools/build.ps1` and `rust/tools/test.ps1` over calling `cargo` directly: they redirect
 `CARGO_TARGET_DIR` off the system drive, wire in `sccache`/`cargo-nextest` when installed, and
 gate concurrent builds across worktrees. See the doc comment at the top of each script.
+
+## Testing
+
+`rust/tools/pg.ps1 -Mode test` runs the suite with [cargo-nextest](https://nexte.st) when it is
+installed, then `cargo test --doc` (nextest does not run doctests). Without nextest it falls back to
+plain `cargo test` and says so, so nobody is blocked.
+
+Install (CI pins the same version; the prebuilt binary avoids a compile):
+
+```
+cargo install cargo-nextest --version 0.9.100 --locked
+# or, no compile (Linux):  curl -LsSf https://get.nexte.st/0.9.100/linux | tar zxf - -C ~/.cargo/bin
+```
+
+Profiles live in `rust/.config/nextest.toml`:
+
+| Profile | Use | Behaviour |
+|---|---|---|
+| `default` | local runs | all failures reported; a test is killed after 10 min (60s period x 10); `pg-worker-containment` tests run one at a time |
+| `ci` | GitHub Actions | `default` plus a JUnit report (`target/nextest/ci/junit.xml`), one process per CPU, no retries |
+| `census` | `--profile census` | 30 min ceiling for the deliberately long measurement tests |
+
+Rust CI and Release share an explicit `FST build + test (required)` job in
+`.github/workflows/rust-gates.yml`. It runs `pg-foma`, `pg-foma-runtime`, `pg-foma-backend`
+and `pg-cli` with `pg-cli/foma-tools`, including doctests, against both synthetic fixture roots.
+This reaches the backend scoreboard, faithfulness ratchet, capability and seam gates even though
+the three FST crates are outside `default-members`. Failures fail the workflow; the job uploads
+its own `fst-nextest-junit` artifact. These are finite regression gates, not a claim that every
+production grammar has zero missing or extra analyses.
+
+The repository currently has no server-side branch protection, required-check setting or rulesets.
+The `(required)` label records the merge convention: every check must be green before merging.
+An FST test failure fails the Rust CI workflow conclusion; the label does not configure server enforcement.
+
+Ordinary CI selects the job's tests when Rust sources/build inputs, synthetic fixtures, their
+suite pin, the Machine pin, or gate workflows/actions change. It also selects checked repository
+inputs: `docs/` (including `docs/research/subrecipes/` and divergence evidence), `CLAUDE.md`,
+`.claude/`, `openspec/`, `samples/` and `tools/underdefined-identity-capture/`. These inputs are
+read, included at compile time or checked for path existence by the selected tests. Release always
+runs them, and an unavailable comparison base conservatively runs them. A measured four-job cold
+managed run took 12m33s (6m13s compilation, 5m58s test execution), so documentation-only edits
+outside these inputs, such as the root `README.md`, can skip these tests.
+
+Concurrency is capped at 6 test processes (override: `-TestThreads N` or `PANGLOSS_MAX_TEST_THREADS`).
+Ignored tests: `-- --ignored` and `-- --include-ignored` are translated to nextest's
+`--run-ignored ignored-only|all`; `-Mode corpus-test` always runs them.
+
+Rerun one test:
+
+```
+rust\tools\pg.ps1 -Mode test -Package pg-foma -Filter f5_diacritics
+rust\tools\pg.ps1 -Mode test -Package pg-foma-backend -TestTarget backend_scoreboard_gate
+rust\tools\pg.ps1 -Mode test -NoNextest        # force plain cargo test
+```
+
+Each nextest test is its own process, so statics and `OnceLock` caches are not shared between tests.
+A failure that appears only under nextest is a test relying on cross-test state; give the test its
+own setup, or add it to a `max-threads = 1` test group in the config.
 
 ## Status
 

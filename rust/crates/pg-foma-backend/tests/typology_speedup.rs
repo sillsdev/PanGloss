@@ -902,6 +902,7 @@ mod tests {
     #[test]
     fn refusal_diagnostics_produce_named_rows_not_zero_not_omitted() {
         let diags = vec![CapabilityDiagnostic {
+            refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
             predicate: "mpr-group.overwrite-output",
             construct: "mpr-group".to_owned(),
             witness: "test refusal witness".to_owned(),
@@ -950,8 +951,8 @@ mod tests {
         let fixtures = discover();
         assert!(
             !fixtures.is_empty(),
-            "no conformance fixtures discovered -- check the `machine` submodule is initialized \
-             (`git submodule update --init machine`) and conformance-staging/ exists"
+            "no conformance fixtures discovered -- check the suite is fetched \
+             (`pwsh rust/tools/conformance.ps1`) and conformance-staging/ exists"
         );
 
         let floor_ns = measure_timer_floor_ns();

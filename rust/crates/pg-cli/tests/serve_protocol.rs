@@ -118,7 +118,9 @@ fn assert_warm_equals_cold(
     details: bool,
     extra: &[&str],
 ) -> usize {
-    let response = server.parse(word, word, details);
+    let response = server.ask(
+        json!({"id": word, "op": "parse", "word": word, "traceDetails": details, "ruleTrace": true}),
+    );
     assert_eq!(response["type"], "result", "{word}: {response}");
     assert_eq!(response["id"], word);
     let (stdout, code) = cold_raw(project, word, details, extra);
@@ -144,10 +146,10 @@ fn assert_warm_equals_cold(
 }
 
 #[test]
-fn ready_line_announces_protocol_one_and_load_time() {
+fn ready_line_announces_protocol_two_and_load_time() {
     let (server, ready) = Server::start(&data("trace-family.xml"), &[]);
     assert_eq!(ready["type"], "ready");
-    assert_eq!(ready["protocol"], 1);
+    assert_eq!(ready["protocol"], 2);
     assert!(ready["loadMs"].is_u64(), "{ready}");
     assert!(ready.get("timing").is_none());
     assert!(server.finish().success());
@@ -204,22 +206,135 @@ fn warm_plain_mode_equals_cold_stdout_exactly() {
     assert!(server.finish().success());
 }
 
+/// Plain mode builds and sends the rule-trace tree only when `ruleTrace` is true.
 #[test]
-fn an_incomplete_parse_is_a_result_with_the_cold_exit_code() {
+fn plain_mode_carries_the_rule_trace_only_when_asked() {
     let project = data("trace-family.xml");
-    let (mut server, _) = Server::start(&project, &["--step-cap", "3"]);
-    assert_warm_equals_cold(&mut server, &project, "zodut", true, &["--step-cap", "3"]);
-    let r = server.parse("p", "zodut", false);
-    assert_eq!(r["type"], "result", "{r}");
-    assert_eq!(r["exitCode"], 1);
-    assert_warm_equals_cold(&mut server, &project, "zodut", false, &["--step-cap", "3"]);
+    let (mut server, _) = Server::start(&project, &[]);
+    for word in ["zodut", "vem", "xqzzkt"] {
+        let (cold, _) = cold_raw(&project, word, false, &[]);
+        let head = format!("{}\n", cold.lines().next().unwrap());
+        for request in [
+            json!({"id": "d", "op": "parse", "word": word}),
+            json!({"id": "d", "op": "parse", "word": word, "traceDetails": false, "ruleTrace": false}),
+        ] {
+            let r = server.ask(request);
+            assert_eq!(r["result"], Value::String(head.clone()), "{word}: {r}");
+        }
+        let r = server.ask(json!({"id": "t", "op": "parse", "word": word, "ruleTrace": true}));
+        assert_eq!(r["result"], Value::String(cold.clone()), "{word}: {r}");
+    }
+    let r = server.ask(json!({"id": "t", "op": "parse", "word": "vem", "ruleTrace": 1}));
+    assert_eq!(r["code"], "bad_request", "{r}");
+    let r = server.ask(json!({"id": "t", "op": "parse", "word": "vem", "traceDetails": true}));
+    assert!(r["result"].is_object(), "{r}");
     assert!(server.finish().success());
 }
 
-/// Both modes carry the word's `steps` and `workSteps` beside `result`, equal to the trace document's own search counts.
+fn staged(name: &str) -> String {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/languages")
+        .join(name)
+        .join("grammar.xml")
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Batch's `work_steps` for one word under the given extra batch flags.
+fn batch_work_steps(project: &str, word: &str, extra: &[&str]) -> (String, u64) {
+    let dir = std::env::temp_dir().join(format!("pg-serve-ws-{}-{word}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let words = dir.join("w.txt");
+    let out = dir.join("o.tsv");
+    std::fs::write(&words, format!("{word}\n")).unwrap();
+    let status = Command::new(BIN)
+        .args(["batch", project])
+        .arg(&words)
+        .arg(&out)
+        .args(["--work-columns"])
+        .args(extra)
+        .output()
+        .unwrap()
+        .status;
+    assert!(status.success());
+    let text = std::fs::read_to_string(&out).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let cols: Vec<&str> = text.lines().next().unwrap().split('\t').collect();
+    (cols[3].to_string(), cols[5].parse().unwrap())
+}
+
+/// Plain `workSteps` is the untraced count batch reports, whatever `ruleTrace` would give.
+#[test]
+fn plain_work_steps_equal_batch_work_steps() {
+    for (project, words) in [
+        (data("trace-family.xml"), vec!["zodut", "vem", "xqzzkt"]),
+        (
+            staged("prefixal-discontinuous-slot-dependency"),
+            vec!["niyidtan"],
+        ),
+    ] {
+        let (mut server, _) = Server::start(&project, &[]);
+        for word in words {
+            let r = server.parse("p", word, false);
+            let (_, steps) = batch_work_steps(&project, word, &[]);
+            assert_eq!(r["workSteps"], steps, "{word}: {r}");
+        }
+        assert!(server.finish().success());
+    }
+}
+
+/// Near `--work-cap` plain (untraced, as batch) and `ruleTrace:true` can disagree: niyidtan caps plain at 300 but analyses traced.
+#[test]
+fn near_the_work_cap_plain_follows_batch_not_the_traced_parse() {
+    let project = staged("prefixal-discontinuous-slot-dependency");
+    let (mut server, _) = Server::start(&project, &["--work-cap", "300"]);
+    let plain = server.parse("p", "niyidtan", false);
+    let traced =
+        server.ask(json!({"id": "t", "op": "parse", "word": "niyidtan", "ruleTrace": true}));
+    let (batch_status, _) = batch_work_steps(&project, "niyidtan", &["--work-cap", "300"]);
+    assert_eq!(plain["status"], "CAP", "{plain}");
+    assert_eq!(batch_status, "CAP");
+    assert_eq!(traced["status"], "ok", "{traced}");
+    assert!(server.finish().success());
+}
+
+#[test]
+fn describe_declares_the_parse_request_fields() {
+    let output = Command::new(BIN).arg("--describe").output().unwrap();
+    let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let parse = &doc["interfaces"]["serveOps"]["parse"];
+    assert_eq!(parse["defaultRuleTrace"], false, "{parse}");
+    let fields: Vec<&str> = parse["request"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(fields.contains(&"ruleTrace") && fields.contains(&"traceDetails"));
+}
+
+#[test]
+fn an_incomplete_parse_is_a_result_with_the_cold_exit_code() {
+    let project = data("trace-family.xml");
+    let (mut server, _) = Server::start(&project, &["--work-cap", "100"]);
+    assert_warm_equals_cold(&mut server, &project, "zodut", true, &["--work-cap", "100"]);
+    let r = server.parse("p", "zodut", false);
+    assert_eq!(r["type"], "result", "{r}");
+    assert_eq!(r["exitCode"], 1);
+    assert_warm_equals_cold(
+        &mut server,
+        &project,
+        "zodut",
+        false,
+        &["--work-cap", "100"],
+    );
+    assert!(server.finish().success());
+}
+
+/// Both modes carry the word's `workSteps` beside `result`, equal to the trace document's own search counts.
 #[test]
 fn results_carry_the_words_search_counts_in_both_modes() {
-    for extra in [&[][..], &["--step-cap", "3"][..]] {
+    for extra in [&[][..], &["--work-cap", "100"][..]] {
         let (mut server, _) = Server::start(&data("trace-family.xml"), extra);
         for word in ["zodut", "vem", "xqzzkt"] {
             let detailed = server.parse("d", word, true);
@@ -229,10 +344,21 @@ fn results_carry_the_words_search_counts_in_both_modes() {
                 search["workSteps"].as_u64().unwrap() > 0,
                 "{word}: {search}"
             );
-            for r in [&detailed, &plain] {
-                assert_eq!(r["steps"], search["steps"], "{word} {extra:?}: {r}");
+            let traced = server.ask(
+                json!({"id": "r", "op": "parse", "word": word, "traceDetails": false, "ruleTrace": true}),
+            );
+            for r in [&detailed, &plain, &traced] {
+                assert!(r.get("steps").is_none(), "{word} {extra:?}: {r}");
+                assert!(search.get("steps").is_none(), "{word} {extra:?}: {search}");
+            }
+            for r in [&detailed, &traced] {
                 assert_eq!(r["workSteps"], search["workSteps"], "{word} {extra:?}: {r}");
             }
+            // Without a trace the count is the engine's own (batch's `work_steps`); trace nodes add steps.
+            assert!(
+                plain["workSteps"].as_u64() <= search["workSteps"].as_u64(),
+                "{word} {extra:?}: {plain}"
+            );
         }
         assert!(server.finish().success());
     }
@@ -321,6 +447,16 @@ fn bad_requests_get_an_error_and_the_server_keeps_running() {
     );
     assert_eq!(r["id"], "u");
 
+    // Removed ops (#544) answer like any unknown op; `pangloss grammar-health` replaces them.
+    for op in ["health", "shadowedAllomorphs"] {
+        let r = server.ask(json!({"id": op, "op": op}));
+        assert_eq!(
+            (r["type"].as_str(), r["code"].as_str()),
+            (Some("error"), Some("unknown_op")),
+            "{op}"
+        );
+    }
+
     let r = server.ask(json!({"id": "w", "op": "parse"}));
     assert_eq!(r["code"], "bad_request");
     assert_eq!(r["id"], "w");
@@ -396,9 +532,9 @@ fn timing_flag_adds_phase_timings() {
 fn describe_publishes_the_serve_protocol_version() {
     let output = Command::new(BIN).arg("--describe").output().unwrap();
     let doc: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(doc["interfaces"]["serveProtocol"], 1);
+    assert_eq!(doc["interfaces"]["serveProtocol"], 2);
     assert_eq!(doc["schema_version"], 1);
-    assert_eq!(doc["interfaces"]["batchTsv"], 2);
+    assert_eq!(doc["interfaces"]["batchTsv"], 5);
     assert!(doc["commands"]
         .as_array()
         .unwrap()
@@ -415,4 +551,34 @@ fn describe_publishes_the_serve_protocol_version() {
         .unwrap()
         .iter()
         .any(|f| f["name"] == "--work-columns"));
+}
+
+#[test]
+fn result_status_distinguishes_work_limit_from_timeout_in_both_modes() {
+    for (args, expected) in [
+        (&[][..], "ok"),
+        (&["--work-cap", "1"][..], "CAP"),
+        (&["--work-cap", "100"][..], "CAP"),
+        (&["--word-timeout-ms", "0"][..], "TIMEOUT"),
+    ] {
+        let (mut server, _) = Server::start(&data("trace-family.xml"), args);
+        for details in [false, true] {
+            let response = server.parse("word", "zodut", details);
+            assert_eq!(response["type"], "result");
+            assert_eq!(response["status"], expected, "{args:?}: {response}");
+            assert!(response.get("steps").is_none(), "{response}");
+            assert!(response["workSteps"].is_u64());
+            if let Some(cap) = args.iter().position(|a| *a == "--work-cap") {
+                let cap: u64 = args[cap + 1].parse().unwrap();
+                let work = response["workSteps"].as_u64().unwrap();
+                let reserve = if cap >= 16 { cap / 16 } else { 0 };
+                assert!(
+                    (cap..=cap + reserve).contains(&work),
+                    "work {work} outside {cap}..={}",
+                    cap + reserve
+                );
+            }
+        }
+        assert!(server.finish().success());
+    }
 }

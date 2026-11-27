@@ -42,9 +42,14 @@ fn test_files() -> Vec<PathBuf> {
 
 /// The fixture layout the v1 -> v2 migration retired; it has never existed in this tree.
 fn names_the_retired_v1_root(text: &str) -> bool {
+    // The real `../../../conformance/` ends with the retired spelling, so a match counts only with no `/` or `.` before it.
+    const RETIRED_RELATIVE: &str = "../../conformance/";
     text.lines().any(|line| {
         !line.trim_start().starts_with("//")
-            && (line.contains("rust/conformance/") || line.contains("../../conformance/"))
+            && (line.contains("rust/conformance/")
+                || line
+                    .match_indices(RETIRED_RELATIVE)
+                    .any(|(at, _)| !line[..at].ends_with(['/', '.'])))
     })
 }
 
@@ -69,7 +74,7 @@ fn bakes_in_a_fixture_path(text: &str) -> bool {
         .chain(compact.match_indices("include_bytes!"))
         .any(|(at, _)| {
             let window = &compact[at..compact.len().min(at + 300)];
-            window.contains("conformance-staging/") || window.contains("machine/conformance/")
+            window.contains("conformance-staging/") || window.contains("../conformance/")
         })
 }
 
@@ -149,7 +154,7 @@ fn the_predicates_catch_the_real_shapes_and_spare_the_legitimate_ones() {
         "skipping: rust/conformance/rewrite/merge absent"
     ));
     assert!(!names_the_retired_v1_root(
-        r#".join("../../../machine/conformance/edge-cases/loader-isactive")"#
+        r#".join("../../../conformance/edge-cases/loader-isactive")"#
     ));
     assert!(!names_the_retired_v1_root(
         "//! Historical fixture citation: rust/conformance/realizational/"
@@ -176,7 +181,7 @@ fn the_predicates_catch_the_real_shapes_and_spare_the_legitimate_ones() {
          \"/../../../conformance-staging/edge-cases/template-category-sharing/grammar.xml\"\n));"
     ));
     assert!(bakes_in_a_fixture_path(
-        "load(include_str!(\n  \"../../../../machine/conformance/edge-cases/strrep-identity/grammar.xml\"\n))"
+        "load(include_str!(\n  \"../../../../conformance/edge-cases/strrep-identity/grammar.xml\"\n))"
     ));
     assert!(!bakes_in_a_fixture_path(
         r#"const HELP: &str = include_str!("../docs/help.txt");"#
