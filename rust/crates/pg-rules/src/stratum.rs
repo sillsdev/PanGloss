@@ -2574,7 +2574,8 @@ pub fn synthesize_phonological_stratum_traced(
     let rule_parent = input.trace.unwrap_or(parent);
     let mut visited_prule_ids = Vec::new();
     let mut applied_prule_ids = Vec::new();
-    let mut rewrite_scratch = None;
+    // Owned here and passed to every rewrite rule of this word: it holds the working copy of `input.shape` while no rule rewrites. This loop clears it whenever the shape changes or the next rule's table differs.
+    let mut rewrite_carry = rewrite::RewriteCarry::default();
 
     for &pid in &sd.prules {
         if budget.synthesis_over_budget() {
@@ -2595,6 +2596,11 @@ pub fn synthesize_phonological_stratum_traced(
         let mut anchor_keys = None;
         let result = match &g.prules[pid.0 as usize] {
             pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
+                let table = crate::cache::owning_table_for_prule(g, pid)
+                    .unwrap_or(pg_grammar_model::model::TableId(0));
+                if rewrite_carry.table().is_some_and(|held| held != table) {
+                    rewrite_carry.invalidate();
+                }
                 match rewrite::synthesize_with_mpr_cached_traced_stats(
                     g,
                     pid,
@@ -2604,7 +2610,7 @@ pub fn synthesize_phonological_stratum_traced(
                     trace,
                     rule_parent,
                     prule_stats,
-                    &mut rewrite_scratch,
+                    &mut rewrite_carry,
                 ) {
                     Some(rewritten) => {
                         anchor_keys = rewritten.anchor_keys;
@@ -2635,7 +2641,7 @@ pub fn synthesize_phonological_stratum_traced(
             ctx.record_outcome(result.len() as u64);
         }
         if let Some(shape) = result.into_iter().next() {
-            rewrite_scratch = None;
+            rewrite_carry.invalidate();
             applied_prule_ids.push(pid);
             if let Some(keys) = anchor_keys {
                 input.note_rewrite_spans(&shape, &keys, pid);

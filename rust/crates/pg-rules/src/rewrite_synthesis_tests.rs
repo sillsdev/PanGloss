@@ -463,56 +463,78 @@ fn env_input_borrows_without_defaults_and_copies_with_them() {
 }
 
 #[test]
-fn a_carried_scratch_gives_the_fresh_result_and_survives_only_a_rule_that_does_not_apply() {
+fn a_carried_working_shape_gives_the_fresh_result_for_every_rule_that_follows() {
     let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
         .load_grammar_xml();
     let g = pg_grammar::load(&xml).unwrap();
-    let pg_grammar_model::model::PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
-        panic!("rewrite rule")
-    };
     let cache = crate::cache::RuleCache::build(&g);
-    let run = |input: &Shape, scratch: &mut Option<SynthesisScratch>| {
+    let rewrites: Vec<(usize, &RewriteRuleDef)> = g
+        .prules
+        .iter()
+        .enumerate()
+        .filter_map(|(i, r)| match r {
+            pg_grammar_model::model::PhonRuleDef::Rewrite(rule) => Some((i, rule)),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        rewrites.len() >= 2,
+        "the pairs below need two rewrite rules"
+    );
+    let run = |index: usize, rule: &RewriteRuleDef, input: &Shape, carry: &mut RewriteCarry| {
+        let pid = PRuleId(index as u32);
+        let table = crate::cache::owning_table_for_prule(&g, pid).unwrap_or(TableId(0));
+        // The caller's duty, as in the stratum loop: drop the carry when the table changes.
+        if carry.table().is_some_and(|held| held != table) {
+            carry.invalidate();
+        }
         synthesize_with_mpr_cached_stats(
             &g,
-            PRuleId(0),
+            pid,
             rule,
             input,
             &FeatureStruct::EMPTY,
             &MprSet::EMPTY,
             &cache,
             None,
-            scratch,
+            carry,
         )
         .map(|rewritten| (rewritten.shape, rewritten.anchor_keys))
     };
-    let (mut applied, mut skipped) = (0, 0);
-    for word in ["uuu", "aaa", "iii", "yyy", "aua", "u"] {
+    // First rule does not apply and leaves its working copy; the second, on the same input, must give what a fresh call gives. That includes a second rule that applies, which mutates the carried copy.
+    let (mut skipped_then_applied, mut skipped_then_skipped) = (0, 0);
+    for word in ["uuu", "aaa", "iii", "yyy", "aua", "uau", "u", "uu"] {
         let Ok(input) = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], word)
         else {
             continue;
         };
-        let fresh = run(&input, &mut None);
-        let mut scratch = None;
-        for round in 0..2 {
-            assert_eq!(run(&input, &mut scratch), fresh, "{word}, round {round}");
-            assert_eq!(scratch.is_none(), fresh.is_some(), "{word}, round {round}");
-            if fresh.is_none() {
-                assert!(
-                    scratch.as_ref().unwrap().segs.is_some(),
-                    "{word}: the segment list is kept for the next rule"
+        for &(first_index, first) in &rewrites {
+            for &(second_index, second) in &rewrites {
+                let mut carry = RewriteCarry::default();
+                if run(first_index, first, &input, &mut carry).is_some() {
+                    continue;
+                }
+                let fresh = run(second_index, second, &input, &mut RewriteCarry::default());
+                assert_eq!(
+                    run(second_index, second, &input, &mut carry),
+                    fresh,
+                    "{word}: rule {first_index} skipped, then rule {second_index}"
                 );
+                if fresh.is_some() {
+                    skipped_then_applied += 1;
+                    assert!(
+                        carry.table().is_none(),
+                        "{word}: a rule that rewrote empties the carry"
+                    );
+                } else {
+                    skipped_then_skipped += 1;
+                    assert!(carry.table().is_some(), "{word}: a skipping rule keeps it");
+                }
             }
         }
-        if fresh.is_some() {
-            applied += 1;
-        } else {
-            skipped += 1;
-        }
-        let other = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], "uu").unwrap();
-        assert_eq!(run(&other, &mut scratch), run(&other, &mut None), "{word}");
     }
     assert!(
-        applied > 0 && skipped > 0,
-        "both outcomes occur: {applied} applied, {skipped} skipped"
+        skipped_then_applied > 0 && skipped_then_skipped > 0,
+        "both follow-ups occur: {skipped_then_applied} applied, {skipped_then_skipped} skipped"
     );
 }

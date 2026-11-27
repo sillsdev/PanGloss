@@ -1869,33 +1869,66 @@ impl SynthesisPrep {
 /// The segment list and node map `MutShape::segs(true)` returns.
 type SegmentList = (Vec<Segment>, Vec<usize>);
 
-/// The working copy of one shape, and its segment list once built, that a rule loop keeps while consecutive rules leave the shape alone. It holds a reference to the shape it was built from, so an allocation match with the next rule's input shows the contents equal; a rule that rewrites drops it.
-pub(crate) struct SynthesisScratch {
+/// The working copy of one word's shape, and its segment list once built, that a phonological rule loop threads from one rule call to the next while no rule rewrites.
+///
+/// There is no key. The caller owns the value and passes it to each rule call of one word; validity follows from the caller's control flow:
+/// - The value holds the shape the loop currently has. A rule call that rewrites mutates the working copy and empties the carry itself.
+/// - The caller must empty it with [`RewriteCarry::invalidate`] whenever it changes the word's shape by any other means (a metathesis rule applying, a different word), and when the next rule's character table differs from the one the carry was built under ([`RewriteCarry::table`]).
+/// - Callers outside the stratum loop pass `&mut RewriteCarry::default()`, which recomputes everything.
+///
+/// One slot, one shape copy at most, dropped with the loop.
+#[derive(Default)]
+pub(crate) struct RewriteCarry {
+    held: Option<CarriedShape>,
+}
+
+struct CarriedShape {
     table: TableId,
-    shape: Shape,
     ms: MutShape,
     segs: Option<SegmentList>,
 }
 
-/// The scratch for `shape` under `table`: the carried one when it was built from this very shape allocation and table, else a fresh one.
-fn scratch_for<'s>(
-    scratch: &'s mut Option<SynthesisScratch>,
-    g: &Grammar,
-    table_id: TableId,
-    shape: &Shape,
-) -> &'s mut SynthesisScratch {
-    let carried = scratch
-        .as_ref()
-        .is_some_and(|s| s.table == table_id && s.shape.same_allocation(shape));
-    if !carried {
-        *scratch = Some(SynthesisScratch {
+impl RewriteCarry {
+    /// Forget the working copy: the word's shape no longer matches it.
+    pub(crate) fn invalidate(&mut self) {
+        self.held = None;
+    }
+
+    /// The character table the carried copy was built under, if any.
+    pub(crate) fn table(&self) -> Option<TableId> {
+        self.held.as_ref().map(|h| h.table)
+    }
+
+    /// The carried copy, or a fresh one built from `shape` under `table_id` when the carry is empty.
+    fn working(&mut self, g: &Grammar, table_id: TableId, shape: &Shape) -> &mut CarriedShape {
+        let held = self.held.get_or_insert_with(|| CarriedShape {
             table: table_id,
-            shape: shape.clone(),
             ms: MutShape::for_rewrite(g, &g.char_tables[table_id.0 as usize], shape),
             segs: None,
         });
+        debug_assert_eq!(
+            held.table, table_id,
+            "the caller drops the carry when the table changes"
+        );
+        held
     }
-    scratch.as_mut().expect("scratch was just filled")
+}
+
+/// Debug check on a kept carry after a call that did not rewrite: the working copy still describes `shape` and the segment list still describes the working copy.
+fn debug_check_carry(held: &CarriedShape, shape: &Shape) {
+    debug_assert!(
+        held.ms.to_shape() == *shape,
+        "a carried working shape no longer equals the word's shape"
+    );
+    if let Some((segs, node_of)) = &held.segs {
+        let (fresh, fresh_node_of) = held.ms.segs(true);
+        debug_assert!(
+            *node_of == fresh_node_of
+                && segs.len() == fresh.len()
+                && segs.iter().zip(&fresh).all(|(a, b)| a.lanes == b.lanes),
+            "a carried segment list no longer matches the working shape"
+        );
+    }
 }
 
 struct RewriteGateObserver<'a> {
@@ -2355,13 +2388,23 @@ pub(crate) fn synthesize_with_mpr_cached(
     mpr: &MprSet,
     cache: &crate::cache::RuleCache,
 ) -> Vec<Shape> {
-    synthesize_with_mpr_cached_stats(g, pid, rule, input, syn_fs, mpr, cache, None, &mut None)
-        .map(|rewritten| rewritten.shape)
-        .into_iter()
-        .collect()
+    synthesize_with_mpr_cached_stats(
+        g,
+        pid,
+        rule,
+        input,
+        syn_fs,
+        mpr,
+        cache,
+        None,
+        &mut RewriteCarry::default(),
+    )
+    .map(|rewritten| rewritten.shape)
+    .into_iter()
+    .collect()
 }
 
-/// `scratch` carries the working copy of `input` from the previous rule of a loop; a result that rewrote leaves it empty.
+/// `carry` holds the working copy of `input` from the previous rule of a loop; a result that rewrote leaves it empty.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn synthesize_with_mpr_cached_stats(
     g: &Grammar,
@@ -2372,11 +2415,11 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
     mpr: &MprSet,
     cache: &crate::cache::RuleCache,
     stats: Option<PRuleStatsCtx>,
-    scratch: &mut Option<SynthesisScratch>,
+    carry: &mut RewriteCarry,
 ) -> Option<SynthesisRewrite> {
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let working = scratch_for(scratch, g, table_id, input);
+    let working = carry.working(g, table_id, input);
     let pc = cache.prule_rewrite(pid);
     let outcomes = synthesize_sites(
         g,
@@ -2395,7 +2438,9 @@ pub(crate) fn synthesize_with_mpr_cached_stats(
     );
     let result = rewrite_for_outcomes(&working.ms, &outcomes, input);
     if result.is_some() {
-        *scratch = None;
+        carry.invalidate();
+    } else {
+        debug_check_carry(working, input);
     }
     result
 }
@@ -2539,7 +2584,15 @@ pub fn synthesize_with_mpr_cached_traced(
     parent: TraceHandle,
 ) -> Vec<Shape> {
     synthesize_with_mpr_cached_traced_stats(
-        g, pid, rule, input, cache, trace, parent, None, &mut None,
+        g,
+        pid,
+        rule,
+        input,
+        cache,
+        trace,
+        parent,
+        None,
+        &mut RewriteCarry::default(),
     )
     .map(|rewritten| rewritten.shape)
     .into_iter()
@@ -2556,7 +2609,7 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     stats: Option<PRuleStatsCtx>,
-    scratch: &mut Option<SynthesisScratch>,
+    carry: &mut RewriteCarry,
 ) -> Option<SynthesisRewrite> {
     let mode = trace.mode();
     if matches!(mode, crate::trace::TraceMode::Off) {
@@ -2569,12 +2622,12 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
             &input.mpr,
             cache,
             stats,
-            scratch,
+            carry,
         );
     }
     let table_id = crate::cache::owning_table_for_prule(g, pid).unwrap_or(TableId(0));
     let table = &g.char_tables[table_id.0 as usize];
-    let working = scratch_for(scratch, g, table_id, &input.shape);
+    let working = carry.working(g, table_id, &input.shape);
     let pc = cache.prule_rewrite(pid);
     let observation = mode.recorder().map(|recorder| RewriteGateObserver {
         recorder,
@@ -2598,7 +2651,9 @@ pub(crate) fn synthesize_with_mpr_cached_traced_stats(
     );
     let result = rewrite_for_outcomes(&working.ms, &outcomes, &input.shape);
     if result.is_some() {
-        *scratch = None;
+        carry.invalidate();
+    } else {
+        debug_check_carry(working, &input.shape);
     }
     if let Some(observation) = observation {
         if result.is_none()
