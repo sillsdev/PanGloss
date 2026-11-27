@@ -48,7 +48,7 @@ One JSON object per line. Blank lines are ignored.
 ```
 
 - `id` is required and must be a string; it is echoed in the response.
-- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`). `ruleTrace` is optional (default `false`) and only affects `traceDetails: false`: the JSON rule-trace tree is built and appended to `result` only when it is `true`; `traceDetails: true` ignores it.
+- `parse`: `word` is a non-empty string. `traceDetails` is optional (default `false`). `ruleTrace` is optional (default `false`) and only affects `traceDetails: false`: the JSON rule-trace tree is built and appended to `result` only when it is `true`; `traceDetails: true` ignores it. `ruleCosts` is optional (default `false`): `true`, or a positive integer N (`true` is 8), adds a top-level `ruleCosts` object to the `result` response (see below); anything else is `bad_request`.
 - `shutdown`: the process answers `bye`, then exits 0.
 - End of input on stdin exits 0 at once (see Closing stdin). Cancellation is the host killing the process.
 
@@ -82,6 +82,8 @@ This is the same count as the `work_steps` column that `pangloss batch --work-co
 
 Every `result` response also carries `guessed`: `true` when the analyses were guessed from a lexical pattern rather than found in the lexicon, whatever the `--guess` flag. A project that guesses by default can return guessed analyses without the `guessed:` line, so read this field, not the string. Treat it as optional: older servers omit it.
 
+When the request has `ruleCosts` and `traceDetails` is false, the `result` response also carries `ruleCosts`; with `traceDetails: true` the document itself becomes `pangloss.trace-details.v6` and carries it (the response does not repeat it), and without `ruleCosts` the document stays v5. The object lists the N objects that reserved the most work steps for this word, `{topN, objectCount, workSteps, attributedWorkSteps, unattributedWorkSteps, stopped, reproducible, objects}`, with each object `{kind, key, label, stratum, direction, work_steps, attempts, outputs, selfElapsedNs}`. It is the same object the v6 document carries (`trace-details-v2.md`, "Rule costs (v6)") and `pangloss parse --rule-costs=N` prints on a `ruleCosts:` line. It works on a word the parser stops on (`status` `CAP`, `MEMCAP` or `TIMEOUT`), where it shows which rule spent the budget. The parse runs with a stats collector, which does not change `workSteps`; with `traceDetails` false and no `ruleTrace` it stays untraced. The request costs one collector per word and builds the grammar's identity catalog on first use, so leave it off for bulk parsing. Without the field the response is unchanged.
+
 With `--timing`, a `result` response also carries `"timing":{"parseMs":N,"renderMs":N}`.
 
 ### Error codes
@@ -91,7 +93,7 @@ The process keeps running after every `error`.
 | code | meaning |
 |---|---|
 | `malformed_json` | the line is not valid JSON, or not valid UTF-8; `id` is `null` |
-| `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type, or `ruleTrace` present and not a boolean; `id` is `null` when it could not be read |
+| `bad_request` | not an object, or `id`, `op`, `word` (empty counts) or `traceDetails` missing or of the wrong type, `ruleTrace` present and not a boolean, or `ruleCosts` present and not a boolean or positive integer; `id` is `null` when it could not be read |
 | `unknown_op` | `op` is a string other than `parse`, `generate`, `inventory`, `match`, `effects`, `shadowedAllomorphs`, `health` or `shutdown` |
 | `request_too_large` | the line exceeds 1,048,576 bytes (newline excluded); the line is discarded, `id` is `null` |
 | `render_failed` | the trace document could not be built (the cold command would exit 1 with no output) |

@@ -40,6 +40,8 @@ mod inferred_segment_engine_parity_gate;
 #[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;
+#[path = "../rule_costs_cli.rs"]
+mod rule_costs_cli;
 #[path = "../serve_effects.rs"]
 mod serve_effects;
 #[path = "../serve_generate.rs"]

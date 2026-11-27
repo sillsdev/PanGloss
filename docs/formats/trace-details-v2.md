@@ -1,8 +1,10 @@
-# Trace details v5 (including the v2, v3 and v4 fields)
+# Trace details v5, and v6 on request (including the v2, v3 and v4 fields)
 
 `pangloss parse <grammar> <word> --trace --trace-format=json --trace-details` writes one
-`pangloss.trace-details.v5` JSON document. Use `--trace=<path>` when a file must contain only the
+`pangloss.trace-details.v5` JSON document, or a `pangloss.trace-details.v6` document when `--rule-costs` is added. Use `--trace=<path>` when a file must contain only the
 JSON; stdout from the managed runner may include diagnostics.
+
+Version 6 is opt-in: it is written only when rule costs are requested (`--trace-details --rule-costs[=N]`, or `serve parse` with `traceDetails` and `ruleCosts`), and adds the top-level `ruleCosts` object (see "Rule costs (v6)"); nothing else changes. Without the request the document is byte-for-byte the v5 document, with no `ruleCosts` key, so a reader pinned to v5 is unaffected. A reader written for version 5 must refuse a document whose `schemaVersion` is `pangloss.trace-details.v6`.
 
 Version 5 removes `search.steps` (the analysis-attempt count); `search.workSteps` is the word's one cost figure. A reader written for version 4 must refuse a document whose `schemaVersion` is `pangloss.trace-details.v5`.
 
@@ -37,9 +39,19 @@ to inspect one parse offline without reopening the project:
   trace sink. Otherwise it is `unavailable` with the typed `reasonCode`; the renderer never
   replays a gate or infers a cause from diagnostic text.
 
-A reader must explicitly support the v4 profile before accepting it. Unknown future major
+A reader must explicitly support the profile before accepting it. Unknown future major
 versions must be rejected clearly. A details document is self-contained: consumers must not replace its
 captured labels, writing systems, or source IDs with a live project lookup.
+
+## Rule costs (v6)
+
+`ruleCosts` ranks the objects that reserved the most work steps for this word, so a word the parser stopped on shows which rule spent the budget. It is the per-object form of the `categories.<kind>.work_steps` totals and works whether or not the word finished.
+
+- `objects` is the top `topN` (8 for a bare `--rule-costs`; `pangloss parse --rule-costs=N` and the `serve` `ruleCosts` field take any N) entries, sorted by `work_steps` descending, then by kind, object, stratum and direction. Each is `{kind, key, label, stratum, direction, work_steps, attempts, outputs, selfElapsedNs}`: one entry per `(kind, object, stratum, direction)`, summed over its allomorph rows. `kind` is a `categories` key (`phonRule`, `morphRule`, `lexEntry`, `rootIndex`, `guesser`, `overlay`, `parser`); `key` and `label` are the durable identity `stats` and the facts cache use. `selfElapsedNs` is wall-clock, so it differs between runs, and is null for kinds that do not measure it. An object that reserved no work is not listed.
+- `objectCount` is how many objects reserved work, `workSteps` the word's total (`search.workSteps`), `attributedWorkSteps` the sum over every object, and `unattributedWorkSteps` the remainder (`categories.unattributed.work_steps`). `attributedWorkSteps + unattributedWorkSteps == workSteps`.
+- `stopped` is true when the parse was capped, timed out or had an invalid shape. `reproducible` is false for a timed-out parse, whose figures depend on this computer's speed; every other figure is deterministic.
+
+Collecting the rows does not change the work: `workSteps` is the same with and without `--rule-costs` (a test pins it). The figures say who reserved the work, not whose reservation the cap refused: the stopping scope is not recorded.
 
 ## Work steps (v4)
 

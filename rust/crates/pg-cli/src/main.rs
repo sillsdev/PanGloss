@@ -573,7 +573,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
          usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
@@ -1080,10 +1080,21 @@ fn run_parse_impl(
     let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut word_timeout = None;
     let mut without_arg: Option<Vec<String>> = None;
+    let mut rule_costs: Option<usize> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--rule-costs" => rule_costs = Some(rich_trace::DEFAULT_RULE_COSTS),
+            s if s.starts_with("--rule-costs=") => {
+                rule_costs = Some(
+                    s["--rule-costs=".len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| *n >= 1)
+                        .ok_or("--rule-costs must be a positive integer")?,
+                );
+            }
             "--without" => {
                 let v = it.next().ok_or("--without requires a value")?;
                 retire::merge_ids(&mut without_arg, retire::parse_ids(v, "--without")?);
@@ -1170,6 +1181,16 @@ fn run_parse_impl(
             "--without cannot be combined with --trace-details or a rejection trace".into(),
         );
     }
+    if rule_costs.is_some()
+        && (diagnostic.is_some()
+            || (trace_dest.is_some() && !trace_details)
+            || without_arg.is_some())
+    {
+        return Err(
+            "--rule-costs cannot be combined with --trace without --trace-details, --without or a rejection trace"
+                .into(),
+        );
+    }
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
@@ -1189,7 +1210,7 @@ fn run_parse_impl(
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
     };
 
     let mut diagnostic_slots = None;
@@ -1251,6 +1272,7 @@ fn run_parse_impl(
                 &rows,
                 started.elapsed(),
                 &trace_metadata,
+                rule_costs,
             )?;
             match dest {
                 None => print!("{rendered}"),
@@ -1278,6 +1300,7 @@ fn run_parse_impl(
         }
         require_complete_parse(&outcome)?;
     } else {
+        let mut costs_line = None;
         let outcome = if let Some(options) = diagnostic {
             let identity = diagnostic::identity(
                 &grammar,
@@ -1305,11 +1328,24 @@ fn run_parse_impl(
             trace.write_row(row)?;
             trace.finish()?;
             outcome
+        } else if let Some(top_n) = rule_costs {
+            let (outcome, rows) = morpher.parse_word_with_stats(word, &opts);
+            costs_line = Some(rich_trace::rule_costs_json(
+                &grammar,
+                &pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar),
+                &rows,
+                &outcome,
+                top_n,
+            )?);
+            outcome
         } else {
             morpher.parse_word_opts(word, &opts)
         };
         println!("{}\t{}", word, outcome.signature());
         print_guessed_line(guess, outcome.guessed);
+        if let Some(costs) = costs_line {
+            println!("ruleCosts:\t{costs}");
+        }
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
         require_complete_parse(&outcome)?;
     }
