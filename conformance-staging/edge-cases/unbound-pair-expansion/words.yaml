@@ -1,0 +1,21 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: UnboundPairExpansion
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: iii
+    note: Positive short root.
+    parses:
+      - signature: "SHORT|iii"
+        rules: [rExpand]
+  - word: iiiaiii
+    note: Two input contexts share alpha back; that variable remains unbound during analysis.
+    parses:
+      - signature: "ROOT|iiiaiii"
+        rules: [rExpand]
+  - word: iiiiii
+    note: Negative control.
+    expect_fail: true
+  - word: aaaa
+    note: Obligatory expansion.
+    expect_fail: true

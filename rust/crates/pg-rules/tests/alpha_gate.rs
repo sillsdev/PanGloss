@@ -1,4 +1,4 @@
-//! Alpha-variable agreement gate: the FST over-approximates variable-governed lanes, so pg-rules re-checks agreement after a candidate span is found, binding on first occurrence and rejecting any later occurrence that disagrees.
+//! Alpha-variable agreement in targets and environments.
 
 #[path = "common/mod.rs"]
 mod common;
@@ -8,7 +8,7 @@ use pg_grammar_model::chardef::CharDefId;
 use pg_grammar_model::model::{
     Dir, Grammar, Pattern, PatternNode, RewriteMode, RewriteRuleDef, RewriteSubruleDef,
 };
-use pg_shape::{NodeKind, Shape};
+use pg_shape::{NodeFlags, NodeKind, Shape, ShapeBuilder};
 
 fn subrule(rhs: Pattern, left: Option<Pattern>, right: Option<Pattern>) -> RewriteSubruleDef {
     RewriteSubruleDef {
@@ -176,6 +176,85 @@ fn analysis_agreement_rejects_when_places_disagree() {
     );
 }
 
+#[test]
+fn analysis_preserves_a_variable_shared_by_input_and_output() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let r = rule(
+        pat(PatternNode::Context(ctx_var(
+            nat_class(&g, "nc_cons"),
+            poa,
+            0,
+            true,
+        ))),
+        subrule(
+            pat(PatternNode::Context(ctx_var(
+                nat_class(&g, "nc_voiced"),
+                poa,
+                0,
+                true,
+            ))),
+            None,
+            Some(pat_char(char_def(&g, "char_b"))),
+        ),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bb"), None);
+    assert_eq!(out.len(), 1);
+    assert_eq!(
+        interior(&out[0])[0].1[POA],
+        0b01,
+        "shared place variable stays labial"
+    );
+    let opposite = rule(
+        pat(PatternNode::Context(ctx_var(
+            nat_class(&g, "nc_cons"),
+            poa,
+            0,
+            true,
+        ))),
+        subrule(
+            pat(PatternNode::Context(ctx_var(
+                nat_class(&g, "nc_voiced"),
+                poa,
+                0,
+                false,
+            ))),
+            None,
+            Some(pat_char(char_def(&g, "char_b"))),
+        ),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &opposite, &seg(&g, "bb"), None);
+    assert_eq!(out.len(), 1);
+    assert_eq!(
+        interior(&out[0])[0].1[POA],
+        0b11,
+        "opposite polarity is not cancelled"
+    );
+}
+
+#[test]
+fn analysis_tries_an_optional_agreeing_environment_before_rejecting() {
+    let g = load_alpha_grammar();
+    let r = place_agreement_rule(&g);
+    let source = seg(&g, "bbg");
+    let mut builder = ShapeBuilder::from_shape(&source);
+    builder.delete(2);
+    builder.insert(
+        2,
+        NodeKind::Segment,
+        source.char_def(2),
+        NodeFlags(NodeFlags::OPTIONAL),
+        source.node_lanes(2),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &builder.freeze(), None);
+    assert_eq!(
+        out.len(),
+        1,
+        "the optional labial agrees even though the following velar does not"
+    );
+    assert_eq!(interior(&out[0])[0].1[1], 0b11);
+}
+
 // A left-environment alpha-variable node separated from the target by an unbounded quantifier, varying the filler count to catch an off-by-N positional-lookup regression.
 
 /// Target binds alpha_a from its own place; the left environment's second alpha_a occurrence must agree with it.
@@ -262,5 +341,241 @@ fn analysis_left_env_var_across_unbounded_quantifier_rejects_disagreeing_place()
     assert!(
         out.is_empty(),
         "disagreeing places across the quantifier gap ({w:?}): analysis must reject"
+    );
+}
+
+#[test]
+fn left_and_right_environments_share_bindings_across_optional_candidates() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let r = rule(
+        pat_char(char_def(&g, "char_a")),
+        subrule(
+            pat_char(char_def(&g, "char_b")),
+            Some(pat(context())),
+            Some(pat(context())),
+        ),
+    );
+    let source = seg(&g, "babg");
+    let mut builder = ShapeBuilder::from_shape(&source);
+    builder.delete(3);
+    builder.insert(
+        3,
+        NodeKind::Segment,
+        source.char_def(3),
+        NodeFlags(NodeFlags::OPTIONAL),
+        source.node_lanes(3),
+    );
+    let out = pg_rules::rewrite::synthesize(&g, &r, &builder.freeze());
+    assert_eq!(
+        out.len(),
+        1,
+        "left labial binding finds the optional agreeing right environment"
+    );
+    assert!(
+        pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "bag")).is_empty(),
+        "a mandatory disagreeing right environment must not match"
+    );
+}
+
+#[test]
+fn repeated_environment_variable_can_choose_an_agreeing_optional_segment() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let mut r = place_agreement_rule(&g);
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    r.subrules[0].right_env = Some(Pattern {
+        nodes: vec![context(), context()],
+    });
+    let source = seg(&g, "bbbg");
+    let mut builder = ShapeBuilder::from_shape(&source);
+    builder.delete(2);
+    builder.insert(
+        2,
+        NodeKind::Segment,
+        source.char_def(2),
+        NodeFlags(NodeFlags::OPTIONAL),
+        source.node_lanes(2),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &builder.freeze(), None);
+    assert_eq!(
+        out.len(),
+        1,
+        "both repeated variables agree when the optional labial is consumed"
+    );
+    assert!(
+        pg_rules::rewrite::analyze(&g, &r, &seg(&g, "bbg"), None).is_empty(),
+        "a mandatory disagreement remains rejected"
+    );
+}
+
+#[test]
+fn disagreeing_optional_candidates_are_pruned_within_a_bounded_work_budget() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let mut r = place_agreement_rule(&g);
+    r.subrules[0].right_env = Some(pat(PatternNode::Quantifier {
+        min: 1,
+        max: Some(13),
+        children: vec![PatternNode::Context(ctx_var(
+            nat_class(&g, "nc_cons"),
+            poa,
+            0,
+            true,
+        ))],
+    }));
+    let source = seg(&g, &format!("b{}b", "g".repeat(12)));
+    let mut builder = ShapeBuilder::from_shape(&source);
+    for index in 2..=13 {
+        builder.delete(index);
+        builder.insert(
+            index,
+            NodeKind::Segment,
+            source.char_def(index),
+            NodeFlags(NodeFlags::OPTIONAL),
+            source.node_lanes(index),
+        );
+    }
+    let budget = pg_fst::work::WorkBudget::new(10000);
+    let _scope = budget.enter();
+    let out = pg_rules::rewrite::analyze(&g, &r, &builder.freeze(), None);
+    assert_eq!(out.len(), 1, "the agreeing final segment remains reachable");
+    assert!(
+        !budget.capped(),
+        "disagreeing optional paths must be pruned during matching"
+    );
+}
+
+#[test]
+fn deletion_environments_share_alpha_bindings() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let r = rule(
+        pat(context()),
+        subrule(
+            Pattern { nodes: vec![] },
+            Some(pat(context())),
+            Some(pat(context())),
+        ),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "pb"), None);
+    assert_eq!(
+        out.len(),
+        1,
+        "agreeing environments allow an optional restored segment"
+    );
+    assert_eq!(
+        interior(&out[0])[1].1[POA],
+        0b01,
+        "restored segment takes the environment binding"
+    );
+    assert!(
+        pg_rules::rewrite::analyze(&g, &r, &seg(&g, "pg"), None).is_empty(),
+        "disagreeing environments cannot restore a segment"
+    );
+}
+
+#[test]
+fn epenthesis_environments_share_alpha_bindings_and_apply_them() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let inserted = PatternNode::Context(ctx_var(nat_class(&g, "nc_any"), poa, 0, true));
+    let mut r = rule(
+        Pattern { nodes: vec![] },
+        subrule(pat(inserted), Some(pat(context())), Some(pat(context()))),
+    );
+    r.mode = RewriteMode::Simultaneous;
+    let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "pb"));
+    assert_eq!(out.len(), 1, "agreeing environments allow epenthesis");
+    assert_eq!(
+        interior(&out[0])[1].1[POA],
+        0b01,
+        "inserted segment takes the environment binding"
+    );
+    assert!(
+        pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "pg")).is_empty(),
+        "disagreeing environments cannot trigger epenthesis"
+    );
+}
+
+#[test]
+fn analysis_epenthesis_checks_target_and_environment_alpha_bindings() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let mut r = rule(
+        Pattern { nodes: vec![] },
+        subrule(pat(context()), Some(pat(context())), Some(pat(context()))),
+    );
+    r.mode = RewriteMode::Simultaneous;
+    assert_eq!(
+        pg_rules::rewrite::analyze(&g, &r, &seg(&g, "pbb"), None).len(),
+        1,
+        "agreeing target and environments unapply epenthesis"
+    );
+    assert!(
+        pg_rules::rewrite::analyze(&g, &r, &seg(&g, "pbg"), None).is_empty(),
+        "a disagreeing right environment must reject the target"
+    );
+}
+
+#[test]
+fn allomorph_environment_checks_repeated_variables() {
+    use pg_grammar_model::model::EnvironmentDef;
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let envs = vec![EnvironmentDef {
+        require: true,
+        left: None,
+        right: Some(Pattern {
+            nodes: vec![context(), context()],
+        }),
+        source: None,
+    }];
+    assert!(pg_rules::validity::environments_ok(
+        &g,
+        &envs,
+        &seg(&g, "abb"),
+        0,
+        0
+    ));
+    assert!(
+        !pg_rules::validity::environments_ok(&g, &envs, &seg(&g, "abg"), 0, 0),
+        "repeated variables on one side must agree"
+    );
+}
+
+#[test]
+fn left_environment_prefers_the_furthest_successful_match() {
+    let g = load_alpha_grammar();
+    let poa = feat(&g, "feat_poa");
+    let context = || PatternNode::Context(ctx_var(nat_class(&g, "nc_cons"), poa, 0, true));
+    let r = rule(
+        pat_char(char_def(&g, "char_a")),
+        subrule(
+            pat_char(char_def(&g, "char_b")),
+            Some(pat(context())),
+            Some(pat(context())),
+        ),
+    );
+    let source = seg(&g, "bgab");
+    let mut builder = ShapeBuilder::from_shape(&source);
+    builder.delete(2);
+    builder.insert(
+        2,
+        NodeKind::Segment,
+        source.char_def(2),
+        NodeFlags(NodeFlags::OPTIONAL),
+        source.node_lanes(2),
+    );
+    let out = pg_rules::rewrite::synthesize(&g, &r, &builder.freeze());
+    assert_eq!(
+        out.len(),
+        1,
+        "the furthest left match binds labial and agrees with the right"
     );
 }

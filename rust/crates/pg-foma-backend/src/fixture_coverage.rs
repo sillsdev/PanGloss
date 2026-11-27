@@ -2,13 +2,13 @@
 
 use std::collections::HashSet;
 
-use pg_conformance_fixtures::{FixtureRef, WordEntry, WordsYaml};
+use pg_conformance_fixtures::{signatures_equal, FixtureRef, WordEntry, WordsYaml};
 use pg_foma::capability::{default_registry, observed_variants};
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 use serde::Serialize;
 
-/// Local tag extensions for immutable upstream fixtures, equivalent to per-word variant tags.
+/// Local tag extensions for immutable suite fixtures, equivalent to per-word variant tags. The suite's neutral `exercises:` vocabulary has no PanGloss variant ids, so the graduated fixtures that used to carry them are credited here.
 /// Each extension still requires a passing original construct tag and the owning predicate's
 /// structural witness; it cannot credit a fixture merely because its name is listed.
 pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::ConstructVariant)] = &[
@@ -17,12 +17,28 @@ pub const UPSTREAM_VARIANT_TAG_EXTENSIONS: &[(&str, pg_foma::capability::Constru
         pg_foma::capability::ConstructVariant::EpenthesisStructural,
     ),
     (
-        "machine:edge-cases/simultaneous-feeding",
-        pg_foma::capability::ConstructVariant::SimultaneousDisjoint,
+        "staging:edge-cases/mpr-group-overwrite-without-realizational",
+        pg_foma::capability::ConstructVariant::MprOverwrite,
     ),
     (
-        "machine:edge-cases/mpr-group-overwrite-without-realizational",
-        pg_foma::capability::ConstructVariant::MprOverwrite,
+        "machine:edge-cases/compounding-non-recursive",
+        pg_foma::capability::ConstructVariant::CompoundingNonRecursive,
+    ),
+    (
+        "machine:edge-cases/recursive-endocentric-compounding",
+        pg_foma::capability::ConstructVariant::CompoundingRecursive,
+    ),
+    (
+        "machine:edge-cases/circumfix-cross-product-and-infix-drop",
+        pg_foma::capability::ConstructVariant::CircumfixStructural,
+    ),
+    (
+        "machine:edge-cases/deletion-reduplication-exception-composite",
+        pg_foma::capability::ConstructVariant::ReduplicationPeel,
+    ),
+    (
+        "machine:edge-cases/circumfix-reduplication-precedence",
+        pg_foma::capability::ConstructVariant::ReduplicationStructural,
     ),
 ];
 
@@ -48,7 +64,7 @@ pub fn word_passes_for_coverage(words: &WordsYaml, word: &WordEntry, morpher: &M
         return false;
     }
     let outcome = morpher.parse_word(&word.word);
-    !outcome.invalid_shape && outcome.signature() == word.expected_signature()
+    !outcome.invalid_shape && signatures_equal(&outcome.signature(), &word.expected_signature())
 }
 
 /// Replays tags against the loaded grammar. A concrete variant tag must also be observed by

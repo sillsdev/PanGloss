@@ -87,7 +87,7 @@ def stage():
                 lines.extend(['    exercises:',f'      - "quantifier.{shape}-compilable"'])
                 if mode=='rtl': lines.append('      - "right-to-left-rewrite.reversal"')
         (staged/'words.yaml').write_text('\n'.join(lines)+'\n')
-        (staged/'STAGING.md').write_text(f'# {name}\n\nSynthetic neutralization of an alpha-governed feature. hc.dll requires ii from iu.\nFounding oracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`.\nRecorded XML and all 16 oracle rows: docs/divergences/evidence/069-overridden-alpha/{name}/.\nOwner regression: docs/divergences/069-analysis-binds-overridden-alpha.md.\nFieldWorks: HCLoader.cs:2033-2067,2338-2344,2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
+        (staged/'STAGING.md').write_text(f'# {name}\n\nSynthetic neutralization of an alpha-governed feature. hc.dll requires ii from iu.\nFounding oracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`.\nRecorded XML and all 16 oracle rows: docs/divergences/evidence/069-overridden-alpha/{name}/.\nOwner regression: retired divergence 069 (docs/divergences/README.md, Retired entries).\nFieldWorks: HCLoader.cs:2033-2067,2338-2344,2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
         print('staged',name,[(r[1],r[4]) for r in rows if r[4]!='-'],flush=True)
 
 def sweep():

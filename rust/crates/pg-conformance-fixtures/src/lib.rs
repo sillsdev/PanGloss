@@ -1,17 +1,20 @@
 //! Shared dual-root discovery + `words.yaml` parsing + oracle-replay helper for this repo's
 //! conformance fixtures, per `docs/conformance-staging-plan.md`. One helper, used by every test
-//! that walks `machine/conformance/**` and/or `conformance-staging/**`, so the path logic and the
+//! that walks `conformance/**` and/or `conformance-staging/**`, so the path logic and the
 //! `words.yaml` schema are defined exactly once rather than duplicated per test file (the plan
 //! doc's explicit requirement).
 //!
 //! The two roots:
-//! - `machine/conformance/**` — the `sillsdev/machine` submodule (`conformance-framework` branch),
-//!   the eventual permanent home for every fixture.
+//! - `conformance/**` — a clone of `sillsdev/fieldworks-parser-conformance` at the commit
+//!   `conformance.commit` names (gitignored; `pwsh rust/tools/conformance.ps1` fetches it), or the
+//!   directory `HC_CONFORMANCE_SUITE` points at, the permanent home for every fixture. ([`Root::Machine`] keeps its name from when this was
+//!   `machine/conformance`: its `machine:` label is baked into fixture keys elsewhere, such as
+//!   `pg-foma-backend`'s `fixture_coverage.rs`.)
 //! - `conformance-staging/**` — this repo, committed, for fixtures that pin a bug/pathology
 //!   immediately, ahead of upstream acceptance. See `docs/conformance-staging-plan.md`.
 //!
-//! Either root may be absent (a fresh clone with the `machine` submodule not initialized still
-//! discovers staged fixtures fine); `discover` tolerates both independently.
+//! The staging root may be absent. The suite may not: a run that claims `all` and finds no suite
+//! panics with the command that fetches it, instead of discovering staged fixtures alone and passing.
 //!
 //! # A run must claim its scope
 //! `discover` covers whichever roots the run CLAIMED, via `SCOPE_ENV`, and there is no default:
@@ -29,7 +32,7 @@ use serde::{Deserialize, Serialize};
 /// Which of the two fixture roots a fixture was found under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Root {
-    /// `machine/conformance/**`.
+    /// `conformance/**`.
     Machine,
     /// `conformance-staging/**`.
     Staging,
@@ -168,8 +171,70 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-pub fn machine_conformance_root() -> PathBuf {
-    repo_root().join("machine").join("conformance")
+/// Names a local suite copy to use instead of `conformance/`; the pin in `conformance.commit` is not checked for it.
+pub const SUITE_ENV: &str = "HC_CONFORMANCE_SUITE";
+
+/// The conformance suite checkout: `HC_CONFORMANCE_SUITE` when set, otherwise the clone of
+/// `sillsdev/fieldworks-parser-conformance` at `conformance/` in the repository root. Every test
+/// that names a suite file goes through this, so the suite's location is written once.
+pub fn suite_root() -> PathBuf {
+    match std::env::var_os(SUITE_ENV) {
+        Some(path) if !path.is_empty() => PathBuf::from(path),
+        _ => repo_root().join("conformance"),
+    }
+}
+
+/// Removes every `<CompoundingRule>` and its stratum references from a grammar document, for controls whose subject is not compounding.
+pub fn grammar_xml_without_compounding_rules(xml: &str) -> String {
+    let mut xml = xml.to_string();
+    while let Some(start) = xml.find("<CompoundingRule id=\"") {
+        let id_start = start + "<CompoundingRule id=\"".len();
+        let id = xml[id_start..id_start + xml[id_start..].find('"').unwrap()].to_string();
+        let end =
+            start + xml[start..].find("</CompoundingRule>").unwrap() + "</CompoundingRule>".len();
+        xml.replace_range(start..end, "");
+        xml = xml
+            .replace(&format!(" {id} "), " ")
+            .replace(&format!(" {id}\""), "\"")
+            .replace(&format!("\"{id} "), "\"");
+    }
+    xml
+}
+
+/// Takes every rewrite that deletes or narrows a segment out of the strata's rule lists, for controls whose subject is not deletion.
+pub fn drop_segment_deletions(grammar: &mut pg_grammar_model::model::Grammar) {
+    use pg_grammar_model::model::PhonRuleDef;
+    let dropped: Vec<_> = grammar
+        .prules
+        .iter()
+        .enumerate()
+        .filter(|(_, rule)| match rule {
+            PhonRuleDef::Rewrite(rule) => rule
+                .subrules
+                .iter()
+                .any(|sub| sub.rhs.nodes.len() < rule.lhs.nodes.len()),
+            _ => false,
+        })
+        .map(|(index, _)| pg_grammar_model::model::PRuleId(index as u32))
+        .collect();
+    for stratum in &mut grammar.strata {
+        stratum.prules.retain(|id| !dropped.contains(id));
+    }
+}
+
+/// Panics with the exact command that fetches the suite when `suite_root()` is not a directory: a test run that needs the suite never passes without it.
+fn require_suite_present() {
+    let root = suite_root();
+    if root.is_dir() {
+        return;
+    }
+    panic!(
+        "the conformance suite is not at {}.\n\nFetch it at the commit conformance.commit pins:\n    \
+         pwsh rust/tools/conformance.ps1\nor point {SUITE_ENV} at a local checkout of \
+         sillsdev/fieldworks-parser-conformance. This is a failure, not a skip: a run that finds no \
+         suite would otherwise pass over the staged fixtures alone.",
+        root.display()
+    );
 }
 
 pub fn staging_root() -> PathBuf {
@@ -308,7 +373,8 @@ pub fn discover_scoped(scope: ConformanceScope) -> Vec<FixtureRef> {
     match scope {
         ConformanceScope::Local => {}
         ConformanceScope::All => {
-            scan_one_root(&machine_conformance_root(), Root::Machine, &mut out)
+            require_suite_present();
+            scan_one_root(&suite_root(), Root::Machine, &mut out);
         }
     }
     scan_one_root(&staging_root(), Root::Staging, &mut out);
@@ -330,18 +396,54 @@ pub fn require_fixture(category: &str, name: &str) -> FixtureRef {
     panic!(
         "no conformance fixture `{category}/{name}` exists under either root.\n\n\
          This test names a specific fixture, so an absent one is a failure, not a reason to skip. \
-         Either the fixture moved (the v1 -> v2 migration renamed many, e.g. \
-         `loader/n1-isactive` -> `edge-cases/loader-isactive`), or it was never carried over and \
-         this pin needs a replacement authored against the C# founding oracle.\n\n\
+         Either the fixture moved (the v1 -> v2 migration renamed many), the suite retired it \
+         (see `conformance/docs/engine-only-fixture-retirement.md`), or it was never carried over \
+         and this pin needs a replacement authored against the C# founding oracle.\n\n\
          {} fixture(s) discovered:\n  {}",
         all.len(),
         available.join("\n  ")
     );
 }
 
+/// Directory-name prefix of the calibration families in the suite's `calibration/` folder (PanGloss #240).
+pub const CALIBRATION_FIXTURE_PREFIX: &str = "cal-";
+
+/// The words of a calibration family are slow on purpose, so its `words.yaml` opens with this phrase, in a comment.
+pub const CALIBRATION_ONLY_HEADER: &str = "CALIBRATION ONLY";
+
+/// Whether a `words.yaml` text opens as a calibration file: a leading comment line says `CALIBRATION ONLY` or `kind: calibration`.
+pub fn words_yaml_declares_calibration(words_yaml_text: &str) -> bool {
+    words_yaml_text
+        .lines()
+        .map(str::trim)
+        .take_while(|line| line.is_empty() || line.starts_with('#'))
+        .any(|line| line.contains(CALIBRATION_ONLY_HEADER) || line.contains("kind: calibration"))
+}
+
+/// What in `fixtures` is calibration material that fixture enumeration must never return: a `cal-` name, or a `words.yaml` that opens with the CALIBRATION ONLY header.
+/// Calibration words can cost 10G each, so a conformance or engine run that reached one would not finish; the check names each offender.
+pub fn calibration_leaks(fixtures: &[FixtureRef]) -> Vec<String> {
+    let mut leaks = Vec::new();
+    for fixture in fixtures {
+        if fixture.name.starts_with(CALIBRATION_FIXTURE_PREFIX) {
+            leaks.push(format!("{}: name starts with `cal-`", fixture.label()));
+        }
+        // An unreadable words.yaml is another gate's failure, not a calibration leak.
+        if let Ok(text) = std::fs::read_to_string(fixture.words_yaml_path()) {
+            if words_yaml_declares_calibration(&text) {
+                leaks.push(format!(
+                    "{}: words.yaml opens with the {CALIBRATION_ONLY_HEADER} header",
+                    fixture.label()
+                ));
+            }
+        }
+    }
+    leaks
+}
+
 /// The "graduation guard": fixture `(category, name)` identities that exist under BOTH roots.
 /// Non-empty means a staged fixture has been accepted upstream (its name now also exists under
-/// `machine/conformance/`) and the staged copy must be deleted in the same change — see
+/// `conformance/`) and the staged copy must be deleted in the same change — see
 /// `docs/conformance-staging-plan.md`'s "graduation guard" mechanism.
 pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, String)> {
     use std::collections::HashSet;
@@ -358,6 +460,170 @@ pub fn graduation_guard_violations(fixtures: &[FixtureRef]) -> Vec<(String, Stri
     violations.sort();
     violations.dedup();
     violations
+}
+
+/// True when `staging_md` has an `upstream:` line that is a suite PR URL (number with no leading
+/// zero) or `not-producible: row <N> <reason>`, `<N>` naming a row of the suite's cannot-say table
+/// (checked as a positive number, not looked up).
+pub fn staging_md_has_upstream_line(staging_md: &str) -> bool {
+    const PR: &str = "https://github.com/sillsdev/fieldworks-parser-conformance/pull/";
+    let positive =
+        |n: &str| !n.is_empty() && !n.starts_with('0') && n.chars().all(|c| c.is_ascii_digit());
+    staging_md.lines().any(|line| {
+        let Some(value) = line.trim().strip_prefix("upstream:") else {
+            return false;
+        };
+        let value = value.trim();
+        if let Some(n) = value.strip_prefix(PR) {
+            return positive(n);
+        }
+        let Some(rest) = value.strip_prefix("not-producible:") else {
+            return false;
+        };
+        let mut words = rest.split_whitespace();
+        words.next() == Some("row") && words.next().is_some_and(positive) && words.next().is_some()
+    })
+}
+
+/// Staged fixtures whose STAGING.md lacks a valid `upstream:` line and are not in `baseline`
+/// (`category/name` entries), plus baseline entries that now have the line or no longer exist,
+/// so the baseline only shrinks. An unreadable STAGING.md (other than absent) is an I/O error.
+/// Each result is `(category/name, reason)`.
+pub fn staging_upstream_violations(
+    fixtures: &[FixtureRef],
+    baseline: &std::collections::BTreeSet<String>,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for f in fixtures.iter().filter(|f| f.root == Root::Staging) {
+        let id = format!("{}/{}", f.category, f.name);
+        let ok = match std::fs::read_to_string(f.staging_md_path()) {
+            Ok(s) => staging_md_has_upstream_line(&s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => {
+                out.push((id.clone(), format!("cannot read STAGING.md: {e}")));
+                seen.insert(id);
+                continue;
+            }
+        };
+        let listed = baseline.contains(&id);
+        if !ok && !listed {
+            out.push((id.clone(), "missing or invalid upstream: line".to_string()));
+        } else if ok && listed {
+            out.push((
+                id.clone(),
+                "now has the line; remove it from the baseline".to_string(),
+            ));
+        }
+        seen.insert(id);
+    }
+    for id in baseline.difference(&seen) {
+        out.push((
+            id.clone(),
+            "baseline entry has no staged fixture; remove it".to_string(),
+        ));
+    }
+    out.sort();
+    out
+}
+
+/// Parses the baseline file: one `category/name` per line, `#` comments and blanks ignored.
+pub fn parse_upstream_baseline(text: &str) -> std::collections::BTreeSet<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
+/// One word on which PanGloss deliberately disagrees with a pinned suite fixture, because the
+/// suite's row records a C# defect that a divergence ledger entry describes (for example an
+/// `expect_fail` row for a word C# generates but cannot parse). Both sides are the gate's exact
+/// rendering, so any change in either fails closed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PanglossExpectation {
+    /// `category/name` of a suite fixture, or `staging:category/name` of a staged one.
+    pub fixture: String,
+    pub word: String,
+    /// The suite row as the gate renders it ([`OracleMismatch::expected`]).
+    pub upstream: String,
+    /// PanGloss's analyses as the gate renders them ([`OracleMismatch::got`]).
+    pub pangloss: String,
+    /// The `docs/divergences/` entry, such as `132`.
+    pub divergence: String,
+    pub note: String,
+}
+
+/// `rust/tools/oracle-conformance-known-divergences.json`, which holds both the C# self-check
+/// baseline (`divergences`) and PanGloss's own recorded disagreements (`pangloss_expectations`).
+pub fn known_divergences_path() -> PathBuf {
+    repo_root().join("rust/tools/oracle-conformance-known-divergences.json")
+}
+
+/// The `pangloss_expectations` array of the known-divergences file (empty when absent).
+pub fn parse_pangloss_expectations(json: &str) -> Result<Vec<PanglossExpectation>, String> {
+    #[derive(Deserialize)]
+    struct KnownDivergences {
+        #[serde(default)]
+        pangloss_expectations: Vec<PanglossExpectation>,
+    }
+    serde_json::from_str::<KnownDivergences>(json)
+        .map(|f| f.pangloss_expectations)
+        .map_err(|e| format!("known-divergences file: {e}"))
+}
+
+/// The index of the expectation that excuses `mismatch` from fixture `fixture_id`. A suite
+/// fixture matches an entry keyed `category/name`; a staged fixture matches only an entry keyed
+/// `staging:category/name`, and the two never match each other's entries.
+pub fn pangloss_expectation_for(
+    expectations: &[PanglossExpectation],
+    root: Root,
+    fixture_id: &str,
+    mismatch: &OracleMismatch,
+) -> Option<usize> {
+    let key = match root {
+        Root::Machine => fixture_id.to_string(),
+        Root::Staging => format!("staging:{fixture_id}"),
+    };
+    expectations.iter().position(|e| {
+        e.fixture == key
+            && e.word == mismatch.word
+            && e.upstream == mismatch.expected
+            && e.pangloss == mismatch.got
+    })
+}
+
+/// Expectations that no longer earn their place: one naming no discovered fixture, or one whose
+/// pinned fixture was replayed without the recorded mismatch (`used[i]` false), which happens once
+/// the suite row is fixed. Each result is `(fixture, word, reason)`.
+pub fn pangloss_expectation_violations(
+    expectations: &[PanglossExpectation],
+    used: &[bool],
+    fixtures: &[FixtureRef],
+) -> Vec<(String, String, &'static str)> {
+    let plain = |f: &FixtureRef| format!("{}/{}", f.category, f.name);
+    let staged_key = |f: &FixtureRef| format!("staging:{}", plain(f));
+    expectations
+        .iter()
+        .zip(used)
+        .filter_map(|(e, &used)| {
+            let keyed = |f: &FixtureRef| match f.root {
+                Root::Machine => plain(f) == e.fixture,
+                Root::Staging => staged_key(f) == e.fixture,
+            };
+            let discovered = fixtures.iter().any(|f| plain(f) == e.fixture || keyed(f));
+            let pinned = fixtures.iter().any(keyed);
+            let reason = if !discovered {
+                "names no discovered fixture"
+            } else if pinned && !used {
+                "the pinned fixture no longer shows this mismatch; delete the entry"
+            } else {
+                return None;
+            };
+            Some((e.fixture.clone(), e.word.clone(), reason))
+        })
+        .collect()
 }
 
 /// The three populations a claimed `FieldworksProducibility` partitions fixtures into, each sorted
@@ -415,7 +681,7 @@ pub enum FieldworksProducibility {
     EngineOnly { notes: String },
     /// The field is absent from this fixture's `words.yaml`. Never treated as [`Self::Producible`]
     /// — silence must not read as a claim, and this is the honest state for every fixture under a
-    /// submodule pin that predates the field existing upstream.
+    /// suite pin that predates the field existing upstream.
     Unmarked,
 }
 
@@ -665,7 +931,7 @@ struct WordEntryWire {
     #[serde(default, deserialize_with = "deserialize_present")]
     exercises: Option<Vec<String>>,
     #[serde(default)]
-    claimed_cells: Vec<ClaimedCellWire>,
+    claims: Vec<ClaimWire>,
     #[serde(default)]
     parses: Vec<ParseEntryWire>,
 }
@@ -686,7 +952,7 @@ struct ParseEntryWire {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
-struct ClaimedCellWire {
+struct ClaimWire {
     cell: String,
     #[serde(default, deserialize_with = "deserialize_present")]
     severing: Option<String>,
@@ -753,10 +1019,10 @@ impl WordEntryWire {
         }
 
         let mut unique_claims = std::collections::HashSet::new();
-        for (index, claim) in self.claimed_cells.iter().enumerate() {
-            claim.validate(&format!("{path}.claimed_cells[{index}]"))?;
+        for (index, claim) in self.claims.iter().enumerate() {
+            claim.validate(&format!("{path}.claims[{index}]"))?;
             if !unique_claims.insert(claim) {
-                return Err(format!("{path}.claimed_cells contains a duplicate entry"));
+                return Err(format!("{path}.claims contains a duplicate entry"));
             }
         }
 
@@ -773,10 +1039,10 @@ impl WordEntryWire {
                     .exercises
                     .as_ref()
                     .is_some_and(|values| !values.is_empty())
-                || !self.claimed_cells.is_empty())
+                || !self.claims.is_empty())
         {
             return Err(format!(
-                "{path} may not declare blocked_by, neutralizes, exercises, or claimed_cells; variant coverage belongs to the base run"
+                "{path} may not declare blocked_by, neutralizes, exercises, or claims; variant coverage belongs to the base run"
             ));
         }
         Ok(())
@@ -792,11 +1058,7 @@ impl WordEntryWire {
             neutralizes: self.neutralizes.unwrap_or_default(),
             expect_skip: self.expect_skip.unwrap_or(false),
             exercises: self.exercises.unwrap_or_default(),
-            claimed_cells: self
-                .claimed_cells
-                .into_iter()
-                .map(ClaimedCellWire::into_value)
-                .collect(),
+            claims: self.claims.into_iter().map(ClaimWire::into_value).collect(),
             parses: self
                 .parses
                 .into_iter()
@@ -842,7 +1104,7 @@ impl ParseEntryWire {
     }
 }
 
-impl ClaimedCellWire {
+impl ClaimWire {
     fn validate(&self, path: &str) -> Result<(), String> {
         if self.cell.is_empty() {
             return Err(format!("{path}.cell must be nonempty"));
@@ -1094,6 +1356,11 @@ fn validate_variant_name(name: &str) -> Result<(), String> {
 }
 
 impl WordsYaml {
+    /// Parse `words.yaml` text that is not on disk as a fixture, such as a suite row set under review.
+    pub fn from_yaml_str(text: &str) -> Result<Self, String> {
+        serde_yaml::from_str(text).map_err(|e| format!("parse words.yaml: {e}"))
+    }
+
     /// Copy the fixture metadata into an independent run using one variant's settings and answers.
     pub fn for_variant(&self, variant: &SettingsVariant) -> Self {
         Self {
@@ -1145,7 +1412,7 @@ pub struct WordEntry {
     #[serde(default)]
     pub exercises: Vec<String>,
     #[serde(default)]
-    pub claimed_cells: Vec<serde_yaml::Value>,
+    pub claims: Vec<serde_yaml::Value>,
     #[serde(default)]
     pub parses: Vec<ParseEntry>,
 }
@@ -1184,6 +1451,62 @@ impl WordEntry {
         sigs.sort();
         sigs
     }
+}
+
+/// Sorts the members of every bracketed class (`[ea]` -> `[ae]`, `[^ea]` -> `[^ae]`) in a signature
+/// entry. HermitCrab renders class members in character-table insertion order, which FieldWorks
+/// fills from an unordered collection, so member order is not part of the shape
+/// (sillsdev/machine#573).
+pub fn normalize_class_order(signature: &str) -> String {
+    let mut out = String::with_capacity(signature.len());
+    let mut rest = signature;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(']') else { break };
+        let inner = &after[..close];
+        if inner.contains('[') {
+            out.push_str(&rest[..=open]);
+            rest = after;
+            continue;
+        }
+        let (negation, members) = match inner.strip_prefix('^') {
+            Some(members) => ("^", members),
+            None => ("", inner),
+        };
+        let mut chars: Vec<char> = members.chars().collect();
+        chars.sort_unstable();
+        out.push_str(&rest[..=open]);
+        out.push_str(negation);
+        out.extend(chars);
+        out.push(']');
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The signature entries with bracketed classes order-normalized, sorted and not deduped: the form
+/// two signature multisets are compared in.
+pub fn comparable_multiset<S: AsRef<str>>(entries: &[S]) -> Vec<String> {
+    let mut sigs: Vec<String> = entries
+        .iter()
+        .map(|e| normalize_class_order(e.as_ref()))
+        .collect();
+    sigs.sort();
+    sigs
+}
+
+/// Whether two joined signatures (`-` or `;`-joined entries) are equal as multisets with
+/// bracketed classes compared as sets.
+pub fn signatures_equal(left: &str, right: &str) -> bool {
+    let split = |s: &str| -> Vec<String> {
+        if s == "-" {
+            Vec::new()
+        } else {
+            comparable_multiset(&s.split(';').collect::<Vec<_>>())
+        }
+    };
+    split(left) == split(right)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1291,7 +1614,7 @@ pub fn replay_fixture_runs(fixture: &FixtureRef, words_yaml: &WordsYaml) -> Vec<
 /// The signature check compares the produced and declared analyses as **multisets**, not as the
 /// joined signature string: two `parses` entries (or two produced analyses) with the identical
 /// rendered signature are two distinct analyses, not one repeated twice —
-/// `machine/conformance/PROTOCOL.md` section 4 rule 3 ("a genuine difference ... in how many times
+/// `conformance/PROTOCOL.md` section 4 rule 3 ("a genuine difference ... in how many times
 /// a given entry appears IS a failure"), witnessed by `edge-cases/mpr-gated-exception`'s
 /// `mentanukam` and `edge-cases/head-ambiguous-compounding`'s `dakimo`. `pg_parse::result_multiset`
 /// and [`WordEntry::expected_multiset`] are the same sort-without-dedup each side's `signature()`
@@ -1347,8 +1670,8 @@ pub fn replay_against_oracle(words_yaml: &WordsYaml, morpher: &pg_parse::Morpher
             continue;
         }
         // See this function's doc comment: multiset, not joined-string, comparison.
-        let got_multiset = pg_parse::result_multiset(&outcome.analyses);
-        let expected_multiset = w.expected_multiset();
+        let got_multiset = comparable_multiset(&pg_parse::result_multiset(&outcome.analyses));
+        let expected_multiset = comparable_multiset(&w.expected_multiset());
         if got_multiset != expected_multiset {
             replay.mismatches.push(OracleMismatch {
                 word: w.word.clone(),

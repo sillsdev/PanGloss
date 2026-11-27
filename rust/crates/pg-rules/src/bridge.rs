@@ -3,7 +3,8 @@
 use pg_fst::{CompileInput, CompileNode, Fst};
 use pg_grammar_model::chardef::{CharDefId, CharDefTable};
 use pg_grammar_model::model::{
-    AnchorSide, Grammar, NatClassId, NaturalClassKind, Pattern, PatternNode, SimpleContext, TableId,
+    AnchorSide, Grammar, NatClassId, NaturalClass, NaturalClassKind, Pattern, PatternNode,
+    SimpleContext, TableId,
 };
 
 /// An unconstrained lane (all symbols allowed), matching `pg_fst::lanes::UNCONSTRAINED` and
@@ -55,6 +56,7 @@ pub(crate) enum AgreementNode {
         lanes: Vec<u64>,
         vars: Vec<VarOccur>,
     },
+    Group(Vec<AgreementNode>),
     Alternation(Vec<AgreementNode>),
     Repeat {
         min: u32,
@@ -67,6 +69,9 @@ impl AgreementNode {
     fn compile_node(&self) -> CompileNode {
         match self {
             Self::Constraint { lanes, .. } => CompileNode::Constraint(lanes.clone()),
+            Self::Group(children) => CompileNode::UnnamedGroup {
+                children: children.iter().map(Self::compile_node).collect(),
+            },
             Self::Alternation(branches) => CompileNode::Alternation(
                 branches
                     .iter()
@@ -84,13 +89,18 @@ impl AgreementNode {
     pub(crate) fn has_vars(&self) -> bool {
         match self {
             Self::Constraint { vars, .. } => !vars.is_empty(),
+            Self::Group(children) => children.iter().any(Self::has_vars),
             Self::Alternation(branches) => branches.iter().any(Self::has_vars),
             Self::Repeat { children, .. } => children.iter().any(Self::has_vars),
         }
     }
 
     pub(crate) fn has_repeated_vars(&self) -> bool {
-        matches!(self, Self::Repeat { children, .. } if children.iter().any(Self::has_vars))
+        match self {
+            Self::Repeat { children, .. } => children.iter().any(Self::has_vars),
+            Self::Group(children) => children.iter().any(Self::has_repeated_vars),
+            _ => false,
+        }
     }
 }
 
@@ -153,6 +163,8 @@ pub struct PatternBridge<'g> {
     // Allomorph identity inputs: docs/research/pg-rules-p10-identity-lane-design-notes.md.
     id_lane: bool,
     strrep: Option<StrRepMatcher>,
+    /// Classes the pattern defines itself, numbered after the grammar's own: a `NatClassId` at or past `grammar.natural_classes.len()` indexes here. Query patterns such as `[+voice]` have no class in the grammar.
+    extra_classes: &'g [NaturalClass],
 }
 
 /// Exact literal membership for featureless segments, with 63 character ids per FST lane.
@@ -177,6 +189,11 @@ impl StrRepMatcher {
             width: pg_grammar_model::membership::width(&grammar.phon_features),
             count: table.len(),
         }
+    }
+
+    /// The lane count of a fully constrained identity row: the feature lanes then one lane per 63 character ids.
+    pub(crate) fn lane_count(self) -> usize {
+        self.width + self.count.div_ceil(63)
     }
 
     /// The chunk index and member bits for each chunk that holds a member of `members`.
@@ -272,6 +289,22 @@ impl<'g> PatternBridge<'g> {
             deterministic: true,
             id_lane: false,
             strrep: None,
+            extra_classes: &[],
+        }
+    }
+
+    /// Resolve class ids past the grammar's own against `classes`.
+    pub(crate) fn with_extra_classes(mut self, classes: &'g [NaturalClass]) -> Self {
+        self.extra_classes = classes;
+        self
+    }
+
+    fn class(&self, id: NatClassId) -> Option<&'g NaturalClass> {
+        let at = id.0 as usize;
+        let own = self.grammar.natural_classes.len();
+        match at.checked_sub(own) {
+            None => self.grammar.natural_classes.get(at),
+            Some(extra) => self.extra_classes.get(extra),
         }
     }
 
@@ -321,11 +354,7 @@ impl<'g> PatternBridge<'g> {
 
     // Feature-lane unions overapproximate member correlation; identity constraints preserve exact membership.
     fn nat_class_lanes(&self, id: NatClassId) -> Result<Vec<u64>, BridgeError> {
-        let nc = self
-            .grammar
-            .natural_classes
-            .get(id.0 as usize)
-            .ok_or(BridgeError::BadNatClass(id))?;
+        let nc = self.class(id).ok_or(BridgeError::BadNatClass(id))?;
         let w = self.feature_width();
         match &nc.kind {
             NaturalClassKind::Feature(pairs) => {
@@ -414,10 +443,12 @@ impl<'g> PatternBridge<'g> {
                 PatternNode::Context(sc) => {
                     let (lanes, had_vars) = self.simple_context_lanes(sc)?;
                     *uses_vars |= had_vars;
-                    if let (Some(strrep), NaturalClassKind::Segments(members)) = (
-                        self.strrep,
-                        &self.grammar.natural_classes[sc.nat_class.0 as usize].kind,
-                    ) {
+                    let class = self
+                        .class(sc.nat_class)
+                        .ok_or(BridgeError::BadNatClass(sc.nat_class))?;
+                    if let (Some(strrep), NaturalClassKind::Segments(members)) =
+                        (self.strrep, &class.kind)
+                    {
                         // One alternative per chunk the members touch: within a chunk the member bits union exactly.
                         out.push(AgreementNode::Alternation(
                             strrep
@@ -459,6 +490,7 @@ impl<'g> PatternBridge<'g> {
                 }
                 PatternNode::Segments { table, shape } => {
                     let seg_table = &self.grammar.char_tables[table.0 as usize];
+                    let mut children = Vec::new();
                     for (i, _kind, char_def, _flags) in shape.shape.interior() {
                         let _ = i;
                         let mut lanes = seg_table
@@ -473,11 +505,12 @@ impl<'g> PatternBridge<'g> {
                         if let Some(strrep) = self.strrep.filter(|_| *table == self.table) {
                             strrep.constrain(&mut lanes, char_def);
                         }
-                        out.push(AgreementNode::Constraint {
+                        children.push(AgreementNode::Constraint {
                             lanes,
                             vars: Vec::new(),
                         });
                     }
+                    out.push(AgreementNode::Group(children));
                 }
                 PatternNode::Anchor(AnchorSide::Left) => *anchor_start = true,
                 PatternNode::Anchor(AnchorSide::Right) => *anchor_end = true,

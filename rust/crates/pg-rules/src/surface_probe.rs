@@ -12,10 +12,10 @@
 //! because this probe `Word` is not associated with any lexical entry at all. `probe_synthesize`
 //! mirrors that exactly.
 
-use pg_featstruct::flat_unifiable;
+use pg_featstruct::{flat_unifiable, FeatureStruct};
 use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
-use pg_grammar_model::model::Grammar;
-use pg_shape::{NodeKind, Shape, NO_CHAR_DEF};
+use pg_grammar_model::model::{Grammar, MprSet};
+use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 
 use crate::cache::RuleCache;
 use crate::rewrite::{self, MutShape, ProbeOutcome};
@@ -27,8 +27,12 @@ use crate::rewrite::{self, MutShape, ProbeOutcome};
 #[derive(Clone, Debug)]
 pub struct ProbeSeg {
     pub char_def: u32,
+    /// The spellings an abstract (`NO_CHAR_DEF`) node may take, such as a segment modified to a segment class; unread for a concrete node.
+    pub cd_set: CdSet,
     pub lanes: Vec<u64>,
     pub deleted: bool,
+    /// Whether this node was present in the segmented input rather than inserted by a rewrite.
+    pub from_input: bool,
 }
 
 /// Run every stratum's phonological-rule cascade over `shape` (C# `SurfacePhonology.SurfaceNodes`),
@@ -44,10 +48,21 @@ pub struct ProbeSeg {
 /// 417-segment-alphabet probing (the plan's own ~112s C# figure) into something orders of magnitude
 /// worse. See `crate::rewrite::probe_apply_rule_cached`'s doc for the measured motivation.
 pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option<Vec<ProbeSeg>> {
+    probe_synthesize_for(g, shape, cache, &FeatureStruct::EMPTY, &MprSet::EMPTY)
+}
+
+/// `probe_synthesize` for a word whose syntactic FS and MPR set are known, so part-of-speech and MPR gated subrules apply exactly as they would to that word.
+pub fn probe_synthesize_for(
+    g: &Grammar,
+    shape: &Shape,
+    cache: &RuleCache,
+    syn_fs: &FeatureStruct,
+    mpr: &MprSet,
+) -> Option<Vec<ProbeSeg>> {
     let mut ms = MutShape::from_shape(shape);
     for sd in &g.strata {
         if let ProbeOutcome::Refused =
-            rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache)
+            rewrite::probe_synthesize_stratum(g, &sd.prules, &mut ms, cache, syn_fs, mpr)
         {
             return None;
         }
@@ -58,8 +73,10 @@ pub fn probe_synthesize(g: &Grammar, shape: &Shape, cache: &RuleCache) -> Option
             .filter(|n| n.kind == NodeKind::Segment)
             .map(|n| ProbeSeg {
                 char_def: n.char_def,
+                cd_set: n.cd_set.clone(),
                 lanes: n.lanes.clone(),
                 deleted: n.deleted,
+                from_input: n.from_input,
             })
             .collect(),
     )
@@ -75,7 +92,7 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
         if seg.deleted {
             continue;
         }
-        let reps = matching_reps(table, seg.char_def, &seg.lanes);
+        let reps = matching_reps(table, seg.char_def, &seg.cd_set, &seg.lanes);
         let first = reps.into_iter().next()?;
         out.push_str(&first);
     }
@@ -84,20 +101,42 @@ pub fn render_nodes(table: &CharDefTable, segs: &[ProbeSeg]) -> Option<String> {
 
 /// `render_nodes` over a shape as it stands, no cascade: what `table` spells each SEGMENT node's bundle as, which is how a final table spells a root entered on an inner stratum (hc.dll `CharacterDefinitionTable.GetMatchingStrReps`).
 pub fn render_shape(table: &CharDefTable, shape: &Shape) -> Option<String> {
-    let segs: Vec<ProbeSeg> = shape
-        .interior()
-        .filter(|&(_, kind, _, _)| kind == NodeKind::Segment)
-        .map(|(i, _, char_def, _)| ProbeSeg {
+    render_shape_marked(table, shape, "")
+}
+
+/// [`render_shape`] with each boundary node written as `boundary`, so a word that holds boundaries reads back as the text it was segmented from.
+pub fn render_shape_marked(table: &CharDefTable, shape: &Shape, boundary: &str) -> Option<String> {
+    let mut out = String::new();
+    for (i, kind, char_def, _) in shape.interior() {
+        if kind == NodeKind::Boundary {
+            out.push_str(boundary);
+            continue;
+        }
+        if kind != NodeKind::Segment {
+            continue;
+        }
+        let seg = ProbeSeg {
             char_def,
+            cd_set: match shape.node_cd_set(i) {
+                EffectiveCdSet::Members(bits) => CdSet::Members(bits.clone()),
+                EffectiveCdSet::Singleton(_) | EffectiveCdSet::Unrestricted => CdSet::Unrestricted,
+            },
             lanes: shape.node_lanes(i).to_vec(),
             deleted: false,
-        })
-        .collect();
-    render_nodes(table, &segs)
+            from_input: true,
+        };
+        out.push_str(&render_nodes(table, std::slice::from_ref(&seg))?);
+    }
+    Some(out)
 }
 
 // Cross-table character indices are unrelated; feature bundles provide the correspondence.
-fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<CharDefId> {
+pub(crate) fn matching_cd_ids(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &CdSet,
+    lanes: &[u64],
+) -> Vec<CharDefId> {
     let feature_bearing_table = char_def != NO_CHAR_DEF
         && (char_def as usize) < table.len()
         && table.unifiable_cds(CharDefId(char_def)).is_some();
@@ -107,7 +146,11 @@ fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<Ch
             continue;
         }
         let member = if char_def == NO_CHAR_DEF {
-            true // NO_CHAR_DEF (post-rewrite abstract node): pure lane unification, no identity gate.
+            // NO_CHAR_DEF (post-rewrite abstract node): lane unification, gated only by the spellings it was restricted to.
+            match cd_set {
+                CdSet::Members(bits) => bits.contains(id.0),
+                CdSet::Unrestricted => true,
+            }
         } else {
             feature_bearing_table || id.0 == char_def
         };
@@ -118,9 +161,26 @@ fn matching_cd_ids(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<Ch
     out
 }
 
+/// Whether the resolver's complete spelling set is a singleton, including every representation.
+pub fn has_single_spelling(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &CdSet,
+    lanes: &[u64],
+) -> bool {
+    let reps = matching_reps(table, char_def, cd_set, lanes);
+    reps.first()
+        .is_some_and(|first| reps.iter().all(|rep| rep == first))
+}
+
 /// Every representation of every char-def `matching_cd_ids` selects, in table document order.
-fn matching_reps(table: &CharDefTable, char_def: u32, lanes: &[u64]) -> Vec<String> {
-    matching_cd_ids(table, char_def, lanes)
+pub fn matching_reps(
+    table: &CharDefTable,
+    char_def: u32,
+    cd_set: &CdSet,
+    lanes: &[u64],
+) -> Vec<String> {
+    matching_cd_ids(table, char_def, cd_set, lanes)
         .into_iter()
         .flat_map(|id| table.get(id).representations().iter().cloned())
         .collect()

@@ -116,12 +116,12 @@ fn select_backends_characterizes_the_grammar_once_not_once_per_strategy() {
     let ro = prules_in_order(&g);
     let phon = PhonologyProbe::new(&g);
 
-    // Not select_backends's own input; pins this fixture's gate-key branching precondition.
+    // Not select_backends's own input; pins this fixture's candidate count. With one registered strategy the per-strategy loop is a single pass, so the once-not-per-strategy claim only has teeth when the registry grows again.
     let candidates = enumerate_candidates(&g, &ro, phon.as_ref());
     assert_eq!(
         candidates.len(),
-        2,
-        "this fixture must yield 2 candidates, or its gate-branching precondition is vacuous"
+        1,
+        "this fixture must yield 1 candidate under the one registered strategy"
     );
 
     reset_characterize_call_count();

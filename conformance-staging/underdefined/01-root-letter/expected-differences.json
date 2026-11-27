@@ -17,7 +17,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for an undefined input letter and drops its root allomorph; PanGloss completes selected literal usage regardless of parser provenance."
     },
     {
@@ -29,7 +29,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xuma, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for an undefined input letter and drops its root allomorph; PanGloss completes selected literal usage regardless of parser provenance."
     },
     {
@@ -48,7 +48,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for an undefined input letter and drops its root allomorph; PanGloss completes selected literal usage regardless of parser provenance."
     },
     {
@@ -60,7 +60,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumas, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for an undefined input letter and drops its root allomorph; PanGloss completes selected literal usage regardless of parser provenance."
     },
     {
@@ -72,7 +72,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, xumu, contains an undefined phoneme at 0.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws for an undefined input letter and drops its root allomorph; PanGloss completes selected literal usage regardless of parser provenance."
     }
   ]

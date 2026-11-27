@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Synthetic grammar for the serve shadowedAllomorphs tests: an unconstrained passive w before liw, and a VC-A root before an APPL that needs VC-B. -->
+<HermitCrabInput><Language><Name>Shadow</Name>
+<PartsOfSpeech><PartOfSpeech id="posRoot"><Name>root</Name></PartOfSpeech></PartsOfSpeech>
+<MorphologicalPhonologicalRuleFeatures>
+<MorphologicalPhonologicalRuleFeature id="vcA">VC-A</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeature id="vcB">VC-B</MorphologicalPhonologicalRuleFeature>
+<MorphologicalPhonologicalRuleFeatureGroup matchType="any" outputType="overwrite" features="vcA vcB"><Name>inflClasses</Name></MorphologicalPhonologicalRuleFeatureGroup>
+</MorphologicalPhonologicalRuleFeatures>
+<CharacterDefinitionTable id="table1"><Name>Main</Name><SegmentDefinitions>
+<SegmentDefinition id="cB"><Representations><Representation>b</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cL"><Representations><Representation>l</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cW"><Representations><Representation>w</Representation></Representations></SegmentDefinition>
+<SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition>
+</SegmentDefinitions></CharacterDefinitionTable>
+<NaturalClasses>
+<FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+<SegmentNaturalClass id="ncL"><Name>L</Name><Segment segment="cL" /></SegmentNaturalClass>
+<SegmentNaturalClass id="ncI"><Name>I</Name><Segment segment="cI" /></SegmentNaturalClass>
+</NaturalClasses>
+<Strata><Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="PASS APPL"><Name>Main</Name>
+<MorphologicalRuleDefinitions><MorphologicalRule id="PASS" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot"><Name>PASS</Name><MorphologicalSubrules><MorphologicalSubrule id="w"><MorphologicalInput requiredMPRFeatures="vcB"><PhoneticSequence id="w_s"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput ><CopyFromInput index="w_s" /><InsertSegments><PhoneticShape>w</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule><MorphologicalSubrule id="liw"><MorphologicalInput requiredMPRFeatures="vcB"><PhoneticSequence id="liw_s"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence><SimpleContext naturalClass="ncL" /></PhoneticSequence></MorphologicalInput><MorphologicalOutput ><CopyFromInput index="liw_s" /><InsertSegments><PhoneticShape>iw</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>PASS</MorphemeId></MorphologicalRule><MorphologicalRule id="APPL" requiredPartsOfSpeech="posRoot" outputPartOfSpeech="posRoot"><Name>APPL</Name><MorphologicalSubrules><MorphologicalSubrule id="appl"><MorphologicalInput requiredMPRFeatures="vcB"><PhoneticSequence id="appl_s"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput><MorphologicalOutput ><CopyFromInput index="appl_s" /><InsertSegments><PhoneticShape>i</PhoneticShape></InsertSegments></MorphologicalOutput></MorphologicalSubrule></MorphologicalSubrules><MorphemeId>APPL</MorphemeId></MorphologicalRule></MorphologicalRuleDefinitions>
+<LexicalEntries><LexicalEntry id="eA" partOfSpeech="posRoot" ruleFeatures="vcA"><Allomorphs><Allomorph id="eA_bal"><PhoneticShape>bal</PhoneticShape></Allomorph><Allomorph id="eA_ba"><PhoneticShape>ba</PhoneticShape><RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncI" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments></Allomorph></Allomorphs><MorphemeId>eA</MorphemeId><Gloss>eA</Gloss></LexicalEntry><LexicalEntry id="eB" partOfSpeech="posRoot" ruleFeatures="vcB"><Allomorphs><Allomorph id="eB_tal"><PhoneticShape>tal</PhoneticShape></Allomorph></Allomorphs><MorphemeId>eB</MorphemeId><Gloss>eB</Gloss></LexicalEntry></LexicalEntries>
+</Stratum></Strata></Language></HermitCrabInput>

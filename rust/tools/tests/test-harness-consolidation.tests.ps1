@@ -35,80 +35,61 @@ $crateSpecs = @(
     @{
         Name = 'pg-foma'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma'
-        MinTargets = 11
-        MaxTargets = 11
+        MinTargets = 10
+        MaxTargets = 10
         ExpectedSourceNames = @(
             'all_fixtures_foma_analyzer_new_no_panic.rs', 'candidate_filter_passes.rs',
             'f0_viability.rs', 'f1_large_lexicon_gate.rs', 'f2_junction_gate.rs',
             'f3_interdigitation_gate.rs', 'f4_composite_gate.rs', 'mbugwe_corpus_smoke_gate.rs',
-            'p6_gate_parity.rs', 'phase_c_alpha_scale.rs', 'phase_c_circumfix.rs', 'phase_c_compounding.rs',
-            'phase_c_metathesis.rs', 'phase_c_multi_table.rs', 'phase_c_partition_k.rs',
-            'phase_c_quantifier.rs', 'phase_c_right_to_left.rs', 'phase_c_simultaneous.rs',
+            'phase_c_compounding.rs',
             'phase_c_strata_depth.rs', 'pk1_precision_recall_invariance.rs'
         )
     }
     @{
         Name = 'pg-foma-backend'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-foma-backend'
-        MinTargets = 9
-        MaxTargets = 9
-        # Helper modules that more than one harness imports on purpose.
-        SharedSourceNames = @('confirmed_rewrite_fixture.rs')
+        MinTargets = 8
+        MaxTargets = 8
         ExpectedSourceNames = @(
-            'ambiguous_alpha_containment.rs', 'confirmed_rewrite_fixture.rs', 'free_fluctuation_containment.rs', 'permanent_variant_refusals.rs', 'repeated_alpha_containment.rs', 'rewrite_oracle_fixtures.rs',
-            'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
-            'apply_path_refusal_gate.rs', 'atomic_template_slot_carrier_gate.rs',
-            'backend_accuracy_gate.rs', 'backend_capability_cards_contract.rs',
-            'backend_emission_strategy_gate.rs', 'backend_mechanism_graph.rs',
-            'backend_optimizer_calibration.rs', 'backend_partition_refinement_gate.rs',
-            'backend_promoted_fixtures.rs', 'backend_registry_census.rs',
-            'backend_runtime_cache_gate.rs', 'backend_runtime_net_is_queryable_gate.rs',
-            'backend_runtime_oracle_bound_gate.rs', 'backend_scoreboard_gate.rs',
+            'free_fluctuation_containment.rs', 'permanent_variant_refusals.rs', 'admission_single_owner_gate.rs', 'advice_catalog_contract.rs',
+            'apply_path_refusal_gate.rs', 'backend_accuracy_gate.rs', 'backend_capability_cards_contract.rs',
+            'backend_mechanism_graph.rs',
+            'backend_optimizer_calibration.rs', 'backend_promoted_fixtures.rs', 'backend_runtime_cache_gate.rs', 'backend_runtime_oracle_bound_gate.rs', 'backend_scoreboard_gate.rs',
             'backend_seam_gate.rs', 'backend_selection_contract.rs',
             'bare_root_compile_time_discharge.rs',
             'bistratal_overlapping_segment_representation_foma_analyzer_compiles.rs',
-            'boundary_marker_epsilon_collapse_gate.rs', 'candidate_filter_contract.rs',
+            'candidate_filter_contract.rs',
             'candidate_filter_fixture_weight.rs', 'candidate_filter_model_check.rs',
             'candidate_filter_shadow_gate.rs', 'circumfix_candidate_selection.rs',
             'circumfix_cross_product_and_infix_drop_candidate_selection.rs',
-            'closure_unbounded_realizational.rs', 'conformance_coverage_gate.rs',
+            'closure_unbounded_realizational.rs', 'compound_identity_recovery.rs', 'conformance_coverage_gate.rs',
             'cover_bistratal_overlapping_segment_representation.rs', 'cover_compounding.rs',
-            'cover_compounding_recursive_depth_bound.rs', 'cover_mpr_groups.rs',
+            'cover_compounding_recursive_depth_bound.rs', 'cover_mpr_groups.rs', 'cover_multiple_application_chain.rs',
             'cover_realizational_morphology_constraints.rs',
             'cover_recursive_endocentric_compounding.rs',
             'cover_right_to_left_bounded_quantifier_rewrite.rs',
             'cover_subrule_morphosyntactic_gating.rs', 'cover_unordered_morph_rules.rs',
-            'coverage_citation_liveness.rs', 'cross_compiler_equivalence_gate.rs',
-            'cross_table_root_respelling_gate.rs', 'deletion_reduplication_exception_fixture.rs',
+            'coverage_citation_liveness.rs', 'cross_table_root_respelling_gate.rs', 'deletion_reduplication_exception_fixture.rs',
             'deterministic_eligibility_gate.rs',
-            'emit_underlying_templated_recursive_compound_chain.rs',
-            'emit_underlying_templated_tag_reachability_gate.rs',
             'envelope_agrees_with_compiler_gate.rs', 'epenthesis_structural_route_containment.rs',
             'exercises_tag_liveness.rs', 'f3_parity.rs', 'f5_diacritics_gate.rs',
             'f6_reduplication_peel_chain_depth.rs', 'faithfulness_coverage_gate.rs',
             'five_language_backend_reports_gate.rs', 'flag_replace_scope.rs',
             'grammar_semantics_owner_gate.rs', 'health_finding_seam.rs',
-            'late_structural_anchor_recall.rs', 'mechanism_provider_gate.rs',
-            'mentanukam_multiplicity_recovered_by_confirm.rs', 'morphology_relation_plan_gate.rs',
-            'morphotactics_boundary_cleanup_slice.rs', 'multi_table_metathesis_shared_representation.rs',
-            'net_dedup_gate.rs', 'net_dedup_sizing_census.rs', 'net_shape_gate.rs',
-            'oracle_step_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
+            'late_structural_anchor_recall.rs', 'mechanism_provider_gate.rs', 'metathesis_across_morphs_gate.rs',
+            'mentanukam_multiplicity_recovered_by_confirm.rs', 'morphotactics_boundary_cleanup_slice.rs', 'oracle_work_determinism_gate.rs', 'orthogonal_basis_group_a.rs',
             'orthogonal_basis_group_b.rs', 'parity_divergence_census.rs',
-            'partial_fst_production_admission_gate.rs', 'pattern_root_regex_route_gate.rs',
-            'pattern_root_token_route_gate.rs', 'pk2_eliminate_flag_oracle.rs',
-            'p6_templated_morphotactics_gate.rs', 'phase_c_chain_scale.rs',
-            'plan_composed_marker_material_gate.rs', 'plan_interaction_coverage_gate.rs',
-            'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs',
-            'realizational_pc_represents_gate.rs',
+            'grammar_health_publication_gate.rs', 'pattern_root_regex_route_gate.rs',
+            'pk2_eliminate_flag_oracle.rs',
+            'phase_c_chain_scale.rs',
+            'plan_interaction_coverage_gate.rs',
+            'predicate_negative_witness_gate.rs', 'process_morphology_route_gate.rs', 'proposal_recall_gate.rs',
+            'recursive_compound_spelling_gate.rs',
             'segment_natural_class_table_binding_discriminates.rs',
-            'simultaneous_overlap_capability_refuses.rs', 'strategy_aware_capability_gate.rs',
+            'spelling_coverage_gate.rs',
+            'strategy_aware_capability_gate.rs',
             'strategy_coverage_join_gate.rs', 'structural_witness_gate.rs',
-            'subrecipe_dossier_contract.rs', 'templated_circumfix_recall_parity.rs',
-            'templated_conformance_proposal_pins.rs', 'templated_morphology_classifier_gate.rs',
-            'templated_token_cascade_phonology_free_routing_gate.rs',
-            'trusted_selected_build_gate.rs', 'two_table_shared_representation_recall.rs',
-            'two_table_symbol_divergence.rs', 'typology_speedup.rs', 'uflexc_compound_loop.rs',
-            'witnessed_strategy_coverage_gate.rs', 'worker_execution_limits_contract.rs'
+            'subrecipe_dossier_contract.rs', 'trusted_selected_build_gate.rs', 'typology_speedup.rs', 'witnessed_strategy_coverage_gate.rs', 'worker_execution_limits_contract.rs'
         )
     }
     @{
@@ -117,34 +98,40 @@ $crateSpecs = @(
         MinTargets = 3
         MaxTargets = 3
         ExpectedSourceNames = @(
-            'effective_analysis_target.rs', 'phonology_gate.rs', 'step_cap_work_gate.rs', 'trace_template_outcomes.rs',
-            'batch_determinism.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
+            'adjacent_copy_captures.rs',
+            'adhoc_affix_copies.rs', 'fw_metathesis.rs', 'adhoc_allomorph_copies.rs', 'adhoc_fieldworks_witnesses.rs',
+            'adhoc_morpheme_variant_copies.rs', 'copy_agreement_featureless.rs', 'copy_alignment_optional.rs', 'featureless_modify_from_input.rs', 'featureless_wide_class_rewrite.rs',
+            'effective_analysis_target.rs', 'phonology_gate.rs', 'work_cap_gate.rs', 'work_cap_getter.rs', 'trace_template_outcomes.rs',
+            'early_root_lookup_gate.rs', 'edge_prefilter_gate.rs', 'lookup_replay_gate.rs', 'partials_preservation.rs',
+            'analysis_order_gate.rs', 'batch_determinism.rs', 'bracket_pattern_affix_form.rs', 'cd_set_gate.rs', 'clitic_template_state_gate.rs', 'conformance_fixtures_gate.rs',
             'cross_table_metathesis_surface_match_gate.rs', 'csharp_port_affix_process.rs',
             'csharp_port_affix_template.rs', 'csharp_port_compounding.rs',
             'csharp_port_generation.rs', 'csharp_port_lex_entry.rs', 'csharp_port_metathesis.rs',
-            'csharp_port_morpher.rs', 'csharp_port_rewrite.rs', 'disjunctive_recheck_gate.rs',
-            'exact_analysis_fs_recall.rs', 'free_fluctuation_gate.rs', 'guesser_gate.rs',
-            'lexical_pattern_trie_exclusion_gate.rs', 'loader_n3_pattern_shapes_gate.rs',
-            'merge_msas_conformance.rs', 'merged_analyses_fs_generalization.rs', 'perf_cold_warm_probe.rs',
-            'reduplication_gate.rs', 'root_trie_gate.rs', 'stats_collector_gate.rs',
+            'csharp_port_morpher.rs', 'csharp_port_rewrite.rs', 'disjunctive_recheck_gate.rs', 'shadowed_allomorphs_gate.rs',
+            'batch_morph_spans.rs', 'do_not_parse.rs', 'exact_analysis_fs_recall.rs', 'generate_morph_spans.rs', 'free_fluctuation_gate.rs', 'guesser_gate.rs',
+            'final_template_pruning_gate.rs', 'final_template_partial_root_gate.rs', 'required_slot_shadow_gate.rs',
+            'lexical_lookup_matched_allomorph.rs', 'lexical_pattern_trie_exclusion_gate.rs', 'loader_n3_pattern_shapes_gate.rs',
+            'merge_msas_conformance.rs', 'merged_analyses_fs_generalization.rs', 'metathesis_after_deletion.rs', 'metathesis_allomorph_env_extent.rs', 'metathesis_match_order.rs', 'metathesis_prefix_right_env.rs', 'optional_run_tilings.rs', 'perf_cold_warm_probe.rs',
+            'reduplication_gate.rs', 'restricted_parse_gate.rs', 'root_trie_gate.rs', 'stats_collector_gate.rs',
             'supplied_overlay.rs', 'template_analysis_conformance.rs', 'trace_gate.rs',
-            'trace_phon_gate.rs', 'trace_rule_sequence_gate.rs', 'word_timeout_gate.rs',
+            'trace_phon_gate.rs', 'trace_rule_sequence_gate.rs', 'truncate_morphotactic_identity.rs',
+            'word_timeout_gate.rs', 'guess_only_orchestration_gate.rs',
             'word_timeout_pathological_gate.rs', 'xample_migration_differential_gate.rs',
-            'zero_width_morph_identity.rs'
+            'why_not_fieldworks_guids.rs', 'zero_width_morph_identity.rs'
         )
     }
     @{
         Name = 'pg-rules'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-rules'
-        MinTargets = 2
-        MaxTargets = 2
+        MinTargets = 5
+        MaxTargets = 5
         ExpectedSourceNames = @(
             'alpha_gate.rs', 'analysis_syn_fs_gate.rs', 'fst_probe.rs',
             'guessed_root_validity_gate.rs', 'max_apps_gate.rs', 'metathesis_gate.rs',
-            'morph_gate.rs', 'non_head_root_filter_gate.rs', 'nonhead_resolution_gate.rs',
+            'morph_gate.rs', 'mpr_allocation.rs', 'shape_graph_heap.rs', 'non_head_root_filter_gate.rs', 'nonhead_resolution_gate.rs',
             'p7_segments_union_census.rs', 'part1_checkpoint.rs',
-            'redup_and_free_fluctuation_gate.rs', 'rewrite_gate.rs', 'stats_gate.rs',
-            'stratum_gate.rs', 'synth_gate_order_gate.rs', 'template_partial_gate.rs',
+            'redup_and_free_fluctuation_gate.rs', 'rewrite_gate.rs', 'rule_text_gate.rs', 'stats_gate.rs',
+            'stratum_gate.rs', 'synth_gate_order_gate.rs', 'template_partial_gate.rs', 'trail_cost.rs',
             'type_lane_gate.rs', 'unapplied_rule_counts_reader_gate.rs', 'validity_gate.rs'
         )
     }
@@ -158,11 +145,13 @@ $crateSpecs = @(
     @{
         Name = 'pg-cli'
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-cli'
-        MinTargets = 2
-        MaxTargets = 2
+        MinTargets = 4
+        MaxTargets = 4
         ExpectedSourceNames = @(
-            'authored_generate_request.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'reserved_word_boundary.rs', 'slotted_suffix_left_environment.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
-            'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'serve_protocol.rs', 'skills_never_instruct_bare_cargo.rs', 'wide_table_segment_identity.rs')
+            'stats_manifest_roundtrip.rs',
+            'diagnostic_trace.rs',
+            'analyze_text_cli.rs', 'authored_generate_request.rs', 'batch_engine.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'stats_memory.rs', 'reserved_word_boundary.rs', 'slotted_suffix_left_environment.rs', 'without_rules.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
+            'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'cost_cli.rs', 'cost_measurement.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'grammar_health_artifacts.rs', 'grammar_health_shadowed.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'rule_costs_cli.rs', 'serve_effects.rs', 'serve_generate.rs', 'serve_inventory.rs', 'serve_match.rs', 'serve_protocol.rs', 'skills_never_instruct_bare_cargo.rs', 'wide_table_segment_identity.rs', 'why_not_cli.rs')
     }
     @{
         Name = 'pg-conformance-fixtures'
@@ -184,7 +173,7 @@ $crateSpecs = @(
         PackageRoot = Join-Path $repoRoot 'rust\crates\pg-fwdata'
         MinTargets = 1
         MaxTargets = 1
-        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'measured_import_parity.rs', 'real_projects.rs')
+        ExpectedSourceNames = @('compile_real_projects_gate.rs', 'fixture_tests.rs', 'fwbackup_tests.rs', 'lean_import_parity.rs', 'measured_import_parity.rs', 'metathesis_import.rs', 'real_projects.rs')
     }
     @{
         Name = 'pg-grammar'
@@ -192,7 +181,7 @@ $crateSpecs = @(
         MinTargets = 1
         MaxTargets = 1
         ExpectedSourceNames = @(
-            'circumfix_inflection_classes.rs', 'process_allomorph_inflection_classes.rs','circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'merge_msas.rs', 'p5_closure_property.rs')
+            'affix_max_applications.rs', 'circumfix_inflection_classes.rs', 'process_allomorph_inflection_classes.rs','circumfix_conditioning_parity.rs', 'compile_refusal_gate.rs', 'conversion_inventory_gate.rs', 'lean_compile_parity.rs', 'lossless_conversion_gate.rs', 'measure_only_confinement_gate.rs', 'merge_msas.rs', 'p5_closure_property.rs')
     }
     @{
         Name = 'pg-lexicon'

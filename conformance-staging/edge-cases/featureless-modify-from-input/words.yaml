@@ -1,0 +1,74 @@
+# oracle-provenance: forward-synthesis
+# PanGloss-expected answers: a deliberate, recorded divergence from hc.dll (docs/divergences/128-*.md,
+# policy "partial-feature grammars"). This fixture is RED against hc.dll on purpose; do not "fix" it back.
+# hc.dll's own answers (hc-conformance self-check, in-process Morpher, 2026-11-05) are kept in the notes
+# below and in STAGING.md, and rust/tools/oracle-conformance-known-divergences.json pins the exact
+# mismatch.
+#
+# mrModS rewrites the vowel after the first consonant (V = {a i}) to the segment class {i} with
+# ModifyFromInput and appends s, in a grammar with NO phonological feature system. C# undoes a
+# modification in analysis by adding the context's AntiFeatureStruct to the node; for a segment class
+# that leaves the node's StrRep restricted to the new spelling {i}, so hc.dll can only recover a root
+# whose own vowel is already i. PanGloss keeps the generous behaviour a grammar with features has:
+# undoing a modification does not restrict the spelling, so every root whose forward synthesis gives the
+# word is recovered. Forward trace: root kata + mrModS: the vowel after k (a) is rewritten to i, then s
+# is appended, giving kitas; likewise tasi -> tisis and pasa -> pisas.
+language: FeaturelessModifyFromInput
+inspired_by: ["synthetic vowel rewrite plus suffix (not modeling any real language)"]
+requires: []
+fieldworks_producible: true
+words:
+  - word: kitas
+    note: >-
+      PanGloss: two analyses, KITA (the vowel already is i) and KATA (its a is rewritten to i). hc.dll
+      has only the first: its restricted StrRep cannot recover the a of kata.
+    parses:
+      - signature: "KITA+MODS|kitas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+      - signature: "KATA+MODS|kitas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: sikas
+    note: The same with a different consonant and a second root whose vowel is i.
+    parses:
+      - signature: "SIKA+MODS|sikas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: kita
+    note: The bare root, to show the suffixed readings do not leak onto unsuffixed words.
+    parses:
+      - signature: "KITA|kita"
+        rules: []
+        exercises: []
+  - word: kata
+    note: The bare root whose vowel the rule would rewrite.
+    parses:
+      - signature: "KATA|kata"
+        rules: []
+        exercises: []
+  - word: tisis
+    note: >-
+      PanGloss recovers root tasi (a rewritten to i, then s). hc.dll finds nothing: the undo leaves the
+      vowel restricted to {i} and the root's a does not unify with it (issue #121).
+    parses:
+      - signature: "TASI+MODS|tisis"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: pisas
+    note: Same as tisis with the root pasa.
+    parses:
+      - signature: "PASA+MODS|pisas"
+        rules: [mrModS]
+        exercises:
+          - "MorphologicalOutputAction: ModifyFromInput/InsertSimpleContext"
+  - word: kakas
+    note: A vowel that stayed a is never a surface of the rule, whatever the root.
+    expect_fail: true
+  - word: tata
+    note: Neither a bare root nor a suffixed one.
+    expect_fail: true

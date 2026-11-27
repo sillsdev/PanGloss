@@ -8,35 +8,35 @@ use std::time::Duration;
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
 
-const K_MSA_GUID: &str = "d71a9c35-5dd1-4659-997a-b3ad043e06f2";
-const K_ALLOMORPH_GUID: &str = "dad4fed7-93cb-46f8-b428-ef50ea86b4cf";
+const K_MSA_GUID: &str = "ac0efd5d-b9d3-4aa3-9916-4650082e7ea4";
+const K_ALLOMORPH_GUID: &str = "2083cd7f-43f1-4c7e-a110-47cf88f6914f";
 const PREFIX_MSA_GUIDS: &[&str] = &[
-    "74f02ea2-b426-42b3-b564-4b82b48fb845",
-    "2eadd27a-2155-4a81-bf1c-6eefe4a05e18",
-    "b2935a58-ebdb-496e-a999-0fdd15740e23",
-    "d1da630c-0e8b-49aa-b4e0-45f1cfd4aa87",
-    "bddca7b0-652b-46c6-b539-f6a55840ffda",
-    "dac28aad-456a-4fb5-8b01-22d64d700d7e",
-    "fafe6823-8090-4a2f-b229-6cd3600d6eca",
-    "be9be864-9137-409a-aca2-bd0f04d1d10b",
-    "386281d3-c1a8-47e1-8bf2-54dd62a58c62",
-    "81580a7b-5b34-4463-85ef-7f96de757e05",
-    "3b2b6474-95b2-488e-ad86-c745fc09ef91",
-    "b50f1d61-7ce6-4f11-b5e0-977c9fb5dac0",
+    "04a3dcc1-a7d7-43b5-9952-e572c2dec5ab",
+    "08fb76a0-6c51-4667-b8a3-18e46eab5dd5",
+    "0ba5b050-ae6e-4a4d-93e3-33a9ea537c4d",
+    "0f59e0b9-ce29-40ef-b618-3a19a0049e1a",
+    "12199e48-53ec-45f0-bec1-f39067499611",
+    "1283e545-cb0f-48a5-a02e-e0031433a22f",
+    "4af8b147-4605-4658-ae6d-a54a24877af6",
+    "6fd163ec-d17d-4fa2-ac52-1b3c426ad360",
+    "7dd0b62a-9b13-4ba1-9e2f-3e9f70079c0d",
+    "9aa05e36-98da-41b6-a7f7-dfd64c90fec2",
+    "ad262853-28dd-4db3-a9d8-835b9bed8ca7",
+    "e506c479-8cf3-43f0-b9c2-cbdbe51d9e78",
 ];
 const PREFIX_ALLOMORPH_GUIDS: &[&str] = &[
-    "49759dad-3ca0-44f0-a597-43fc8015ebca",
-    "772c3c21-408b-4a67-ae70-3ff902946bc5",
-    "ccf408c9-99f0-4ff0-ac67-efa4f0a256bc",
-    "1166c2a4-528e-4dcd-8e08-4daefd95d600",
-    "009df337-59cb-4d1c-b875-5e1fc68dba37",
-    "308e9b48-3370-4103-be25-f765a0c6f734",
-    "759313da-93ff-45db-ad70-ea7734bc423e",
-    "f964f15b-fa85-4b64-a5a9-39ea912f54b6",
-    "1112b582-2d13-493c-bef5-8c62188c3678",
-    "b0bf2753-7792-44a2-bda5-754b13582865",
-    "3cb5bc99-8a47-42c2-bf7f-aefa1cef9f3d",
-    "cd8aacfd-695f-4944-b3e7-bd849d696a8a",
+    "09755be4-f77e-48bd-ad4c-3d09c6d802e5",
+    "24762447-ccaa-4b45-b6e2-0ade951f16b9",
+    "2d5f5a1b-1e53-4970-b24d-bda51bc239e4",
+    "3a2435eb-c360-40b0-a696-82eff57c24d4",
+    "3cca4a60-a091-49d4-acea-2f39eeafdb43",
+    "4620eefc-b39a-43f4-8d88-7ffcf68c8d6d",
+    "477c8851-8316-4290-befa-06a25db7323f",
+    "7c6cfb58-ed2b-4b8c-9798-db07aea4f1f7",
+    "8f80ab18-943d-4032-a807-654af6e5f60b",
+    "90c3fd50-5aa8-4901-a212-be0cc58abc7c",
+    "a3afc424-e5bb-432c-9d58-9951a93bee55",
+    "ad15384a-225b-4573-bec3-c056535ac7a6",
 ];
 
 /// Wall-clock deadline armed on every `Morpher` built in `run_conformance`; generous relative to a normal word's low-single-digit-millisecond parse time, but small enough that every corpus word hitting it stays a bounded, if slow, run rather than an unbounded hang.
@@ -224,9 +224,8 @@ fn adhoc_project(
 fn grouped_fwdata_adhoc_rules_match_flat_hcloader_semantics() {
     // PORT-CORRESPONDENCE: HCLoader.cs:340-350 filters concrete repository rules, not their groups.
     let dir = tempfile::tempdir().expect("temporary fixture directory");
-    let base_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/deep-optional-affix-nesting/fieldworks/project.fwdata",
-    );
+    let base_path = pg_conformance_fixtures::suite_root()
+        .join("edge-cases/deep-optional-affix-nesting/fieldworks/project.fwdata");
     let base_source = std::fs::read_to_string(&base_path).expect("read clean FieldWorks fixture");
     copy_writing_system_store(&base_path, dir.path());
     let grouped_path = adhoc_project(dir.path(), &base_source, "grouped", true, true);

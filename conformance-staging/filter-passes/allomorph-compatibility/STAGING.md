@@ -36,7 +36,7 @@ an exact-span check.
 The `PhonologicalFeatureSystem` declares no phonology; it exists solely to give each segment a
 unique symbol, without which a `SegmentNaturalClass` constraint degrades to "any segment" in this
 port's bridge layer and the environment rows would pass for the wrong reason. Same reason and same
-shape as `machine/conformance/edge-cases/free-fluctuating-allomorph-pair`.
+shape as `conformance/edge-cases/free-fluctuating-allomorph-pair`.
 
 Residual overlap: none identified.
 
@@ -86,4 +86,4 @@ one that runs it.
 Not yet proposed upstream (no `sillsdev/machine` PR opened). This fixture's directory carries a
 third file (`filter-expectation.json`) that the upstream fixture contract does not define, so
 graduation means contributing `grammar.xml` + `words.yaml` under
-`machine/conformance/edge-cases/<name>/` and leaving the expectation file behind here.
+`conformance/edge-cases/<name>/` and leaving the expectation file behind here.

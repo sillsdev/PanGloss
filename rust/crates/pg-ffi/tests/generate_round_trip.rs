@@ -214,7 +214,9 @@ fn native_rich_generation_roundtrips_owner_identities_and_affixes() {
         grammar,
         RICH_XML,
         pg_lexicon::AnalysisPolicy {
-            step_cap: pangloss_ffi::DEFAULT_STEP_CAP,
+            work_cap: pangloss_ffi::DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 500_000,
         },
     )
     .unwrap();
@@ -295,7 +297,7 @@ fn native_rich_generation_roundtrips_owner_identities_and_affixes() {
             .iter()
             .any(|word| word == "milusi")
     );
-    assert_eq!(pangloss_ffi::hc_abi_version(), 3);
+    assert_eq!(pangloss_ffi::hc_abi_version(), 4);
     unsafe { hc_grammar_free(handle) };
 }
 

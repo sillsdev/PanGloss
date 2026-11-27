@@ -1,15 +1,6 @@
-//! Quantifier / `OptionalSegmentSequence` HONEST-SKIP bail gate builder (pure
-//! test-writing -- `pg_foma::replace::pattern_slots` already returns `None` on a `PatternNode::
-//! Quantifier` it meets in a REWRITE rule's own LHS/RHS/environment, which
-//! `compile_rewrite_rule_subset` turns into `Ok(None)` for the whole rule, and the caller
-//! (`compile_and_compose_rules_with_budget`) reports it via `skipped.push(rule.xml_id.clone())` --
-//! this builder only needs to mint a LOADABLE `<PhonologicalRule>` whose LHS is a bare
-//! `<OptionalSegmentSequence>`, not a working compiler for it.
-//!
-//! Note: `OptionalSegmentSequence` is a perfectly ordinary, WORKING construct elsewhere in this
-//! generator (every root-capturing `MorphologicalRule`'s own `MorphologicalInput`, e.g.
-//! `crate::build::circumfix`, uses it) -- `pattern_slots`'s bail is specific to the P6 REWRITE-
-//! RULE compiler (`pg_foma::replace`), not a claim that HermitCrab itself can't represent it.
+//! Generate a loadable rewrite with a quantified focus to exercise an unsupported lowering.
+//! Quantified rewrite focus is refused by `pg_foma::replace`; morphological capture patterns
+//! remain supported by their separate owner.
 
 use crate::build::tables::TableSpec;
 use crate::ids::IdMinter;

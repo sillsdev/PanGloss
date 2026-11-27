@@ -134,6 +134,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c89588d05638b5b4594a3348a2d6c20277e43a7f5c5202b05cc56888475a47b8"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -485,9 +487,20 @@ dependencies = [
  "cfg-if",
  "js-sys",
  "libc",
- "r-efi",
+ "r-efi 5.3.0",
  "wasip2",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "300e883d756b2e4ec94e02791f39b04b522276138852cfc41d9fb7e904106099"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi 6.0.0",
 ]
 
 [[package]]
@@ -564,6 +577,16 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
 
 [[package]]
 name = "js-sys"
@@ -726,8 +749,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "pg-analyzer"
+version = "0.35.5"
+dependencies = [
+ "pg-grammar",
+ "pg-parse",
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "sha2",
+ "spellbook",
+]
+
+[[package]]
 name = "pg-assess"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-conformance-fixtures",
  "pg-foma",
@@ -742,10 +778,12 @@ dependencies = [
 
 [[package]]
 name = "pg-cli"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
+ "pg-analyzer",
  "pg-assess",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-facts",
  "pg-featstruct",
  "pg-foma",
@@ -771,7 +809,7 @@ dependencies = [
 
 [[package]]
 name = "pg-comment-hygiene"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "regex",
  "serde",
@@ -780,7 +818,7 @@ dependencies = [
 
 [[package]]
 name = "pg-conformance-fixtures"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-grammar",
  "pg-grammar-model",
@@ -789,11 +827,19 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tempfile",
+]
+
+[[package]]
+name = "pg-cost"
+version = "0.35.5"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
 name = "pg-facts"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-assess",
  "pg-fwdata",
@@ -813,7 +859,7 @@ dependencies = [
 
 [[package]]
 name = "pg-featstruct"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "hashbrown 0.15.5",
  "serde",
@@ -823,9 +869,10 @@ dependencies = [
 
 [[package]]
 name = "pg-ffi"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "cc",
+ "pg-conformance-fixtures",
  "pg-foma",
  "pg-foma-runtime",
  "pg-grammar",
@@ -838,11 +885,12 @@ dependencies = [
 
 [[package]]
 name = "pg-foma"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "foma",
  "getrandom 0.3.4",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-featstruct",
  "pg-foma",
  "pg-foma-runtime",
@@ -865,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "pg-foma-backend"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "foma",
  "getrandom 0.3.4",
@@ -893,7 +941,7 @@ dependencies = [
 
 [[package]]
 name = "pg-foma-runtime"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "foma",
  "pg-featstruct",
@@ -910,17 +958,20 @@ dependencies = [
 
 [[package]]
 name = "pg-fst"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
+ "hashbrown 0.15.5",
+ "pg-cost",
  "pg-featstruct",
  "pg-shape",
+ "rustc-hash",
  "smallvec",
  "web-time",
 ]
 
 [[package]]
 name = "pg-fwdata"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-grammar",
  "pg-snapshot",
@@ -936,7 +987,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-conformance-fixtures",
@@ -958,7 +1009,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar-gen"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-featstruct",
  "pg-grammar",
@@ -967,7 +1018,7 @@ dependencies = [
 
 [[package]]
 name = "pg-grammar-model"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
@@ -980,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "pg-health"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -988,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "pg-lexicon"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "chrono",
  "getrandom 0.3.4",
@@ -1003,7 +1054,7 @@ dependencies = [
 
 [[package]]
 name = "pg-pack"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "ed25519-dalek",
  "foma",
@@ -1016,10 +1067,11 @@ dependencies = [
 
 [[package]]
 name = "pg-parse"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "bumpalo",
  "pg-conformance-fixtures",
+ "pg-cost",
  "pg-featstruct",
  "pg-fst",
  "pg-fwdata",
@@ -1035,12 +1087,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
+ "tempfile",
  "unicode-normalization",
 ]
 
 [[package]]
 name = "pg-realize"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-grammar",
  "pg-parse",
@@ -1049,9 +1102,11 @@ dependencies = [
 
 [[package]]
 name = "pg-rules"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "hashbrown 0.15.5",
+ "pg-conformance-fixtures",
+ "pg-cost",
  "pg-featstruct",
  "pg-fst",
  "pg-grammar",
@@ -1064,16 +1119,17 @@ dependencies = [
 
 [[package]]
 name = "pg-shape"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "hashbrown 0.15.5",
  "pg-featstruct",
+ "rustc-hash",
  "smallvec",
 ]
 
 [[package]]
 name = "pg-snapshot"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -1083,21 +1139,25 @@ dependencies = [
 
 [[package]]
 name = "pg-stats"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-rules",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror",
+ "zstd",
 ]
 
 [[package]]
 name = "pg-wasm"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "console_error_panic_hook",
+ "pg-analyzer",
+ "pg-conformance-fixtures",
  "pg-grammar",
  "pg-health",
  "pg-lexicon",
@@ -1108,14 +1168,13 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "thiserror",
- "unicode-segmentation",
  "wasm-bindgen",
  "web-time",
 ]
 
 [[package]]
 name = "pg-worker-containment"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "libc",
  "windows-sys",
@@ -1123,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "pg-xample-oracle"
-version = "0.10.0"
+version = "0.35.5"
 dependencies = [
  "pg-grammar",
  "pg-parse",
@@ -1199,6 +1258,12 @@ name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+
+[[package]]
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand_core"
@@ -1463,6 +1528,16 @@ checksum = "4aaa7368fcf4852a4c2dd92df0cace6a71f2091ca0a23391ce7f3a31833f1523"
 dependencies = [
  "borsh",
  "serde_core",
+]
+
+[[package]]
+name = "spellbook"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d204abcbdf8e88729306a8d0ca01a79d8a49969fe1f84696909d6dbc4321c1a"
+dependencies = [
+ "foldhash",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -1896,4 +1971,32 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zstd"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50adf04cf3ec914b0b9905c9dde90c80fe74bfd701e331fc80a39c512c525278"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "498d94ad68720c89b4fbe41b9090850651e68cb2dd9210ce7ffbff3a94653819"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.3+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f729a06d0257428fd9d997ac8db7e1407bd0262ab016b085b36bc52957c0052d"
+dependencies = [
+ "cc",
+ "pkg-config",
 ]

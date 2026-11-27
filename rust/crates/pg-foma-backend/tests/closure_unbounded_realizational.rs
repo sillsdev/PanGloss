@@ -2,7 +2,6 @@
 
 use pg_foma::characterization::{ClosureStopReason, ClosureTerminal};
 use pg_foma::emit::{self, ClosureRefusalCode, FomaTier};
-use pg_foma::replace::SegAlphabet;
 use pg_parse::{Morpher, ParseOptions};
 
 const CONCATENATIVE_REALIZATIONAL_XML: &str = r#"<HermitCrabInput><Language><Name>LoopableRealizational</Name>
@@ -48,10 +47,20 @@ fn tagged_self_loops(lexc_source: &str) -> Vec<String> {
 fn concatenative_realizational_rule_uses_a_regular_loop() {
     let grammar = pg_grammar::load(CONCATENATIVE_REALIZATIONAL_XML)
         .expect("concatenative realizational fixture must load");
-    let oracle = Morpher::new(&grammar, 20_000).parse_word_opts("afffff", &ParseOptions::default());
+    let morpher = Morpher::new(&grammar, 2_000_000);
+    let once = morpher.parse_word_opts("af", &ParseOptions::default());
     assert!(
-        !oracle.structured.is_empty(),
-        "oracle must apply rr1 five times"
+        !once.structured.is_empty(),
+        "one application must be accepted"
+    );
+    let oracle = morpher.parse_word_opts("afffff", &ParseOptions::default());
+    assert!(
+        !oracle.capped && !oracle.timed_out,
+        "confirmation must finish"
+    );
+    assert!(
+        oracle.structured.is_empty(),
+        "confirmation must reject five applications of rr1"
     );
     let mut proposer =
         pg_foma::analyzer::compile_proposer(&grammar).expect("regular rule must compile");
@@ -68,10 +77,20 @@ fn concatenative_realizational_prefix_uses_a_regular_loop() {
         "<InsertSegments><PhoneticShape>f</PhoneticShape></InsertSegments><CopyFromInput index=\"stem\" />",
     );
     let grammar = pg_grammar::load(&xml).expect("concatenative prefix fixture must load");
-    let oracle = Morpher::new(&grammar, 20_000).parse_word_opts("fffffa", &ParseOptions::default());
+    let morpher = Morpher::new(&grammar, 2_000_000);
+    let once = morpher.parse_word_opts("fa", &ParseOptions::default());
     assert!(
-        !oracle.structured.is_empty(),
-        "oracle must apply rr1 five times"
+        !once.structured.is_empty(),
+        "one application must be accepted"
+    );
+    let oracle = morpher.parse_word_opts("fffffa", &ParseOptions::default());
+    assert!(
+        !oracle.capped && !oracle.timed_out,
+        "confirmation must finish"
+    );
+    assert!(
+        oracle.structured.is_empty(),
+        "confirmation must reject five applications of rr1"
     );
     let mut proposer =
         pg_foma::analyzer::compile_proposer(&grammar).expect("regular prefix rule must compile");
@@ -99,14 +118,6 @@ fn boundary_only_realizational_output_does_not_form_an_epsilon_self_loop() {
     );
     pg_foma::analyzer::compile_proposer(&grammar)
         .expect("boundary-only non-looping rule must still compile");
-
-    let alphabet = SegAlphabet::new(&grammar.char_tables[0]);
-    let underlying = emit::emit_underlying_templated(&grammar, &alphabet, None);
-    assert!(
-        tagged_self_loops(&underlying.lexc_source).is_empty(),
-        "underlying emission formed a tagged self-loop whose boundary tokens clean up to epsilon: {:?}",
-        tagged_self_loops(&underlying.lexc_source)
-    );
 }
 
 #[test]

@@ -39,7 +39,7 @@ sagui: ROOT+A2B+B2A|sagui ; ROOT+A2B+B2A+THIRD|sagui
 -- an exact match to every `parses:` entry below, including `sagui`'s oracle-disagreeing answer, with
 THIRD correctly rendered as the OUTERMOST (rightmost) morph. No PanGloss production code was changed
 to get this result; it was already the engine's behavior before this investigation started. See
-`docs/divergences/036-zero-width-morpheme-identity.md`'s 2026-09-15 section for the full measurement
+`retired divergence 036 (../../../docs/divergences/README.md#retired-entries)`'s 2026-09-15 section for the full measurement
 and the mechanism: `pg-rules/src/morph.rs::attribute_morphs` records a zero-width affix (one that
 contributes no output-side material of its own) as a `MorphStatus::Floating` marker at the
 `FLOATING_ORDER` sentinel (`u32::MAX`), which sorts after every real, positioned morph in
@@ -76,6 +76,6 @@ or a count) for all four words.
 ## Graduation
 
 Not yet proposed upstream as its own PR (issue #506 is open; Machine PR #500 is the existing partial
-fix). Candidate destination: `machine/conformance/edge-cases/
+fix). Candidate destination: `conformance/edge-cases/
 zero-width-morpheme-identity-stability/`. On acceptance, delete this staged copy in the same change
 (graduation guard enforces this mechanically).

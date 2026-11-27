@@ -2,13 +2,15 @@ use super::*;
 
 fn selected_build(payload_fingerprint: String) -> CompletedBackendBuildWire {
     CompletedBackendBuildWire {
-        requested_strategy: "templated-underlying-tokens".to_string(),
-        realized_strategy: "templated-underlying-tokens".to_string(),
+        construction: Default::default(),
+        requested_strategy: "tuned-surface-probed".to_string(),
+        realized_strategy: "tuned-surface-probed".to_string(),
         grammar_identity: "grammar".to_string(),
         attempt_id: "attempt".to_string(),
-        completion_proof: crate::completed_build::CompletionProofWire::TemplatedFullEmission {
-            uncovered_count: 0,
-            skipped_count: 0,
+        completion_proof: crate::completed_build::CompletionProofWire::TunedClosure {
+            terminal: crate::characterization::ClosureTerminal::Complete,
+            worklist_empty: true,
+            pending_successor_count: 0,
         },
         state_count: 1,
         arc_count: 1,
@@ -78,10 +80,10 @@ fn selected_payload_one_byte_over_limit_emits_no_raw_frame() {
 #[test]
 fn selected_not_production_ready_writes_no_raw_payload_frame() {
     let health = HealthReport::new(vec![HealthFinding::new(
-        FindingCode::PartialMorphemeProductionPolicy,
+        FindingCode::GrammarHealthBlocksFst,
         Severity::NotProductionReady,
         Phase::Compile,
-        Metric::PartialMorphemeCount,
+        Metric::GrammarHealthBlockingCount,
         MetricValue::Count(2),
         ValueProvenance::Observed,
         "synthetic partial-morpheme readiness refusal".to_string(),
@@ -344,4 +346,27 @@ fn run_worker_child_reports_success_for_a_clean_small_grammar() {
         other => panic!("expected Success, got {other:?}"),
     }
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn compile_worker_honors_construction_switch_and_publishes_attempts() {
+    let fixture = pg_conformance_fixtures::require_fixture("languages", "suffixing-vowel-harmony");
+    let request =
+        CompileWorkerRequest::new(fixture.grammar_path().to_string_lossy(), GrammarFormat::Xml)
+            .with_config(pg_foma::construction::FstCompileConfig::for_strategy(
+                pg_foma::construction::ConstructionStrategy::Factored,
+            ));
+    let serialized = serde_json::to_vec(&request).unwrap();
+    let replayed: CompileWorkerRequest = serde_json::from_slice(&serialized).unwrap();
+    match compile_grammar_from_request(&replayed) {
+        CompileWorkerOutcome::CompileFailed { construction, .. } => {
+            assert_eq!(construction.attempts.len(), 1);
+            assert_eq!(
+                construction.attempts[0].refusal,
+                Some(pg_foma::construction::StrategyRefusal::NotImplemented)
+            );
+            assert_eq!(construction.selected, None);
+        }
+        outcome => panic!("factored must refuse in the worker: {outcome:?}"),
+    }
 }

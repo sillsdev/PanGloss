@@ -13,6 +13,20 @@ pub fn segment_with_features(
 ) -> Result<Shape, InvalidShape> {
     // Reuses the vetted greedy longest-match segmentation for the node/char-def sequence, then re-emits it with feature lanes; segmenting twice is fine since that segmenter is the single source of truth for which char-defs a word decomposes into.
     let bare = pg_grammar_model::segment::segment(table, word)?;
+    Ok(attach_lanes(grammar, table, &bare))
+}
+
+/// [`segment_with_features`] over `segment_load`, which returns identical shapes and errors without a `String` per candidate; the plain `segment` is quadratic in the word's length, which an untrusted word list must not pay.
+pub fn segment_with_features_load(
+    grammar: &Grammar,
+    table: &CharDefTable,
+    word: &str,
+) -> Result<Shape, InvalidShape> {
+    let bare = pg_grammar_model::segment::segment_load(table, word)?;
+    Ok(attach_lanes(grammar, table, &bare))
+}
+
+fn attach_lanes(grammar: &Grammar, table: &CharDefTable, bare: &Shape) -> Shape {
     let w = pg_grammar_model::membership::width(&grammar.phon_features) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, bare.len());
     for (_, kind, char_def, _flags) in bare.interior() {
@@ -27,7 +41,7 @@ pub fn segment_with_features(
             _ => unreachable!("interior() never yields anchors"),
         }
     }
-    Ok(b.finish())
+    b.finish()
 }
 
 /// A char-def's feature lanes, padded/truncated to exactly `w`; the pad-with-full-mask fallback exists only in case `w` doesn't match the table's own grammar (never true in production, kept for robustness — mirrors `morph.rs`'s `fit`).

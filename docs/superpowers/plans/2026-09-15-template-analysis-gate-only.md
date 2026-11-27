@@ -68,8 +68,7 @@ Correct the adjacent function documentation to describe gate-only admission.
 
 ## Task 4: Review, ledger and publication
 
-Update `docs/divergences/034-stratum-merge-equivalence.md` and
-`035-template-slot-fs-collisions.md` with exact tests, commits and counts. Keep #505 open.
+Update retired divergence entries 034 and 035 (now issue #26; see [Retired entries](../../divergences/README.md#retired-entries)) with exact tests, commits and counts. Keep #505 open.
 
 - [x] Obtain independent spec-compliance review, then code-quality/correctness review.
 - [x] Inspect every changed file and `git diff --check`; verify fixture mirrors by hashes.

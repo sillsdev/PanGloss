@@ -54,7 +54,7 @@ fn compounding_recall_parity_via_generator_and_oracle() {
     // Oracle uses `GenMorpheme::NonHead`, since `sweep`'s `candidate_rules` excludes `Compounding` rules (they own no `MRuleId` a `GenMorpheme::Rule` could name).
     let head_id = entry_id_of(&g, &compounding.head_entry_xml_ids[0]);
     let nonhead_id = entry_id_of(&g, &compounding.nonhead_entry_xml_ids[0]);
-    let morpher = Morpher::new(&g, 20_000).with_word_timeout(Some(Duration::from_millis(500)));
+    let morpher = Morpher::new(&g, 2_000_000).with_word_timeout(Some(Duration::from_millis(500)));
     let words = morpher.generate_words(
         head_id,
         &[GenMorpheme::NonHead(nonhead_id)],

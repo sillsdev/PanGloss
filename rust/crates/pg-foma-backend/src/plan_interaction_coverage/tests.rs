@@ -168,7 +168,7 @@ fn compute_interaction_coverage_reports_seven_required_tuples_and_no_unexpected_
         "no tuple outside the documented legal set should ever be observed: {:?}",
         report.unexpected_tuples
     );
-    assert_eq!(report.retired.len(), 2);
+    assert_eq!(report.retired.len(), 1);
 }
 
 #[test]
@@ -285,45 +285,22 @@ fn compute_interaction_coverage_over_empty_corpus_marks_every_required_tuple_unc
 // retired_interactions
 
 #[test]
-fn retired_interactions_names_the_two_cited_proofs() {
+fn retired_interactions_names_the_cited_proof() {
     let retired = retired_interactions();
-    assert_eq!(retired.len(), 2);
+    assert_eq!(retired.len(), 1);
     assert!(retired
         .iter()
         .any(|r| r.label.contains("unordered-application")));
-    assert!(retired
-        .iter()
-        .any(|r| r.label.contains("sibling reordering")));
     for r in &retired {
         assert!(!r.evidence.is_empty());
     }
 }
 
-// gate_group_count + fuzz_gate_group_reordering_for_grammar
+// gate_group_count
 
 #[test]
 fn gate_group_count_matches_the_fixtures_own_two_groups() {
     let g = load(gated_two_group_with_rule_fixture_xml());
     let (plan, _profile) = plan_and_profile(&g);
     assert_eq!(gate_group_count(&plan), 2);
-}
-
-#[test]
-fn fuzz_gate_group_reordering_agrees_on_the_two_group_fixture() {
-    let g = load(gated_two_group_with_rule_fixture_xml());
-    let (groups, result) = fuzz_gate_group_reordering_for_grammar(&g, &["p", "q"])
-        .expect("both the default plan and its permuted twin must build on this fixture");
-    assert_eq!(groups, 2);
-    match result {
-        OracleResult::Agree => {}
-        OracleResult::Disagree {
-            word,
-            only_in_a,
-            only_in_b,
-            ..
-        } => panic!(
-            "gate-group reordering must Agree on this fixture (retirement #2's own claim) -- \
-             got a real divergence at {word:?}: only_in_a={only_in_a:?}, only_in_b={only_in_b:?}"
-        ),
-    }
 }

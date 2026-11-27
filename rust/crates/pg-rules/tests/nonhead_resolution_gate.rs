@@ -156,18 +156,18 @@ fn clone_def(def: &CompoundingRuleDef) -> CompoundingRuleDef {
         head_required_syn_fs: def.head_required_syn_fs,
         non_head_required_syn_fs: def.non_head_required_syn_fs,
         out_syn_fs: def.out_syn_fs,
-        head_prod_restrictions_mpr: def.head_prod_restrictions_mpr,
-        non_head_prod_restrictions_mpr: def.non_head_prod_restrictions_mpr,
-        output_prod_restrictions_mpr: def.output_prod_restrictions_mpr,
+        head_prod_restrictions_mpr: def.head_prod_restrictions_mpr.clone(),
+        non_head_prod_restrictions_mpr: def.non_head_prod_restrictions_mpr.clone(),
+        output_prod_restrictions_mpr: def.output_prod_restrictions_mpr.clone(),
         obligatory_features: def.obligatory_features.clone(),
         subrules: def
             .subrules
             .iter()
             .map(|sr| pg_grammar_model::model::CompoundingSubruleDef {
                 vars: sr.vars.clone(),
-                required_mpr: sr.required_mpr,
-                excluded_mpr: sr.excluded_mpr,
-                out_mpr: sr.out_mpr,
+                required_mpr: sr.required_mpr.clone(),
+                excluded_mpr: sr.excluded_mpr.clone(),
+                out_mpr: sr.out_mpr.clone(),
                 head_lhs: sr.head_lhs.clone(),
                 non_head_lhs: sr.non_head_lhs.clone(),
                 rhs: sr.rhs.clone(),
@@ -221,12 +221,12 @@ fn synthesis_records_non_head_root_morph_in_the_final_signature() {
     );
     // The non-head's material is consumed into the compound's `shape`/`morphs`, but `non_heads` itself is NOT cleared -- it stays as permanent history, which is what lets `Word::dedup_key()` distinguish two compounds built from surface-homophone but lexically distinct non-heads.
     assert_eq!(
-        w.non_heads.len(),
+        w.non_heads().len(),
         1,
         "the non-head stays in the list as history, not popped"
     );
     assert_eq!(
-        char_defs(&w.non_heads[0].shape),
+        char_defs(&w.non_heads()[0].shape),
         char_defs(&shape_with_lanes(&g, "sine")),
         "the retained non-head is still the resolved \"sine\" root"
     );

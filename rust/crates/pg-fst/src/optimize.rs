@@ -85,31 +85,31 @@ impl std::hash::Hash for SubsetState {
 
 // --- epsilon closure (Fst.cs:1141-1190) -------------------------------------------------------
 
-/// Deterministically dedup seeds by state, keeping the highest-priority one (C#'s own order is nondeterministic here).
-fn dedup_seeds(mut seeds: Vec<Nsi>) -> HashMap<usize, Nsi> {
-    seeds.sort_by(nsi_cmp);
-    let mut map: HashMap<usize, Nsi> = HashMap::new();
-    for s in seeds {
-        map.entry(s.state).or_insert(s);
-    }
-    map
-}
-
-/// C# `EpsilonClosure`: expand epsilon arcs, keeping the highest-priority path to each state and recording tag writes at `index`.
+/// C# `EpsilonClosure` (Fst.cs:1141-1190), keyed on the NFA state alone (outputs are empty in a matcher): keeps the highest-priority path per NFA state, seeds in order with the last of equal key winning; `index` stamps tag writes.
 fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
-    let mut closure = dedup_seeds(seeds);
-    let mut stack: Vec<usize> = closure.keys().copied().collect();
+    let mut entries: Vec<Nsi> = Vec::new();
+    let mut slot: HashMap<usize, usize> = HashMap::new();
+    let mut stack: Vec<Nsi> = Vec::new();
+    for seed in seeds {
+        match slot.entry(seed.state) {
+            std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = seed.clone(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(entries.len());
+                entries.push(seed.clone());
+            }
+        }
+        stack.push(seed);
+    }
 
-    while let Some(top_state) = stack.pop() {
-        let top = closure[&top_state].clone();
+    while let Some(top) = stack.pop() {
         for arc in &nfa.states[top.state].arcs {
             if !matches!(arc.input, ArcInput::Epsilon) {
                 continue;
             }
-            let new_state = arc.target;
             let new_max = arc.priority.max(top.max_priority);
             let new_last = arc.priority;
-            if let Some(temp) = closure.get(&new_state) {
+            if let Some(&at) = slot.get(&arc.target) {
+                let temp = &entries[at];
                 if temp.max_priority < new_max {
                     continue;
                 }
@@ -122,16 +122,22 @@ fn epsilon_closure(nfa: &Nfa, seeds: Vec<Nsi>, index: i32) -> Vec<Nsi> {
                 tags.insert(arc.tag, index);
             }
             let nsi = Nsi {
-                state: new_state,
+                state: arc.target,
                 max_priority: new_max,
                 last_priority: new_last,
                 tags,
             };
-            closure.insert(new_state, nsi);
-            stack.push(new_state);
+            match slot.entry(nsi.state) {
+                std::collections::hash_map::Entry::Occupied(e) => entries[*e.get()] = nsi.clone(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert(entries.len());
+                    entries.push(nsi.clone());
+                }
+            }
+            stack.push(nsi);
         }
     }
-    closure.into_values().collect()
+    entries
 }
 
 /// C# `GetFirstFreeIndex` (Fst.cs:1192-1201): max tag index in the subset, + 1.
@@ -202,8 +208,8 @@ impl<'n> Builder<'n> {
             .iter()
             .filter(|s| self.nfa.states[s.state].accepting)
             .collect();
-        // `orderby state descending` (by CompareTo), tie-break by state index for determinism.
-        accepting.sort_by(|a, b| nsi_cmp(b, a).then(a.state.cmp(&b.state)));
+        // `orderby state descending` (by CompareTo); the sort is stable, so ties keep subset order as in C#.
+        accepting.sort_by(|a, b| nsi_cmp(b, a));
 
         if accepting.is_empty() {
             self.states.push(BuildState {
@@ -376,9 +382,7 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
     // Group arcs by input FS (stable, state-index then arc order).
     let mut cond_keys: Vec<Vec<u64>> = Vec::new();
     let mut cond_map: HashMap<Vec<u64>, Vec<Nsi>> = HashMap::new();
-    let mut states_sorted: Vec<&Nsi> = from.states.iter().collect();
-    states_sorted.sort_by_key(|a| a.state);
-    for st in states_sorted {
+    for st in &from.states {
         for arc in &nfa.states[st.state].arcs {
             if let ArcInput::Fs(lanes) = &arc.input {
                 let key = canonicalize(lanes.clone());
@@ -449,10 +453,8 @@ fn deterministic_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, Ma
 /// C# `EpsilonRemovalGetArcs` (Fst.cs:775-799): each non-epsilon arc becomes one arc to the epsilon-closure of its target.
 fn epsilon_removal_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, MatchInput, i32)> {
     let mut out = Vec::new();
-    let mut states_sorted: Vec<&Nsi> = from.states.iter().collect();
-    states_sorted.sort_by_key(|a| a.state);
     let idx = get_first_free_index(from);
-    for q in states_sorted {
+    for q in &from.states {
         for arc in &nfa.states[q.state].arcs {
             if let ArcInput::Fs(lanes) = &arc.input {
                 let nsi = Nsi {
@@ -475,6 +477,161 @@ fn epsilon_removal_get_arcs(nfa: &Nfa, from: &SubsetState) -> Vec<(SubsetState, 
         }
     }
     out
+}
+
+// C# Fst.Minimize (Fst.cs:1599-1707): vectors retain HashSet insertion order.
+fn minimize(states: &mut Vec<BuildState>, start: usize) {
+    #[derive(PartialEq, Eq, Hash)]
+    struct Key {
+        accepting: bool,
+        finishers: Vec<Cmd>,
+        accept_ids: Vec<Option<String>>,
+        input: Option<(Vec<u64>, Vec<Vec<u64>>)>,
+        commands: Vec<Cmd>,
+    }
+    fn key(state: &BuildState, arc: Option<&BuildArc>) -> Key {
+        let input = arc.map(|arc| {
+            let mut negated = arc.input.negated.clone();
+            negated.sort();
+            negated.dedup();
+            (arc.input.pos.clone(), negated)
+        });
+        Key {
+            accepting: state.accepting,
+            finishers: if state.accepting {
+                state.finishers.clone()
+            } else {
+                Vec::new()
+            },
+            accept_ids: if state.accepting {
+                state
+                    .accept_infos
+                    .iter()
+                    .map(|info| info.id.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            input,
+            commands: arc.map_or_else(Vec::new, |arc| arc.commands.clone()),
+        }
+    }
+    fn same_set(a: &[usize], b: &[usize]) -> bool {
+        a.len() == b.len() && a.iter().all(|item| b.contains(item))
+    }
+
+    let mut partitions = vec![Vec::new()];
+    let mut accepting_groups: HashMap<Key, usize> = HashMap::new();
+    for (i, state) in states.iter().enumerate() {
+        if !state.accepting {
+            partitions[0].push(i);
+        } else {
+            let k = key(state, None);
+            let index = *accepting_groups.entry(k).or_insert_with(|| {
+                partitions.push(Vec::new());
+                partitions.len() - 1
+            });
+            partitions[index].push(i);
+        }
+    }
+    let mut waiting: VecDeque<Vec<usize>> = partitions[1..].iter().cloned().collect();
+    while let Some(a) = waiting.pop_front() {
+        let mut in_a = vec![false; states.len()];
+        for state in a {
+            in_a[state] = true;
+        }
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        let mut group_index: HashMap<Key, usize> = HashMap::new();
+        for (i, state) in states.iter().enumerate() {
+            for arc in &state.arcs {
+                if in_a[arc.target] {
+                    let index = *group_index.entry(key(state, Some(arc))).or_insert_with(|| {
+                        groups.push(Vec::new());
+                        groups.len() - 1
+                    });
+                    groups[index].push(i);
+                }
+            }
+        }
+        for x in groups {
+            let mut in_x = vec![false; states.len()];
+            for &i in &x {
+                in_x[i] = true;
+            }
+            for i in (0..partitions.len()).rev() {
+                let y = &partitions[i];
+                let mut in_y = vec![false; states.len()];
+                for &item in y {
+                    in_y[item] = true;
+                }
+                let mut subset1 = Vec::new();
+                for &item in &x {
+                    if in_y[item] {
+                        subset1.push(item);
+                        in_y[item] = false;
+                    }
+                }
+                if subset1.is_empty() {
+                    continue;
+                }
+                let subset2: Vec<usize> = y.iter().copied().filter(|&item| !in_x[item]).collect();
+                if let Some(j) = waiting.iter().position(|w| same_set(w, y)) {
+                    waiting[j] = subset1.clone();
+                    if !subset2.is_empty() {
+                        waiting.push_back(subset2.clone());
+                    }
+                } else if subset1.len() <= subset2.len() {
+                    waiting.push_back(subset1.clone());
+                } else if !subset2.is_empty() {
+                    waiting.push_back(subset2.clone());
+                }
+                partitions[i] = subset1;
+                if !subset2.is_empty() {
+                    partitions.push(subset2);
+                }
+            }
+        }
+    }
+    let mut representative: Vec<usize> = (0..states.len()).collect();
+    let mut merged = false;
+    for partition in partitions {
+        if let Some((&first, rest)) = partition.split_first() {
+            for &state in rest {
+                representative[state] = first;
+                merged = true;
+            }
+        }
+    }
+    if !merged {
+        return;
+    }
+    let mut keep = vec![false; states.len()];
+    keep[start] = true;
+    for state in states.iter_mut() {
+        for arc in &mut state.arcs {
+            arc.target = representative[arc.target];
+            keep[arc.target] = true;
+        }
+    }
+    let mut remap = vec![0; states.len()];
+    let mut next = 0;
+    for (i, &kept) in keep.iter().enumerate() {
+        if kept {
+            remap[i] = next;
+            next += 1;
+        }
+    }
+    for state in states.iter_mut() {
+        for arc in &mut state.arcs {
+            arc.target = remap[arc.target];
+        }
+    }
+    let mut index = 0;
+    states.retain(|_| {
+        let kept = keep[index];
+        index += 1;
+        kept
+    });
 }
 
 // --- optimize driver (Fst.cs:819-901) ---------------------------------------------------------
@@ -563,6 +720,10 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
     // Keep initializer register references inside the compacted range too, matching C#'s 0.._nextTag band.
     renumber(&mut initializers, &mut reg_nums, &mut register_count);
 
+    if deterministic {
+        minimize(&mut b.states, start_idx);
+    }
+
     // Freeze to CSR.
     let mut pool = ConstraintPool::default();
     let mut states: Vec<StateMeta> = Vec::with_capacity(b.states.len());
@@ -635,6 +796,60 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         dist
     };
 
+    // Max-hops-to-accept upper bound: the longest constraint-free path to an accepting state, exact on an acyclic automaton and `u32::MAX` (unbounded) as soon as a state that can reach acceptance lies on a cycle.
+    let max_hops_to_accept = {
+        let n = states.len();
+        let live: Vec<bool> = min_hops_to_accept.iter().map(|&d| d != u32::MAX).collect();
+        let mut indegree = vec![0u32; n];
+        for (s, st) in states.iter().enumerate() {
+            if live[s] {
+                for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                    if live[arc.target as usize] {
+                        indegree[arc.target as usize] += 1;
+                    }
+                }
+            }
+        }
+        let mut order: Vec<u32> = (0..n as u32)
+            .filter(|&s| live[s as usize] && indegree[s as usize] == 0)
+            .collect();
+        let mut at = 0;
+        while at < order.len() {
+            let st = &states[order[at] as usize];
+            at += 1;
+            for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                let t = arc.target as usize;
+                if live[t] {
+                    indegree[t] -= 1;
+                    if indegree[t] == 0 {
+                        order.push(t as u32);
+                    }
+                }
+            }
+        }
+        if order.len() == live.iter().filter(|&&l| l).count() {
+            let mut longest = vec![u32::MAX; n];
+            for &s in order.iter().rev() {
+                let st = &states[s as usize];
+                let mut best = if st.accepting { 0 } else { u32::MAX };
+                for arc in &arcs[st.arc_lo as usize..st.arc_hi as usize] {
+                    let t = longest[arc.target as usize];
+                    if live[arc.target as usize] && t != u32::MAX {
+                        best = if best == u32::MAX {
+                            t + 1
+                        } else {
+                            best.max(t + 1)
+                        };
+                    }
+                }
+                longest[s as usize] = best;
+            }
+            longest
+        } else {
+            vec![u32::MAX; n]
+        }
+    };
+
     Fst {
         states,
         arcs,
@@ -648,6 +863,7 @@ fn optimize(nfa: &Nfa, deterministic: bool, direction: Direction) -> Fst {
         groups: nfa.groups.clone(),
         initializers,
         min_hops_to_accept,
+        max_hops_to_accept,
     }
 }
 

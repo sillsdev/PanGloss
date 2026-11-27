@@ -1,7 +1,7 @@
-# PanGloss grammar facts format (v8)
+# PanGloss grammar facts format (v9)
 
 **Format:** `pangloss-grammar-facts`. **SQLite application ID:** `1346848321` (`0x50474641`, `PGFA`).
-**Schema version:** `8`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
+**Schema version:** `9`. The executable DDL is [schema.sql](../rust/crates/pg-facts/src/schema.sql).
 
 ## Changes from v4
 
@@ -94,6 +94,13 @@ table by table, using the lists below.
 - Compiled output and references: `compiled_output`, `object_state`, `statement_reference`.
 
 Each added table is described under Tables, with its key, columns and section.
+
+## Changes from v8
+
+Schema v9 increments `artifact_meta.schema_version` and `PRAGMA user_version` from 8 to 9. It removes
+`stats_word.attempts` (the analysis-attempt count), renames `stats_run.step_cap` to `stats_run.work_cap`,
+and accepts only stats manifest version 2. No v8 reader remains: a v8 consumer would read a missing
+`attempts` as zero.
 
 ## Compiled output keys
 
@@ -191,7 +198,7 @@ pangloss facts <snapshot.json> --out <facts.sqlite> --context <facts-context.jso
 
 To attach one frozen HermitCrab run, pass both `--stats <cache.sqlite>` and
 `--stats-manifest <manifest.json>`. They must be supplied together. The stats cache must be the
-closed cache named by the version 1 manifest produced by `pangloss batch --stats-manifest`; the
+closed cache named by the version 2 manifest produced by `pangloss batch --stats-manifest`; the
 reader validates it against the exact Snapshot bytes, model fingerprint, compiler build, resolved
 production compile options, cache digest, run metadata, options, ordered input list, and per-word
 completion census. It refuses an unsupported, stale, changed, or mixed identity. A validated run may
@@ -204,7 +211,13 @@ pangloss facts <snapshot.json> --out <facts.sqlite> --context <facts-context.jso
   --stats <cache.sqlite> --stats-manifest <manifest.json> [--json]
 ```
 
-Only `.json` Snapshot input is accepted. Use `pangloss import` first for a FieldWorks project.
+Add `--light` for a file that leaves out what Motif does not read; see [Light files](#light-files).
+
+Only `.json` Snapshot input is accepted. Use `pangloss import` first for a FieldWorks project, or
+`pangloss grammar-health <project> <report.json> --snapshot-out <snapshot.json> --facts-out
+<facts.sqlite> --facts-context <context.json>` to get the snapshot and this file from the one
+import that also produces the health report (the output is identical; see
+[Grammar diagnostics](grammar-diagnostics.md#writing-the-snapshot-and-facts-from-the-same-run)).
 `--out` must name a new path. The writer never replaces an existing file. `--json` writes one
 result object to stdout; diagnostics go to stderr. A structured compiler refusal still publishes
 authored and diagnostic facts and exits unsuccessfully with `compileStatus: "refused"`.
@@ -247,7 +260,7 @@ The `artifact_meta` singleton records:
 
 | Column | Meaning |
 |---|---|
-| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `8`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
+| `application_id`, `schema_version`, `format` | File identity: `1346848321`, `9`, and `pangloss-grammar-facts`. These mirror `PRAGMA application_id` and `PRAGMA user_version`. |
 | `writer_version`, `compiler_version`, `source_revision`, `build_identity` | Producer build identity. |
 | `snapshot_format`, `snapshot_version` | The input envelope identity. |
 | `provenance_schema_version`, `source_inventory_status` | The Snapshot's importer provenance version and status. |
@@ -256,7 +269,8 @@ The `artifact_meta` singleton records:
 | `model_fingerprint` | `pg_assess::model_fingerprint(SourceKind::Snapshot, source, compiler_version)`. It covers canonical source JSON, including conversion provenance, and compiler version. |
 | `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest` | The caller-supplied evidence context and its identity. |
 | `compile_options_json`, `compile_options_sha256` | The production default options with `SemanticLossPolicy::Refuse`. Provisional definitions are unconditional and have no option. |
-| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v8 schema was written and verified. It does not mean every section is available. |
+| `compile_status`, `complete` | `completed` or `refused`; `complete=1` means every row promised by the v9 schema, less what a [light file](#light-files) declares it omits, was written and verified. It does not mean every section is available. |
+| `light_omissions` | Present only in a light file: JSON list of the omitted tables and rows. |
 | `run_manifest_sha256` | Nullable SHA-256 of the exact accepted stats manifest bytes. NULL when no stats run was requested. |
 
 Digests use the `sha256:<hex>` spelling except `grammar_hash`, which follows the existing
@@ -277,9 +291,47 @@ authored/diagnostic database is published, with `compile_status=refused` and `ef
 unavailable. If the file is published but its directory cannot be synced or its response digest
 cannot be read, the command reports that the complete output already exists and names its path.
 
+## Light files
+
+`pangloss facts --light` builds the same file without the tables and rows no Motif measure reads. It
+does not compute them either, so it is also less work. The schema, `application_id`, `user_version`,
+`grammar_hash`, `model_fingerprint` and `source_sha256` are those of a full file, and every other
+table holds exactly the rows a full file holds, with the same ordinals.
+
+| Omitted | Declared in section |
+|---|---|
+| `source_object` | `source_census` |
+| `conversion_item` and `conversion_stage` (which counts what `conversion_item` lists) | `conversion_inventory` |
+| `compiled_form_segment` | `effective_grammar` |
+| `object_state` | `load_accounting` |
+| `sense_text` rows whose `kind` is `definition` (glosses stay) | `entries` |
+| `statement_reference` rows whose `target_kind` is not `environment` or `naturalClass` | `load_accounting` |
+| `load_fact` rows of subject kind `sense`, `msa`, `entry` or `entryReference`, and rows at the `import` and `snapshot` stages other than `affixProcess` subjects | `load_accounting` |
+| `load_fact.effective_value_json` and `load_fact.issue_key`, written as NULL | `load_accounting` |
+| `load_fact.subject_key`, which holds the subject GUID for a plain object identity and the full canonical key otherwise | `load_accounting` |
+| the indexes `category_ancestor_ancestor`, `inflection_class_ancestor_ancestor`, `allomorph_gate_target`, `source_object_canonical_guid`, `object_state_guid`, `compiled_allomorph_order_source`, `pattern_node_phoneme` and `msa_category_category` | none; see `light_omissions` |
+
+A light file says so in two places. A section whose tables it narrows is `partial` with reason code
+`light`, and its `source_scope` ends with `Light file, omitted:` and the list. A section that was already
+`partial` or `unavailable` keeps that status and reason. And `artifact_meta` gains one more column,
+`light_omissions`: the JSON list of everything omitted, including the indexes no section covers. A full
+file has no such column, so read it only after `pragma_table_info('artifact_meta')` names it. `complete`
+still means the write finished and verified; it does not say nothing was omitted, so a reader must not
+stop at `complete=1`. `load_accounting` is `partial` with reason `light` because it covers the
+`load_fact` family and its rows are cut; its accounting figures are still computed from provenance
+and the compiler's decisions, not from the rows a light file leaves out, so the answer to "were all
+decisions recorded" does not change. A light file is schema v9 and shares `application_id` and
+`user_version` with a full file.
+
+`statement_reference` in a light file reads as incomplete through its sources: `entries` and `load_accounting` are
+`partial` with reason `light`. A reader that accepts that must read only `environment` and `naturalClass` targets.
+A `load_fact` row that is present is the row a full file holds,
+apart from the columns above; a missing row is not an absence of a decision, so a reader of decisions for
+the omitted subject kinds or stages needs a full file.
+
 ## Sections
 
-`artifact_section` has exactly one row for each v8 section. `status` is `complete`, `partial`,
+`artifact_section` has exactly one row for each v9 section. `status` is `complete`, `partial`,
 `unavailable`, or `not_requested`. Readers must check it before treating an absent table or empty
 query result as an empty grammar.
 
@@ -318,8 +370,8 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 
 | Table | Key and columns |
 |---|---|
-| `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`. One singleton row; each column is described under Identity and publication. |
-| `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v8 section; see Sections. |
+| `artifact_meta` | `singleton`, `application_id`, `schema_version`, `format`, `writer_version`, `compiler_version`, `source_revision`, `build_identity`, `snapshot_format`, `snapshot_version`, `provenance_schema_version`, `source_inventory_status`, `source_sha256`, `grammar_hash`, `model_fingerprint`, `baseline_token_json`, `baseline_key`, `input_kind`, `dry_run_digest`, `compile_options_json`, `compile_options_sha256`, `compile_status`, `complete`, and `run_manifest_sha256`, plus `light_omissions` in a light file. One singleton row; each column is described under Identity and publication. |
+| `artifact_section` | `section`, `status`, `source_scope`, and nullable `reason_code`. One row per v9 section; see Sections. |
 | `compiled_output` | `output_id`, `kind`, `key`, nullable `owner_output_id`, nullable `stratum_key`, `bucket`, nullable `compiled_order`, `identity_quality`, and the allomorph shape columns `realization_kind`, `has_phone_condition`, `has_morph_gate`, `gate_signature`, and `is_unconditioned`. Column meanings are under Compiled output keys. |
 | `object_state` | `subject_kind`, `subject_guid`, `final_stage`, nullable `loaded`, `dispositions`, and `primary_reason`, derived by the rule under Final object state. |
 | `category_ancestor` | `category_guid`, `ancestor_guid`, and `depth`; the ancestor closure described under Final object state. |
@@ -356,7 +408,7 @@ category, class, slot, MSA, allomorph and prohibition references remain visible.
 | `lex_entry_infl_type` | `guid`, `name`, `abbreviation`, and nullable `fs_id` for the type's inflection features (owner `inflType`, role `features`). Gloss prepend and append are display-only and not published. |
 | `lex_entry_infl_type_slot` | `(infl_type_guid, ordinal)`, `slot_guid`; the slots the irregular form fills, in source order. The slot has no foreign key. |
 | `sense` | `sense_guid`, owning `entry_guid`, nullable source `msa_guid`. The MSA target is not a foreign key. |
-| `entry_variant` | `(variant_entry_guid, ref_guid, ordinal)`, `component_guid`, and `component_kind` (`entry`, `sense`, or `unresolved`). Each row is one component lexeme of a variant link (`LexEntryRef` with variant types); a component that is neither a loaded entry nor a sense is `unresolved`. Complex-form links are not published. |
+| `entry_variant` | `(variant_entry_guid, ref_guid, ordinal)`, `component_guid`, and `component_kind` (`entry`, `sense`, or `unresolved`). Each row is one component lexeme of a variant link (`LexEntryRef` with variant types); a component that is neither a loaded entry nor a sense is `unresolved`. A complex-form link (`LexEntryRef` with complex-form types and no variant types) is published too, with no `entry_variant_type` rows, when its entry has no senses, because the compiler then builds it as a variant like `HCLoader`. On an entry with senses it is not published. |
 | `entry_variant_type` | `(ref_guid, ordinal)`, `type_guid`, and `is_infl_type` (1 when the type is a `lex_entry_infl_type`). This is the only table that holds variant types. |
 | `sense_text` | `(sense_guid, kind, ordinal)`, `writing_system`, `text`; kind is `gloss` or `definition`. The table is `WITHOUT ROWID`. |
 | `adhoc_prohibition` | `prohibition_guid`, `kind` (`allomorph` or `morpheme`), `disabled`, `adjacency`, `primary_guid`, `target_kind` (`allomorph` or `msa`). |
@@ -511,7 +563,7 @@ identify the source column):
 | `via_ancestor` | any | Each descendant of a referenced inflection class. The compiler's subclass closure can use it, so it is published with the same referrer and effect as the reference to its ancestor. |
 | `constraint_feature` | `featureConstraint` | `feature_constraint.feature_guid`. |
 | `msa` | `sense` | `sense.msa_guid`. |
-| `variant_component`, `variant_type` | `entry` | `entry_variant` and `entry_variant_type`. |
+| `variant_component`, `variant_type` | `entry` | `entry_variant` and `entry_variant_type` (complex-form links of sense-less entries included, with no type rows). |
 | `primary`, `other` | `adhocProhibition` | `adhoc_prohibition` and `adhoc_other`. |
 
 `ordinal` is a sequence number within each `(referrer_kind, referrer_guid, role)`, in the order the
@@ -646,7 +698,7 @@ Reverse-lookup indexes serve drill-down views: `allomorph_environment(environmen
 `pattern_node(natural_class_guid)`, `pattern_node(phoneme_guid)`, `msa_slot(slot_guid)`,
 `msa_category(category_guid)`, `msa(entry_guid)`, `template_slot(slot_guid)`,
 `compiled_mapping(source_guid)`, `compiled_allomorph_order(source_allomorph_guid)`, `sense(msa_guid)`,
-and `adhoc_other(target_guid)`; the DDL names them. Every column in that list exists in v8, so none
+and `adhoc_other(target_guid)`; the DDL names them. Every column in that list exists in v9, so none
 was dropped. The closure tables add an index on `ancestor_guid` for the descendants lookup.
 
 ### Frozen parser stats
@@ -654,19 +706,21 @@ was dropped. The closure tables add an index on `ancestor_guid` for the descenda
 Stats are optional and immutable in a facts file. Without both stats flags, all run-specific tables
 are empty, `artifact_meta.run_manifest_sha256` is NULL, and `artifact_section.stats` is
 `not_requested`. `stats_counter_support` is still populated because it describes what the current
-collector can measure. With a valid cache/manifest pair, the stats section is `complete` even when
+collector can measure. Object projection requires the full collection profile. Supplying a
+word-only cache and its matching manifest returns `missing_object_facts`.
+With a valid full-profile cache/manifest pair, the stats section is `complete` even when
 some requested words are incomplete; word-level completion is represented explicitly and must be
 checked before using those words as completed parser evidence.
 
 | Table | Key and columns |
 |---|---|
 | `stats_cache_identity` | `(singleton INTEGER PRIMARY KEY CHECK(singleton=1), cache_sha256 TEXT NOT NULL, cache_bytes INTEGER NOT NULL CHECK(cache_bytes>=0), schema_version INTEGER NOT NULL CHECK(schema_version>0), counter_semantics INTEGER NOT NULL CHECK(counter_semantics>0), engine TEXT NOT NULL CHECK(engine='hc'), grammar_hash TEXT NOT NULL)`. One row records the closed cache bytes. |
-| `stats_run` | `run_id INTEGER PRIMARY KEY CHECK(run_id>0)`; `engine`, `grammar_hash`, `options_hash`, `options_json`, `created_utc`, nullable `step_cap`, `cache_word_count`, `requested_word_count`, and `batch_options_json`. Engine is `hc`; cap is NULL, `-1`, or positive; counts are nonnegative and requested count is at least cache count. One row records exact run metadata and manifest batch options. |
+| `stats_run` | `run_id INTEGER PRIMARY KEY CHECK(run_id>0)`; `engine`, `grammar_hash`, `options_hash`, `options_json`, `created_utc`, nullable `work_cap`, `cache_word_count`, `requested_word_count`, and `batch_options_json`. Engine is `hc`; cap is NULL, `-1`, or positive; counts are nonnegative and requested count is at least cache count. One row records exact run metadata and manifest batch options. |
 | `stats_morpheme`, `stats_stratum`, `stats_allomorph` | Each has a nonnegative integer primary key `morpheme_id`, `stratum_id`, or `allomorph_id`, nullable `key`, `label`, and `identity_quality` (checked against `authored`, `structural`, `synthetic`), and `allomorph_id` also has nullable `output_id`, referencing `compiled_output`. ID zero has NULL key and quality; positive IDs require key, label, and quality. ID zero is the not-applicable dimension sentinel. Guessed-root dimensions use synthetic identities; strata and compiled allomorphs use structural identities. |
 | `stats_object` | `object_id INTEGER PRIMARY KEY CHECK(object_id>0)`, nonnull `key`, `kind` checked against `morph_rule`, `phon_rule`, `lex_entry`, `root_index`, `guesser`, `overlay`, nonnull `label`, `identity_quality` checked against `authored`, `structural`, `synthetic`, `morpheme_id` referencing `stats_morpheme`, nullable `output_id` referencing `compiled_output`; `(kind,key)` is unique. |
 | `stats_object_source` | `(object_id, source_kind, source_guid, role)` primary key, `object_id` references `stats_object`; `source_kind` is `entry`, `msa`, `phonologicalRule`, or `compoundRule`. Roles are `owner_entry`, `morpheme_msa`, `msa_owner_entry`, `source_form_owner_entry`, `phonological_rule`, or `compound_rule`. GUIDs have no foreign key. It is `WITHOUT ROWID`, with index `stats_object_source_guid(source_kind,source_guid)`. |
-| `stats_allomorph_source` | `(allomorph_id, source_ordinal)` primary key; `role` takes the values below; `allomorph_id` references `stats_allomorph`; ordinal is nonnegative; `source_allomorph_guid` is nullable; `omitted` is 0/1 and can be 1 only with NULL GUID. Circumfix products retain both source halves in order. Omitted forms use role `null_affix`; unresolved compiler source forms use `unresolved_source_form`; other roles are `stem`, `bound_stem`, `root`, `bound_root`, `prefix`, `suffix`, `infix`, `circumfix`, `proclitic`, `enclitic`, `clitic`, `particle`, `phrase`, `discontig_phrase`, `prefixing_interfix`, `infixing_interfix`, or `suffixing_interfix`. `WITHOUT ROWID`, with index `stats_allomorph_source_guid(source_allomorph_guid)`. |
-| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; `status` checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `attempts`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
+| `stats_allomorph_source` | `(allomorph_id, source_ordinal)` primary key; `role` takes the values below; `allomorph_id` references `stats_allomorph`; ordinal is nonnegative; `source_allomorph_guid` is nullable; `omitted` is 0/1 and can be 1 only with NULL GUID. Circumfix products retain both source halves in order. Omitted forms use role `null_affix`; unresolved compiler source forms use `unresolved_source_form`; other roles are `stem`, `bound_stem`, `root`, `bound_root`, `prefix`, `suffix`, `infix`, `circumfix`, `proclitic`, `enclitic`, `clitic`, `particle`, `phrase`, `discontig_phrase`, `prefixing_interfix`, `infixing_interfix`, `suffixing_interfix`, `simulfix`, or `suprafix`. `WITHOUT ROWID`, with index `stats_allomorph_source_guid(source_allomorph_guid)`. |
+| `stats_word` | Positive integer `word_id` primary key; `run_id` references `stats_run`; exact `form`; `status` checked against `complete`, `incomplete`, `invalid_shape`, `not_attempted`; nullable nonnegative `elapsed_ns`, `passes`; nullable 0/1 `capped`, `timed_out`, `invalid_shape`. `(run_id,form)` is unique. `not_attempted` rows have all measurements NULL; other statuses require all measurements and flags non-NULL. |
 | `stats_fact` | `(word_id, object_id, stratum_id, allomorph_id, direction)` primary key; all four IDs reference their dimension/object tables; direction is `analysis` or `synthesis`; `attempts`, `work`, `outputs`, `not_applied`, `no_root`, `surface_mismatch`, `uses`, and `self_time_ns` (nanoseconds) are nonnegative `INTEGER NOT NULL`. `WITHOUT ROWID`, with indexes `stats_fact_object(object_id,direction)`, `stats_fact_stratum(stratum_id,direction)`, and `stats_fact_allomorph(allomorph_id,direction)`. |
 | `stats_counter_support` | `(engine, counter_semantics, object_kind, counter, direction)` primary key; engine `hc`; object kinds as `stats_object.kind`; counter is attempts, work, outputs, not-applied, no-root, surface-mismatch, uses, or self-time; direction is `both`, `analysis`, or `synthesis`; `support` is `measured`, `not_applicable`, or `not_wired`. Logical counters use `both`; self-time rows require one concrete direction. `WITHOUT ROWID`. |
 
@@ -679,7 +733,8 @@ allomorph source records. Structural and synthetic identities are never presente
 GUIDs. No counter is inferred, backfilled, or fabricated for a collector path that does not publish
 it.
 
-The version 1 manifest is closed JSON. It carries `format`, `version`, and source, compiler, cache,
+The version 2 manifest is closed JSON. Its optional `profile` defaults to `full` and must
+agree with the cache schema. It carries `format`, `version`, and source, compiler, cache,
 run, batch, input, and completion objects. Source identity includes source kind, exact source digest,
 grammar hash, model fingerprint, and canonical production compile options. Cache identity includes
 the closed-file digest, byte count, schema version, and counter-semantics version. Run identity
@@ -729,7 +784,7 @@ GROUP BY o.kind, o.key;
 ## Reader rules
 
 - Check `PRAGMA application_id`, `PRAGMA user_version`, the matching metadata values, and
-  `complete=1` before reading facts. Schema v8 has no migration or upgrade path; rebuild from the exact
+  `complete=1` before reading facts. Schema v9 has no migration or upgrade path; rebuild from the exact
   Snapshot and context when the schema or model fingerprint differs.
 - Check `artifact_section` for every prerequisite. An unavailable ad hoc group section does not
   mean the source had no groups. A NULL `template_slot.compiled_order` means no final order was

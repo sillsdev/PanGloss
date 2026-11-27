@@ -140,13 +140,15 @@ impl<'g> GV<'g> {
         parts.join(";")
     }
 
-    fn canon_mpr(&self, set: MprSet) -> String {
+    fn canon_mpr(&self, set: &MprSet) -> String {
         let mut names: Vec<String> = self
             .g
             .mpr_names
             .iter()
             .enumerate()
-            .filter(|(i, _)| set.contains(MprId(*i as u8)))
+            .filter(|(i, _)| {
+                set.contains(MprId::try_from(*i).expect("compiled MPR index fits u32"))
+            })
             .map(|(_, n)| n.clone())
             .collect();
         names.sort();
@@ -350,9 +352,9 @@ impl<'g> GV<'g> {
         format!(
             "reqfs={}|reqmpr={}|exclmpr={}|outmpr={}|envs=[{}]|lhs=[{}]|rhs=[{}]|coocc={}",
             self.canon_fs(a.required_syn_fs),
-            self.canon_mpr(a.required_mpr),
-            self.canon_mpr(a.excluded_mpr),
-            self.canon_mpr(a.out_mpr),
+            self.canon_mpr(&a.required_mpr),
+            self.canon_mpr(&a.excluded_mpr),
+            self.canon_mpr(&a.out_mpr),
             self.canon_envs(&a.environments),
             self.canon_lhs(&a.lhs),
             self.canon_rhs(&a.rhs),
@@ -415,7 +417,7 @@ impl<'g> GV<'g> {
             "{:?}|{:?}|members=[{}]",
             g.match_type,
             g.output,
-            self.canon_mpr(g.members)
+            self.canon_mpr(&g.members)
         )
     }
 
@@ -427,8 +429,8 @@ impl<'g> GV<'g> {
         });
         format!(
             "reqpos={pos_names:?}|reqmpr={}|exclmpr={}|rhs=[{}]|leftenv=[{}]|rightenv=[{}]|selfopaque={}",
-            self.canon_mpr(s.required_mpr),
-            self.canon_mpr(s.excluded_mpr),
+            self.canon_mpr(&s.required_mpr),
+            self.canon_mpr(&s.excluded_mpr),
             self.canon_pattern(&s.rhs),
             s.left_env.as_ref().map(|p| self.canon_pattern(p)).unwrap_or_default(),
             s.right_env.as_ref().map(|p| self.canon_pattern(p)).unwrap_or_default(),
@@ -468,9 +470,9 @@ impl<'g> GV<'g> {
     fn canon_compounding_subrule(&self, s: &CompoundingSubruleDef) -> String {
         format!(
             "reqmpr={}|exclmpr={}|outmpr={}|headlhs=[{}]|nonheadlhs=[{}]|rhs=[{}]",
-            self.canon_mpr(s.required_mpr),
-            self.canon_mpr(s.excluded_mpr),
-            self.canon_mpr(s.out_mpr),
+            self.canon_mpr(&s.required_mpr),
+            self.canon_mpr(&s.excluded_mpr),
+            self.canon_mpr(&s.out_mpr),
             self.canon_lhs(&s.head_lhs),
             self.canon_lhs(&s.non_head_lhs),
             self.canon_rhs(&s.rhs),
@@ -499,9 +501,9 @@ impl<'g> GV<'g> {
             self.canon_fs(c.head_required_syn_fs),
             self.canon_fs(c.non_head_required_syn_fs),
             self.canon_fs(c.out_syn_fs),
-            self.canon_mpr(c.head_prod_restrictions_mpr),
-            self.canon_mpr(c.non_head_prod_restrictions_mpr),
-            self.canon_mpr(c.output_prod_restrictions_mpr),
+            self.canon_mpr(&c.head_prod_restrictions_mpr),
+            self.canon_mpr(&c.non_head_prod_restrictions_mpr),
+            self.canon_mpr(&c.output_prod_restrictions_mpr),
             oblig.join(","),
             subrules.join(">>"),
         )
@@ -591,7 +593,7 @@ impl<'g> GV<'g> {
             gloss: self.gloss_of(e.morpheme),
             stratum: self.stratum_of(e.morpheme).0,
             syn_fs: self.canon_fs(e.syn_fs),
-            mpr: self.canon_mpr(e.mpr),
+            mpr: self.canon_mpr(&e.mpr),
             partial: e.is_partial(),
         }
     }

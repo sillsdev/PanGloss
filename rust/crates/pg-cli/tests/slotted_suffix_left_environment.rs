@@ -252,6 +252,17 @@ fn analysis_suffix_literal_matches_only_itself_on_a_large_letter_inventory() {
 }
 
 #[test]
+fn wide_featureless_suffix_requires_both_literal_segments() {
+    let (grammar, _) = pg_grammar::compile_project(&snapshot(false, 80)).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let rule = suffix_rule(&grammar);
+    assert!(analysis_outputs(&morpher, rule, "kamun") > 0);
+    for word in ["kamum", "kaman"] {
+        assert_eq!(analysis_outputs(&morpher, rule, word), 0, "{word}");
+    }
+}
+
+#[test]
 fn unslotted_inflectional_suffix_enforces_left_environment() {
     check(false, 0);
 }

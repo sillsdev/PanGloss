@@ -1,0 +1,8 @@
+{
+  "a": [{"identity":{"morphemes":["x"],"rootIndex":0,"category":"v"},"count":1}],
+  "apst": [{"identity":{"morphemes":["x","y","SUF","z"],"rootIndex":1,"category":"v"},"count":3}],
+  "apt": [{"identity":{"morphemes":["x","y","z"],"rootIndex":1,"category":"v"},"count":2}],
+  "apts": [{"identity":{"morphemes":["x","y","z","SUF"],"rootIndex":1,"category":"v"},"count":3}],
+  "as": [{"identity":{"morphemes":["x","SUF"],"rootIndex":0,"category":"v"},"count":1}],
+  "aspt": []
+}

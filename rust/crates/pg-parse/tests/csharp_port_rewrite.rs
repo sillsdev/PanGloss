@@ -913,3 +913,43 @@ fn disjunctive_rules() {
     );
     assert_morphs_eq(&Morpher::new(&g5, usize::MAX).parse_word("ktʰb"), &["49"]);
 }
+
+#[test]
+fn alpha_environment_recovers_the_optional_deletion_candidate() {
+    let grammar = pg_grammar::load(include_str!("data/alpha-optional-environment.xml"))
+        .expect("alpha grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    assert_morphs_eq(&morpher.parse_word("bg"), &["1"]);
+}
+
+/// Divergence 129 (partial-feature grammars): PanGloss matches synthesis environments by unification, so a segment with no value for a feature satisfies a `[feature:-]` pin, where hc.dll matches by subsumption and fails it. `a` has no nasal value: `N+ata` becomes `mata` and `Nata` never parses (hc.dll: the reverse), and `N+pa` still becomes `mpa`. The hc.dll verdicts are in the fixture's STAGING.md; the fixture is `conformance-staging/edge-cases/unspecified-feature-minus-environment`.
+#[test]
+fn unspecified_feature_satisfies_a_minus_environment() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "unspecified-feature-minus-environment",
+    );
+    let xml = std::fs::read_to_string(fixture.dir.join("grammar.xml")).expect("grammar reads");
+    let grammar = pg_grammar::load(&xml).expect("grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let count = |word: &str| morpher.parse_word(word).analyses.len();
+    assert_eq!(count("mata"), 1, "unspecified nasal satisfies nasal:-");
+    assert_eq!(count("Nata"), 0, "the rule is obligatory before a");
+    assert_eq!(count("mpa"), 1, "p is nasal:-, the rule applies");
+    assert_eq!(count("Npa"), 0, "the rule is obligatory before p");
+}
+
+/// The target half of divergence 129: `[nasal:-] -> (deleted)` also deletes the unspecified `a`, so `ata` and `pa` leave nothing and `aa` and `a` have no analysis (hc.dll deletes only p and t). Fixture `unspecified-feature-minus-target`.
+#[test]
+fn unspecified_feature_satisfies_a_minus_target() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "unspecified-feature-minus-target");
+    let xml = std::fs::read_to_string(fixture.dir.join("grammar.xml")).expect("grammar reads");
+    let grammar = pg_grammar::load(&xml).expect("grammar loads");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let count = |word: &str| morpher.parse_word(word).analyses.len();
+    assert_eq!(count("aa"), 0, "a is deleted too");
+    assert_eq!(count("a"), 0, "a is deleted too");
+    assert_eq!(count("ata"), 0, "the rule is obligatory");
+    assert_eq!(count("pa"), 0, "the rule is obligatory");
+}

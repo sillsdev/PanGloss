@@ -1,0 +1,65 @@
+# oracle-provenance: founding-oracle
+# Signatures transcribed from the C# founding oracle (hc-conformance self-check, in-process Morpher)
+# built from sillsdev/machine aab4c598, 2026-11-03. The oracle prints the featureless surface node
+# as its StrRep set, a[sz]a.
+#
+# prLen: [k t] -> [s z] / [a i] _ [a i], in a grammar with NO phonological feature system. Every
+# word below that parses needs the rule to rewrite the StrRep of the matched node through a segment
+# class on the right-hand side (analysis unapplies it to {k, t}; synthesis leaves {s, z}).
+language: FeaturelessSegmentClassRewrite
+inspired_by: ["synthetic intervocalic lenition written with segment classes (not modeling any real language)"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: asa
+    note: >-
+      aka with k lenited between vowels; the surface s is a member of S.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: aza
+    note: >-
+      The other member of S: z is as good a surface as s for the same underlying aka.
+    parses:
+      - signature: "AKA|a[sz]a"
+        rules: [prLen]
+  - word: isa
+    note: >-
+      ita with t lenited; a second class member of K, after a different vowel.
+    parses:
+      - signature: "ITA|i[sz]a"
+        rules: [prLen]
+  - word: iza
+    note: >-
+      The z surface of ita.
+    parses:
+      - signature: "ITA|i[sz]a"
+        rules: [prLen]
+  - word: aka
+    note: >-
+      The rule is obligatory: aka never surfaces with its k between vowels.
+    expect_fail: true
+  - word: ata
+    note: >-
+      No root ata, and t cannot surface unchanged between vowels anyway.
+    expect_fail: true
+  - word: ita
+    note: >-
+      The rule is obligatory: ita never surfaces with its t between vowels.
+    expect_fail: true
+  - word: aki
+    note: >-
+      No root aki; k between vowels is rewritten, not kept.
+    expect_fail: true
+  - word: aska
+    note: >-
+      s is not a vowel, so the rule's environment is not met and an s between a and k is no lenition of anything.
+    expect_fail: true
+  - word: kaa
+    note: >-
+      No root kaa.
+    expect_fail: true
+  - word: aa
+    note: >-
+      No root aa.
+    expect_fail: true

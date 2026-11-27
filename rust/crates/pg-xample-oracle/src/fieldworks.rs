@@ -14,11 +14,11 @@ use serde::Deserialize;
 
 use crate::reader::{read_parse_response, ParsedParseResponse, ReadError};
 
-/// Overrides which `machine` checkout holds the FieldWorks witness (`fieldworks/project.fwdata` +
-/// `fieldworks/phonology-mutations.yaml` beside `edge-cases/deep-optional-affix-nesting`). This is
-/// deliberately NOT the `machine` git submodule pinned in this worktree -- see this crate's own
-/// gate test doc for why.
-pub const MACHINE_DIR_ENV: &str = "PANGLOSS_MACHINE_DIR";
+/// Overrides which checkout of the conformance suite holds the FieldWorks witness
+/// (`fieldworks/project.fwdata` + `fieldworks/phonology-mutations.yaml` beside
+/// `edge-cases/deep-optional-affix-nesting`). Unset, the witness is read from this worktree's own
+/// `conformance/` clone. `tools/xample-projector/build.ps1` reads the same variable.
+pub const SUITE_DIR_ENV: &str = "HC_CONFORMANCE_SUITE";
 
 /// Overrides the built `XampleProjector.exe` path, bypassing the default
 /// `tools/xample-projector/bin/Debug/XampleProjector.exe` this repo's `build.ps1` produces.
@@ -32,26 +32,24 @@ pub const ALLOW_NO_FIELDWORKS_ENV: &str = "PANGLOSS_ALLOW_NO_FIELDWORKS";
 const WITNESS_CATEGORY: &str = "edge-cases";
 const WITNESS_NAME: &str = "deep-optional-affix-nesting";
 
-pub fn machine_dir() -> PathBuf {
-    std::env::var(MACHINE_DIR_ENV)
+pub fn suite_dir() -> PathBuf {
+    std::env::var(SUITE_DIR_ENV)
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"C:\Users\johnm\Documents\repos\machine"))
+        .unwrap_or_else(|_| repo_root().join("conformance"))
 }
 
-/// `<machine_dir>/conformance/edge-cases/deep-optional-affix-nesting/fieldworks`.
-pub fn witness_dir(machine_dir: &Path) -> PathBuf {
-    machine_dir
-        .join("conformance")
+/// `<suite_dir>/edge-cases/deep-optional-affix-nesting/fieldworks`.
+pub fn witness_dir(suite_dir: &Path) -> PathBuf {
+    suite_dir
         .join(WITNESS_CATEGORY)
         .join(WITNESS_NAME)
         .join("fieldworks")
 }
 
-/// `<machine_dir>/conformance/edge-cases/deep-optional-affix-nesting/grammar.xml` -- the checked-in
+/// `<suite_dir>/edge-cases/deep-optional-affix-nesting/grammar.xml` -- the checked-in
 /// HC-native fixture this witness project must never semantically diverge from.
-pub fn witness_grammar_xml(machine_dir: &Path) -> PathBuf {
-    machine_dir
-        .join("conformance")
+pub fn witness_grammar_xml(suite_dir: &Path) -> PathBuf {
+    suite_dir
         .join(WITNESS_CATEGORY)
         .join(WITNESS_NAME)
         .join("grammar.xml")

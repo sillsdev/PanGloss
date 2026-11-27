@@ -3,8 +3,6 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use std::path::PathBuf;
-
 use foma::lexcread::fsm_lexc_parse_string;
 use foma::options::FomaOptions;
 
@@ -17,17 +15,9 @@ use common::gate_template::{mrule_id_of, recall_reachable};
 
 const FIXTURE: &str = "circumfix-cross-product-and-infix-drop";
 
-/// Repo root, from this crate's own `CARGO_MANIFEST_DIR` -- never a path relative to the process CWD.
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-/// Loads the staged fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
+/// Loads the fixture's `grammar.xml` directly off disk -- the same grammar the oracle replays, never a drifting inline copy.
 fn load_fixture() -> Grammar {
-    let path = repo_root()
-        .join("conformance-staging/edge-cases")
-        .join(FIXTURE)
-        .join("grammar.xml");
+    let path = pg_conformance_fixtures::require_fixture("edge-cases", FIXTURE).grammar_path();
     let xml =
         std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
     pg_grammar::load(&xml)
@@ -59,9 +49,24 @@ fn tag_sequences_for(g: &Grammar, morpher: &Morpher, surface: &str) -> Vec<Vec<S
         .collect()
 }
 
+/// Isolates one rule so candidate-selection tests do not claim complete support for the refused mixed-rule grammar.
+fn load_single_rule(key: &str) -> Grammar {
+    let mut g = load_fixture();
+    let mid = mrule_id_of(&g, key);
+    for stratum in &mut g.strata {
+        stratum.mrules.retain(|&id| id == mid);
+    }
+    g
+}
+
 /// The standard containment shape: `emit::emit`'s compiled net must fully cover every analysis the real confirm engine finds for `surface`.
 fn assert_full_containment(g: &Grammar, surface: &str) {
     let emit_result = emit::emit(g);
+    assert!(
+        !emit_result.lexc_source.is_empty(),
+        "isolated rule must produce a network: {:?}",
+        emit_result.report.tier
+    );
     assert!(
         emit_result.report.uncovered.is_empty(),
         "{surface:?}: grammar must be fully covered by the enumeration path: {:?}",
@@ -71,7 +76,7 @@ fn assert_full_containment(g: &Grammar, surface: &str) {
     let net = fsm_lexc_parse_string(&opts, None, &emit_result.lexc_source)
         .unwrap_or_else(|| panic!("emitted lexc must compile:\n{}", emit_result.lexc_source));
 
-    let morpher = Morpher::new(g, 20_000);
+    let morpher = Morpher::new(g, 2_000_000);
     let tag_sequences = tag_sequences_for(g, &morpher, surface);
     assert!(
         !tag_sequences.is_empty(),
@@ -91,7 +96,7 @@ fn assert_full_containment(g: &Grammar, surface: &str) {
 /// All 4 `mrCross` subrule words, plus the bare-root control, reachable in the compiled net.
 #[test]
 fn mr_cross_all_four_subrule_words_reachable() {
-    let g = load_fixture();
+    let g = load_single_rule("mrCross");
     assert_full_containment(&g, "batid");
     assert_full_containment(&g, "pabatidan"); // subCrossAA
     assert_full_containment(&g, "pabatidin"); // subCrossAB
@@ -140,6 +145,6 @@ fn mr_infix_drop_leaves_preexpand_candidates_after_the_structural_widening() {
 /// UPDATED by census C4: `bumat` is now reachable via `build_structural_composites`, not `crate::preexpand` -- see `docs/research/circumfix-composite-precedence-census.md`, C4.
 #[test]
 fn mr_infix_drop_word_reachable_via_build_structural_composites_now() {
-    let g = load_fixture();
+    let g = load_single_rule("mrInfixDrop");
     assert_full_containment(&g, "bumat");
 }

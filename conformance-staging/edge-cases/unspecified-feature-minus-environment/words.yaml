@@ -1,0 +1,53 @@
+# oracle-provenance: forward-synthesis
+# PanGloss-expected answers: a deliberate, recorded divergence from hc.dll (docs/divergences/129-*.md,
+# policy "partial-feature grammars"). This fixture is RED against hc.dll on purpose; do not "fix" it back.
+# hc.dll's answers (hc-conformance self-check, in-process Morpher, machine pin 4d9b454d, 2026-11-05) are
+# in STAGING.md and pinned in rust/tools/oracle-conformance-known-divergences.json.
+#
+# prNas: [arch:+] -> [nasal:+, arch:-] / _ + [nasal:-]. The vowel a has NO nasal value. hc.dll matches a
+# synthesis environment by subsumption (FeatureStruct.SubsumesImpl returns false when the feature is
+# absent), so N+ata surfaces as Nata there. PanGloss matches by unification, as a segment with no value
+# for a feature is compatible with any pin, so [nasal:-] holds before a: N+ata surfaces as mata and Nata
+# never parses. Forward trace: NPFX N + root ata, prNas fires because the next segment a is not nasal:+.
+language: UnspecifiedFeatureMinusEnvironment
+inspired_by: ["synthetic nasal-place archiphoneme assimilation (not modeling any real language)"]
+sources:
+  - "src/SIL.Machine/FeatureModel/FeatureStruct.cs"
+  - "src/SIL.Machine/FiniteState/Input.cs"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: Nata
+    note: >-
+      N+ata. PanGloss: the unspecified a satisfies [nasal:-], the rule is obligatory, so N never
+      survives. hc.dll parses it (subsumption fails on the absent feature, N is unchanged).
+    expect_fail: true
+  - word: mata
+    note: >-
+      The unspecified-feature witness. The rule fires on the unspecified a and turns N into m.
+      PanGloss parses it; hc.dll does not.
+    parses:
+      - signature: "NPFX+ATA|m+?a[pt]a"
+        rules: [mrN, prNas]
+  - word: mpa
+    note: >-
+      N+pa. p is nasal:-, so the rule applies and N becomes m (positive control: the rule still fires).
+    parses:
+      - signature: "NPFX+PA|m+?[pt]a"
+        rules: [mrN, prNas]
+  - word: Npa
+    note: >-
+      Negative control: before p the rule is obligatory, so N never survives.
+    expect_fail: true
+  - word: ata
+    note: >-
+      Bare root; no prefix, no environment.
+    parses:
+      - signature: "ATA|a[pt]a"
+        rules: []
+  - word: pa
+    note: >-
+      Bare root; no prefix, no environment.
+    parses:
+      - signature: "PA|[pt]a"
+        rules: []

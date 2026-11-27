@@ -355,7 +355,8 @@ fn to_ir_never_panics_on_a_bounded_corpus_sample() {
         };
         let words = std::fs::read_to_string(&words_path).expect("read word list");
         let map = toml_name.map(load_map).unwrap_or_else(RealizeMap::empty);
-        let m = Morpher::new(&g, 20).with_word_timeout(Some(std::time::Duration::from_millis(500)));
+        let m =
+            Morpher::new(&g, 2_000).with_word_timeout(Some(std::time::Duration::from_millis(500)));
         for word in words.lines().filter(|l| !l.trim().is_empty()).take(100) {
             let outcome = m.parse_word(word);
             for wa in &outcome.structured {

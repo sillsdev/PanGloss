@@ -105,8 +105,8 @@ fn prerelease_blank_environment_id_is_absent_but_keeps_authored_text() {
         .map(|node| assert_lookup_result(node, "lexicon"))
         .sum();
     assert_eq!(
-        candidate_count, 2,
-        "kapita has two materialized root allomorph candidates"
+        candidate_count, 1,
+        "kapita has one materialized root allomorph candidate: the matched one, not its sibling (machine#627)"
     );
 }
 

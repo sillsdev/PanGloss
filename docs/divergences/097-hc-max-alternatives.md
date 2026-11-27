@@ -7,7 +7,7 @@ Status: accepted-divergence. The user accepted this long-term parity exception o
 
 FieldWorks may stop parsing a word when one of its `MaxAlternatives` counters exceeds a positive limit. It reports the typed `MaxAlternativesExceededException` as an error and returns no analyses. PanGloss does not read this setting into `ParserParameters` or `Grammar`, and it does not produce that HC overflow status. It may return ordinary analyses for a word that triggers the HC error. That observable difference is accepted for the long term.
 
-PanGloss's analysis-attempt cap, shared parse-work cap, and per-word timeout are separate resource-containment controls. They bound work; they do not emulate HC's setting or reproduce its count units. When one is reached, PanGloss marks the outcome capped or timed out, which means the parse is incomplete. That is not equivalent to HC's overflow error. This exception does not relax complete-result parse parity requirements.
+PanGloss's per-word work cap and per-word timeout are separate resource-containment controls. They bound work; they do not emulate HC's setting or reproduce its count units. When one is reached, PanGloss marks the outcome capped or timed out, which means the parse is incomplete. That is not equivalent to HC's overflow error. This exception does not relax complete-result parse parity requirements.
 
 At HC's `MaxAlternatives = 0` default, the C# counters are unlimited. PanGloss still applies its own resource controls, and any cap or timeout remains incomplete. The settings-variant fixture channel rejects `MaxAlternatives` rather than suggesting that it is supported; see [the settings contract](../conformance/parser-settings-variants.md).
 

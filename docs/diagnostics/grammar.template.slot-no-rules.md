@@ -1,12 +1,12 @@
 # grammar.template.slot-no-rules
 
-Affix template slot has no rules
+Incomplete affix slot
 
 Level: **warning**
 
 ## Explanation
 
-No usable inflectional affix was loaded for this template slot.
+No inflectional affixes were loaded for the named slot in its affix template, so parsing skips that slot.
 
 ## What to do
 

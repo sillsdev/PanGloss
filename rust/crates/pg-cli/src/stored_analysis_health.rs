@@ -7,7 +7,7 @@ use pg_parse::{AnalysisProvenance, Morpher, WordAnalysis};
 use pg_rules::trace::{TraceSource, TraceType, TreeTraceSink};
 use pg_snapshot::{FwClass, FwObjectRef};
 
-pub(crate) const ANALYSIS_STEP_CAP: usize = 100_000;
+pub(crate) const ANALYSIS_WORK_CAP: usize = 10_000_000;
 
 /// Parse work units the default comparison spends across all wordforms before it stops.
 pub(crate) const DEFAULT_WORK_BUDGET: usize = 32_000_000;
@@ -26,15 +26,15 @@ pub(crate) enum Coverage {
 /// The comparison's work limits; tests shrink them to reach each limit on a small fixture.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Limits {
-    /// Per-word analysis step cap; the per-word work cap derives from it.
-    pub(crate) step_cap: usize,
+    /// Per-word work cap.
+    pub(crate) work_cap: usize,
     /// Total parse work units `bounded` spends.
     pub(crate) work_budget: usize,
 }
 
 impl Limits {
     pub(crate) const DEFAULT: Self = Self {
-        step_cap: ANALYSIS_STEP_CAP,
+        work_cap: ANALYSIS_WORK_CAP,
         work_budget: DEFAULT_WORK_BUDGET,
     };
 }
@@ -80,33 +80,68 @@ struct ResolvedMorph {
     morpheme: u32,
 }
 
+/// A compared wordform's approved Readings against the parsed ones (#399); the fourth outcome, same morphemes with different cuts, is not reported yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WordOutcome {
+    Same,
+    Extra,
+    Missing,
+    MissingAndExtra,
+    Incomplete,
+}
+
+/// One compared wordform: the `stored_analysis_words` row of the grammar-health report.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct WordRow {
+    pub(crate) wordform: String,
+    pub(crate) wordform_guid: String,
+    pub(crate) outcome: WordOutcome,
+    /// Approved analyses stored for the wordform.
+    pub(crate) approved: usize,
+    /// Approved analyses PanGloss also parses.
+    pub(crate) matched: usize,
+    /// Approved analyses PanGloss no longer parses.
+    pub(crate) missing: usize,
+    /// Parsed Readings no approved analysis matches; guessed roots are not counted.
+    pub(crate) extra: usize,
+}
+
+/// The stored-analysis findings plus one row per compared wordform, in wordform order.
+#[derive(Debug, Default)]
+pub(crate) struct Comparison {
+    pub(crate) diagnostics: Vec<GrammarHealthDiagnostic>,
+    pub(crate) words: Vec<WordRow>,
+}
+
 /// Never fails: a comparison that cannot run is itself an incomplete finding beside the others.
 pub(crate) fn check(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
-    step_cap: usize,
+    work_cap: usize,
     coverage: Coverage,
-) -> Vec<GrammarHealthDiagnostic> {
+) -> Comparison {
     if coverage == Coverage::Off {
-        return Vec::new();
+        return Comparison::default();
     }
-    check_with_options(
+    compare_with_options(
         grammar,
         stored_analyses,
-        step_cap,
-        pg_rules::stratum::default_work_cap(step_cap),
+        work_cap,
+        work_cap,
         default_threads(),
         coverage.work_budget(),
     )
-    .unwrap_or_else(|error| {
-        vec![GrammarHealthDiagnostic::from_check(
+    .unwrap_or_else(|error| Comparison {
+        diagnostics: vec![GrammarHealthDiagnostic::from_check(
             GrammarHealthCode::StoredAnalysisIncomplete,
             format!(
                 "No stored analysis was compared ({} stored): {error}.",
                 stored_analyses.len()
             ),
             project_subject(grammar),
-        )]
+        )],
+        words: Vec::new(),
     })
 }
 
@@ -118,23 +153,43 @@ fn default_threads() -> usize {
         .unwrap_or(1)
 }
 
-/// Parallel per wordform, folded in wordform order: caps and the budget count work, never a clock.
+/// The findings of `compare_with_options`, without the per-wordform rows.
+#[cfg(test)]
 pub(crate) fn check_with_options(
     grammar: &Grammar,
     stored_analyses: &[pg_fwdata::StoredAnalysis],
-    step_cap: usize,
+    work_cap: usize,
     synthesis_work_cap: usize,
     threads: usize,
     work_budget: Option<usize>,
 ) -> Result<Vec<GrammarHealthDiagnostic>, String> {
+    compare_with_options(
+        grammar,
+        stored_analyses,
+        work_cap,
+        synthesis_work_cap,
+        threads,
+        work_budget,
+    )
+    .map(|comparison| comparison.diagnostics)
+}
+
+/// Parallel per wordform, folded in wordform order: caps and the budget count work, never a clock.
+pub(crate) fn compare_with_options(
+    grammar: &Grammar,
+    stored_analyses: &[pg_fwdata::StoredAnalysis],
+    work_cap: usize,
+    synthesis_work_cap: usize,
+    threads: usize,
+    work_budget: Option<usize>,
+) -> Result<Comparison, String> {
     if stored_analyses.is_empty() {
-        return Ok(Vec::new());
+        return Ok(Comparison::default());
     }
 
     let (parser, synthesizer) = std::thread::scope(|scope| {
-        let synthesizer =
-            scope.spawn(|| Morpher::new(grammar, step_cap).with_work_cap(synthesis_work_cap));
-        let parser = Morpher::new(grammar, step_cap);
+        let synthesizer = scope.spawn(|| Morpher::new(grammar, synthesis_work_cap));
+        let parser = Morpher::new(grammar, work_cap);
         let synthesizer = synthesizer
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
@@ -160,12 +215,16 @@ pub(crate) fn check_with_options(
 
     let budget = work_budget.unwrap_or(usize::MAX);
     let compared = compare_words_in_order(&words, threads, budget, |wordform, analyses| {
-        compare_word(grammar, &parser, &synthesizer, step_cap, wordform, analyses)
+        compare_word(grammar, &parser, &synthesizer, work_cap, wordform, analyses)
     })?;
     let cutoff = compared.cutoff;
+    let mut rows = Vec::new();
     for (index, result) in compared.results.into_iter().take(cutoff).enumerate() {
         match result {
-            Some((result, _)) => diagnostics.extend(result),
+            Some(result) => {
+                diagnostics.extend(result.diagnostics);
+                rows.push(result.row);
+            }
             None => panic!(
                 "stored-analysis comparison never compared word {index} ({:?})",
                 words[index].0
@@ -186,11 +245,18 @@ pub(crate) fn check_with_options(
             project_subject(grammar),
         ));
     }
-    Ok(diagnostics)
+    Ok(Comparison {
+        diagnostics,
+        words: rows,
+    })
 }
 
-/// Each word's findings and the parse work units it spent.
-type WordResult = (Vec<GrammarHealthDiagnostic>, usize);
+/// Each word's findings, its report row and the parse work units it spent.
+struct WordResult {
+    diagnostics: Vec<GrammarHealthDiagnostic>,
+    row: WordRow,
+    work: usize,
+}
 
 struct Compared {
     /// `results[i]` is `Some` for every `i < cutoff`; later entries are discarded.
@@ -233,7 +299,7 @@ where
             }
             let (wordform, analyses) = &words[index];
             let result = compare(wordform, analyses);
-            let work = result.1;
+            let work = result.work;
             done.push((index, result));
             let mut fold = fold
                 .lock()
@@ -277,7 +343,7 @@ where
     // Work folded past the cutoff belongs to discarded words; only the in-budget prefix counts.
     let spent = results[..cutoff]
         .iter()
-        .map(|result| result.as_ref().map_or(0, |(_, work)| *work))
+        .map(|result| result.as_ref().map_or(0, |result| result.work))
         .fold(0usize, usize::saturating_add);
     Ok(Compared {
         results,
@@ -290,36 +356,46 @@ fn compare_word(
     grammar: &Grammar,
     parser: &Morpher<'_>,
     synthesizer: &Morpher<'_>,
-    step_cap: usize,
+    work_cap: usize,
     wordform: &str,
     analyses: &[&pg_fwdata::StoredAnalysis],
 ) -> WordResult {
     let outcome = parser.parse_word(wordform);
     let work = outcome.work_steps;
+    let row = |outcome, matched, missing, extra| WordRow {
+        wordform: wordform.to_string(),
+        wordform_guid: analyses[0].wordform_guid.clone(),
+        outcome,
+        approved: analyses.len(),
+        matched,
+        missing,
+        extra,
+    };
+    let incomplete = |reason: &str| WordResult {
+        diagnostics: incomplete_findings(grammar, wordform, analyses, reason),
+        row: row(WordOutcome::Incomplete, 0, 0, 0),
+        work,
+    };
     if outcome.capped || outcome.timed_out {
         let limit = if outcome.capped {
             format!(
-                "PanGloss reached its per-word analysis cap ({step_cap} analysis steps or {} work units) after {work} work units",
-                pg_rules::stratum::default_work_cap(step_cap),
+                "PanGloss reached its per-word work cap ({work_cap} work steps) after {work} work steps",
             )
         } else {
             "PanGloss reached its per-word analysis time limit".to_string()
         };
-        return (
-            incomplete_findings(grammar, wordform, analyses, &limit),
-            work,
-        );
+        return incomplete(&limit);
     }
     let mut produced = BTreeMap::<StoredKey, usize>::new();
+    let mut parsed_total = BTreeMap::<StoredKey, usize>::new();
+    let mut guessed = BTreeMap::<StoredKey, usize>::new();
     for parsed in &outcome.structured {
         let projection = match pg_parse::project_parse_analysis(parsed, grammar) {
             Ok(projection) => projection,
             Err(error) => {
-                let reason = format!("PanGloss could not project a confirmed analysis: {error}");
-                return (
-                    incomplete_findings(grammar, wordform, analyses, &reason),
-                    work,
-                );
+                return incomplete(&format!(
+                    "PanGloss could not project a confirmed analysis: {error}"
+                ));
             }
         };
         let key = projection
@@ -333,22 +409,33 @@ fn compare_word(
                 })
             })
             .collect::<Option<StoredKey>>();
+        // A Reading with no complete key cannot be compared, so it is neither matched nor extra.
         if let Some(key) = key {
-            *produced.entry(key).or_default() += 1;
+            *produced.entry(key.clone()).or_default() += 1;
+            *parsed_total.entry(key.clone()).or_default() += 1;
+            if parsed.guessed {
+                *guessed.entry(key).or_default() += 1;
+            }
         }
     }
 
     let mut diagnostics = Vec::new();
+    let mut matched = 0;
+    let mut missing = 0;
+    let mut approved_keys = BTreeSet::new();
     for analysis in analyses {
         let key = stored_key(grammar, analysis);
         if let Some(key) = key {
+            approved_keys.insert(key.clone());
             if let Some(count) = produced.get_mut(&key) {
                 if *count > 0 {
                     *count -= 1;
+                    matched += 1;
                     continue;
                 }
             }
         }
+        missing += 1;
         diagnostics.push(finding_for_missing(
             grammar,
             synthesizer,
@@ -356,7 +443,97 @@ fn compare_word(
             wordform,
         ));
     }
-    (diagnostics, work)
+    let extras = extra_keys(&parsed_total, &guessed, &approved_keys);
+    let extra = extras.len();
+    for key in extras {
+        diagnostics.push(finding_for_extra(grammar, analyses, wordform, key));
+    }
+    let outcome = match (missing, extra) {
+        (0, 0) => WordOutcome::Same,
+        (0, _) => WordOutcome::Extra,
+        (_, 0) => WordOutcome::Missing,
+        _ => WordOutcome::MissingAndExtra,
+    };
+    WordResult {
+        diagnostics,
+        row: row(outcome, matched, missing, extra),
+        work,
+    }
+}
+
+/// The parsed keys no approved analysis has, once each: FieldWorks merges equal bundles, so Readings that share a key are one Reading. A key only guessed roots produce is not extra.
+fn extra_keys<'a>(
+    parsed: &'a BTreeMap<StoredKey, usize>,
+    guessed: &BTreeMap<StoredKey, usize>,
+    approved: &BTreeSet<StoredKey>,
+) -> Vec<&'a StoredKey> {
+    parsed
+        .iter()
+        .filter(|(key, count)| {
+            !approved.contains(*key) && **count > guessed.get(*key).copied().unwrap_or(0)
+        })
+        .map(|(key, _)| key)
+        .collect()
+}
+
+/// A parsed Reading no approved analysis of the wordform matches, as a fact about the parser.
+fn finding_for_extra(
+    grammar: &Grammar,
+    analyses: &[&pg_fwdata::StoredAnalysis],
+    wordform: &str,
+    key: &StoredKey,
+) -> GrammarHealthDiagnostic {
+    let wordform_guid = &analyses[0].wordform_guid;
+    let morphs = key
+        .iter()
+        .map(|morph| {
+            format!(
+                "[MoForm GUID {}; MSA GUID {}; inflection-type GUID {}]",
+                morph.allomorph,
+                morph.msa,
+                morph.inflection_type.as_deref().unwrap_or("none"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    let message = format!(
+        "A Reading PanGloss parses for wordform {wordform:?} (WfiWordform GUID {wordform_guid}) matches none of its {} approved analyses. Morphs: {morphs}. This is a fact, not an error: the approved set may be incomplete, the grammar may overgenerate, or a recorded Rust-versus-C# parser divergence may allow a parse hc.dll does not.",
+        analyses.len(),
+    );
+    let mut subjects = vec![FwObjectRef::new(FwClass::Unknown)
+        .guid(wordform_guid)
+        .name(
+            analyses[0]
+                .wordform
+                .as_deref()
+                .unwrap_or("Unnamed wordform"),
+        )
+        .source_class("WfiWordform")];
+    for morph in key {
+        subjects.push(
+            FwObjectRef::new(FwClass::MoForm)
+                .guid(&morph.allomorph)
+                .name("Parsed morph")
+                .source_class("MoForm"),
+        );
+        let class = grammar
+            .morphemes
+            .iter()
+            .find(|info| info.source_msa_guid.as_deref() == Some(morph.msa.as_str()))
+            .and_then(|info| info.source_msa_class)
+            .unwrap_or(FwClass::Unknown);
+        subjects.push(
+            FwObjectRef::new(class)
+                .guid(&morph.msa)
+                .name("Parsed MSA")
+                .source_class("MSA"),
+        );
+    }
+    GrammarHealthDiagnostic::from_check(
+        GrammarHealthCode::StoredAnalysisExtraReading,
+        message,
+        subjects,
+    )
 }
 
 /// A project-wide finding's subject: the comparison as a whole, not one stored object.
@@ -749,4 +926,41 @@ fn unattributed_finding(
         message,
         source_subjects(grammar, analysis, std::iter::empty()),
     )
+}
+
+#[cfg(test)]
+mod extra_key_tests {
+    use super::*;
+
+    fn key(allomorph: &str) -> StoredKey {
+        vec![StoredKeyMorph {
+            allomorph: allomorph.to_string(),
+            msa: "msa".to_string(),
+            inflection_type: None,
+        }]
+    }
+
+    #[test]
+    fn two_parses_sharing_one_approved_key_are_not_extra() {
+        let parsed = BTreeMap::from([(key("a"), 2)]);
+        let approved = BTreeSet::from([key("a")]);
+        assert!(extra_keys(&parsed, &BTreeMap::new(), &approved).is_empty());
+    }
+
+    #[test]
+    fn two_parses_sharing_one_unapproved_key_are_one_extra() {
+        let parsed = BTreeMap::from([(key("a"), 2), (key("b"), 1)]);
+        let approved = BTreeSet::from([key("b")]);
+        assert_eq!(
+            extra_keys(&parsed, &BTreeMap::new(), &approved),
+            vec![&key("a")]
+        );
+    }
+
+    #[test]
+    fn a_key_only_guessed_roots_produce_is_not_extra() {
+        let parsed = BTreeMap::from([(key("a"), 2)]);
+        let guessed = BTreeMap::from([(key("a"), 2)]);
+        assert!(extra_keys(&parsed, &guessed, &BTreeSet::new()).is_empty());
+    }
 }

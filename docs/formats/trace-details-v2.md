@@ -1,8 +1,12 @@
-# Trace details v3 (including the v2 fields)
+# Trace details v5, and v6 on request (including the v2, v3 and v4 fields)
 
 `pangloss parse <grammar> <word> --trace --trace-format=json --trace-details` writes one
-`pangloss.trace-details.v3` JSON document. Use `--trace=<path>` when a file must contain only the
+`pangloss.trace-details.v5` JSON document, or a `pangloss.trace-details.v6` document when `--rule-costs` is added. Use `--trace=<path>` when a file must contain only the
 JSON; stdout from the managed runner may include diagnostics.
+
+Version 6 is opt-in: it is written only when rule costs are requested (`--trace-details --rule-costs[=N]`, or `serve parse` with `traceDetails` and `ruleCosts`), and adds the top-level `ruleCosts` object (see "Rule costs (v6)"); nothing else changes. Without the request the document is byte-for-byte the v5 document, with no `ruleCosts` key, so a reader pinned to v5 is unaffected. A reader written for version 5 must refuse a document whose `schemaVersion` is `pangloss.trace-details.v6`.
+
+Version 5 removes `search.steps` (the analysis-attempt count); `search.workSteps` is the word's one cost figure. A reader written for version 4 must refuse a document whose `schemaVersion` is `pangloss.trace-details.v5`.
 
 The envelope keeps the existing unmerged trace tree and category counters. It adds evidence needed
 to inspect one parse offline without reopening the project:
@@ -35,9 +39,34 @@ to inspect one parse offline without reopening the project:
   trace sink. Otherwise it is `unavailable` with the typed `reasonCode`; the renderer never
   replays a gate or infers a cause from diagnostic text.
 
-A reader must explicitly support the v3 profile before accepting it. Unknown future major
+A reader must explicitly support the profile before accepting it. Unknown future major
 versions must be rejected clearly. A details document is self-contained: consumers must not replace its
 captured labels, writing systems, or source IDs with a live project lookup.
+
+## Rule costs (v6)
+
+`ruleCosts` ranks the objects that reserved the most work steps for this word, so a word the parser stopped on shows which rule spent the budget. It is the per-object form of the `categories.<kind>.work_steps` totals and works whether or not the word finished.
+
+- `objects` is the top `topN` (8 for a bare `--rule-costs`; `pangloss parse --rule-costs=N` and the `serve` `ruleCosts` field take any N) entries, sorted by `work_steps` descending, then by kind, object, stratum and direction. Each is `{kind, key, label, stratum, direction, work_steps, attempts, outputs, selfElapsedNs}`: one entry per `(kind, object, stratum, direction)`, summed over its allomorph rows. `kind` is a `categories` key (`phonRule`, `morphRule`, `lexEntry`, `rootIndex`, `guesser`, `overlay`, `parser`); `key` and `label` are the durable identity `stats` and the facts cache use. `selfElapsedNs` is wall-clock, so it differs between runs, and is null for kinds that do not measure it. An object that reserved no work is not listed.
+- `objectCount` is how many objects reserved work, `workSteps` the word's total (`search.workSteps`), `attributedWorkSteps` the sum over every object, and `unattributedWorkSteps` the remainder (`categories.unattributed.work_steps`). `attributedWorkSteps + unattributedWorkSteps == workSteps`.
+- `stopped` is true when the parse was capped, timed out or had an invalid shape. `reproducible` is false for a timed-out parse, whose figures depend on this computer's speed; every other figure is deterministic.
+
+Collecting the rows does not change the work: `workSteps` is the same with and without `--rule-costs` (a test pins it). The figures say who reserved the work, not whose reservation the cap refused: the stopping scope is not recorded.
+
+## Work steps (v4)
+
+Each `categories.<kind>.work_steps` counts successful work-budget reservations made while that
+object kind's instrumented scope was innermost. Nested scopes are exclusive: their reservations
+are charged once to the inner scope, including reservations made by matchers there. A failed
+reservation does not increment the counter. `categories.unattributed.work_steps` is the remaining
+work outside those scopes, including segmentation, template and search orchestration, and portions
+of matching and confirmation without an instrumented object scope. In particular, not all
+confirmation is unattributed: rule and other object scopes reached during it receive their work.
+
+The sum of all category `work_steps`, including `unattributed`, equals `search.workSteps` for the
+same trace, including capped or invalid-shape outcomes. The existing category `work` still counts
+segments examined and is a different unit. A traced search can do different work from an untraced
+batch search, so compare totals from the same mode and options.
 
 ## Family blocking (v3)
 
@@ -137,6 +166,7 @@ The variants are:
 | `syntacticFeatures` | `operands.required` and `operands.actual` are serialized feature structures; `operands.representation` is `grammar-local-feature-struct`. Numeric feature IDs and symbolic bitsets are grammar-local, not authored expressions. |
 | `mprFeatures` | `operands.required`, `operands.excluded`, and `operands.actual` are arrays of the actual MPR feature operands. Each authored feature has `id`, `name`, and `quality`; an unresolvable local operand has `index` and `quality: "grammar-local"`. The event's reason distinguishes required, excluded, and head productivity restriction checks. |
 | `coOccurrence` | `constraintOwner`, `ruleIndex`, `require`, `adjacency`, `others`, and `actual`. `others` is the ordered partner operand list; `actual` is the ordered morph sequence tested. More than one partner is retained. `require: false` is exclusion. No missing partner is fabricated. |
+| `allomorphBlocked` | `blocker`, the earlier allomorph (same identity shape as `failedObject`) that HermitCrab's disjunctive rule preferred; `failedObject` is the blocked (used or recorded) allomorph. Attached to every `DisjunctiveAllomorph` failure: the validity-site nodes, whose `failureContext` was `unavailable` before and is now `captured`, and the synthesis-site node added when synthesis stops at the earlier allomorph before the recorded one is tried. |
 | `environments` | `constraintOwner`, `span`, and `alternatives`. The span has `start`, inclusive `end`, and `coordinateSystem: "interior-inclusive"` (anchors excluded). Each evaluated alternative has `index`, `require`, `accepted`, optional `sourceIdentity`, optional `authoredText`, and `sourceStatus`. |
 
 The synthetic compound `numobel` rejects its unlicensed head with these MPR operands:

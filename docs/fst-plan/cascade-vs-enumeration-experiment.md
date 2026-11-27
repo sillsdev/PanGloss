@@ -39,7 +39,7 @@ verification was run (not merely claimed):
    golden-text drift from this Windows checkout's `core.autocrlf=true` (confirmed directly via
    `git config --get core.autocrlf` → `true`), unrelated to `emit.rs`/`capability.rs`, and reproduce
    identically with `emit.rs` reverted too.
-4. **Conformance fixture suite** (`pg-parse`'s `conformance_fixtures_gate.rs`, `machine/conformance`
+4. **Conformance fixture suite** (`pg-parse`'s `conformance_fixtures_gate.rs`, `conformance`
    + `conformance-staging`): `Summary [ 0.946s] 146 tests run: 146 passed, 43 skipped`.
 
 **Verdict: (a) it verifies.** Kept as-is (commit `a29887a`); this experiment runs on top of it.
@@ -79,7 +79,7 @@ silently skips (`eprintln!("skipping: ...")`) when it's absent, which is exactly
 these were run as part of the full suite above. **This experiment could not reproduce or contradict
 the 2.83M-entry/691MB Aweti number at its own scale** — that is reported as a gap, not estimated.
 
-Three grammars were chosen from the public `machine/conformance` corpus instead, per the task's own
+Three grammars were chosen from the public `conformance` corpus instead, per the task's own
 "prefer a small number of discriminating grammars" instruction:
 
 | Case | Fixture | Why |

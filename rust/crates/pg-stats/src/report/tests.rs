@@ -13,7 +13,7 @@ fn run() -> RunMetadata {
         options_hash: "opts-a".to_string(),
         options_json: "{}".to_string(),
         created_utc: "2026-08-22T00:00:00Z".to_string(),
-        step_cap: None,
+        work_cap: None,
     }
 }
 
@@ -47,6 +47,7 @@ fn fact_with_direction(
         direction,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root,
@@ -70,12 +71,11 @@ fn fact_with_self_time(
     }
 }
 
-/// `attempts` is a word-level placeholder here -- no test in this module reads it.
 fn word_record(form: &str, elapsed_ns: u64, facts: Vec<FactRecord>) -> WordRecord {
     WordRecord {
+        gates: None,
         form: form.to_string(),
         elapsed_ns,
-        attempts: 1,
         work: 0,
         passes: 1,
         capped: false,
@@ -108,6 +108,32 @@ fn seeded_cache() -> StatsCache {
     ];
     outcome.cache.flush(&run(), &words).unwrap();
     outcome.cache
+}
+
+#[test]
+fn object_allomorph_and_kind_reports_exclude_unattributed() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let mut remainder = fact("unattributed", ObjectKind::Unattributed, 0, 0, 0);
+    remainder.direction = Direction::Unattributed;
+    remainder.stratum = None;
+    remainder.work_steps = 13;
+    let word = word_record(
+        "apu",
+        500,
+        vec![fact("rule-a", ObjectKind::MorphRule, 5, 20, 1), remainder],
+    );
+    outcome.cache.flush(&run(), &[word]).unwrap();
+    let conn = outcome.cache.connection();
+
+    let objects = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    assert_eq!(objects.len(), 1);
+    assert_eq!(objects[0].kind, "morph_rule");
+    let allomorphs = per_allomorph_report(conn, &PerAllomorphFilter::default()).unwrap();
+    assert_eq!(allomorphs.len(), 1);
+    assert_eq!(allomorphs[0].object_kind, "morph_rule");
+    let kinds = per_kind_report(conn, &PerKindFilter::default()).unwrap();
+    assert_eq!(kinds.len(), 1);
+    assert_eq!(kinds[0].kind, "morph_rule");
 }
 
 #[test]
@@ -292,6 +318,7 @@ fn fact_with_allomorph(
         direction: Direction::Analysis,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -789,6 +816,7 @@ fn fact_with_allomorph_not_applied(
         direction: Direction::Analysis,
         attempts,
         work: 1,
+        work_steps: 0,
         outputs: 0,
         not_applied,
         no_root: 0,
@@ -943,6 +971,7 @@ fn fact_with_morpheme(
         direction: Direction::Analysis,
         attempts,
         work,
+        work_steps: 0,
         outputs: attempts,
         not_applied: 0,
         no_root: 0,
@@ -1001,6 +1030,7 @@ fn never_fires_fact(
         direction,
         attempts,
         work: attempts,
+        work_steps: 0,
         outputs,
         not_applied: attempts.saturating_sub(outputs),
         no_root: 0,
@@ -1109,4 +1139,261 @@ fn kind_has_any_recorded_object_distinguishes_absent_from_present() {
         !kind_has_any_recorded_object(cache.connection(), "phon_rule").unwrap(),
         "no phon_rule fact was ever recorded in this cache"
     );
+}
+
+fn fact_with_work_steps(
+    object_key: &str,
+    kind: ObjectKind,
+    direction: Direction,
+    work_steps: u64,
+) -> FactRecord {
+    FactRecord {
+        work_steps,
+        ..fact_with_direction(object_key, kind, direction, 1, 1, 0)
+    }
+}
+
+fn remainder_fact(work_steps: u64) -> FactRecord {
+    FactRecord {
+        stratum: None,
+        ..fact_with_work_steps(
+            "unattributed",
+            ObjectKind::Unattributed,
+            Direction::Unattributed,
+            work_steps,
+        )
+    }
+}
+
+fn word_with_work(form: &str, work: u64, facts: Vec<FactRecord>) -> WordRecord {
+    WordRecord {
+        gates: None,
+        work,
+        ..word_record(form, 100, facts)
+    }
+}
+
+#[test]
+fn object_work_steps_sum_across_words_and_directions_and_reconcile_with_word_work() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = [
+        word_with_work(
+            "apu",
+            100,
+            vec![
+                fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Analysis, 40),
+                fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Synthesis, 10),
+                fact_with_work_steps("root-a", ObjectKind::LexEntry, Direction::Analysis, 30),
+                remainder_fact(20),
+            ],
+        ),
+        WordRecord {
+            capped: true,
+            ..word_with_work(
+                "beta",
+                70,
+                vec![
+                    fact_with_work_steps("rule-a", ObjectKind::MorphRule, Direction::Analysis, 50),
+                    remainder_fact(20),
+                ],
+            )
+        },
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let conn = outcome.cache.connection();
+
+    let rows = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    let steps_of = |label: &str| rows.iter().find(|r| r.label == label).unwrap().work_steps;
+    assert_eq!(steps_of("rule-a"), 100);
+    assert_eq!(steps_of("root-a"), 30);
+    assert_eq!(
+        rows.len(),
+        2,
+        "the unattributed remainder is not an object row"
+    );
+
+    let remainder: i64 = conn
+        .query_row(
+            "SELECT SUM(f.work_steps) FROM fact f JOIN object o ON o.object_id = f.object_id
+             WHERE o.kind = 'unattributed'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let word_total: i64 = conn
+        .query_row("SELECT SUM(work) FROM word", [], |row| row.get(0))
+        .unwrap();
+    let object_total: i64 = rows.iter().map(|r| r.work_steps).sum();
+    assert_eq!(object_total + remainder, word_total);
+    assert_eq!(object_total + remainder, 170);
+
+    let analysis = per_object_report(
+        conn,
+        &PerObjectFilter {
+            direction: Some("analysis".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        analysis
+            .iter()
+            .find(|r| r.label == "rule-a")
+            .unwrap()
+            .work_steps,
+        90
+    );
+    let uncensored = per_object_report(
+        conn,
+        &PerObjectFilter {
+            exclude_censored_words: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        uncensored
+            .iter()
+            .find(|r| r.label == "rule-a")
+            .unwrap()
+            .work_steps,
+        50
+    );
+}
+
+#[test]
+fn word_only_reports_measured_word_fields_and_refuses_each_object_view() {
+    let dir = crate::test_support::TempDir::new("word-only-reports");
+    let path = dir.path().join("cache.sqlite3");
+    let mut cache = StatsCache::open_word_only(&path, "hash-a").unwrap().cache;
+    let mut word = word_record("synthetic-01", 101, Vec::new());
+    word.work = 23;
+    word.capped = true;
+    cache.flush(&run(), &[word]).unwrap();
+    let conn = cache.connection();
+    assert_eq!(
+        per_word_report(conn).unwrap(),
+        [PerWordRow {
+            form: "synthetic-01".into(),
+            elapsed_ns: 101,
+            work: 23,
+            passes: 1,
+            capped: true,
+            timed_out: false,
+            invalid_shape: false,
+        }]
+    );
+    assert_eq!(word_elapsed_ns_total(conn, None).unwrap(), 101);
+    for error in [
+        kind_has_any_recorded_object(conn, "morph_rule").unwrap_err(),
+        per_object_report(conn, &Default::default()).unwrap_err(),
+        per_allomorph_report(conn, &Default::default()).unwrap_err(),
+        per_morpheme_report(conn, &Default::default()).unwrap_err(),
+        per_kind_report(conn, &Default::default()).unwrap_err(),
+        never_fires_report(conn, &Default::default()).unwrap_err(),
+    ] {
+        assert!(matches!(error, StatsError::WordOnlyFactsUnavailable));
+    }
+}
+
+fn fact_with_uses(
+    object_key: &str,
+    kind: ObjectKind,
+    allomorph: Option<(&str, &str)>,
+    stratum: &str,
+    uses: u64,
+) -> FactRecord {
+    FactRecord {
+        stratum: Some(StructuralLocator::new(stratum, stratum)),
+        uses,
+        ..fact_with_allomorph(object_key, kind, allomorph, 1, 1)
+    }
+}
+
+/// `uses` counts appearances; `words` counts the distinct words with at least one (#396). A word whose object shows up in two strata (two readings) adds 2 to `uses` and 1 to `words`.
+#[test]
+fn per_object_words_counts_distinct_words_not_uses() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = vec![
+        word_record(
+            "one",
+            1,
+            vec![
+                fact_with_uses("obj-x", ObjectKind::LexEntry, None, "0:Root", 1),
+                fact_with_uses("obj-x", ObjectKind::LexEntry, None, "1:Stem", 1),
+                fact_with_uses("obj-y", ObjectKind::LexEntry, None, "0:Root", 0),
+            ],
+        ),
+        word_record(
+            "two",
+            1,
+            vec![fact_with_uses(
+                "obj-x",
+                ObjectKind::LexEntry,
+                None,
+                "0:Root",
+                1,
+            )],
+        ),
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let conn = outcome.cache.connection();
+
+    let rows = per_object_report(conn, &PerObjectFilter::default()).unwrap();
+    let x = rows.iter().find(|r| r.label == "obj-x").unwrap();
+    assert_eq!((x.uses, x.words), (3, 2));
+    let y = rows.iter().find(|r| r.label == "obj-y").unwrap();
+    assert_eq!(
+        (y.uses, y.words),
+        (0, 0),
+        "attempted but never used is not a word"
+    );
+
+    let one = PerObjectFilter {
+        word: Some("one".to_string()),
+        ..PerObjectFilter::default()
+    };
+    let rows = per_object_report(conn, &one).unwrap();
+    let x = rows.iter().find(|r| r.label == "obj-x").unwrap();
+    assert_eq!((x.uses, x.words), (2, 1), "two readings, one word");
+}
+
+#[test]
+fn per_allomorph_words_counts_distinct_words_not_uses() {
+    let mut outcome = StatsCache::open_in_memory("hash-a").unwrap();
+    let words = vec![
+        word_record(
+            "one",
+            1,
+            vec![
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:0", "A0")), "0:Root", 1),
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:0", "A0")), "1:Stem", 1),
+                fact_with_uses("e", ObjectKind::LexEntry, Some(("e:1", "A1")), "0:Root", 0),
+            ],
+        ),
+        word_record(
+            "two",
+            1,
+            vec![fact_with_uses(
+                "e",
+                ObjectKind::LexEntry,
+                Some(("e:0", "A0")),
+                "0:Root",
+                1,
+            )],
+        ),
+    ];
+    outcome.cache.flush(&run(), &words).unwrap();
+    let rows =
+        per_allomorph_report(outcome.cache.connection(), &PerAllomorphFilter::default()).unwrap();
+    let a0 = rows
+        .iter()
+        .find(|r| r.allomorph_key.as_deref() == Some("e:0"))
+        .unwrap();
+    assert_eq!((a0.uses, a0.words), (3, 2));
+    let a1 = rows
+        .iter()
+        .find(|r| r.allomorph_key.as_deref() == Some("e:1"))
+        .unwrap();
+    assert_eq!((a1.uses, a1.words), (0, 0));
 }
