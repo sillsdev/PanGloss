@@ -5,12 +5,6 @@
   "measured_date": "2026-09-03",
   "divergences": [
     {
-      "fixture": "edge-cases/strrep-rewrite-unapplication",
-      "kind": "forward-synthesis",
-      "reason": "1/6 word(s) mismatched: xpuma: expected [XMUMA|xpuma] got []",
-      "note": "Exact reviewed original-spec observation: Machine b9e7db44 rewrite spec on master engine 721c6043 with official 25ddf914 adapter/self-check compatibility build. Five words are oracle-recorded; only xpuma is forward-derived. Proposed a873d60d spec passes all six. See docs/divergences/071-strrep-rewrite-unapplication.md and evidence/071 for the build limitations and full transcripts; this does not claim a pinned-engine run."
-    },
-    {
       "fixture": "edge-cases/head-ambiguous-compounding",
       "kind": "rules-attribution-only",
       "note": "SIGNATURE matches the founding oracle exactly for both of dakimo's two analyses. The rules: field cannot be verified by hc-conformance.exe's self-check for a structural reason: both declared parses render to the IDENTICAL signature \"DAK+IMO|dakimo\", and the self-check's per-signature rule-attribution check (Runner.cs) compares EVERY declared parse against EVERY actual result sharing that signature -- for two derivations with genuinely different rule sets under one shared signature, this always reports exactly one mismatch per declared entry, regardless of which of the two correct rule-set assignments is chosen (verified empirically: swapping the assignment only changes which mismatch is reported, not whether one is). words.yaml's rules: values instead follow this fixture's own documented semantics (crLeftHead ~ root_index 0 ~ DAK-headed; crRightHead ~ root_index 1 ~ IMO-headed), independently confirmed by cross_compiler_equivalence_gate.rs's RED-2 test.",
@@ -21,7 +15,158 @@
       "kind": "forward-synthesis",
       "reason": "1/4 word(s) mismatched: sagui: expected [ROOT+A2B+B2A+THIRD|sagui | ROOT+A2B+B2A|sagui] got [ROOT+A2B+B2A|sagui | ROOT+A2B+THIRD|sagui]",
       "note": "Existing deliberate-red provenance narrowed to the exact 2026-09-30 staged observation; see words.yaml and its forward derivation. Unrelated negative-control failures now gate."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context",
+      "kind": "forward-synthesis",
+      "reason": "1/2 word(s) mismatched: kita: expected [KITA|kita | TIKA|kita] got [KITA|kita]",
+      "note": "Divergence 127 / sillsdev/machine#619: hc.dll's AnalysisMetathesisRuleSpec drops the middle context, so it never recovers root tika from kita; PanGloss keeps it. Reason text measured 2026-11-05 with a Linux hc-conformance build (round16-conformance/master). Remove when machine#619 lands and the oracle pin moves."
+    },
+    {
+      "fixture": "edge-cases/pos-scoped-deletion-blocks-metathesis",
+      "kind": "forward-synthesis",
+      "reason": "2/6 word(s) mismatched: nui: expected [NIU|nui] got []; mu+i: expected [MI+3SGU|mu+?i] got []",
+      "note": "Divergence 050 / Machine #520: hc.dll (master c2454760, includes #539) finds no parse for the two metathesis words while a POS-scoped deletion exists; expectations are hand-forward-derived, see words.yaml."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "kind": "forward-synthesis",
+      "reason": "4/10 word(s) mismatched: ats: expected [PRE+R0|at+?s] got []; at+s: expected [PRE+R0|at+?s] got []; atsa: expected [PRE+R2|at+?sa] got []; at+sa: expected [PRE+R2|at+?sa] got []",
+      "note": "Divergence 132 (the mechanism of divergence 050 / Machine #520): hc.dll at 1ddef2bd pairs a switch with the optional p that pd's analysis restored, so it cannot parse words its own GenerateWords produces. Reason text measured 2026-11-20 with the 1ddef2bd hc-conformance self-check. sillsdev/machine#649; the suite copy (sillsdev/fieldworks-parser-conformance#50) records these four words as expect_fail, which pangloss_expectations below excuses once pinned. Remove when machine#649 lands and the oracle pin moves."
+    },
+    {
+      "fixture": "edge-cases/featureless-modify-from-input",
+      "kind": "forward-synthesis",
+      "reason": "3/8 word(s) mismatched: kitas: expected [KATA+MODS|kitas | KITA+MODS|kitas] got [KITA+MODS|kitas]; tisis: expected [TASI+MODS|tisis] got []; pisas: expected [PASA+MODS|pisas] got []",
+      "note": "Divergence 128 (partial-feature grammars, owner decision 2026-11-05): PanGloss keeps the generous featureless ModifyFromInput undo; hc.dll restricts the node's StrRep. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
+    },
+    {
+      "fixture": "edge-cases/unspecified-feature-minus-environment",
+      "kind": "forward-synthesis",
+      "reason": "2/6 word(s) mismatched: Nata: expected [] got [NPFX+ATA|N+?a[pt]a]; mata: expected [NPFX+ATA|m+?a[pt]a] got []",
+      "note": "Divergence 129 (partial-feature grammars, owner decision 2026-11-05): PanGloss lets a segment with no value for a feature satisfy a [feature:-] environment; hc.dll matches by subsumption. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
+    },
+    {
+      "fixture": "edge-cases/unspecified-feature-minus-target",
+      "kind": "forward-synthesis",
+      "reason": "2/4 word(s) mismatched: aa: expected [] got [ATA|aa]; a: expected [] got [PA|a]",
+      "note": "Divergence 129 (partial-feature grammars, owner decision 2026-11-05): PanGloss lets a segment with no value for a feature satisfy a [feature:-] rule target; hc.dll matches by subsumption. Expectations are PanGloss's, hc.dll's own answers are in STAGING.md."
     }
   ],
-  "evidence_measured_date": "2026-09-30"
+  "evidence_measured_date": "2026-09-30",
+  "_pangloss_expectations_comment": "Words on which PanGloss deliberately disagrees with a pinned suite row that records a C# defect (a docs/divergences/ entry). conformance_fixtures_gate excuses a mismatch only on the pinned copy and only when both renderings match exactly, and fails on an entry the pinned fixture no longer needs.",
+  "pangloss_expectations": [
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "ats",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R0|at+?s\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R0. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "at+s",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R0|at+?s\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R0. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "atsa",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R2|at+?sa\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R2. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-deletion-restores-segment-between-switches",
+      "word": "at+sa",
+      "upstream": "[]",
+      "pangloss": "[\"PRE+R2|at+?sa\"]",
+      "divergence": "132",
+      "note": "The suite row is expect_fail because hc.dll at 1ddef2bd cannot parse it (sillsdev/machine#649); hc.dll's own GenerateWords produces it from PRE+R2. Delete when machine#649 lands and the suite row is flipped."
+    },
+    {
+      "fixture": "staging:edge-cases/family-blocked-generation",
+      "word": "aat",
+      "upstream": "[\"B|aat\", \"B|aat\"]",
+      "pangloss": "[\"B|aat\"]",
+      "divergence": "134",
+      "note": "hc.dll reports B twice for aat: the plain lookup of B and the blocked A+T, whose fresh B seed is not value-equal to the looked-up one. PanGloss deduplicates by WordKey and reports B once. The fixture is staged because the suite retired it at df2b0e7. Delete if PanGloss ever reports both or the staged row changes."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+sp",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R2|+?sp\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+sp` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+spa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0|+?spa\", \"NU0+R2+SU1|+?spa\", \"NU0+R2+SU1|+?spa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+spa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "sp",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R2|+?sp\", \"R2|sp\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `sp` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "spa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0|+?spa\", \"NU0+R2+SU1|+?spa\", \"NU0+R2+SU1|+?spa\", \"R0|spa\", \"R2+SU1|spa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `spa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "spaa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0+SU1|+?spaa\", \"NU0+R0+SU1|+?spaa\", \"R0+SU1|spaa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `spaa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-swap-then-gap",
+      "word": "+spaa",
+      "upstream": "[]",
+      "pangloss": "[\"NU0+R0+SU1|+?spaa\", \"NU0+R0+SU1|+?spaa\"]",
+      "divergence": "132",
+      "note": "hc.dll at ba6dfa106 restores an optional t between the switches in the deletion analysis and pairs it with one, so the swap is never undone and `+spaa` has no parse (sillsdev/machine#649); the suite row is expect_fail. PanGloss pairs only the switches and gives the clean pairing on purpose (PanGloss #411). Delete when machine#649 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "tps",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `tps` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "tp+s",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `tp+s` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
+    },
+    {
+      "fixture": "edge-cases/metathesis-middle-context-emptied-edges",
+      "word": "t+ps",
+      "upstream": "[]",
+      "pangloss": "[\"R0+PR0+PR1|t+?p+?s\", \"R2+PR0+PR1|t+?p+?s\"]",
+      "divergence": "127",
+      "note": "hc.dll at ba6dfa106 drops the middle context of `s p t -> t p s` in analysis, so it cannot undo the swap and `t+ps` has no parse (sillsdev/machine#619); the suite row is expect_fail. PanGloss keeps the middle context and parses it (PanGloss #388). Delete when machine#619 lands and the row is flipped."
+    }
+  ]
 }

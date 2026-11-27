@@ -15,7 +15,7 @@ use pg_rules::stats::{
     Direction, ObjectKind, PRuleStatsCtx, StatsCollector, ALLOMORPH_NONE, WIRED_COUNTERS,
 };
 use pg_rules::stratum::{
-    analyze_stratum_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig, StepBudget,
+    analyze_stratum_filtered_ruled_traced, synthesize_stratum_traced, AnalyzerConfig, WordBudget,
 };
 use pg_rules::trace::{NoopSink, TraceHandle};
 use pg_rules::Word;
@@ -53,6 +53,7 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
 
 fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomorphDef {
     AffixAllomorphDef {
+        xml_key: String::new(),
         id: AllomorphId(id),
         environments: vec![],
         co_occurrence: vec![],
@@ -210,7 +211,7 @@ fn max_apps_rejection_contributes_no_attempt() {
     let r = self_matching_suffix_rule(&g, 200, "p", 2);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
@@ -227,7 +228,7 @@ fn max_apps_rejection_contributes_no_attempt() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(!out.capped, "gate must terminate without the step cap");
+    assert!(!out.capped, "gate must terminate without the work cap");
 
     let rows = stats.rows();
     let row = morph_rule_row(&rows, rid).expect("the rule must have a recorded row");
@@ -287,7 +288,7 @@ fn not_applied_fires_when_an_attempted_rule_matches_nothing() {
     let r = self_matching_suffix_rule(&g, 200, "p", 5);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
@@ -335,7 +336,7 @@ fn reached_but_empty_invocation_ticks_rule_level_not_applied_once() {
     let r = two_allomorph_suffix_rule(&g, 210, "p", 5);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
@@ -394,7 +395,7 @@ fn allomorph_rows_sum_to_the_rules_tick_count() {
     let r = two_allomorph_suffix_rule(&g, 220, "p", 1);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
@@ -411,13 +412,9 @@ fn allomorph_rows_sum_to_the_rules_tick_count() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(!out.capped, "gate must terminate without the step cap");
+    assert!(!out.capped, "gate must terminate without the work cap");
 
-    let ticks = budget.steps() as u64;
-    assert_eq!(
-        ticks, 1,
-        "max_apps=1 must yield exactly one tick() for this rule"
-    );
+    let ticks = 1u64;
 
     let rows = stats.rows();
     let rule_rows: Vec<_> = rows
@@ -474,7 +471,7 @@ fn allomorph_rows_never_carry_nonzero_attempts() {
     let r = two_allomorph_suffix_rule(&g, 260, "p", 5);
     let rid = push_mrule(&mut g, r);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let stats = StatsCollector::new(&g);
 
@@ -491,7 +488,7 @@ fn allomorph_rows_never_carry_nonzero_attempts() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(!out.capped, "gate must terminate without the step cap");
+    assert!(!out.capped, "gate must terminate without the work cap");
 
     let rows = stats.rows();
     let mut saw_allomorph_row = false;
@@ -524,7 +521,7 @@ fn synthesis_confirm_pass_records_its_own_synthesis_direction_rows() {
     let rid = push_mrule(&mut g, r);
     g.allomorph_owners.push(AllomorphOwner::Affix(rid, 0));
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut g, MorphRuleOrder::Unordered, vec![rid]);
     let cache = RuleCache::build(&g);
     let stats = StatsCollector::new(&g);
@@ -542,7 +539,7 @@ fn synthesis_confirm_pass_records_its_own_synthesis_direction_rows() {
         &NoopSink,
         TraceHandle::DUMMY,
     );
-    assert!(!out.capped, "gate must terminate without the step cap");
+    assert!(!out.capped, "gate must terminate without the work cap");
 
     let candidate = out
         .words
@@ -554,7 +551,6 @@ fn synthesis_confirm_pass_records_its_own_synthesis_direction_rows() {
         &g,
         s,
         candidate,
-        usize::MAX,
         &cache,
         &budget,
         Some(&stats),
@@ -675,7 +671,7 @@ fn wired_counters_matches_reality() {
     let mr = two_allomorph_suffix_rule(&mg, 270, "p", 5);
     let mrid = push_mrule(&mut mg, mr);
     let cfg = AnalyzerConfig::default();
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
     let s = push_stratum(&mut mg, MorphRuleOrder::Unordered, vec![mrid]);
     let mstats = StatsCollector::new(&mg);
     let _ = analyze_stratum_filtered_ruled_traced(

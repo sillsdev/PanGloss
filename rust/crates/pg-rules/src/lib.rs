@@ -1,28 +1,48 @@
-//! Phonological and morphological rules, affix templates, strata, and cascades (plan §5.5).
+//! Phonological and morphological rules, affix templates, strata, and cascades.
 //!
 //! Rules are enum dispatch (not trait objects) on the hot path; rule *data* lives in flat
 //! per-grammar tables indexed by `RuleId(u32)`.
 #![forbid(unsafe_code)]
 
+pub mod alternative;
 pub mod analysis_state_key;
+mod battery;
 pub mod branch_census;
 pub mod bridge;
 pub mod cache;
+pub mod canonical;
 pub mod cascade;
+pub mod dead;
+pub mod extras;
+mod gates;
 pub mod metathesis;
 pub mod morph;
+pub mod observations;
+pub mod partials;
+pub mod pattern_match;
+pub mod pattern_text;
+pub mod required_slots;
 pub mod rewrite;
+pub mod rule_text;
+pub mod shadow;
 pub mod shape_feat;
+pub mod shape_graph;
+pub mod shared_values;
 pub mod stats;
 pub mod stratum;
 pub mod surface_probe;
 pub mod trace;
+pub mod trail;
 pub mod validity;
 pub mod word;
+pub mod word_set;
 pub mod word_stats;
 
-pub use word::{FinalTemplateState, MorphRecord, Word, WordFlags, WordKey};
+pub use word::{
+    FinalTemplateState, MorphRecord, SegmentOwner, SpanAttribution, SpanRecord, Word, WordFlags,
+    WordKey,
+};
 
-/// Flat index of a rule in the grammar's rule tables (plan §5.5).
+/// Flat index of a rule in the grammar's rule tables.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct RuleId(pub u32);

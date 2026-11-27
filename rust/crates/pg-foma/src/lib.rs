@@ -16,13 +16,14 @@ mod peel_compile_tests;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
+pub mod admission;
 pub mod advice_catalog;
 pub mod analyzer;
 pub mod backend_selection;
-pub mod build;
 /// Shared compiler classification predicates.
 pub mod capability;
 pub mod capability_gate;
+pub mod cascade_parts;
 pub mod characterization;
 pub use pg_foma_runtime::candidate_filter;
 #[cfg(feature = "test-support")]
@@ -30,34 +31,39 @@ pub use pg_foma_runtime::compose_budget;
 #[cfg(not(feature = "test-support"))]
 pub(crate) use pg_foma_runtime::compose_budget;
 pub mod composite;
+pub use pg_foma_runtime::construction;
+pub mod differential;
 pub use pg_foma_runtime::confirm;
 pub mod emit;
 pub mod enumerate;
 pub mod gate;
+pub mod grammar_health;
+#[cfg(test)]
+mod grammar_health_tests;
 pub mod grammar_semantics;
 pub mod junctions;
 pub use pg_health::health;
 workbench_module! {
     pub mod lower;
 }
-pub mod oracle;
 pub use pg_foma_runtime::peel;
 pub mod plan;
 workbench_module! {
     pub mod precision;
 }
+mod emptied_morph;
+mod metathesis_span;
 pub(crate) mod preexpand;
-workbench_module! {
-    pub mod profile;
-}
+pub mod profile;
+mod proposal_recall;
 pub mod replace;
+mod spelling_route;
 pub mod strategy_coverage;
 pub mod structural_allomorph;
 #[cfg(feature = "test-support")]
 pub use pg_foma_runtime::tags;
 #[cfg(not(feature = "test-support"))]
 pub(crate) use pg_foma_runtime::tags;
-pub mod uflexc;
 pub(crate) mod unordered;
 pub(crate) use pg_foma_runtime::morphotactics;
 

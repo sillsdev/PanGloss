@@ -291,6 +291,30 @@ fn build_grammar_two_roots_n_and_v(
 
 // --- AffixTemplateTests.RealizationalRule ---
 
+#[test]
+fn cached_realizational_synthesis_stops_after_first_application() {
+    use pg_grammar_model::model::{AllomorphId, MorphemeId, StratumId};
+    use pg_rules::{MorphRecord, Word};
+    let rules = r#"
+      <RealizationalRule id="rr"><Name>suffix</Name>
+        <MorphologicalSubrules><MorphologicalSubrule id="subRR">
+          <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>d</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>R</MorphemeId>
+      </RealizationalRule>"#;
+    let g = csharp_port_common::build_morph_grammar(rules, "rr");
+    let id = csharp_port_common::mrule_id(&g, "R");
+    let rule = &g.mrules[id.0 as usize];
+    let shape = pg_rules::shape_feat::segment_with_features(&g, &g.char_tables[0], "sag").unwrap();
+    let mut stem = Word::new(shape, StratumId(0));
+    stem.morphs
+        .push(MorphRecord::new(AllomorphId(0), MorphemeId(0), 0));
+    let cache = pg_rules::cache::RuleCache::build(&g);
+    let first = pg_rules::morph::synthesize_cached(&g, id, &stem, rule, &cache);
+    assert_eq!(first.len(), 1);
+    assert!(pg_rules::morph::synthesize_cached(&g, id, &first[0], rule, &cache).is_empty());
+}
+
 /// The three realizational rules of `AffixTemplateTests.RealizationalRule`; `evid_features` is a substitution point because the C# test flips `evidential`'s feature struct mid-test and rebuilds the `Morpher` (two grammars in this port). Natural-class stand-ins: `ncAlvStop2`=`alvStop`, `ncVlCons`=`voicelessCons`, `ncLabC`=`labiodental`, `ncVoiced`=`voiced`, `ncStrident`=`strident`.
 fn realizational_rule_mrules(evid_features: &str) -> String {
     format!(

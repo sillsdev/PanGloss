@@ -4,6 +4,7 @@
 resolver = "2"
 members = [
     "crates/pg-comment-hygiene",
+    "crates/pg-cost",
     "crates/pg-grammar-model",
     "crates/pg-grammar",
     "crates/pg-featstruct",
@@ -20,6 +21,7 @@ members = [
     "crates/pg-realize",
     "crates/pg-lexicon",
     "crates/pg-wasm",
+    "crates/pg-analyzer",
     "crates/pg-snapshot",
     "crates/pg-fwdata",
     "crates/pg-conformance-fixtures",
@@ -34,6 +36,7 @@ members = [
 # Keep the native runtime as the workspace's default build; compiler research crates remain explicit.
 default-members = [
     "crates/pg-comment-hygiene",
+    "crates/pg-cost",
     "crates/pg-grammar-model",
     "crates/pg-grammar",
     "crates/pg-featstruct",
@@ -47,6 +50,7 @@ default-members = [
     "crates/pg-realize",
     "crates/pg-lexicon",
     "crates/pg-wasm",
+    "crates/pg-analyzer",
     "crates/pg-snapshot",
     "crates/pg-fwdata",
     "crates/pg-conformance-fixtures",
@@ -83,7 +87,7 @@ broken_intra_doc_links = "deny"
 unused_variables = "deny"
 
 [workspace.package]
-version = "0.10.0"
+version = "0.35.5"
 edition = "2021"
 rust-version = "1.90"
 license = "MIT"
@@ -92,6 +96,7 @@ repository = "https://github.com/sillsdev/machine"
 # Shared dependency versions — pinned once here, referenced with `.workspace = true`.
 [workspace.dependencies]
 quick-xml = "0.37"
+spellbook = "0.4.2"
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
 hashbrown = "0.15"
@@ -124,6 +129,7 @@ libc = "0.2"
 # only compression method FieldWorks itself writes.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tempfile = "3"
+zstd = { version = "0.13", default-features = false }
 # `pg-xample-oracle::fieldworks`'s hvo-blind XAMPLE-file comparison: FieldWorks' own M3 dump writes
 # every referenced object by its raw, per-load-session hvo (see that module's own doc), so a
 # base-vs-mutated-clone comparison must blind a small, closed set of hvo-bearing token shapes
@@ -135,8 +141,10 @@ regex = "1"
 # there is no system libsqlite3 to install or version-match across machines and worktrees.
 rusqlite = { version = "0.32", features = ["bundled"] }
 # internal crates
+pg-analyzer = { path = "crates/pg-analyzer" }
 pg-grammar = { path = "crates/pg-grammar" }
 pg-grammar-model = { path = "crates/pg-grammar-model" }
+pg-cost = { path = "crates/pg-cost" }
 pg-featstruct = { path = "crates/pg-featstruct" }
 pg-shape = { path = "crates/pg-shape" }
 # The compiler's report vocabulary as plain data (health findings, backend compatibility-report

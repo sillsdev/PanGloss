@@ -1,0 +1,16 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: RtlEpenthesisCursorAfterApply
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: uyu
+    note: "C# resumes left of the inserted y."
+    parses:
+      - signature: "SUBRULE|uyu"
+        rules: [prSubruleFeed]
+  - word: uyiu
+    note: "Rescanning right of inserted y wrongly inserts i."
+    expect_fail: true
+  - word: uu
+    note: "The y insertion is obligatory."
+    expect_fail: true

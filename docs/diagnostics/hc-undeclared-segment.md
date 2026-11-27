@@ -12,6 +12,10 @@ A loaded allomorph or morphological rule uses a segment absent from the grammar'
 
 In Lexicon > Lexicon Edit, check the named form's spelling. If the spelling is intended, add its phoneme and grapheme representation in Grammar > Phonemes; for an inserted compound-rule segment, check the named rule in Grammar > Compound Rules instead.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The loaded allomorph or rule retains a segment absent from the declared inventory; the FST cannot emit its alphabet symbol.
+
 ## FieldWorks places
 
 | Tool | Field |

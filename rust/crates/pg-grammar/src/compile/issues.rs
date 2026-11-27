@@ -14,10 +14,6 @@ use crate::model::Grammar;
 pub(crate) const SOURCE_PROVENANCE_UNKNOWN: ImportWarningCode =
     ImportWarningCode::SourceProvenanceUnknown;
 
-/// A text-use collector's code: the owner selected a construct (a bracket-pattern/reduplication
-/// affix form) but that construct is not literal text, so it cannot publish a usage for it.
-pub(crate) const UNSUPPORTED_CONSTRUCT: ImportWarningCode = ImportWarningCode::UnsupportedConstruct;
-
 /// Provisional definitions supplied for selected usage, and usage that cannot be classified.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SubstrateReport {

@@ -6,12 +6,15 @@ mod context;
 mod features;
 mod guid;
 mod lexicon;
+mod light;
 mod load;
 mod metadata;
 mod morphology;
+mod owner_loads;
 mod phonology;
 mod references;
 mod settings;
+mod sql;
 mod stats;
 mod variants;
 mod write;
@@ -27,7 +30,18 @@ pub use metadata::{
 };
 pub use stats::StatsInput;
 pub use write::write_facts;
+pub use write::write_facts_with_options;
 pub use write::write_facts_with_stats;
+pub use write::{write_facts_with_compiled, CompiledParts};
+
+/// What a facts build is asked for beyond the Snapshot and context.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FactsOptions<'a> {
+    /// Leave out the tables and rows nothing in Motif reads, and declare it in the file.
+    pub light: bool,
+    /// One manifest-bound frozen stats run to attach.
+    pub stats: Option<StatsInput<'a>>,
+}
 
 /// The result of publishing a complete facts database.
 #[derive(Debug, Clone, Serialize)]
@@ -73,6 +87,10 @@ pub enum FactsError {
     StatsContextMismatch(String),
     #[error("frozen stats run is unavailable: {0}")]
     StatsRunUnavailable(String),
+    #[error(
+        "the word-only stats profile did not collect the per-object facts required for export"
+    )]
+    MissingObjectFacts,
     #[error("SQLite integrity verification failed: {0}")]
     Integrity(String),
     #[error("serialization failed: {0}")]
@@ -97,9 +115,19 @@ impl FactsError {
             Self::InputOutputCollision => "input_output_collision",
             Self::StatsContextMismatch(_) => "stats_context_mismatch",
             Self::StatsRunUnavailable(_) => "stats_run_unavailable",
+            Self::MissingObjectFacts => "missing_object_facts",
             Self::Integrity(_) | Self::Serialization(_) | Self::Io(_) | Self::Sqlite(_) => {
                 "facts_write_failed"
             }
+        }
+    }
+}
+
+impl From<pg_stats::StatsError> for FactsError {
+    fn from(error: pg_stats::StatsError) -> Self {
+        match error {
+            pg_stats::StatsError::WordOnlyFactsUnavailable => Self::MissingObjectFacts,
+            other => Self::StatsRunUnavailable(other.to_string()),
         }
     }
 }

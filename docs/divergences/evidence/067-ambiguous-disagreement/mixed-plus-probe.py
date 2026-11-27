@@ -33,5 +33,5 @@ for row in rows:
  lines.append(f'  - word: {row[1]}')
  lines.extend(['    expect_fail: true'] if row[4]=='-' else ['    parses:',f'      - signature: "{row[4]}"'])
 (folder/'words.yaml').write_text('\n'.join(lines)+'\n')
-(folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic ambiguous minus alpha on a complete class, with an agreeing occurrence\non a partial class. hc.dll still requires ia, despite the omitted u in that class.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nEntry: docs/divergences/067-ambiguous-disagreement-proposals.md.\nFieldWorks: HCLoader.cs:2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
+(folder/'STAGING.md').write_text(f'# {name}\n\nSynthetic ambiguous minus alpha on a complete class, with an agreeing occurrence\non a partial class. hc.dll still requires ia, despite the omitted u in that class.\nOracle: hc.dll, Machine `18cf242f4b114b0eb9bac304b4b171ca2f499a39`; 16 complete rows.\nEntry: retired divergence 067 (docs/divergences/README.md, Retired entries).\nFieldWorks: HCLoader.cs:2745-2770,2799-2808.\nUpstream PR: none (network closed).\n')
 print('oracle exit 0;16 complete rows;',[(r[1],r[4]) for r in rows if r[4]!='-'])

@@ -14,11 +14,10 @@ macro_rules! workbench_module {
 #[cfg(test)]
 mod test_support;
 
-pub use pg_foma::oracle;
 pub use pg_foma::{
-    advice_catalog, analyzer, backend_selection, build, capability, capability_gate,
-    characterization, composite, emit, enumerate, gate, grammar_semantics, junctions, plan,
-    replace, strategy_coverage, structural_allomorph, uflexc,
+    advice_catalog, analyzer, backend_selection, capability, capability_gate, characterization,
+    composite, emit, enumerate, gate, grammar_semantics, junctions, plan, replace,
+    strategy_coverage, structural_allomorph,
 };
 #[cfg(feature = "test-support")]
 pub use pg_foma::{lower, precision, profile};
@@ -76,16 +75,13 @@ workbench_module! {
 pub mod plan_diagram;
 pub mod plan_interaction_coverage;
 workbench_module! {
-    pub mod production_admission;
+    pub mod grammar_admission;
 }
 workbench_module! {
     pub mod scoreboard;
 }
 workbench_module! {
     pub mod strategy_coverage_join;
-}
-workbench_module! {
-    pub mod templated_compile;
 }
 workbench_module! {
     pub mod witnessed_coverage;

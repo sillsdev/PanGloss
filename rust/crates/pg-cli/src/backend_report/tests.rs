@@ -1,5 +1,11 @@
 use super::*;
 #[test]
+fn the_schema_versions_are_pinned_to_the_work_rename() {
+    assert_eq!(BACKEND_REPORT_SCHEMA_VERSION, 6);
+    assert_eq!(DETERMINISTIC_SCORE_SCHEMA_VERSION, 3);
+}
+
+#[test]
 fn rendering_is_deterministic_and_sorted() {
     let mut r = sample();
     r.candidates = vec![candidate("z"), candidate("a")];
@@ -59,7 +65,7 @@ fn winner_requires_confirmation_and_score_for_replay() {
         apply: 1,
         proposals: 1,
         confirmation: 1,
-        confirmation_steps: 1,
+        confirmation_work: 1,
         raw_paths: 0,
     });
     r.frontier = vec!["a".into()];
@@ -242,7 +248,7 @@ fn ledger() -> CorpusCompletenessEvidence {
         requested_hash: "requested".into(),
         included_hash: "included".into(),
         excluded_hash: "excluded".into(),
-        oracle_step_cap: 20_000,
+        oracle_work_cap: 20_000,
         oracle_memory_ceiling_bytes: 1 << 33,
         oracle_liveness_net_ns: 300_000_000_000,
         exclusions: vec![],
@@ -306,7 +312,7 @@ fn confirmed_candidate(id: &str, work: u64) -> CandidateReport {
             apply: 100,
             proposals: work,
             confirmation: work,
-            confirmation_steps: work,
+            confirmation_work: work,
             raw_paths: work,
         }),
         production_blocks_publication: false,

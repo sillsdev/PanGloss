@@ -15,14 +15,13 @@ use sha2::{Digest, Sha256};
 use unicode_normalization::UnicodeNormalization;
 
 /// The only wire version this command reads or writes.
-const WIRE_VERSION: u32 = 1;
+const WIRE_VERSION: u32 = 2;
 const MAX_EXAMPLES: usize = 500;
 const MAX_ID_CHARS: usize = 128;
 const MAX_CONTEXT_ID_CHARS: usize = 256;
 const MAX_FORM_CHARS: usize = 256;
 const MAX_EXPECTED: usize = 16;
 const MAX_CITATION_CHARS: usize = 512;
-const MAX_STEP_CAP: u64 = 50_000_000;
 const MAX_WORK_CAP: u64 = 5_000_000_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_REQUEST_BYTES: u64 = 32 * 1024 * 1024;
@@ -43,7 +42,6 @@ struct Request {
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Limits {
-    step_cap: u64,
     work_cap: u64,
     timeout_ms: u64,
 }
@@ -112,17 +110,15 @@ struct GrammarSnapshot {
 #[serde(rename_all = "camelCase")]
 struct EffectiveLimits {
     scope: &'static str,
-    step_cap: u64,
     work_cap: u64,
     timeout_ms: u64,
-    step_allocation: &'static str,
+    work_allocation: &'static str,
     time_allocation: &'static str,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RowLimits {
-    step_cap: u64,
     work_cap: u64,
     timeout_ms: u64,
 }
@@ -141,7 +137,6 @@ struct Row {
     expected_observed: Vec<bool>,
     observed: Option<String>,
     reason: Option<Reason>,
-    steps: u64,
     work_steps: u64,
     capped: bool,
     timed_out: bool,
@@ -180,7 +175,6 @@ enum Reason {
     InvalidStratum,
     ResultLimit,
     WorkCap,
-    StepCap,
     Timeout,
 }
 
@@ -226,12 +220,6 @@ fn validate(request: &Request) -> Result<(), String> {
         ));
     }
     let limits = request.limits;
-    if limits.step_cap == 0 || limits.step_cap > MAX_STEP_CAP {
-        return Err(format!(
-            "limits.stepCap must be in 1..={MAX_STEP_CAP}, got {}",
-            limits.step_cap
-        ));
-    }
     if limits.work_cap == 0 || limits.work_cap > MAX_WORK_CAP {
         return Err(format!(
             "limits.workCap must be in 1..={MAX_WORK_CAP}, got {}",
@@ -244,9 +232,9 @@ fn validate(request: &Request) -> Result<(), String> {
             limits.timeout_ms
         ));
     }
-    if usize::try_from(limits.step_cap).is_err() || usize::try_from(limits.work_cap).is_err() {
+    if usize::try_from(limits.work_cap).is_err() {
         return Err(format!(
-            "limits.stepCap and limits.workCap must fit this platform's usize ({} bits)",
+            "limits.workCap must fit this platform's usize ({} bits)",
             usize::BITS
         ));
     }
@@ -373,7 +361,6 @@ fn stop_reason(reason: PhonologyStopReason) -> Reason {
     match reason {
         PhonologyStopReason::WorkCap => Reason::WorkCap,
         PhonologyStopReason::Timeout => Reason::Timeout,
-        PhonologyStopReason::AttemptCap => Reason::StepCap,
     }
 }
 
@@ -414,8 +401,6 @@ fn row_for(example: &Example, limits: RowLimits, morpher: &Morpher<'_>) -> Resul
             work_cap: usize::try_from(limits.work_cap)
                 .map_err(|_| "limits.workCap does not fit this platform".to_string())?,
             timeout: Duration::from_millis(limits.timeout_ms),
-            attempt_cap: usize::try_from(limits.step_cap)
-                .map_err(|_| "limits.stepCap does not fit this platform".to_string())?,
             max_ordered_rule_ids: MAX_RULE_IDS_PER_ROW,
             max_rule_id_chars: MAX_RULE_ID_CHARS,
         },
@@ -463,7 +448,6 @@ fn row_for(example: &Example, limits: RowLimits, morpher: &Morpher<'_>) -> Resul
         observed,
         expected_observed,
         reason,
-        steps: measurement.steps as u64,
         work_steps: measurement.work_steps as u64,
         capped: measurement.capped,
         timed_out: measurement.timed_out,
@@ -495,9 +479,8 @@ fn update_hashed_string(hasher: &mut Sha256, value: &str) -> Result<(), String> 
 
 fn executable_request_sha256(request: &Request) -> Result<String, String> {
     let mut hasher = Sha256::new();
-    hasher.update(b"pangloss phonology examples request v1\0");
+    hasher.update(b"pangloss phonology examples request v2\0");
     hasher.update(request.version.to_be_bytes());
-    hasher.update(request.limits.step_cap.to_be_bytes());
     hasher.update(request.limits.work_cap.to_be_bytes());
     hasher.update(request.limits.timeout_ms.to_be_bytes());
     let example_count = u32::try_from(request.examples.len())
@@ -654,7 +637,6 @@ fn build_response(
         )
         .unwrap_or(u64::MAX);
         let row_limits = RowLimits {
-            step_cap: cap_for_row(request.limits.step_cap, row_count, row_index),
             work_cap: cap_for_row(request.limits.work_cap, row_count, row_index),
             timeout_ms,
         };
@@ -690,10 +672,9 @@ fn build_response(
         build: crate::build_info::embedded_build_info().to_string(),
         limits: EffectiveLimits {
             scope: "orderedPhonologyFolds",
-            step_cap: request.limits.step_cap,
             work_cap: request.limits.work_cap,
             timeout_ms: request.limits.timeout_ms,
-            step_allocation: "balancedByRequestOrder",
+            work_allocation: "balancedByRequestOrder",
             time_allocation: "sharedMonotonicDeadline",
         },
         measured_entry_count: u64::try_from(grammar.entries.len())

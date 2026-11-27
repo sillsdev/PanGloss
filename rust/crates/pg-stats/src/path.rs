@@ -74,7 +74,19 @@ fn cache_dir_under(fwdata_path: impl AsRef<Path>, root: PathBuf) -> Result<PathB
 /// Callers that want to manage their own cache lifetime (Motif) pass an explicit path to
 /// `crate::cache::StatsCache::open` instead of calling this at all.
 pub fn default_cache_path(fwdata_path: impl AsRef<Path>) -> Result<PathBuf, StatsError> {
-    Ok(default_cache_dir(fwdata_path)?.join("cache.sqlite3"))
+    default_cache_path_for_profile(fwdata_path, crate::StatsProfile::Full)
+}
+
+/// The default filename for a collection profile. Full stats keep the legacy filename.
+pub fn default_cache_path_for_profile(
+    fwdata_path: impl AsRef<Path>,
+    profile: crate::StatsProfile,
+) -> Result<PathBuf, StatsError> {
+    let name = match profile {
+        crate::StatsProfile::Full => "cache.sqlite3",
+        crate::StatsProfile::WordOnly => "word-only.sqlite3",
+    };
+    Ok(default_cache_dir(fwdata_path)?.join(name))
 }
 
 #[cfg(test)]

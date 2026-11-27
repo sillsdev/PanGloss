@@ -2,13 +2,10 @@
 //! runtime tables of `crate::model::Grammar`. A faithful port of the C#
 //! `XmlLanguageLoader.cs` object-model construction.
 //!
-//! ## Two passes, one file
-//! Pass 1 reuses `crate::load_char_def_table_from_xml` to build the phonological census
-//! (`PhonologicalFeatureSystem` + every `CharacterDefinitionTable`). Pass 2 builds a small
-//! read-only DOM of the active `<Language>` element and ports each `Load*` method almost
-//! line-for-line against it — the C# is irreducibly DOM-style (`.Element`/`.Elements`/
-//! `SingleOrDefault`/recursion in `LoadFeatureStruct`), so a DOM keeps the port faithful and
-//! the parity surface small. Both passes use only `quick_xml`.
+//! ## Document and phonology
+//! A `quick_xml` pass builds a read-only DOM and records the byte ranges of the phonology
+//! elements. The phonology reader replays those ranges to build the feature and character
+//! tables. The remaining `Load*` methods traverse the DOM, mirroring C#'s element queries.
 //!
 //! ## Ordering (parity-critical)
 //! Strata in document order; a stratum's phonological/morphological rules in the order of its
@@ -18,13 +15,14 @@
 //! ## v1 lint surface (plan §8 layer 6; see `crate::model` docs)
 //! `FootFeatures`, `StemName`, `Family` (with entries), `MetathesisRule`, `RealizationalRule`,
 //! `MorphemeCoOccurrenceRule`, `AllomorphCoOccurrenceRule`, `AlphaVariable` in an allomorph
-//! environment, >=64 symbols in a symbolic feature, and >64 MPR features all lint
+//! environment and >=64 symbols in a symbolic feature lint
 //! `GrammarError::Unsupported` → managed fallback. The three reference grammars contain none
 //! of these, so a correct loader loads all three without an `Unsupported` error.
 
 use hashbrown::{HashMap, HashSet};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
+use std::rc::Rc;
 
 use pg_featstruct::{
     FeatId, FeatureStruct, FeatureStructBuilder, FeatureValue, Interner, SymbolBits,
@@ -34,15 +32,15 @@ use pg_shape::NodeKind;
 use crate::chardef::{CharDefId, CharDefTable};
 use crate::featsys::{FlatIndex, PhonFeatureSystem};
 use crate::model::*;
-use crate::segment::{segment, segment_with_patterns};
+use crate::segment::{segment_load as segment, segment_with_patterns};
 use crate::{load_char_def_table_from_xml, GrammarError, GrammarPhonology};
 
 // Minimal read-only DOM built from quick_xml events (mirrors the XElement subset the C# uses).
 
 #[derive(Debug)]
 struct Node {
-    tag: String,
-    attrs: Vec<(String, String)>,
+    tag: Rc<str>,
+    attrs: Vec<(Rc<str>, String)>,
     /// Concatenated direct text (`XElement.Value` for the leaf-text elements HC uses).
     text: String,
     children: Vec<Node>,
@@ -53,7 +51,7 @@ impl Node {
     fn attr(&self, name: &str) -> Option<&str> {
         self.attrs
             .iter()
-            .find(|(k, _)| k == name)
+            .find(|(k, _)| &**k == name)
             .map(|(_, v)| v.as_str())
     }
 
@@ -69,7 +67,7 @@ impl Node {
 
     /// `elem.Element(tag)` — the first child element named `tag`.
     fn child(&self, tag: &str) -> Option<&Node> {
-        self.children.iter().find(|c| c.tag == tag)
+        self.children.iter().find(|c| &*c.tag == tag)
     }
 
     /// `(string)elem.Element(tag)` — that child's text, or `None` if the element is absent.
@@ -79,23 +77,23 @@ impl Node {
 
     /// `elem.Elements(tag)` — all child elements named `tag`, document order.
     fn elems<'a>(&'a self, tag: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
-        self.children.iter().filter(move |c| c.tag == tag)
+        self.children.iter().filter(move |c| &*c.tag == tag)
     }
 
     /// `elem.Elements(outer).Elements(inner)`.
     fn elems2<'a>(&'a self, outer: &'a str, inner: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.children
             .iter()
-            .filter(move |c| c.tag == outer)
+            .filter(move |c| &*c.tag == outer)
             .flat_map(|c| c.children.iter())
-            .filter(move |c| c.tag == inner)
+            .filter(move |c| &*c.tag == inner)
     }
 
     /// `elem.Elements(outer).Elements()` — every element child of every `outer` block.
     fn under<'a>(&'a self, outer: &'a str) -> impl Iterator<Item = &'a Node> + 'a {
         self.children
             .iter()
-            .filter(move |c| c.tag == outer)
+            .filter(move |c| &*c.tag == outer)
             .flat_map(|c| c.children.iter())
     }
 }
@@ -104,15 +102,39 @@ fn xml_err(e: impl std::fmt::Display) -> GrammarError {
     GrammarError::Xml(e.to_string())
 }
 
-fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
-    let tag = String::from_utf8_lossy(e.local_name().into_inner()).into_owned();
+/// Shares element and attribute names while the bounded lookup has room.
+#[derive(Default)]
+struct NameInterner {
+    names: HashMap<Vec<u8>, Rc<str>>,
+    accounted_bytes: usize,
+}
+
+impl NameInterner {
+    fn intern(&mut self, bytes: &[u8]) -> Rc<str> {
+        if let Some(name) = self.names.get(bytes) {
+            return Rc::clone(name);
+        }
+        let name: Rc<str> = Rc::from(String::from_utf8_lossy(bytes).as_ref());
+        // Bound the transient lookup, accounting for the hash table and both allocations.
+        let cost = bytes.len().saturating_mul(5).saturating_add(128);
+        if self.accounted_bytes.saturating_add(cost) <= 1024 * 1024 {
+            self.names.insert(bytes.to_vec(), Rc::clone(&name));
+            self.accounted_bytes += cost;
+        }
+        name
+    }
+}
+
+fn start_node(e: &BytesStart, names: &mut NameInterner) -> Result<Node, GrammarError> {
+    let tag = names.intern(e.local_name().into_inner());
     let mut attrs = Vec::new();
     for a in e.attributes() {
         let a = a.map_err(xml_err)?;
-        let key = String::from_utf8_lossy(a.key.local_name().into_inner()).into_owned();
+        let key = names.intern(a.key.local_name().into_inner());
         let val = a.unescape_value().map_err(xml_err)?.into_owned();
         attrs.push((key, val));
     }
+    attrs.shrink_to_fit();
     Ok(Node {
         tag,
         attrs,
@@ -121,25 +143,54 @@ fn start_node(e: &BytesStart) -> Result<Node, GrammarError> {
     })
 }
 
-/// Parse the whole document into a synthetic root node (its children are the top-level elements, e.g. `HermitCrabInput`).
-fn parse_document(xml: &str) -> Result<Node, GrammarError> {
+/// Byte ranges of the outermost `PhonologicalFeatureSystem` and `CharacterDefinitionTable` elements, in document order.
+#[derive(Default)]
+struct PhonSpans {
+    ranges: Vec<(usize, usize)>,
+    open_start: usize,
+    depth: usize,
+}
+
+fn is_phon_tag(name: &[u8]) -> bool {
+    name == b"PhonologicalFeatureSystem" || name == b"CharacterDefinitionTable"
+}
+
+/// Parse the whole document into a synthetic root node (its children are the top-level elements, e.g. `HermitCrabInput`), noting where the phonology elements lie.
+fn parse_document(xml: &str) -> Result<(Node, PhonSpans), GrammarError> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
     // quick_xml defaults this to false, so `--` inside a comment was silently tolerated.
     reader.config_mut().check_comments = true;
+    let mut names = NameInterner::default();
+    let mut span = PhonSpans::default();
+    // quick-xml's positions do not count a leading byte-order mark, which the text still holds.
+    let bom = if xml.starts_with('\u{feff}') { 3 } else { 0 };
 
     let mut stack: Vec<Node> = vec![Node {
-        tag: String::new(),
+        tag: Rc::from(""),
         attrs: Vec::new(),
         text: String::new(),
         children: Vec::new(),
     }];
 
     loop {
+        let before = reader.buffer_position() as usize + bom;
         match reader.read_event().map_err(xml_err)? {
-            Event::Start(e) => stack.push(start_node(&e)?),
+            Event::Start(e) => {
+                if is_phon_tag(e.local_name().into_inner()) {
+                    if span.depth == 0 {
+                        span.open_start = before;
+                    }
+                    span.depth += 1;
+                }
+                stack.push(start_node(&e, &mut names)?)
+            }
             Event::Empty(e) => {
-                let node = start_node(&e)?;
+                if is_phon_tag(e.local_name().into_inner()) && span.depth == 0 {
+                    span.ranges
+                        .push((before, reader.buffer_position() as usize + bom));
+                }
+                let node = start_node(&e, &mut names)?;
                 stack.last_mut().unwrap().children.push(node);
             }
             Event::Text(t) => {
@@ -153,16 +204,25 @@ fn parse_document(xml: &str) -> Result<Node, GrammarError> {
                     .text
                     .push_str(&String::from_utf8_lossy(t.as_ref()));
             }
-            Event::End(_) => {
+            Event::End(e) => {
+                if is_phon_tag(e.local_name().into_inner()) {
+                    span.depth -= 1;
+                    if span.depth == 0 {
+                        span.ranges
+                            .push((span.open_start, reader.buffer_position() as usize + bom));
+                    }
+                }
                 // The synthetic root never receives an End, so the stack always has a parent.
-                let node = stack.pop().unwrap();
+                let mut node = stack.pop().unwrap();
+                node.children.shrink_to_fit();
+                node.text.shrink_to_fit();
                 stack.last_mut().unwrap().children.push(node);
             }
             Event::Eof => break,
             _ => {}
         }
     }
-    Ok(stack.pop().unwrap())
+    Ok((stack.pop().unwrap(), span))
 }
 
 // Read-only resolvers (`Ro`) and mutable accumulators (`Acc`).
@@ -220,7 +280,7 @@ fn mk_part_ref(kind: PartKind, idx: u16) -> PartRef {
 
 /// A load error that should drop the current allomorph rather than abort the whole load; `Unsupported` is never a drop, since it must propagate to trigger managed fallback.
 fn is_droppable(e: &GrammarError) -> bool {
-    !matches!(e, GrammarError::Unsupported(_))
+    !matches!(e, GrammarError::Unsupported(_) | GrammarError::Limit { .. })
 }
 
 /// C# `XmlLanguageLoader.GetMorphCoOccurrenceAdjacency`: unknown/absent values default to `Anywhere` (also the DTD's own default).
@@ -265,11 +325,21 @@ fn parse_is_clitic_rule(rule: &Node) -> Result<Option<bool>, GrammarError> {
 /// `GrammarError::Unsupported`; malformed references (unknown feature/symbol/natural-class ids)
 /// surface `GrammarError::Semantic`; XML errors surface `GrammarError::Xml`.
 pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
-    // Pass 1: phonological feature system + character-definition tables.
-    let phon = load_char_def_table_from_xml(xml)?;
-
-    // Pass 2: DOM of the active <Language>.
-    let root = parse_document(xml)?;
+    let (root, spans) = match parse_document(xml) {
+        Ok(parsed) => parsed,
+        Err(dom_error) => {
+            // The original phonology pass had priority when both readers failed.
+            load_char_def_table_from_xml(xml)?;
+            return Err(dom_error);
+        }
+    };
+    let phon = if spans.depth != 0 {
+        // An unfinished phonology element has no complete range to replay.
+        load_char_def_table_from_xml(xml)?
+    } else {
+        let phon_text: String = spans.ranges.iter().map(|&(a, b)| &xml[a..b]).collect();
+        load_char_def_table_from_xml(&phon_text)?
+    };
     let lang = root
         .child("HermitCrabInput")
         .and_then(|hc| hc.elems("Language").find(|l| l.is_active()))
@@ -308,10 +378,12 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             )
             .filter(|e| e.is_active())
             .count();
-        if count > 64 {
-            return Err(GrammarError::Unsupported(format!(
-                "{count} MPR features; the bitset representation supports at most 64"
-            )));
+        if count as u64 > crate::limits::MAX_MPR_FEATURES {
+            return Err(crate::limits::mpr_features(
+                count,
+                "this grammar file has",
+                " (inflection classes, exception features and entry inflection types share the cap)",
+            ));
         }
         for mf in lang
             .elems2(
@@ -321,7 +393,11 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             .filter(|e| e.is_active())
         {
             let id = mf.attr("id").unwrap_or("").to_string();
-            mpr_index.insert(id.clone(), MprId(mpr_names.len() as u8));
+            mpr_index.insert(
+                id.clone(),
+                MprId::try_from(mpr_names.len())
+                    .map_err(|_| crate::limits::mpr_features(count, "this grammar file has", ""))?,
+            );
             mpr_features.push(MprFeatureDef {
                 xml_id: id,
                 name: mf.text.clone(),
@@ -358,7 +434,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     let mut natural_classes: Vec<NaturalClass> = Vec::new();
     let mut natclass_index: HashMap<String, NatClassId> = HashMap::new();
     for nc in lang.under("NaturalClasses").filter(|e| e.is_active()) {
-        let kind = match nc.tag.as_str() {
+        let kind = match &*nc.tag {
             "FeatureNaturalClass" => NaturalClassKind::Feature(load_phon_constraints(nc, &phon)?),
             "SegmentNaturalClass" => {
                 let mut segs = Vec::new();
@@ -380,6 +456,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         natural_classes.push(NaturalClass {
             xml_id: id,
             name: nc.text_of("Name").map(str::to_string),
+            full_name: None,
             kind,
         });
     }
@@ -424,7 +501,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         .under("PhonologicalRuleDefinitions")
         .filter(|e| e.is_active())
     {
-        match pr.tag.as_str() {
+        match &*pr.tag {
             "MetathesisRule" => {
                 let def = load_metathesis_rule(pr, &ro)?;
                 let id = pr.attr("id").unwrap_or("").to_string();
@@ -508,6 +585,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
                 require,
                 others,
                 adjacency,
+                source_guid: None,
             });
     }
 
@@ -536,6 +614,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
             require,
             others,
             adjacency,
+            source_guid: None,
         };
         match acc.allomorph_owners[primary.0 as usize] {
             AllomorphOwner::Root(le, idx) => {
@@ -562,7 +641,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
     // All borrows of `phon` (via `ro`) have ended; the grammar takes ownership of its phonology so ids stay resolvable downstream.
     let (phon_features, char_tables) = phon.into_parts();
 
-    let grammar = Grammar {
+    let mut grammar = Grammar {
         name: lang.text_of("Name").map(str::to_string),
         phon_features,
         char_tables,
@@ -578,6 +657,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         allomorph_owners: acc.allomorph_owners,
         allomorph_sources: acc.allomorph_sources,
         prules,
+        skipped_prules: Vec::new(),
         mrules: acc.mrules,
         templates: acc.templates,
         entries: acc.entries,
@@ -589,6 +669,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         representative_msas: Default::default(),
         guess_roots: false,
     };
+    grammar.shrink_to_fit();
     grammar.final_template_prune_facts()?;
     Ok(grammar)
 }
@@ -616,11 +697,12 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
                 .into(),
         ));
     }
-    if pos_symbols.len() >= 64 {
-        return Err(GrammarError::Unsupported(format!(
-            "{} parts of speech; the symbol bitset supports at most 63",
-            pos_symbols.len()
-        )));
+    if pos_symbols.len() > crate::limits::MAX_PARTS_OF_SPEECH {
+        return Err(crate::limits::parts_of_speech(
+            pos_symbols.len(),
+            "this grammar file has",
+            "",
+        ));
     }
     features.push(SynFeature {
         xml_id: "__pos__".into(),
@@ -677,18 +759,13 @@ fn build_syn_features(lang: &Node) -> Result<SynFeatureSystem, GrammarError> {
 fn load_syn_feature(elem: &Node) -> Result<Option<SynFeature>, GrammarError> {
     let xml_id = elem.attr("id").unwrap_or("").to_string();
     let name = elem.text_of("Name").unwrap_or("").to_string();
-    match elem.tag.as_str() {
+    match &*elem.tag {
         "SymbolicFeature" => {
             let symbols: Vec<(String, String)> = elem
                 .elems2("Symbols", "Symbol")
                 .map(|s| (s.attr("id").unwrap_or("").to_string(), s.text.clone()))
                 .collect();
-            if symbols.len() >= 64 {
-                return Err(GrammarError::Unsupported(format!(
-                    "symbolic feature '{name}' ({xml_id}) has {} symbols; the bitset supports at most 63",
-                    symbols.len()
-                )));
-            }
+            crate::limits::check_feature_values("symbolic feature", &name, &xml_id, symbols.len())?;
             let default_symbol = elem
                 .attr_ne("defaultSymbol")
                 .and_then(|d| symbols.iter().position(|(id, _)| id == d).map(|i| i as u32));
@@ -800,6 +877,7 @@ fn load_stem_name(
         regions.push(fs_interner.intern(b.build()));
     }
     Ok(StemNameDef {
+        xml_id: sn.attr("id").unwrap_or("").to_string(),
         name: sn.text_of("Name").map(str::to_string),
         regions,
     })
@@ -928,7 +1006,7 @@ fn load_one_pattern_node(
     default_table: TableId,
     ro: &Ro,
 ) -> Result<Option<PatternNode>, GrammarError> {
-    let node = match rec.tag.as_str() {
+    let node = match &*rec.tag {
         "SimpleContext" => PatternNode::Context(load_simple_context(rec, vars, ro)?),
         "Segment" => PatternNode::CharDef(resolve_chardef(ro, rec.attr("segment").unwrap_or(""))?),
         "BoundaryMarker" => {
@@ -1094,6 +1172,7 @@ fn load_allomorph_environments(
                         .attr("id")
                         .filter(|id| !id.trim().is_empty())
                         .map(str::to_owned),
+                    guid: None,
                     text: (!env.text.trim().is_empty()).then(|| env.text.clone()),
                 }),
             });
@@ -1431,7 +1510,7 @@ fn load_stratum(
         .under("MorphologicalRuleDefinitions")
         .filter(|e| e.is_active())
     {
-        let loaded = match mr.tag.as_str() {
+        let loaded = match &*mr.tag {
             "MorphologicalRule" => try_load_affix_process_rule(mr, table, stratum_id, ro, acc)?,
             "RealizationalRule" => try_load_realizational_rule(mr, table, stratum_id, ro, acc)?,
             "CompoundingRule" => try_load_compounding_rule(mr, table, ro, acc)?,
@@ -1534,6 +1613,7 @@ fn try_load_affix_process_rule(
                 acc.allomorph_sources.push(AllomorphSource {
                     // XML id is only a structural handle; source provenance is unavailable here.
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement,
                 });
@@ -1650,6 +1730,7 @@ fn try_load_realizational_rule(
                 let placement = source_morph_placement(&def.rhs);
                 acc.allomorph_sources.push(AllomorphSource {
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement,
                 });
@@ -1754,6 +1835,7 @@ fn load_affix_allomorph(
 
     Ok(AffixAllomorphDef {
         id: allo_id,
+        xml_key: sub.attr("id").unwrap_or("").to_string(),
         environments,
         // See `load_root_allomorph`'s matching comment: filled by the post-strata pass in `load()`.
         co_occurrence: Vec::new(),
@@ -1797,7 +1879,7 @@ fn load_morph_rhs(
 ) -> Result<Vec<OutputAction>, GrammarError> {
     let mut rhs = Vec::new();
     for part in &output.children {
-        match part.tag.as_str() {
+        match &*part.tag {
             "CopyFromInput" => {
                 let idx = part.attr("index").unwrap_or("");
                 let pr = *part_names.get(idx).ok_or_else(|| {
@@ -2081,6 +2163,7 @@ fn try_load_lex_entry(
                 acc.allomorph_sources.push(AllomorphSource {
                     // XML id is only a structural handle; source provenance is unavailable here.
                     form_guids: vec![None],
+                    form_texts: Vec::new(),
                     omitted: false,
                     placement: crate::model::SourceMorphPlacement::Append,
                 });
@@ -2177,6 +2260,7 @@ fn load_root_allomorph(
 
     Ok(RootAllomorphDef {
         id: allo_id,
+        xml_key: allo.attr("id").unwrap_or("").to_string(),
         shape,
         is_bound: parse_bool(allo.attr("isBound"), false),
         environments,

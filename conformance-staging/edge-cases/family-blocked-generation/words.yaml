@@ -1,0 +1,23 @@
+# oracle-provenance: founding-oracle Machine e63b8863d37d3189c2b11fcaf9d43be74962ad70 (hc-conformance self-check, tip of sillsdev/machine #615; rows replayed on that build, 2026-11-23, issue sillsdev/PanGloss#423)
+language: FamilyBlockedGeneration
+inspired_by: ["synthetic stem family whose relative blocks a derivation"]
+sources: ["sillsdev/PanGloss#423"]
+requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: "row 8 of fieldworks-cannot-say.md: family=famF on two entries (LoadLexEntry never reads a family)"
+words:
+  - word: aa
+    note: "The bare family member A."
+    parses:
+      - signature: "A|aa"
+        rules: []
+  - word: aat
+    note: >-
+      Two C# derivations share this signature and are intentionally repeated: the plain lookup of B,
+      and A+T, which Word.CheckBlocking turns into a fresh B seed because B is a family relative that
+      blocks it. C#'s dedup does not collapse them. PanGloss currently reports one (PanGloss#423, #432).
+    parses:
+      - signature: "B|aat"
+        rules: []
+      - signature: "B|aat"
+        rules: []

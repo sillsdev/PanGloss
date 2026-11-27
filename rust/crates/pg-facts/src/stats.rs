@@ -11,13 +11,15 @@ use pg_grammar::stats_identity::{
 };
 use pg_snapshot::morphology::MorphType;
 use pg_snapshot::Snapshot;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::Deserialize;
 
 use crate::{FactsError, ProducerIdentity};
 
 const FORMAT: &str = "pangloss-batch-stats-manifest";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const LOGICAL_COUNTERS: [&str; 7] = [
     "attempts",
     "work",
@@ -77,6 +79,8 @@ pub(crate) struct StatsProjection {
 struct Manifest {
     format: String,
     version: u32,
+    #[serde(default)]
+    profile: pg_stats::StatsProfile,
     source: ManifestSource,
     compiler: ManifestCompiler,
     cache: ManifestCache,
@@ -127,8 +131,8 @@ struct ManifestRun {
 struct ManifestBatch {
     engine: String,
     threads: usize,
-    step_cap: String,
-    work_cap: usize,
+    work_cap: String,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -171,8 +175,8 @@ struct ManifestWordCompletion {
 #[serde(deny_unknown_fields)]
 struct RunOptions {
     engine: String,
-    step_cap: Option<String>,
-    work_cap: usize,
+    work_cap: Option<String>,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
@@ -225,7 +229,7 @@ struct ExportRun {
     options_hash: String,
     options_json: String,
     created_utc: String,
-    step_cap: Option<i64>,
+    work_cap: Option<i64>,
     cache_word_count: i64,
     requested_word_count: usize,
     batch_options_json: String,
@@ -236,7 +240,6 @@ struct ExportWord {
     form: String,
     status: String,
     elapsed_ns: Option<u64>,
-    attempts: Option<u64>,
     passes: Option<u64>,
     capped: Option<bool>,
     timed_out: Option<bool>,
@@ -302,7 +305,6 @@ struct RawWord {
     id: i64,
     form: String,
     elapsed_ns: u64,
-    attempts: u64,
     passes: u64,
     capped: bool,
     timed_out: bool,
@@ -418,15 +420,14 @@ fn validate_manifest_context(
             "frozen stats manifest has a non-positive thread count or resumed start index".into(),
         ));
     }
-    let step_cap = pg_stats::StepCap::from_str(&manifest.batch.step_cap).map_err(|error| {
-        FactsError::StatsRunUnavailable(format!("invalid stats manifest step cap: {error}"))
+    pg_stats::WorkCap::from_str(&manifest.batch.work_cap).map_err(|error| {
+        FactsError::StatsRunUnavailable(format!("invalid stats manifest work cap: {error}"))
     })?;
-    if manifest.batch.work_cap == 0 || manifest.batch.search_budget_semantics == 0 {
+    if manifest.batch.search_budget_semantics == 0 {
         return Err(FactsError::StatsRunUnavailable(
             "frozen stats manifest has invalid search budget options".into(),
         ));
     }
-    let _ = step_cap;
 
     let word_bytes = serde_json::to_vec(&manifest.input.words).map_err(|error| {
         FactsError::StatsRunUnavailable(format!("serialize frozen stats input words: {error}"))
@@ -500,11 +501,11 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
     let options: RunOptions = serde_json::from_str(&run.options_json).map_err(|error| {
         FactsError::StatsRunUnavailable(format!("invalid stats run options JSON: {error}"))
     })?;
-    let expected_step_cap = Some(manifest.batch.step_cap.as_str());
-    let option_step_cap = options.step_cap.as_deref();
+    let expected_work_cap = Some(manifest.batch.work_cap.as_str());
+    let option_work_cap = options.work_cap.as_deref();
     if options.engine != manifest.batch.engine
-        || option_step_cap != expected_step_cap
-        || options.work_cap != manifest.batch.work_cap
+        || option_work_cap != expected_work_cap
+        || options.word_mem_cap != manifest.batch.word_mem_cap
         || options.search_budget_semantics != manifest.batch.search_budget_semantics
         || options.word_timeout_ms != manifest.batch.word_timeout_ms
         || options.guess != manifest.batch.guess
@@ -515,8 +516,8 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
         || run.options_json != manifest.run.options_json
         || run.options_hash != sha256_hex(run.options_json.as_bytes())
         || run.run_id != manifest.run.id
-        || run.step_cap
-            != pg_stats::StepCap::from_str(&manifest.batch.step_cap)
+        || run.work_cap
+            != pg_stats::WorkCap::from_str(&manifest.batch.work_cap)
                 .ok()
                 .and_then(|cap| cap.to_storage().ok())
     {
@@ -533,11 +534,7 @@ fn validate_run_options(manifest: &Manifest, run: &ExportRun) -> Result<(), Fact
 }
 
 fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError> {
-    let mut connection = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(stats_db_error)?;
+    let mut connection = pg_stats::pack::open_read(path)?;
     let tx = connection
         .transaction_with_behavior(TransactionBehavior::Deferred)
         .map_err(stats_db_error)?;
@@ -566,11 +563,11 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         options_hash,
         options_json,
         word_count,
-        step_cap,
+        work_cap,
         created_utc,
     ) = tx
         .query_row(
-            "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, engine, options_hash, options_json, word_count, step_cap, created_utc FROM run",
+            "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, engine, options_hash, options_json, word_count, work_cap, created_utc FROM run",
             [],
             |row| Ok((
                 row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?,
@@ -582,9 +579,8 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         .optional()
         .map_err(stats_db_error)?
         .ok_or_else(|| FactsError::StatsRunUnavailable("stats run row is absent".into()))?;
-    if identity_schema != pg_stats::SCHEMA_VERSION
-        || schema_version != pg_stats::SCHEMA_VERSION
-        || identity_schema != schema_version
+    let profile = pg_stats::StatsProfile::from_schema_version(identity_schema)?;
+    if identity_schema != schema_version
         || identity_grammar != grammar_hash
         || identity_grammar != manifest.source.grammar_hash
         || identity_engine.as_deref() != Some(engine.as_str())
@@ -601,6 +597,13 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
             "stats cache identity and run row do not match the frozen manifest".into(),
         ));
     }
+    if profile != manifest.profile {
+        return Err(FactsError::StatsRunUnavailable(format!(
+            "frozen stats manifest profile {} disagrees with cache schema {identity_schema}",
+            manifest.profile
+        )));
+    }
+    profile.require_object_facts()?;
     let expected_cache_words = manifest.completion.requested - manifest.completion.missing;
     if word_count < 0 || word_count as usize != expected_cache_words {
         return Err(FactsError::StatsRunUnavailable(format!(
@@ -614,14 +617,14 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         options_hash,
         options_json,
         created_utc,
-        step_cap,
+        work_cap,
         cache_word_count: word_count,
         requested_word_count: manifest.input.word_count,
         batch_options_json: serde_json::to_string(&serde_json::json!({
             "engine": manifest.batch.engine,
             "threads": manifest.batch.threads,
-            "step_cap": manifest.batch.step_cap,
             "work_cap": manifest.batch.work_cap,
+            "word_mem_cap": manifest.batch.word_mem_cap,
             "search_budget_semantics": manifest.batch.search_budget_semantics,
             "word_timeout_ms": manifest.batch.word_timeout_ms,
             "guess": manifest.batch.guess,
@@ -659,7 +662,7 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
     };
     let words = {
         let mut statement = tx
-            .prepare("SELECT word_id, form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape FROM word WHERE run_id=?1")
+            .prepare("SELECT word_id, form, elapsed_ns, passes, capped, timed_out, invalid_shape FROM word WHERE run_id=?1")
             .map_err(stats_db_error)?;
         let rows = statement
             .query_map(params![run_id], |row| {
@@ -668,21 +671,19 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
                     row.get::<_, String>(1)?,
                     row.get::<_, u64>(2)?,
                     row.get::<_, u64>(3)?,
-                    row.get::<_, u64>(4)?,
+                    row.get::<_, i64>(4)?,
                     row.get::<_, i64>(5)?,
                     row.get::<_, i64>(6)?,
-                    row.get::<_, i64>(7)?,
                 ))
             })
             .map_err(stats_db_error)?
             .map(|row| {
-                let (id, form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) =
+                let (id, form, elapsed_ns, passes, capped, timed_out, invalid_shape) =
                     row.map_err(stats_db_error)?;
                 Ok(RawWord {
                     id,
                     form,
                     elapsed_ns,
-                    attempts,
                     passes,
                     capped: cache_bool("capped", capped)?,
                     timed_out: cache_bool("timed_out", timed_out)?,
@@ -726,9 +727,7 @@ fn read_cache(path: &Path, manifest: &Manifest) -> Result<CacheData, FactsError>
         rows
     };
     tx.commit().map_err(stats_db_error)?;
-    connection
-        .close()
-        .map_err(|(_, error)| stats_db_error(error))?;
+    drop(connection);
 
     let mut actual_forms: BTreeSet<String> = BTreeSet::new();
     for word in &words {
@@ -769,7 +768,7 @@ fn read_dimensions(
 }
 
 fn remap_cache(
-    cache: CacheData,
+    mut cache: CacheData,
     manifest: Manifest,
     owners: BTreeMap<(String, String), ExpectedObject>,
     dimensions: ExpectedDimensions,
@@ -777,6 +776,90 @@ fn remap_cache(
     cache_bytes: u64,
     manifest_sha256: String,
 ) -> Result<StatsProjection, FactsError> {
+    // The facts schema projects grammar-object counters, not the cache's word remainder.
+    let remainder_ids: Vec<i64> = cache
+        .objects
+        .iter()
+        .filter(|o| o.kind == "unattributed")
+        .map(|o| {
+            if o.key != "unattributed"
+                || o.label != "Unattributed"
+                || o.quality != "synthetic"
+                || o.morpheme_id != 0
+            {
+                return Err(FactsError::StatsRunUnavailable(
+                    "invalid unattributed stats object".into(),
+                ));
+            }
+            Ok(o.id)
+        })
+        .collect::<Result<_, _>>()?;
+    for fact in cache
+        .facts
+        .iter()
+        .filter(|f| remainder_ids.contains(&f.object_id))
+    {
+        if fact.stratum_id != 0
+            || fact.allomorph_id != 0
+            || fact.direction != "unattributed"
+            || fact.attempts != 0
+            || fact.work != 0
+            || fact.outputs != 0
+            || fact.not_applied != 0
+            || fact.no_root != 0
+            || fact.surface_mismatch != 0
+            || fact.uses != 0
+            || fact.self_time_ns != 0
+        {
+            return Err(FactsError::StatsRunUnavailable(
+                "invalid unattributed stats fact".into(),
+            ));
+        }
+    }
+    cache.objects.retain(|o| !remainder_ids.contains(&o.id));
+    cache
+        .facts
+        .retain(|f| !remainder_ids.contains(&f.object_id));
+    // Parser work is not a grammar-object counter and this projection has no work_steps column.
+    let parser_ids: Vec<i64> = cache
+        .objects
+        .iter()
+        .filter(|o| o.kind == "parser")
+        .map(|o| {
+            let valid = pg_rules::stats::ParserWork::ALL.into_iter().any(|phase| {
+                let identity = stats_identity::parser_identity(phase.name());
+                o.key == identity.key && o.label == identity.label
+            });
+            if !valid || o.quality != "synthetic" || o.morpheme_id != 0 {
+                return Err(FactsError::StatsRunUnavailable(
+                    "invalid parser stats object".into(),
+                ));
+            }
+            Ok(o.id)
+        })
+        .collect::<Result<_, _>>()?;
+    for fact in cache
+        .facts
+        .iter()
+        .filter(|f| parser_ids.contains(&f.object_id))
+    {
+        if fact.allomorph_id != 0
+            || !matches!(fact.direction.as_str(), "analysis" | "synthesis")
+            || fact.attempts != 0
+            || fact.work != 0
+            || fact.outputs != 0
+            || fact.not_applied != 0
+            || fact.no_root != 0
+            || fact.surface_mismatch != 0
+            || fact.uses != 0
+        {
+            return Err(FactsError::StatsRunUnavailable(
+                "invalid parser stats fact".into(),
+            ));
+        }
+    }
+    cache.objects.retain(|o| !parser_ids.contains(&o.id));
+    cache.facts.retain(|f| !parser_ids.contains(&f.object_id));
     let morphemes = remap_dimensions(cache.morphemes.clone(), &dimensions.morphemes, "morpheme")?;
     let strata = remap_dimensions(cache.strata.clone(), &dimensions.strata, "stratum")?;
     let allomorphs = remap_allomorphs(cache.allomorphs.clone(), &dimensions.allomorphs)?;
@@ -903,7 +986,6 @@ fn remap_cache(
                 form: form.clone(),
                 status: "not_attempted".into(),
                 elapsed_ns: None,
-                attempts: None,
                 passes: None,
                 capped: None,
                 timed_out: None,
@@ -931,7 +1013,6 @@ fn remap_cache(
             form: form.clone(),
             status: completion.status.clone(),
             elapsed_ns: Some(word.elapsed_ns),
-            attempts: Some(word.attempts),
             passes: Some(word.passes),
             capped: Some(word.capped),
             timed_out: Some(word.timed_out),
@@ -1120,6 +1201,23 @@ fn expected_dimensions(
         );
         allomorph_sources.insert(identity.key, sources);
     }
+    for (index, rule) in grammar.mrules.iter().enumerate() {
+        if let MorphRuleDef::Compounding(compound) = rule {
+            for subrule in 0..compound.subrules.len() {
+                let identity =
+                    identities.compound_subrule(pg_grammar::model::MRuleId(index as u32), subrule);
+                allomorphs.insert(
+                    identity.key.clone(),
+                    ExpectedLocator {
+                        key: identity.key.clone(),
+                        label: identity.label,
+                        quality: quality(identity.quality),
+                    },
+                );
+                allomorph_sources.insert(identity.key, Vec::new());
+            }
+        }
+    }
     let guessed_allomorph = identities.allomorph(pg_grammar::model::AllomorphId::GUESSED);
     allomorphs.insert(
         guessed_allomorph.key.clone(),
@@ -1157,6 +1255,8 @@ fn morph_type_role(morph_type: MorphType) -> &'static str {
         MorphType::PrefixingInterfix => "prefixing_interfix",
         MorphType::InfixingInterfix => "infixing_interfix",
         MorphType::SuffixingInterfix => "suffixing_interfix",
+        MorphType::Simulfix => "simulfix",
+        MorphType::Suprafix => "suprafix",
     }
 }
 
@@ -1426,6 +1526,7 @@ fn grammar_kind(kind: GrammarObjectKind) -> pg_stats::ObjectKind {
         GrammarObjectKind::RootIndex => pg_stats::ObjectKind::RootIndex,
         GrammarObjectKind::Guesser => pg_stats::ObjectKind::Guesser,
         GrammarObjectKind::Overlay => pg_stats::ObjectKind::Overlay,
+        GrammarObjectKind::Parser => pg_stats::ObjectKind::Parser,
     }
 }
 
@@ -1628,14 +1729,20 @@ pub(crate) fn insert_catalog(
                 CounterSupport::NotApplicable => "not_applicable",
                 CounterSupport::NotWired => "not_wired",
             };
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, ?3, 'both', ?4)",
                 params![counter_semantics, stats_kind_name(kind), counter, support],
             )?;
         }
         for direction in [Direction::Analysis, Direction::Synthesis] {
-            let supported = pg_rules::stats::self_time_supported_in_direction(kind, direction);
-            tx.execute(
+            let supported = pg_rules::stats::self_time_supported_in_direction_for_semantics(
+                kind,
+                direction,
+                counter_semantics,
+            );
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stats_counter_support(engine, counter_semantics, object_kind, counter, direction, support) VALUES ('hc', ?1, ?2, 'self_time_ns', ?3, ?4)",
                 params![
                     counter_semantics,
@@ -1653,48 +1760,53 @@ pub(crate) fn insert(
     tx: &rusqlite::Transaction<'_>,
     projection: &StatsProjection,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO stats_cache_identity(singleton, cache_sha256, cache_bytes, schema_version, counter_semantics, engine, grammar_hash) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
         params![projection.cache_sha256, projection.cache_bytes, projection.schema_version, projection.counter_semantics, projection.run.engine, projection.run.grammar_hash],
     )?;
-    tx.execute(
-        "INSERT INTO stats_run(run_id, engine, grammar_hash, options_hash, options_json, created_utc, step_cap, cache_word_count, requested_word_count, batch_options_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![projection.run.run_id, projection.run.engine, projection.run.grammar_hash, projection.run.options_hash, projection.run.options_json, projection.run.created_utc, projection.run.step_cap, projection.run.cache_word_count, projection.run.requested_word_count as i64, projection.run.batch_options_json],
+    crate::sql::execute(
+        tx,
+        "INSERT INTO stats_run(run_id, engine, grammar_hash, options_hash, options_json, created_utc, work_cap, cache_word_count, requested_word_count, batch_options_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        params![projection.run.run_id, projection.run.engine, projection.run.grammar_hash, projection.run.options_hash, projection.run.options_json, projection.run.created_utc, projection.run.work_cap, projection.run.cache_word_count, projection.run.requested_word_count as i64, projection.run.batch_options_json],
     )?;
     for dim in &projection.morphemes {
-        tx.execute("INSERT INTO stats_morpheme(morpheme_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_morpheme(morpheme_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for dim in &projection.strata {
-        tx.execute("INSERT INTO stats_stratum(stratum_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_stratum(stratum_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for dim in &projection.allomorphs {
-        tx.execute("INSERT INTO stats_allomorph(allomorph_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
+        crate::sql::execute(tx, "INSERT INTO stats_allomorph(allomorph_id, key, label, identity_quality) VALUES (?1, ?2, ?3, ?4)", params![dim.id, dim.key, dim.label, dim.identity_quality])?;
     }
     for object in &projection.objects {
-        tx.execute("INSERT INTO stats_object(object_id, key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![object.id, object.key, object.kind, object.label, object.identity_quality, object.morpheme_id])?;
+        crate::sql::execute(tx, "INSERT INTO stats_object(object_id, key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![object.id, object.key, object.kind, object.label, object.identity_quality, object.morpheme_id])?;
     }
     for source in &projection.object_sources {
-        tx.execute("INSERT INTO stats_object_source(object_id, source_kind, source_guid, role) VALUES (?1, ?2, ?3, ?4)", params![source.object_id, source.source_kind, source.source_guid, source.role])?;
+        crate::sql::execute(tx, "INSERT INTO stats_object_source(object_id, source_kind, source_guid, role) VALUES (?1, ?2, ?3, ?4)", params![source.object_id, source.source_kind, source.source_guid, source.role])?;
     }
     for source in &projection.allomorph_sources {
-        tx.execute("INSERT INTO stats_allomorph_source(allomorph_id, source_ordinal, source_allomorph_guid, role, omitted) VALUES (?1, ?2, ?3, ?4, ?5)", params![source.allomorph_id, source.source_ordinal, source.source_allomorph_guid, source.role, i64::from(source.omitted)])?;
+        crate::sql::execute(tx, "INSERT INTO stats_allomorph_source(allomorph_id, source_ordinal, source_allomorph_guid, role, omitted) VALUES (?1, ?2, ?3, ?4, ?5)", params![source.allomorph_id, source.source_ordinal, source.source_allomorph_guid, source.role, i64::from(source.omitted)])?;
     }
     for word in &projection.words {
-        tx.execute("INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.attempts, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
+        crate::sql::execute(tx, "INSERT INTO stats_word(word_id, run_id, form, status, elapsed_ns, passes, capped, timed_out, invalid_shape) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)", params![word.id, word.run_id, word.form, word.status, word.elapsed_ns, word.passes, word.capped.map(i64::from), word.timed_out.map(i64::from), word.invalid_shape.map(i64::from)])?;
     }
     for fact in &projection.facts {
-        tx.execute("INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
+        crate::sql::execute(tx, "INSERT INTO stats_fact(word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)", params![fact.word_id, fact.object_id, fact.stratum_id, fact.allomorph_id, fact.direction, fact.attempts, fact.work, fact.outputs, fact.not_applied, fact.no_root, fact.surface_mismatch, fact.uses, fact.self_time_ns])?;
     }
     // Stats and compiled outputs share one key, so the join is by key; pseudo-objects match none.
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE stats_object SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_object.key) WHERE kind IN ('morph_rule', 'phon_rule', 'lex_entry')",
         [],
     )?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE stats_allomorph SET output_id = (SELECT output_id FROM compiled_output WHERE compiled_output.key = stats_allomorph.key)",
         [],
     )?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "UPDATE artifact_meta SET run_manifest_sha256=?1 WHERE singleton=1",
         params![projection.manifest_sha256],
     )?;
@@ -1709,6 +1821,7 @@ fn stats_kind_name(kind: pg_rules::stats::ObjectKind) -> &'static str {
         pg_rules::stats::ObjectKind::RootIndex => "root_index",
         pg_rules::stats::ObjectKind::Guesser => "guesser",
         pg_rules::stats::ObjectKind::Overlay => "overlay",
+        pg_rules::stats::ObjectKind::Parser => "parser",
     }
 }
 
@@ -1825,9 +1938,8 @@ mod tests {
             "batch": {
                 "engine": "hc",
                 "threads": 1,
-                "step_cap": "200000",
-                "work_cap": 2000000,
-                "search_budget_semantics": 2,
+                "work_cap": "20000000",
+                "search_budget_semantics": 3,
                 "word_timeout_ms": null,
                 "guess": false,
                 "always_enforce_final_templates": false,
@@ -1861,6 +1973,19 @@ mod tests {
         serde_json::from_value(manifest_value()).unwrap()
     }
 
+    fn fixture_run_metadata(manifest: &Manifest) -> pg_stats::RunMetadata {
+        pg_stats::RunMetadata {
+            build_info: manifest.compiler.build_identity.clone(),
+            fwdata_path: "fixture.fwdata".into(),
+            grammar_hash: GRAMMAR_HASH.into(),
+            engine: "hc".into(),
+            options_hash: manifest.run.options_hash.clone(),
+            options_json: manifest.run.options_json.clone(),
+            created_utc: "unix:1".into(),
+            work_cap: Some("20000000".parse().unwrap()),
+        }
+    }
+
     fn expectation() -> StatsExpectation<'static> {
         StatsExpectation {
             source_sha256: SOURCE_SHA256,
@@ -1885,20 +2010,11 @@ mod tests {
         let mut manifest = fixture_manifest();
         let run_id = cache
             .flush(
-                &pg_stats::RunMetadata {
-                    build_info: manifest.compiler.build_identity.clone(),
-                    fwdata_path: "fixture.fwdata".into(),
-                    grammar_hash: GRAMMAR_HASH.into(),
-                    engine: "hc".into(),
-                    options_hash: manifest.run.options_hash.clone(),
-                    options_json: manifest.run.options_json.clone(),
-                    created_utc: "unix:1".into(),
-                    step_cap: Some("200000".parse().unwrap()),
-                },
+                &fixture_run_metadata(&manifest),
                 &[pg_stats::WordRecord {
+                    gates: None,
                     form: "kuma".into(),
                     elapsed_ns: 1,
-                    attempts: 1,
                     work: 0,
                     passes: 1,
                     capped: false,
@@ -1915,6 +2031,7 @@ mod tests {
                         direction: pg_stats::Direction::Analysis,
                         attempts: 1,
                         work: 1,
+                        work_steps: 0,
                         outputs: 0,
                         not_applied: 0,
                         no_root: 0,
@@ -1936,6 +2053,13 @@ mod tests {
         assert_eq!(run.counter_semantics, 3);
         assert_eq!(run.facts.len(), 1);
         assert_eq!(run.facts[0].uses, 0);
+        pg_stats::pack::pack(&path).unwrap();
+        let packed = read_cache(&path, &manifest).unwrap();
+        assert_eq!(packed.counter_semantics, run.counter_semantics);
+        assert_eq!(packed.facts.len(), run.facts.len());
+        assert_eq!(packed.facts[0].uses, run.facts[0].uses);
+        assert_eq!(packed.facts[0].work, run.facts[0].work);
+        assert_eq!(packed.facts[0].attempts, run.facts[0].attempts);
 
         let mut facts = Connection::open_in_memory().unwrap();
         facts.execute_batch(include_str!("schema.sql")).unwrap();
@@ -1949,6 +2073,72 @@ mod tests {
             support, "not_wired",
             "a legacy stored zero has no measurement provenance"
         );
+    }
+
+    #[test]
+    fn frozen_profile_must_match_cache_even_when_no_object_facts_were_written() {
+        let temp = tempfile::tempdir().unwrap();
+        for schema_version in [
+            pg_stats::SCHEMA_VERSION,
+            pg_stats::COMPACT_SCHEMA_VERSION,
+            pg_stats::WORD_ONLY_SCHEMA_VERSION,
+        ] {
+            let path = temp.path().join(format!("{schema_version}.sqlite"));
+            let word_only = schema_version == pg_stats::WORD_ONLY_SCHEMA_VERSION;
+            let open = match schema_version {
+                pg_stats::SCHEMA_VERSION => pg_stats::StatsCache::open,
+                pg_stats::COMPACT_SCHEMA_VERSION => pg_stats::StatsCache::open_compact,
+                _ => pg_stats::StatsCache::open_word_only,
+            };
+            let mut cache = open(&path, GRAMMAR_HASH).unwrap().cache;
+            let mut value = manifest_value();
+            let manifest = fixture_manifest();
+            let run_id = cache
+                .flush(
+                    &fixture_run_metadata(&manifest),
+                    &[pg_stats::WordRecord {
+                        form: manifest.input.words[0].clone(),
+                        elapsed_ns: 1,
+                        work: 2,
+                        passes: 1,
+                        capped: false,
+                        timed_out: false,
+                        invalid_shape: false,
+                        gates: None,
+                        facts: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            cache.checkpoint_and_close().unwrap();
+            value["run"]["id"] = run_id.into();
+            value["cache"]["schema_version"] = schema_version.into();
+            for declared in [None, Some("full"), Some("word-only")] {
+                let mut declaration = value.clone();
+                if let Some(profile) = declared {
+                    declaration["profile"] = profile.into();
+                }
+                let manifest: Manifest = serde_json::from_value(declaration).unwrap();
+                let result = read_cache(&path, &manifest).map(|cache| cache.words.len());
+                match (word_only, declared) {
+                    (false, None | Some("full")) => assert_eq!(result.unwrap(), 1),
+                    (true, Some("word-only")) => {
+                        let error = result.unwrap_err();
+                        assert!(matches!(error, FactsError::MissingObjectFacts));
+                        assert_eq!(error.code(), "missing_object_facts");
+                    }
+                    _ => assert!(matches!(result, Err(FactsError::StatsRunUnavailable(_)))),
+                }
+            }
+
+            if word_only {
+                value["cache"]["schema_version"] = pg_stats::SCHEMA_VERSION.into();
+                let forged = serde_json::from_value(value).unwrap();
+                assert!(matches!(
+                    read_cache(&path, &forged),
+                    Err(FactsError::StatsRunUnavailable(_))
+                ));
+            }
+        }
     }
 
     #[test]

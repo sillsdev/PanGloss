@@ -1,4 +1,4 @@
-//! Pins G7 question (a): a pattern root's regex route now compiles and certifies these two fixtures oracle-exact under `TunedSurfaceProbed`, which previously refused both with zero accepted backends.
+//! Pattern-root emission remains available independently of rewrite spelling refusals.
 
 use pg_conformance_fixtures::discover;
 use pg_foma::emit::eager_route_drops_root_spellings;
@@ -11,7 +11,7 @@ const TARGET_FIXTURES: &[&str] = &[
 ];
 
 #[test]
-fn pattern_root_shapes_no_longer_refuse_tuned_surface_probed() {
+fn pattern_root_route_survives_when_wide_rewrite_targets_are_isolated() {
     let fixtures = discover();
     let mut checked = 0usize;
     for fixture in &fixtures {
@@ -29,6 +29,40 @@ fn pattern_root_shapes_no_longer_refuse_tuned_surface_probed() {
             "{label}: eager_route_drops_root_spellings still claims a drop -- the regex route \
              should have retired this shape's Unbounded verdict as a drop"
         );
+        let Err(pg_foma::analyzer::FomaError::CapabilityRefused(diagnostics)) =
+            pg_foma::analyzer::compile_proposer(&grammar)
+        else {
+            panic!("{label}: the original wide rewrite target must refuse");
+        };
+        assert!(diagnostics.iter().any(|d| d.refusal
+            == pg_foma::capability::CapabilityRefusal::ProposalRecall(
+                pg_foma::capability::ProposalRecallGap::AmbiguousSegmentSpelling
+            )));
+        let xml = fixture.load_grammar_xml();
+        let target = r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHighVowel" /><SimpleContext naturalClass="ncHighVowel" /></PhoneticSequence></PhoneticInput>"#;
+        assert_eq!(xml.matches(target).count(), 2);
+        let xml = xml.replace(target, r#"<PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncHfuVowel" /><SimpleContext naturalClass="ncHfuVowel" /></PhoneticSequence></PhoneticInput>"#);
+        assert!(
+            xml.contains("<CompoundingRule id=\""),
+            "{label}: the control must keep a compounding rule"
+        );
+        let unstripped = pg_grammar::load(&xml).expect("scalar vowel control must load");
+        let Err(pg_foma::analyzer::FomaError::CapabilityRefused(refusals)) =
+            pg_foma::analyzer::compile_proposer(&unstripped)
+        else {
+            panic!("{label}: the unstripped compound control must refuse");
+        };
+        assert!(
+            refusals.iter().any(|d| d.refusal
+                == pg_foma::capability::CapabilityRefusal::ProposalRecall(
+                    pg_foma::capability::ProposalRecallGap::CompoundJunctionPhonology
+                )),
+            "{label}: expected the junction phonology refusal, got {refusals:?}"
+        );
+        let mut grammar =
+            pg_grammar::load(&pg_conformance_fixtures::grammar_xml_without_compounding_rules(&xml))
+                .expect("scalar vowel control must load");
+        pg_conformance_fixtures::drop_segment_deletions(&mut grammar);
         assert!(
             pg_foma::analyzer::compile_proposer(&grammar).is_ok(),
             "{label}: TunedSurfaceProbed still refuses to compile"

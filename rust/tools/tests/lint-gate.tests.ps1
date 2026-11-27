@@ -9,7 +9,7 @@ Test-Case 'the local clippy invocation denies warnings over every target and exa
     Assert-Equal 'clippy' $inv[0] 'clippy must be the cargo verb'
     Assert-Contains $inv '--all-targets' 'tests and examples must be linted'
     Assert-False ($inv -contains '--workspace') 'an ordinary run must honor Cargo default-members'
-    Assert-Contains $inv 'pg-foma/examples,pg-cli/examples' 'every examples feature must be on'
+    Assert-Contains $inv 'pg-foma/examples,pg-cli/examples,pg-cli/cost-calibration' 'every examples feature and the gated cost-calibration feature must be on'
     $sep = [array]::IndexOf($inv, '--')
     Assert-True ($sep -gt 0) 'clippy flags must follow a -- separator'
     Assert-Equal '-D warnings' (($inv[($sep + 1)..($inv.Count - 1)]) -join ' ') 'warnings must be denied, last'
@@ -17,8 +17,8 @@ Test-Case 'the local clippy invocation denies warnings over every target and exa
 
 Test-Case 'a narrowed clippy run keeps only that package''s examples feature' {
     $inv = @(Get-ClippyInvocation -Package 'pg-cli' -ExamplePackages @('pg-foma', 'pg-cli'))
-    Assert-Contains $inv 'pg-cli/examples' 'the narrowed package keeps its examples feature'
-    Assert-False ($inv -contains 'pg-foma/examples,pg-cli/examples') 'other packages'' features must be dropped'
+    Assert-Contains $inv 'pg-cli/examples,pg-cli/cost-calibration' 'the narrowed package keeps its examples and gated features'
+    Assert-False ($inv -contains 'pg-foma/examples,pg-cli/examples,pg-cli/cost-calibration') 'other packages'' features must be dropped'
     Assert-False ($inv -contains '--workspace') 'a narrowed run must not lint the whole workspace'
     Assert-Equal '-D' $inv[-2] 'extra args must not displace -D warnings from the end'
 }
@@ -33,7 +33,7 @@ Test-Case 'the local clippy gate matches the clippy command CI runs' {
     $ciLine = [regex]::Match($gates, '(?m)^\s*run:\s*(cargo clippy .+)$').Groups[1].Value
     Assert-True $ciLine 'rust-gates.yml must contain a cargo clippy run line'
     $ciFeatures = [regex]::Match($ciLine, '--features\s+(\S+)').Groups[1].Value -split ',' | Sort-Object
-    $localFeatures = @(Get-ExampleFeaturePackages -DefaultOnly | ForEach-Object { "$_/examples" }) | Sort-Object
+    $localFeatures = @(@(Get-ExampleFeaturePackages -DefaultOnly | ForEach-Object { "$_/examples" }) + $script:ClippyGatedFeatures) | Sort-Object
     Assert-Equal ($ciFeatures -join ',') ($localFeatures -join ',') 'local and CI examples features must agree'
     Assert-True ($ciLine -match '--all-targets') 'CI must lint all targets'
     Assert-True ($ciLine -match '--\s+-D warnings\s*$') 'CI must deny warnings'
@@ -50,7 +50,9 @@ Test-Case 'check runs clippy and every other cargo mode runs the lint gate first
 Test-Case 'the lint gate passes the selected Cargo features and no runner args' {
     $split = Split-CargoFeatureArgs -ExtraArgs @('--features', 'developer-tools', '-F', 'x', '--features=y', '--all-features', '--no-default-features', '--no-capture', '--', '--features', 'late')
     $lint = @(Get-ClippyInvocation -Package pg-cli -ExtraArgs $split.CargoArgs -ExamplePackages @())
-    Assert-Equal 'developer-tools' $lint[([array]::IndexOf($lint, '--features') + 1)] 'the selected feature list must reach clippy'
+    $selected = [array]::IndexOf($lint, 'developer-tools')
+    Assert-True ($selected -gt 0 -and $lint[$selected - 1] -eq '--features') 'the selected feature list must reach clippy'
+    Assert-Contains $lint 'pg-cli/cost-calibration' 'the gated feature stays on beside the selected list'
     foreach ($a in @('-F', '--features=y', '--all-features', '--no-default-features')) { Assert-Contains $lint $a "$a must reach clippy" }
     Assert-False ($lint -contains '--no-capture') 'runner flags cannot reach clippy'
     Assert-False ($lint -contains 'late') 'nothing after the libtest separator reaches clippy'

@@ -38,9 +38,51 @@ pub struct CharacterizationResult {
     pub evidence: ClosureEvidence,
 }
 
+/// An emission observation's author-facing finding or compiler-only classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EmissionHealth {
+    Grammar(EmissionGrammarFinding),
+    Budget { value: usize, limit: usize },
+    Advisory,
+}
+
+/// The canonical identity needed to resolve an emission finding into author navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmissionSubject {
+    LexicalEntry(pg_grammar::model::LexEntryId),
+    MorphRule(pg_grammar::model::MRuleId),
+}
+
+/// Compiler-owned finding data; author diagnostics are constructed only when requested.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmissionGrammarFinding {
+    pub code: pg_grammar::grammar_health::GrammarHealthCode,
+    pub subject: EmissionSubject,
+}
+
+impl EmissionGrammarFinding {
+    /// Resolves canonical navigation, returning a typed grammar error for an invalid identity.
+    pub fn into_diagnostic(
+        self,
+        grammar: &pg_grammar::model::Grammar,
+        message: String,
+    ) -> Result<pg_grammar::grammar_health::GrammarHealthDiagnostic, pg_grammar::GrammarError> {
+        use pg_grammar::grammar_health::GrammarHealthDiagnostic;
+        match self.subject {
+            EmissionSubject::LexicalEntry(id) => {
+                GrammarHealthDiagnostic::for_lexical_entry(grammar, id, self.code, message)
+            }
+            EmissionSubject::MorphRule(id) => {
+                GrammarHealthDiagnostic::for_morph_rule(grammar, id, self.code, message)
+            }
+        }
+    }
+}
+
 /// One construct this emitter could not represent as literal lexc — never silently dropped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UncoveredItem {
+    pub grammar_health: EmissionHealth,
     /// A short machine-stable category: "pattern-allomorph", "process-morph", "unsegmentable-root",
     /// "unsegmentable-affix", "infix", "reduplication", "circumfix-prefix", "circumfix-suffix",
     /// "process".
@@ -52,6 +94,18 @@ pub struct UncoveredItem {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmitCounts {
+    /// Prepared root and insertion spelling alternatives retained by the coverage plan.
+    pub spelling_certificate_paths: usize,
+    /// Root/affix emission sites that consumed a prepared spelling set.
+    pub spelling_certificate_uses: usize,
+    /// Compound subrules the spelling plan proved plain head/non-head concatenations.
+    pub compound_certificate_subrules: usize,
+    /// Compound chain builds that consumed that proof.
+    pub compound_certificate_uses: usize,
+    /// Stems per word covered at compilation, including by the legacy singleton route. Zero for a network without compound routes.
+    pub compound_stem_bound: usize,
+    /// The rule-count ceiling on stems per word, recorded with `compound_stem_bound`; 0 when that is 0.
+    pub compound_depth_ceiling: usize,
     /// `Grammar::entries.len()` (grammar-wide lexical entry count).
     pub entries: usize,
     /// `Grammar::mrules.len()` (grammar-wide morphological rule count).
@@ -99,12 +153,11 @@ pub struct EmitCounts {
 /// Overall verdict for this grammar's foma path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FomaTier {
-    /// Every construct the grammar uses was representable (no `uncovered` entries).
+    /// Every construct was represented; `uncovered` may contain compiler cost advisories.
     Full,
-    /// Emitted lexc material with known uncovered constructs. This is development evidence, not a
-    /// trusted proposer: confirmation cannot restore candidates that the emission omitted.
-    Partial { uncovered: usize },
-    /// Could not emit a usable network at all; caller should fall back to the full engine for this grammar.
+    /// A grammar construct cannot be faithfully represented by this backend.
+    CannotRepresent { reason: String },
+    /// Could not emit a usable network at all; the grammar is refused and any use of the full engine is the caller's choice.
     Unsupported { reason: String },
 }
 

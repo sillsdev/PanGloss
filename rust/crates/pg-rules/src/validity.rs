@@ -58,6 +58,7 @@
 //! rejects both because the environment fails at the *second* piece) and pinned by
 //! `pg-parse/tests/discontinuous_env_gate.rs`.
 
+use crate::observations::Decision;
 use pg_grammar_model::model::{
     AllomorphCoOccurrenceRuleDef, AllomorphId, AllomorphOwner, CoOccurrenceAdjacency,
     EnvironmentDef, Grammar, MorphemeCoOccurrenceRuleDef, MorphemeId, RootAllomorphDef, StemNameId,
@@ -67,12 +68,13 @@ use pg_shape::Shape;
 
 use crate::cache::RuleCache;
 use crate::morph::segs_of;
-use crate::rewrite::{compile_env_allomorph, left_env_ok, right_env_ok, EnvFst};
+use crate::rewrite::{compile_env_allomorph, independent_env_ok, EnvFst};
+use crate::stats::{Direction, ObjectKind, StatsCollector};
 use crate::trace::{
     EnvironmentResult, FailureReason, NoopSink, RejectionEvidence, TraceHandle, TraceObject,
     TraceSink,
 };
-use crate::word::{MorphRecord, Word};
+use crate::word::{MorphLayout, MorphRecord, Word};
 
 /// Every reference grammar resolves char-defs/patterns against table 0, matching `morph.rs`/`rewrite.rs`.
 const TABLE: TableId = TableId(0);
@@ -99,12 +101,20 @@ pub fn environments_ok(
     end: u32,
 ) -> bool {
     EnvCheck::Fresh
-        .evaluate(g, AllomorphId::GUESSED, envs, shape, (start, end), false)
+        .evaluate(
+            g,
+            AllomorphId::GUESSED,
+            envs,
+            shape,
+            (start, end),
+            EnvironmentCapture::Off,
+        )
         .is_ok()
 }
 
 /// One environment's require/exclude check, shared by the boolean and traced walks.
 fn env_side_ok(
+    g: &Grammar,
     env: &EnvironmentDef,
     left: &Option<EnvFst>,
     right: &Option<EnvFst>,
@@ -112,8 +122,8 @@ fn env_side_ok(
     start: u32,
     end: u32,
 ) -> bool {
-    let is_match =
-        left_env_ok(left, segs, start as usize) && right_env_ok(right, segs, end as usize + 1);
+    let is_match = independent_env_ok(g, left, segs, start as usize, true)
+        && independent_env_ok(g, right, segs, end as usize + 1, false);
     if env.require {
         is_match
     } else {
@@ -124,10 +134,56 @@ fn env_side_ok(
 /// Environment-matching mode: freshly compiled per call, or read from the `RuleCache`; threaded so the disjunctive loop's candidates share it too.
 enum EnvCheck<'a> {
     Fresh,
-    Cached(&'a RuleCache),
+    Cached(&'a RuleCache, Option<&'a StatsCollector>),
+}
+
+#[derive(Clone, Copy)]
+enum EnvironmentCapture {
+    Off,
+    Observe,
+    Tree,
 }
 
 impl EnvCheck<'_> {
+    fn stats(&self) -> Option<&StatsCollector> {
+        match self {
+            Self::Cached(_, stats) => *stats,
+            Self::Fresh => None,
+        }
+    }
+
+    fn time_owner(
+        &self,
+        g: &Grammar,
+        id: AllomorphId,
+    ) -> Option<crate::stats::ObjectTimeGuard<'_>> {
+        let EnvCheck::Cached(_, Some(stats)) = self else {
+            return None;
+        };
+        let (kind, object_index, allomorph, morpheme) = match g.allomorph_owners[id.0 as usize] {
+            AllomorphOwner::Root(entry, index) => (
+                ObjectKind::LexEntry,
+                entry.0,
+                u32::from(index) + 1,
+                g.entries[entry.0 as usize].morpheme,
+            ),
+            AllomorphOwner::Affix(rule, index) => (
+                ObjectKind::MorphRule,
+                rule.0,
+                u32::from(index) + 1,
+                g.mrules[rule.0 as usize]
+                    .morpheme()
+                    .expect("an affix allomorph has an owning morpheme"),
+            ),
+        };
+        Some(stats.time_enter(
+            kind,
+            g.morphemes[morpheme.0 as usize].stratum,
+            object_index,
+            allomorph,
+            Direction::Synthesis,
+        ))
+    }
     fn envs_ok(
         &self,
         g: &Grammar,
@@ -137,7 +193,7 @@ impl EnvCheck<'_> {
         start: u32,
         end: u32,
     ) -> bool {
-        self.evaluate(g, id, envs, shape, (start, end), false)
+        self.evaluate(g, id, envs, shape, (start, end), EnvironmentCapture::Off)
             .is_ok()
     }
 
@@ -149,16 +205,17 @@ impl EnvCheck<'_> {
         envs: &[EnvironmentDef],
         shape: &Shape,
         span: (u32, u32),
-        capture: bool,
+        capture: EnvironmentCapture,
     ) -> Result<(), Vec<EnvironmentResult>> {
         let (start, end) = span;
         if envs.is_empty() {
             return Ok(());
         }
+        let _time_owner = self.time_owner(g, id);
         let (segs, _node_of) = segs_of(g, TABLE, shape, true);
         let cached = match self {
             EnvCheck::Fresh => None,
-            EnvCheck::Cached(cache) => Some(&cache.allomorph(id).envs),
+            EnvCheck::Cached(cache, _) => Some(&cache.allomorph(id).envs),
         };
         let mut results = Vec::new();
         for (index, env) in envs.iter().enumerate() {
@@ -168,19 +225,22 @@ impl EnvCheck<'_> {
             let accepted = match cached {
                 Some(cache) => {
                     let (left, right) = &cache[index];
-                    env_side_ok(env, left, right, &segs, start, end)
+                    env_side_ok(g, env, left, right, &segs, start, end)
                 }
                 None => {
                     let left = compile_env_allomorph(g, TABLE, env.left.as_ref());
                     let right = compile_env_allomorph(g, TABLE, env.right.as_ref());
-                    env_side_ok(env, &left, &right, &segs, start, end)
+                    env_side_ok(g, env, &left, &right, &segs, start, end)
                 }
             };
             if accepted {
                 return Ok(());
             }
-            if capture {
-                let source = env.source.as_ref();
+            if !matches!(capture, EnvironmentCapture::Off) {
+                let source = match capture {
+                    EnvironmentCapture::Tree => env.source.as_ref(),
+                    _ => None,
+                };
                 results.push(EnvironmentResult {
                     index,
                     require: env.require,
@@ -233,26 +293,23 @@ fn stem_name_excluded_match(
         .all(|&r| !pg_featstruct::subsumes(g.fs_interner.get(r), fs))
 }
 
-/// `allo`'s stem name must required-match `fs`, and every sibling allomorph's own stem name must exclude-match it.
-fn stem_name_gates_ok(
-    g: &Grammar,
-    allos: &[RootAllomorphDef],
-    idx: usize,
-    fs: &pg_featstruct::FeatureStruct,
-) -> bool {
-    stem_name_gate_reason(g, allos, idx, fs).is_none()
-}
-
-/// Reason-reporting sibling of `stem_name_gates_ok`, which wraps this so traced and untraced paths agree.
+/// The first failing stem-name predicate, shared by normal and disjunctive validation.
 fn stem_name_gate_reason(
     g: &Grammar,
     allos: &[RootAllomorphDef],
     idx: usize,
     fs: &pg_featstruct::FeatureStruct,
+    stats: Option<&StatsCollector>,
 ) -> Option<FailureReason> {
     let allo = &allos[idx];
     if let Some(sn) = allo.stem_name {
-        if !stem_name_required_match(g, sn, fs) {
+        if !observe_allomorph(
+            g,
+            stats,
+            allo.id,
+            crate::stats::GateFeature::StemName(sn.0, false),
+            stem_name_required_match(g, sn, fs),
+        ) {
             return Some(FailureReason::RequiredStemName);
         }
     }
@@ -261,7 +318,13 @@ fn stem_name_gate_reason(
         .enumerate()
         .filter(|&(i, other)| i != idx && other.stem_name.is_some())
         .all(|(_, other)| {
-            stem_name_excluded_match(g, other.stem_name.unwrap(), fs, allo.stem_name)
+            observe_allomorph(
+                g,
+                stats,
+                allo.id,
+                crate::stats::GateFeature::StemName(other.stem_name.unwrap().0, true),
+                stem_name_excluded_match(g, other.stem_name.unwrap(), fs, allo.stem_name),
+            )
         });
     if excluded_ok {
         None
@@ -271,7 +334,12 @@ fn stem_name_gate_reason(
 }
 
 /// Walks every adjacent pair between `i` and `j`, unlike `morph.rs::free_fluctuates_with`'s adjacent-only callers; `i == j` is vacuously true.
-fn free_fluctuates<T>(allos: &[T], i: usize, j: usize, eq: impl Fn(&T, &T) -> bool) -> bool {
+pub(crate) fn free_fluctuates<T>(
+    allos: &[T],
+    i: usize,
+    j: usize,
+    eq: impl Fn(&T, &T) -> bool,
+) -> bool {
     let (lo, hi) = if i < j { (i, j) } else { (j, i) };
     (lo..hi).all(|k| eq(&allos[k], &allos[k + 1]))
 }
@@ -510,30 +578,121 @@ pub fn allomorphs_valid_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> bool {
-    allomorphs_valid_impl(g, w, EnvCheck::Cached(cache), trace, parent)
+    allomorphs_valid_cached_traced_with_stats(g, w, cache, trace, parent, None)
 }
 
-/// Emits the trace failure (guarded by `is_tracing()`) and returns `false`, keeping the two in lockstep.
-fn fail(trace: &dyn TraceSink, parent: TraceHandle, w: &Word, reason: FailureReason) -> bool {
-    if trace.is_tracing() {
-        trace.failed(parent, w, reason);
+/// Validate cached allomorphs and attribute environment matching to their owners when collecting stats.
+pub fn allomorphs_valid_cached_traced_with_stats(
+    g: &Grammar,
+    w: &Word,
+    cache: &RuleCache,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    stats: Option<&StatsCollector>,
+) -> bool {
+    allomorphs_valid_impl(g, w, EnvCheck::Cached(cache, stats), trace, parent)
+}
+
+fn record_partial_gate(g: &Grammar, object: AllomorphId) {
+    let kind = match g.allomorph_owners.get(object.0 as usize) {
+        Some(AllomorphOwner::Affix(..)) => crate::partials::FailureKind::AffixGate,
+        _ => crate::partials::FailureKind::RootGate,
+    };
+    crate::partials::record(kind, crate::partials::RejectingObject::Allomorph(object));
+}
+
+fn fail(
+    g: &Grammar,
+    object: AllomorphId,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    w: &Word,
+    reason: FailureReason,
+) -> bool {
+    if w.collect_partials() {
+        record_partial_gate(g, object);
+    }
+    match trace.mode() {
+        crate::trace::TraceMode::Tree => {
+            let event = trace.failed(parent, w, reason);
+            if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, object);
+            }
+        }
+        crate::trace::TraceMode::Observe(recorder)
+            if matches!(reason, FailureReason::BoundRoot) =>
+        {
+            recorder.record_terminal(w, Decision::BoundRoot { allomorph: object });
+        }
+        crate::trace::TraceMode::Observe(recorder) => recorder.unobserved_terminal(w),
+        _ => {}
     }
     false
 }
 
+/// Reject a word whose used allomorph lost to an earlier eligible one; `(blocked, blocker)` are the used and the winning allomorph.
+fn fail_allomorph_blocked(
+    g: &Grammar,
+    object: AllomorphId,
+    (blocked, blocker): (AllomorphId, AllomorphId),
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    w: &Word,
+) -> bool {
+    if let Some(recorder) = trace.mode().recorder() {
+        if pg_fst::work::active_budget()
+            .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_terminal(w, Decision::AllomorphBlocked { blocked, blocker });
+            if w.collect_partials() {
+                record_partial_gate(g, object);
+            }
+            return false;
+        }
+    }
+    fail_with_context(
+        g,
+        object,
+        trace,
+        parent,
+        w,
+        FailureReason::DisjunctiveAllomorph,
+        || crate::trace::FailureContext {
+            required: None,
+            actual: None,
+            environment: None,
+            evidence: Some(RejectionEvidence::AllomorphBlocked { blocked, blocker }),
+        },
+    )
+}
+
 /// Capture values at the already-fired gate. The closure is never evaluated for ordinary parses.
 fn fail_with_context(
+    g: &Grammar,
+    object: AllomorphId,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     w: &Word,
     reason: FailureReason,
     context: impl FnOnce() -> crate::trace::FailureContext,
 ) -> bool {
-    if trace.is_tracing() {
-        let event = trace.failed(parent, w, reason);
-        if trace.captures_failure_context() {
-            trace.set_failure_context(event, context());
+    if w.collect_partials() {
+        record_partial_gate(g, object);
+    }
+    match trace.mode() {
+        crate::trace::TraceMode::Tree => {
+            let event = trace.failed(parent, w, reason);
+            if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, object);
+                trace.set_failure_context(event, context());
+            }
         }
+        crate::trace::TraceMode::Observe(recorder)
+            if !matches!(reason, FailureReason::Environments) =>
+        {
+            recorder.unobserved_terminal(w);
+        }
+        _ => {}
     }
     false
 }
@@ -546,31 +705,57 @@ struct EnvironmentRejection {
 }
 
 fn fail_with_environment_context(
+    g: &Grammar,
     trace: &dyn TraceSink,
     parent: TraceHandle,
     w: &Word,
     rejection: EnvironmentRejection,
     legacy_environment: impl FnOnce() -> String,
 ) -> bool {
-    fail_with_context(trace, parent, w, FailureReason::Environments, || {
-        let (start, end) = rejection.span;
-        let allomorph = rejection.object;
-        crate::trace::FailureContext {
-            required: Some("at least one declared environment must accept this morph span".into()),
-            actual: Some(format!(
-                "allomorph {allomorph:?}, interior span {start}..={end}, shape {:?}",
-                w.shape
-            )),
-            environment: Some(legacy_environment()),
-            evidence: Some(RejectionEvidence::Environments {
-                object: TraceObject::Allomorph(allomorph),
-                constraint_owner: TraceObject::Allomorph(rejection.constraint_owner),
-                start,
-                end,
-                alternatives: rejection.alternatives,
-            }),
+    if let Some(recorder) = trace.mode().recorder() {
+        if pg_fst::work::active_budget()
+            .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_terminal(
+                w,
+                Decision::Environment {
+                    constraint_owner: rejection.constraint_owner,
+                    allomorph: rejection.object,
+                    span: rejection.span,
+                    alternatives: &rejection.alternatives,
+                },
+            );
         }
-    })
+    }
+    fail_with_context(
+        g,
+        rejection.constraint_owner,
+        trace,
+        parent,
+        w,
+        FailureReason::Environments,
+        || {
+            let (start, end) = rejection.span;
+            let allomorph = rejection.object;
+            crate::trace::FailureContext {
+                required: Some(
+                    "at least one declared environment must accept this morph span".into(),
+                ),
+                actual: Some(format!(
+                    "allomorph {allomorph:?}, interior span {start}..={end}, shape {:?}",
+                    w.shape
+                )),
+                environment: Some(legacy_environment()),
+                evidence: Some(RejectionEvidence::Environments {
+                    object: TraceObject::Allomorph(allomorph),
+                    constraint_owner: TraceObject::Allomorph(rejection.constraint_owner),
+                    start,
+                    end,
+                    alternatives: rejection.alternatives,
+                }),
+            }
+        },
+    )
 }
 fn allomorphs_valid_impl(
     g: &Grammar,
@@ -583,8 +768,20 @@ fn allomorphs_valid_impl(
     if w.morphs.is_empty() {
         return true;
     }
-    let mut sorted: Vec<&MorphRecord> = w.morphs.iter().collect();
-    sorted.sort_by_key(|m| m.order);
+    let environment_capture = match trace.mode() {
+        crate::trace::TraceMode::Observe(_) => EnvironmentCapture::Observe,
+        crate::trace::TraceMode::Tree if trace.captures_failure_context() => {
+            EnvironmentCapture::Tree
+        }
+        _ => EnvironmentCapture::Off,
+    };
+    let layout = MorphLayout::decode(&w.morphs, w.shape.len(), &w.extras);
+    let mut sorted_indices: Vec<usize> = (0..w.morphs.len()).collect();
+    sorted_indices.sort_by_key(|&index| w.morphs[index].order);
+    let sorted: Vec<&MorphRecord> = sorted_indices
+        .iter()
+        .map(|&index| &w.morphs[index])
+        .collect();
 
     // Distinct allomorphs used (deduped by id), not morph-record/piece count.
     let distinct_count = {
@@ -594,22 +791,27 @@ fn allomorphs_valid_impl(
         ids.len()
     };
 
-    // Last interior index of the final shape (anchors excluded): `shape.len()` always counts the
-    // two anchors (the `p - 1` convention `morph.rs::copy_part` and friends already rely on).
-    let last_interior = w.shape.len().saturating_sub(3) as u32;
-
     // Computed once: the same morph list is used for every morph checked in this loop.
     let morph_list_allomorphs: Vec<AllomorphId> = sorted.iter().map(|m| m.allomorph).collect();
     let morph_list_morphemes: Vec<MorphemeId> = sorted.iter().map(|m| m.morpheme).collect();
 
     for (i, m) in sorted.iter().enumerate() {
+        let owner_id = if m.allomorph == AllomorphId::GUESSED {
+            m.runtime_root
+                .as_ref()
+                .and_then(|root| match root.as_ref() {
+                    crate::word::RuntimeRoot::Guessed(root) => Some(root.pattern_allo),
+                    crate::word::RuntimeRoot::Supplied(_) => None,
+                })
+        } else {
+            Some(m.allomorph)
+        };
+        // Attribute the entire validation of this morph to its owner.
+        let _owner = owner_id.and_then(|id| check.time_owner(g, id));
         if !pg_fst::work::consume() {
             return false;
         }
-        let start = m.order;
-        let end = sorted
-            .get(i + 1)
-            .map_or(last_interior, |n| n.order.saturating_sub(1));
+        let (start, end) = layout.record_ranges[sorted_indices[i]];
 
         // The guessed root has no `allomorph_owners` row; delegate checks to the real pattern allomorph it was matched against instead.
         if m.allomorph == AllomorphId::GUESSED {
@@ -631,12 +833,32 @@ fn allomorphs_valid_impl(
                 .expect("guessed_root.pattern_allo must be one of its owning entry's allomorphs");
             let def = &allos[idx];
             if def.is_bound && distinct_count == 1 {
-                return fail(trace, parent, w, FailureReason::BoundRoot);
+                return fail(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
+                    trace,
+                    parent,
+                    w,
+                    FailureReason::BoundRoot,
+                );
             }
             // Primary stem-name clause only; the fabricated entry has exactly one allomorph, so the sibling-exclusion loop is a no-op here.
             if let Some(sn) = def.stem_name {
-                if !stem_name_required_match(g, sn, &w.syn_fs) {
-                    return fail(trace, parent, w, FailureReason::RequiredStemName);
+                if !observe_allomorph(
+                    g,
+                    check.stats(),
+                    def.id,
+                    crate::stats::GateFeature::StemName(sn.0, false),
+                    stem_name_required_match(g, sn, &w.syn_fs),
+                ) {
+                    return fail(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::RequiredStemName,
+                    );
                 }
             }
             // Keyed on the guessed sentinel ids, which never equal any real id in the morph lists.
@@ -646,6 +868,8 @@ fn allomorphs_valid_impl(
                 &morph_list_allomorphs,
             ) {
                 return fail_with_context(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
                     trace,
                     parent,
                     w,
@@ -670,6 +894,8 @@ fn allomorphs_valid_impl(
                 &morph_list_morphemes,
             ) {
                 return fail_with_context(
+                    g,
+                    owner_id.unwrap_or(m.allomorph),
                     trace,
                     parent,
                     w,
@@ -693,9 +919,10 @@ fn allomorphs_valid_impl(
                 &def.environments,
                 &w.shape,
                 (start, end),
-                trace.is_tracing() && trace.captures_failure_context(),
+                environment_capture,
             ) {
                 return fail_with_environment_context(
+                    g,
                     trace,
                     parent,
                     w,
@@ -717,11 +944,20 @@ fn allomorphs_valid_impl(
                 let allos = &g.entries[le.0 as usize].allomorphs;
                 let def = &allos[idx as usize];
                 if def.is_bound && distinct_count == 1 {
-                    return fail(trace, parent, w, FailureReason::BoundRoot);
+                    return fail(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
+                        trace,
+                        parent,
+                        w,
+                        FailureReason::BoundRoot,
+                    );
                 }
                 // Stem-name gate sits between the bound-root gate and the co-occurrence gates, matching C#'s order.
-                if let Some(reason) = stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs) {
-                    return fail(trace, parent, w, reason);
+                if let Some(reason) =
+                    stem_name_gate_reason(g, allos, idx as usize, &w.syn_fs, check.stats())
+                {
+                    return fail(g, owner_id.unwrap_or(m.allomorph), trace, parent, w, reason);
                 }
                 // Allomorph-level rules, then morpheme-level rules, both before the environments check below, matching C#'s order.
                 if let Some(rule_index) = first_failed_allomorph_co_occurrence_rule(
@@ -730,6 +966,8 @@ fn allomorphs_valid_impl(
                     &morph_list_allomorphs,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -753,6 +991,8 @@ fn allomorphs_valid_impl(
                     &morph_list_morphemes,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -775,9 +1015,10 @@ fn allomorphs_valid_impl(
                     &def.environments,
                     &w.shape,
                     (start, end),
-                    trace.is_tracing() && trace.captures_failure_context(),
+                    environment_capture,
                 ) {
                     return fail_with_environment_context(
+                        g,
                         trace,
                         parent,
                         w,
@@ -793,6 +1034,7 @@ fn allomorphs_valid_impl(
                 // The candidate's own allomorph-co-occurrence rules are checked here; morpheme-level rules are provably a
                 // no-op per candidate and are intentionally omitted -- see docs/research/pg-rules-validity-design-notes.md.
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    let _candidate_owner = check.time_owner(g, allos[ci].id);
                     if !pg_fst::work::consume() {
                         return false;
                     }
@@ -802,14 +1044,21 @@ fn allomorphs_valid_impl(
                     }
                     if check.envs_ok(g, cand.id, &cand.environments, &w.shape, start, end)
                         && !(cand.is_bound && distinct_count == 1)
-                        && stem_name_gates_ok(g, allos, ci, &w.syn_fs)
+                        && stem_name_gate_reason(g, allos, ci, &w.syn_fs, check.stats()).is_none()
                         && allomorph_co_occurrence_ok(
                             &cand.co_occurrence,
                             m.allomorph,
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(trace, parent, w, FailureReason::DisjunctiveAllomorph);
+                        return fail_allomorph_blocked(
+                            g,
+                            owner_id.unwrap_or(m.allomorph),
+                            (m.allomorph, cand.id),
+                            trace,
+                            parent,
+                            w,
+                        );
                     }
                 }
             }
@@ -819,8 +1068,16 @@ fn allomorphs_valid_impl(
                     "compounding rules mint no AllomorphId (no per-allomorph registry entry)",
                 );
                 let def = &allos[idx as usize];
-                if !pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs) {
+                if !observe_syn(
+                    g,
+                    check.stats(),
+                    def.id,
+                    def.required_syn_fs,
+                    pg_featstruct::subsumes(g.fs_interner.get(def.required_syn_fs), &w.syn_fs),
+                ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -844,6 +1101,8 @@ fn allomorphs_valid_impl(
                     &morph_list_allomorphs,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -867,6 +1126,8 @@ fn allomorphs_valid_impl(
                     &morph_list_morphemes,
                 ) {
                     return fail_with_context(
+                        g,
+                        owner_id.unwrap_or(m.allomorph),
                         trace,
                         parent,
                         w,
@@ -889,9 +1150,10 @@ fn allomorphs_valid_impl(
                     &def.environments,
                     &w.shape,
                     (start, end),
-                    trace.is_tracing() && trace.captures_failure_context(),
+                    environment_capture,
                 ) {
                     return fail_with_environment_context(
+                        g,
                         trace,
                         parent,
                         w,
@@ -906,6 +1168,7 @@ fn allomorphs_valid_impl(
                 }
                 // Same disjunctive re-check shape as the root arm above (see its comment).
                 for ci in disjunctive_candidates(m, idx as usize) {
+                    let _candidate_owner = check.time_owner(g, allos[ci].id);
                     if !pg_fst::work::consume() {
                         return false;
                     }
@@ -916,9 +1179,15 @@ fn allomorphs_valid_impl(
                         continue;
                     }
                     if check.envs_ok(g, cand.id, &cand.environments, &w.shape, start, end)
-                        && pg_featstruct::subsumes(
-                            g.fs_interner.get(cand.required_syn_fs),
-                            &w.syn_fs,
+                        && observe_syn(
+                            g,
+                            check.stats(),
+                            cand.id,
+                            cand.required_syn_fs,
+                            pg_featstruct::subsumes(
+                                g.fs_interner.get(cand.required_syn_fs),
+                                &w.syn_fs,
+                            ),
                         )
                         && allomorph_co_occurrence_ok(
                             &cand.co_occurrence,
@@ -926,11 +1195,54 @@ fn allomorphs_valid_impl(
                             &morph_list_allomorphs,
                         )
                     {
-                        return fail(trace, parent, w, FailureReason::DisjunctiveAllomorph);
+                        return fail_allomorph_blocked(
+                            g,
+                            owner_id.unwrap_or(m.allomorph),
+                            (m.allomorph, cand.id),
+                            trace,
+                            parent,
+                            w,
+                        );
                     }
                 }
             }
         }
     }
     true
+}
+
+fn observe_allomorph(
+    g: &Grammar,
+    stats: Option<&StatsCollector>,
+    id: AllomorphId,
+    feature: crate::stats::GateFeature,
+    passed: bool,
+) -> bool {
+    if let Some(stats) = stats {
+        let (kind, index) = match g.allomorph_owners[id.0 as usize] {
+            AllomorphOwner::Root(entry, _) => (ObjectKind::LexEntry, entry.0),
+            AllomorphOwner::Affix(rule, _) => (ObjectKind::MorphRule, rule.0),
+        };
+        stats.record_gate(kind, index, feature, passed);
+    }
+    passed
+}
+
+fn observe_syn(
+    g: &Grammar,
+    stats: Option<&StatsCollector>,
+    id: AllomorphId,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) -> bool {
+    if stats.is_some() && !g.fs_interner.get(fs).is_empty() {
+        observe_allomorph(
+            g,
+            stats,
+            id,
+            crate::stats::GateFeature::Syntactic(fs.0),
+            passed,
+        );
+    }
+    passed
 }

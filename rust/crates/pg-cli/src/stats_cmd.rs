@@ -6,11 +6,11 @@ use std::time::Duration;
 
 use pg_grammar::model::{Grammar, LexEntryId, MRuleId, PRuleId};
 use pg_grammar::stats_identity::StatsIdentityCatalog;
-use pg_stats::StepCap;
+use pg_stats::{StatsProfile, WorkCap};
 use serde::Serialize;
 use serde_json::Value;
 
-/// Bounds one `StatsCache::flush` transaction so a 10k-word run never holds every row in memory at once.
+/// Preserves the word grouping of reusable-cache runs independently of row buffering.
 const STATS_FLUSH_BATCH: usize = 500;
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -39,38 +39,15 @@ fn canonical_or_raw(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-/// The cache's grammar-change fingerprint: `.json`/`.fwdata` hash their `Snapshot`; `.xml` (no `Snapshot` exists) hashes its own raw bytes.
-fn grammar_hash_for(path: &str) -> Result<String, String> {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    match ext {
-        "json" => {
-            let json = std::fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-            let snapshot = pg_snapshot::Snapshot::from_json(&json)
-                .map_err(|e| format!("parse snapshot {path}: {e}"))?;
-            Ok(snapshot.grammar_hash())
-        }
-        "fwdata" => {
-            let (snapshot, _report) = pg_fwdata::import_file(std::path::Path::new(path))
-                .map_err(|e| format!("import {path}: {e}"))?;
-            Ok(snapshot.grammar_hash())
-        }
-        _ => {
-            let bytes = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
-            Ok(sha256_hex(&bytes))
-        }
-    }
-}
-
 pub(crate) fn resolve_cache_path(
     project_path: &str,
     cache_override: Option<&str>,
+    profile: StatsProfile,
 ) -> Result<PathBuf, String> {
     match cache_override {
         Some(p) => Ok(PathBuf::from(p)),
-        None => pg_stats::default_cache_path(project_path).map_err(|e| e.to_string()),
+        None => pg_stats::default_cache_path_for_profile(project_path, profile)
+            .map_err(|e| e.to_string()),
     }
 }
 
@@ -83,6 +60,7 @@ fn to_stats_kind(k: pg_grammar::stats_identity::ObjectKind) -> pg_stats::ObjectK
         G::RootIndex => pg_stats::ObjectKind::RootIndex,
         G::Guesser => pg_stats::ObjectKind::Guesser,
         G::Overlay => pg_stats::ObjectKind::Overlay,
+        G::Parser => pg_stats::ObjectKind::Parser,
     }
 }
 
@@ -141,10 +119,10 @@ fn stats_row_allomorph_locator(
                         row.allomorph, row.object_index
                     )
                 });
-                let identity = identities.morph_rule(rule_id);
+                let identity = identities.compound_subrule(rule_id, local_index);
                 return Some(pg_stats::StructuralLocator::new(
-                    format!("{}#subrule:{}", identity.key, row.allomorph),
-                    format!("{} subrule {}", identity.label, row.allomorph),
+                    identity.key,
+                    identity.label,
                 ));
             }
             rule.affix_allomorphs()
@@ -175,13 +153,13 @@ fn stats_row_allomorph_locator(
     ))
 }
 
-/// Maps a collector row's runtime ids and owner-local allomorph position to durable identities.
-fn fact_record_from_stats_row(
+/// The durable identity of the object a collector row counts; shared by the facts cache and the per-word rule-cost rows so both name an object the same way.
+pub(crate) fn stats_row_object_identity(
     grammar: &Grammar,
     identities: &StatsIdentityCatalog,
     row: &pg_rules::stats::StatsRow,
-) -> pg_stats::FactRecord {
-    let identity = match row.kind {
+) -> Result<pg_grammar::stats_identity::ObjectIdentity, String> {
+    Ok(match row.kind {
         pg_rules::stats::ObjectKind::MorphRule => {
             identities.morph_rule(MRuleId(row.object_index)).clone()
         }
@@ -201,22 +179,30 @@ fn fact_record_from_stats_row(
             grammar,
             pg_grammar::stats_identity::OverlayPhase::from_index(row.object_index),
         ),
-    };
+        pg_rules::stats::ObjectKind::Parser => {
+            let phase = pg_rules::stats::ParserWork::from_index(row.object_index)
+                .ok_or_else(|| format!("stats: invalid parser work index {}", row.object_index))?;
+            pg_grammar::stats_identity::parser_identity(phase.name())
+        }
+    })
+}
+
+/// Maps a collector row's runtime ids and owner-local allomorph position to durable identities.
+fn fact_record_from_stats_row(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    row: &pg_rules::stats::StatsRow,
+) -> Result<pg_stats::FactRecord, String> {
+    let identity = stats_row_object_identity(grammar, identities, row)?;
     let stratum = pg_grammar::stats_identity::stratum_identity(grammar, row.stratum);
     let allomorph = stats_row_allomorph_locator(grammar, identities, row);
     // Only a `lex_entry` object realizes a single morpheme; every other kind carries no locator.
-    let morpheme = if row.kind == pg_rules::stats::ObjectKind::LexEntry {
-        let morpheme_id = grammar.entries[row.object_index as usize].morpheme;
-        let m = pg_grammar::stats_identity::morpheme_identity(grammar, morpheme_id);
-        Some(pg_stats::StructuralLocator::new(m.key, m.label))
-    } else {
-        None
-    };
+    let morpheme = stats_owner_morpheme(grammar, row.kind, row.object_index);
     let direction = match row.direction {
         pg_rules::stats::Direction::Analysis => pg_stats::Direction::Analysis,
         pg_rules::stats::Direction::Synthesis => pg_stats::Direction::Synthesis,
     };
-    pg_stats::FactRecord {
+    Ok(pg_stats::FactRecord {
         object_key: identity.key,
         object_kind: to_stats_kind(identity.kind),
         object_label: identity.label,
@@ -227,25 +213,41 @@ fn fact_record_from_stats_row(
         direction,
         attempts: row.counters.attempts,
         work: row.counters.work,
+        work_steps: row.counters.work_steps,
         outputs: row.counters.outputs,
         not_applied: row.counters.not_applied,
         no_root: row.counters.no_root,
         surface_mismatch: row.counters.surface_mismatch,
         uses: row.counters.uses,
         self_time_ns: row.counters.self_time_ns,
-    }
+    })
 }
 
-fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> pg_rules::stats::ObjectKind {
+fn stats_owner_morpheme(
+    grammar: &Grammar,
+    kind: pg_rules::stats::ObjectKind,
+    index: u32,
+) -> Option<pg_stats::StructuralLocator> {
+    if kind != pg_rules::stats::ObjectKind::LexEntry {
+        return None;
+    }
+    let morpheme_id = grammar.entries[index as usize].morpheme;
+    let m = pg_grammar::stats_identity::morpheme_identity(grammar, morpheme_id);
+    Some(pg_stats::StructuralLocator::new(m.key, m.label))
+}
+
+fn stats_kind_to_rules_kind(k: pg_stats::ObjectKind) -> Option<pg_rules::stats::ObjectKind> {
     use pg_stats::ObjectKind as S;
-    match k {
+    Some(match k {
         S::MorphRule => pg_rules::stats::ObjectKind::MorphRule,
         S::PhonRule => pg_rules::stats::ObjectKind::PhonRule,
         S::LexEntry => pg_rules::stats::ObjectKind::LexEntry,
         S::RootIndex => pg_rules::stats::ObjectKind::RootIndex,
         S::Guesser => pg_rules::stats::ObjectKind::Guesser,
         S::Overlay => pg_rules::stats::ObjectKind::Overlay,
-    }
+        S::Parser => pg_rules::stats::ObjectKind::Parser,
+        S::Unattributed => return None,
+    })
 }
 
 /// Errors when `cache_path` already holds a different engine's runs, checked before analyzing a word or writing a row -- a report cannot span two engines.
@@ -273,14 +275,13 @@ fn refuse_if_cache_engine_differs(
     Ok(())
 }
 
-pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 2;
+pub(crate) const SEARCH_BUDGET_SEMANTICS: u32 = 4;
 
 fn prior_options(
-    cache: &pg_stats::StatsCache,
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
 ) -> Result<Vec<serde_json::Map<String, Value>>, String> {
-    let mut stmt = cache
-        .connection()
+    let mut stmt = conn
         .prepare("SELECT options_json FROM run ORDER BY run_id")
         .map_err(|e| e.to_string())?;
     let prior: Vec<String> = stmt
@@ -308,11 +309,11 @@ fn prior_options(
 }
 
 fn refuse_if_final_template_policy_differs(
-    cache: &pg_stats::StatsCache,
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
     requested: bool,
 ) -> Result<(), String> {
-    for object in prior_options(cache, cache_path)? {
+    for object in prior_options(conn, cache_path)? {
         let recorded = match object.get("always_enforce_final_templates") {
             None => false,
             Some(Value::Bool(value)) => *value,
@@ -333,12 +334,11 @@ fn refuse_if_final_template_policy_differs(
     Ok(())
 }
 
-fn refuse_if_work_cap_differs(
-    cache: &pg_stats::StatsCache,
+fn refuse_if_search_budget_semantics_differ(
+    conn: &rusqlite::Connection,
     cache_path: &std::path::Path,
-    requested: usize,
 ) -> Result<(), String> {
-    for object in prior_options(cache, cache_path)? {
+    for object in prior_options(conn, cache_path)? {
         if object
             .get("search_budget_semantics")
             .and_then(Value::as_u64)
@@ -349,12 +349,6 @@ fn refuse_if_work_cap_differs(
                 cache_path.display()
             ));
         }
-        if object.get("work_cap").and_then(Value::as_u64) != Some(requested as u64) {
-            return Err(format!(
-                "stats: cache at {} records a different or missing work cap; requested {}; use a separate cache",
-                cache_path.display(), requested
-            ));
-        }
     }
     Ok(())
 }
@@ -362,12 +356,20 @@ fn refuse_if_work_cap_differs(
 #[derive(Serialize)]
 struct StatsOptionsRecord {
     engine: &'static str,
-    step_cap: Option<StepCap>,
-    work_cap: usize,
+    work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     search_budget_semantics: u32,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
+    #[serde(flatten)]
+    word_only_search: Option<WordOnlySearchOptions>,
+}
+
+#[derive(Clone, Copy, Default, Serialize)]
+pub(crate) struct WordOnlySearchOptions {
+    pub(crate) capture_cap_bytes: Option<usize>,
+    pub(crate) partials: u8,
 }
 
 fn final_template_stats_line(counters: pg_rules::stats::PruneCounters) -> String {
@@ -386,32 +388,13 @@ fn sum_prune_rows(rows: &[pg_rules::stats::PruneRow]) -> pg_rules::stats::PruneC
     total
 }
 
-/// Flushes HC `batch --stats` records in batches and prints the one summary line it promises.
-struct StatsFlushRequest<'a> {
-    grammar_path: &'a str,
-    grammar_hash: &'a str,
-    options: &'a StatsOptionsRecord,
-    records: Vec<pg_stats::WordRecord>,
-    skipped: usize,
-    elapsed: Duration,
-    single_run: bool,
-}
-
-fn finish_stats_flush(
-    cache: &mut pg_stats::StatsCache,
-    request: StatsFlushRequest<'_>,
-) -> Result<i64, String> {
-    let StatsFlushRequest {
-        grammar_path,
-        grammar_hash,
-        options,
-        records,
-        skipped,
-        elapsed,
-        single_run,
-    } = request;
+fn stats_run_metadata(
+    grammar_path: &str,
+    grammar_hash: &str,
+    options: &StatsOptionsRecord,
+) -> Result<pg_stats::RunMetadata, String> {
     let identity = stats_options_identity(options)?;
-    let run = pg_stats::RunMetadata {
+    Ok(pg_stats::RunMetadata {
         build_info: crate::build_info::embedded_build_info().to_string(),
         fwdata_path: canonical_or_raw(grammar_path),
         grammar_hash: grammar_hash.to_string(),
@@ -419,28 +402,8 @@ fn finish_stats_flush(
         options_hash: identity.hash,
         options_json: identity.json,
         created_utc: now_utc_string(),
-        step_cap: options.step_cap,
-    };
-
-    let analyzed = records.len();
-    let mut chunks: Vec<&[pg_stats::WordRecord]> = if single_run {
-        vec![&records]
-    } else {
-        records.chunks(STATS_FLUSH_BATCH).collect()
-    };
-    if chunks.is_empty() {
-        chunks.push(&[]);
-    }
-    let mut run_id = None;
-    for chunk in chunks {
-        run_id = Some(cache.flush(&run, chunk).map_err(|e| e.to_string())?);
-    }
-
-    println!(
-        "stats: analyzed={analyzed} skipped={skipped} summed_word_ms={:.3}",
-        elapsed.as_secs_f64() * 1e3
-    );
-    run_id.ok_or_else(|| "stats flush did not create a run".to_string())
+        work_cap: Some(options.work_cap),
+    })
 }
 
 struct StatsOptionsIdentity {
@@ -457,7 +420,89 @@ fn stats_options_identity(options: &StatsOptionsRecord) -> Result<StatsOptionsId
 
 pub(crate) struct BatchStatsWord {
     pub(crate) record: pg_stats::WordRecord,
-    pub(crate) prunes: pg_rules::stats::PruneCounters,
+    pub(crate) prunes: Option<pg_rules::stats::PruneCounters>,
+}
+
+pub(crate) enum BatchStatsCollector<'g> {
+    Full {
+        grammar: &'g Grammar,
+        identities: StatsIdentityCatalog,
+    },
+    WordOnly,
+}
+
+impl<'g> BatchStatsCollector<'g> {
+    pub(crate) fn new(profile: StatsProfile, grammar: &'g Grammar) -> Self {
+        match profile {
+            StatsProfile::Full => Self::Full {
+                grammar,
+                identities: StatsIdentityCatalog::new(grammar),
+            },
+            StatsProfile::WordOnly => Self::WordOnly,
+        }
+    }
+
+    pub(crate) fn parse_chunk_size(&self) -> usize {
+        match self {
+            // Leave room for the spool decoder to stage one word while SQLite writes the previous one.
+            Self::Full { .. } => 15,
+            // Word-only results have no fact vectors to buffer. Keep workers busy until the next reusable checkpoint.
+            Self::WordOnly => STATS_FLUSH_BATCH,
+        }
+    }
+
+    pub(crate) fn parse(
+        &self,
+        morpher: &pg_parse::Morpher,
+        word: &str,
+        opts: &pg_parse::ParseOptions,
+        parse_counter: &crate::BatchParseCounter,
+    ) -> Result<(pg_parse::BatchWordOutcome, BatchStatsWord), String> {
+        let start = std::time::Instant::now();
+        parse_counter.record();
+        match self {
+            Self::WordOnly => {
+                let outcome = morpher.parse_word_opts(word, opts);
+                let result = pg_parse::BatchWordOutcome {
+                    outcome,
+                    elapsed: start.elapsed(),
+                };
+                let stats = BatchStatsWord {
+                    record: word_record(word, &result),
+                    prunes: None,
+                };
+                Ok((result, stats))
+            }
+            Self::Full {
+                grammar,
+                identities,
+            } => {
+                let (outcome, rows, prunes, gates) = morpher.parse_word_with_gate_stats(word, opts);
+                let result = pg_parse::BatchWordOutcome {
+                    outcome,
+                    elapsed: start.elapsed(),
+                };
+                let stats = batch_stats_word_with_gates(
+                    grammar, identities, word, &result, &rows, &prunes, &gates,
+                )?;
+                Ok((result, stats))
+            }
+        }
+    }
+}
+
+fn word_record(word: &str, outcome: &pg_parse::BatchWordOutcome) -> pg_stats::WordRecord {
+    pg_stats::WordRecord {
+        form: word.to_string(),
+        elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
+        work: outcome.outcome.work_steps as u64,
+        passes: outcome.outcome.analyses.len() as u64,
+        capped: outcome.outcome.capped,
+        timed_out: outcome.outcome.timed_out,
+        invalid_shape: outcome.outcome.invalid_shape,
+        facts: Vec::new(),
+        gates: None,
+    }
 }
 
 pub(crate) fn batch_stats_word(
@@ -467,40 +512,208 @@ pub(crate) fn batch_stats_word(
     outcome: &pg_parse::BatchWordOutcome,
     rows: &[pg_rules::stats::StatsRow],
     prune_rows: &[pg_rules::stats::PruneRow],
-) -> BatchStatsWord {
+) -> Result<BatchStatsWord, String> {
     let prunes = sum_prune_rows(prune_rows);
-    let facts = rows
-        .iter()
-        .map(|row| fact_record_from_stats_row(grammar, identities, row))
-        .collect();
-    BatchStatsWord {
-        record: pg_stats::WordRecord {
-            form: word.to_string(),
-            elapsed_ns: outcome.elapsed.as_nanos().min(u128::from(u64::MAX)) as u64,
-            attempts: outcome.outcome.steps as u64,
-            work: outcome.outcome.work_steps as u64,
-            passes: outcome.outcome.analyses.len() as u64,
-            capped: outcome.outcome.capped,
-            timed_out: outcome.outcome.timed_out,
-            invalid_shape: outcome.outcome.invalid_shape,
-            facts,
-        },
-        prunes,
+    let mut facts = Vec::with_capacity(rows.len() + 1);
+    let mut attributed = 0;
+    for row in rows {
+        facts.push(fact_record_from_stats_row(grammar, identities, row)?);
+        attributed += row.counters.work_steps;
     }
+    let unattributed = (outcome.outcome.work_steps as u64)
+        .checked_sub(attributed)
+        .expect("object work steps exceed the word budget");
+    facts.push(pg_stats::FactRecord {
+        object_key: "unattributed".into(),
+        object_kind: pg_stats::ObjectKind::Unattributed,
+        object_label: "Unattributed".into(),
+        identity_quality: pg_stats::IdentityQuality::Synthetic,
+        stratum: None,
+        allomorph: None,
+        morpheme: None,
+        direction: pg_stats::Direction::Unattributed,
+        attempts: 0,
+        work: 0,
+        work_steps: unattributed,
+        outputs: 0,
+        not_applied: 0,
+        no_root: 0,
+        surface_mismatch: 0,
+        uses: 0,
+        self_time_ns: 0,
+    });
+    Ok(BatchStatsWord {
+        record: pg_stats::WordRecord {
+            facts,
+            ..word_record(word, outcome)
+        },
+        prunes: Some(prunes),
+    })
+}
+
+/// Resolve compact parser identities only after the parse; the hot loop allocates no strings.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn batch_stats_word_with_gates(
+    grammar: &Grammar,
+    identities: &StatsIdentityCatalog,
+    word: &str,
+    outcome: &pg_parse::BatchWordOutcome,
+    rows: &[pg_rules::stats::StatsRow],
+    prune_rows: &[pg_rules::stats::PruneRow],
+    gates: &[pg_rules::stats::GateRow],
+) -> Result<BatchStatsWord, String> {
+    let mut result = batch_stats_word(grammar, identities, word, outcome, rows, prune_rows)?;
+    result.record.gates = Some(
+        gates
+            .iter()
+            .map(|row| {
+                use pg_rules::stats::{GateFeature, ObjectKind};
+                let identity = match row.kind {
+                    ObjectKind::MorphRule => identities.morph_rule(MRuleId(row.object_index)),
+                    ObjectKind::PhonRule => identities.phon_rule(PRuleId(row.object_index)),
+                    ObjectKind::LexEntry => identities.lex_entry(LexEntryId(row.object_index)),
+                    _ => panic!("a feature predicate must have a grammar object owner"),
+                };
+                let (feature_key, feature_kind, feature_label, mode) = match row.feature {
+                    GateFeature::Mpr(bit, _) | GateFeature::CompoundMpr(bit) => {
+                        let feature = &grammar.mpr_features[bit as usize];
+                        let mode = match row.feature {
+                            GateFeature::CompoundMpr(_) => "compound-required",
+                            GateFeature::Mpr(_, true) => "excluded",
+                            _ => "required",
+                        };
+                        (
+                            feature.xml_id.clone(),
+                            "mpr".into(),
+                            feature.name.clone(),
+                            mode.into(),
+                        )
+                    }
+                    GateFeature::StemName(index, exclude) => {
+                        let name = &grammar.stem_names[index as usize];
+                        (
+                            name.xml_id.clone(),
+                            "stem-name".into(),
+                            name.name.clone().unwrap_or_default(),
+                            if exclude { "excluded" } else { "required" }.into(),
+                        )
+                    }
+                    GateFeature::Syntactic(index) => {
+                        let key = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(index)),
+                        )?;
+                        (key.clone(), "syntactic".into(), key, "required".into())
+                    }
+                    GateFeature::InverseSyntactic(required, output) => {
+                        let required = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(required)),
+                        )?;
+                        let output = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(output)),
+                        )?;
+                        let key = format!(r#"{{"output":{output},"required":{required}}}"#);
+                        (
+                            key.clone(),
+                            "syntactic".into(),
+                            key,
+                            "inverse-unification".into(),
+                        )
+                    }
+                    GateFeature::RealizationalUnification(index)
+                    | GateFeature::RealizationalSubsumption(index) => {
+                        let key = syntactic_gate_key(
+                            grammar,
+                            grammar.fs_interner.get(pg_featstruct::FsId(index)),
+                        )?;
+                        let mode = match row.feature {
+                            GateFeature::RealizationalUnification(_) => "realizational-unification",
+                            _ => "realizational-subsumption",
+                        };
+                        (key.clone(), "syntactic".into(), key, mode.into())
+                    }
+                    GateFeature::Pos(bits) => {
+                        let mut builder = pg_featstruct::FeatureStructBuilder::new();
+                        builder.add(
+                            grammar.syn_features.pos,
+                            pg_featstruct::FeatureValue::Symbolic(pg_featstruct::SymbolBits(bits)),
+                        );
+                        let key = syntactic_gate_key(grammar, &builder.build())?;
+                        (key.clone(), "pos".into(), key, "required".into())
+                    }
+                };
+                Ok(pg_stats::GateRecord {
+                    object_key: identity.key.clone(),
+                    object_kind: to_stats_kind(identity.kind),
+                    object_label: identity.label.clone(),
+                    identity_quality: to_stats_quality(identity.quality),
+                    morpheme: stats_owner_morpheme(grammar, row.kind, row.object_index),
+                    feature_key,
+                    feature_kind,
+                    feature_label,
+                    mode,
+                    passed: row.passed,
+                    blocked: row.blocked,
+                })
+            })
+            .collect::<Result<_, String>>()?,
+    );
+    Ok(result)
+}
+
+/// Canonical nested feature/value IDs; values in one predicate are a collective FS comparison.
+fn syntactic_gate_key(
+    grammar: &Grammar,
+    fs: &pg_featstruct::FeatureStruct,
+) -> Result<String, String> {
+    let mut values = BTreeMap::new();
+    for (id, value) in fs.entries() {
+        let def = &grammar.syn_features.features[id.0 as usize];
+        let value = match value {
+            pg_featstruct::FeatureValue::Symbolic(bits) => {
+                let pg_grammar::model::SynFeatureKind::Symbolic { symbols, .. } = &def.kind else {
+                    return Err("symbolic gate has no symbol dictionary".into());
+                };
+                let mut ids: Vec<_> = symbols
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| bits.0 & (1u64 << i) != 0)
+                    .map(|(_, (id, _))| id)
+                    .collect();
+                ids.sort();
+                serde_json::json!(ids)
+            }
+            pg_featstruct::FeatureValue::Complex(nested) => {
+                serde_json::from_str(&syntactic_gate_key(grammar, nested)?)
+                    .map_err(|e| e.to_string())?
+            }
+        };
+        values.insert(def.xml_id.clone(), value);
+    }
+    serde_json::to_string(&values).map_err(|e| e.to_string())
 }
 
 pub(crate) struct BatchStatsCache {
-    cache: pg_stats::StatsCache,
-    grammar_path: String,
+    writer: Option<pg_stats::cache::staged::BatchWriter>,
+    analyzed: usize,
+    elapsed_ns: u128,
+    profile: StatsProfile,
+    prune_totals: Option<pg_rules::stats::PruneCounters>,
+    observations: Vec<pg_stats::FrozenWordSummary>,
     grammar_hash: String,
     existing_words: HashSet<String>,
     skipped: usize,
     options: StatsOptionsRecord,
     mode: BatchStatsCacheMode,
+    pack: bool,
 }
 
 enum BatchStatsCacheMode {
-    Reusable,
+    Reusable {
+        cache_path: PathBuf,
+    },
     Frozen {
         cache_path: PathBuf,
         input_words: Vec<String>,
@@ -508,6 +721,10 @@ enum BatchStatsCacheMode {
 }
 
 impl BatchStatsCache {
+    pub(crate) fn pack_on_finish(&mut self) {
+        self.pack = true;
+    }
+
     pub(crate) fn contains(&self, word: &str) -> bool {
         self.existing_words.contains(word)
     }
@@ -515,30 +732,80 @@ impl BatchStatsCache {
     pub(crate) fn existing_words(&self) -> &HashSet<String> {
         &self.existing_words
     }
+
+    pub(crate) fn record(&mut self, word: BatchStatsWord) -> Result<(), String> {
+        if self.contains(&word.record.form) {
+            return Ok(());
+        }
+        self.analyzed += 1;
+        self.elapsed_ns += u128::from(word.record.elapsed_ns);
+        if let (Some(total), Some(prunes)) = (&mut self.prune_totals, word.prunes) {
+            total.accumulate(&prunes);
+        }
+        if matches!(self.mode, BatchStatsCacheMode::Frozen { .. }) {
+            self.observations.push(pg_stats::FrozenWordSummary {
+                form: word.record.form.clone(),
+                elapsed_ns: word.record.elapsed_ns,
+                passes: word.record.passes,
+                capped: word.record.capped,
+                timed_out: word.record.timed_out,
+                invalid_shape: word.record.invalid_shape,
+            });
+        }
+        self.writer
+            .as_mut()
+            .expect("active stats writer")
+            .write_word(word.record)
+            .map_err(|e| e.to_string())
+    }
+
+    fn finish_writing(&mut self) -> Result<(pg_stats::StatsCache, i64), String> {
+        let (cache, run_id) = self
+            .writer
+            .take()
+            .expect("active stats writer")
+            .finish()
+            .map_err(|error| error.to_string())?;
+        let elapsed = Duration::from_nanos(self.elapsed_ns.min(u128::from(u64::MAX)) as u64);
+        println!(
+            "stats: analyzed={} skipped={} summed_word_ms={:.3}",
+            self.analyzed,
+            self.skipped,
+            elapsed.as_secs_f64() * 1e3
+        );
+        Ok((cache, run_id))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_batch_stats_hc(
     grammar_path: &str,
+    grammar_hash: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
+    compact: bool,
+    profile: StatsProfile,
+    word_search: WordOnlySearchOptions,
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
+        grammar_hash,
         words,
-        step_cap,
         work_cap,
+        word_mem_cap,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
         cache_override,
-        None,
         false,
+        compact,
+        profile,
+        word_search,
     )
 }
 
@@ -546,40 +813,49 @@ pub(crate) fn prepare_batch_stats_hc(
 pub(crate) fn prepare_frozen_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
     cache_path: &str,
     grammar_hash: &str,
+    compact: bool,
+    profile: StatsProfile,
+    word_search: WordOnlySearchOptions,
 ) -> Result<BatchStatsCache, String> {
     prepare_batch_stats_hc_inner(
         grammar_path,
+        grammar_hash,
         words,
-        step_cap,
         work_cap,
+        word_mem_cap,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
         Some(cache_path),
-        Some(grammar_hash),
         true,
+        compact,
+        profile,
+        word_search,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
 fn prepare_batch_stats_hc_inner(
     grammar_path: &str,
+    grammar_hash: &str,
     words: &[String],
-    step_cap: StepCap,
-    work_cap: usize,
+    work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
-    grammar_hash_override: Option<&str>,
     frozen: bool,
+    compact: bool,
+    profile: StatsProfile,
+    word_search: WordOnlySearchOptions,
 ) -> Result<BatchStatsCache, String> {
     if frozen {
         let mut seen = HashSet::with_capacity(words.len());
@@ -590,16 +866,15 @@ fn prepare_batch_stats_hc_inner(
             );
         }
     }
-    let grammar_hash = match grammar_hash_override {
-        Some(hash) => hash.to_string(),
-        None => grammar_hash_for(grammar_path)?,
-    };
-    let cache_path = resolve_cache_path(grammar_path, cache_override)?;
+    let cache_path = resolve_cache_path(grammar_path, cache_override, profile)?;
     if frozen {
         refuse_nonempty_frozen_cache(&cache_path)?;
     }
-    let outcome =
-        pg_stats::StatsCache::open(&cache_path, &grammar_hash).map_err(|e| e.to_string())?;
+    if profile == StatsProfile::WordOnly && compact {
+        return Err("--stats-compact requires full stats".into());
+    }
+    let outcome = pg_stats::StatsCache::open_batch(&cache_path, grammar_hash, profile, compact)
+        .map_err(|e| e.to_string())?;
     if frozen && outcome.wiped {
         return Err(format!(
             "stats manifest requires an initially empty cache: {}",
@@ -613,25 +888,33 @@ fn prepare_batch_stats_hc_inner(
         );
     }
     refuse_if_cache_engine_differs(&outcome.cache, "hc", &cache_path)?;
-    refuse_if_final_template_policy_differs(
-        &outcome.cache,
-        &cache_path,
-        always_enforce_final_templates,
-    )?;
-    refuse_if_work_cap_differs(&outcome.cache, &cache_path, work_cap)?;
+    let check_run = {
+        let cache_path = cache_path.clone();
+        move |conn: &rusqlite::Connection| {
+            refuse_if_final_template_policy_differs(
+                conn,
+                &cache_path,
+                always_enforce_final_templates,
+            )
+            .and_then(|()| refuse_if_search_budget_semantics_differ(conn, &cache_path))
+            .map_err(pg_stats::StatsError::IncompatibleRunOptions)
+        }
+    };
+    check_run(outcome.cache.connection()).map_err(|e| e.to_string())?;
     outcome
         .cache
-        .refuse_if_step_cap_differs(step_cap)
+        .refuse_if_work_cap_differs(work_cap)
         .map_err(|e| e.to_string())?;
 
     let options = StatsOptionsRecord {
         engine: "hc",
-        step_cap: Some(step_cap),
         work_cap,
+        word_mem_cap,
         search_budget_semantics: SEARCH_BUDGET_SEMANTICS,
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
+        word_only_search: (profile == StatsProfile::WordOnly).then_some(word_search),
     };
     let identity = stats_options_identity(&options)?;
     let refs: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -650,20 +933,37 @@ fn prepare_batch_stats_hc_inner(
         ));
     }
 
+    let run = stats_run_metadata(grammar_path, grammar_hash, &options)?;
+    let chunk = if frozen {
+        None
+    } else {
+        std::num::NonZeroUsize::new(STATS_FLUSH_BATCH)
+    };
+    #[cfg(not(test))]
+    let writer = pg_stats::cache::staged::BatchWriter::new_supervised;
+    #[cfg(test)]
+    let writer = pg_stats::cache::staged::BatchWriter::new;
+    let writer = writer(outcome.cache, run, chunk, check_run).map_err(|e| e.to_string())?;
+
     Ok(BatchStatsCache {
-        cache: outcome.cache,
-        grammar_path: grammar_path.to_owned(),
-        grammar_hash,
+        writer: Some(writer),
+        analyzed: 0,
+        elapsed_ns: 0,
+        profile,
+        prune_totals: (profile == StatsProfile::Full).then(pg_rules::stats::PruneCounters::default),
+        observations: Vec::new(),
+        grammar_hash: grammar_hash.to_string(),
         existing_words: existing,
         skipped,
         options,
+        pack: false,
         mode: if frozen {
             BatchStatsCacheMode::Frozen {
                 cache_path,
                 input_words: words.to_vec(),
             }
         } else {
-            BatchStatsCacheMode::Reusable
+            BatchStatsCacheMode::Reusable { cache_path }
         },
     })
 }
@@ -685,102 +985,68 @@ fn refuse_nonempty_frozen_cache(cache_path: &Path) -> Result<(), String> {
 
 pub(crate) fn finish_batch_stats_hc(
     mut prepared: BatchStatsCache,
-    stats_words: Vec<BatchStatsWord>,
-) -> Result<pg_rules::stats::PruneCounters, String> {
+) -> Result<Option<pg_rules::stats::PruneCounters>, String> {
     if matches!(prepared.mode, BatchStatsCacheMode::Frozen { .. }) {
         return Err("frozen stats cache requires the manifest finalizer".into());
     }
-    let mut prune_totals = pg_rules::stats::PruneCounters::default();
-    let mut total_elapsed_ns = 0u128;
-    let records: Vec<_> = stats_words
-        .into_iter()
-        .filter(|stats_word| {
-            !prepared
-                .existing_words
-                .contains(stats_word.record.form.as_str())
-        })
-        .map(|stats_word| {
-            prune_totals.accumulate(&stats_word.prunes);
-            total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
-            stats_word.record
-        })
-        .collect();
-    let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
-    finish_stats_flush(
-        &mut prepared.cache,
-        StatsFlushRequest {
-            grammar_path: &prepared.grammar_path,
-            grammar_hash: &prepared.grammar_hash,
-            options: &prepared.options,
-            records,
-            skipped: prepared.skipped,
-            elapsed: total_elapsed,
-            single_run: false,
-        },
-    )?;
-    println!("{}", final_template_stats_line(prune_totals));
+    let (cache, _) = prepared.finish_writing()?;
+    let prune_totals = prepared.prune_totals;
+    if prepared.pack {
+        let BatchStatsCacheMode::Reusable { cache_path } = prepared.mode else {
+            return Err("frozen stats cache requires the manifest finalizer".into());
+        };
+        cache.checkpoint_and_close().map_err(|e| e.to_string())?;
+        pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
+    }
+    if let Some(counters) = prune_totals {
+        println!("{}", final_template_stats_line(counters));
+    }
     Ok(prune_totals)
 }
 
 pub(crate) fn finish_frozen_batch_stats_hc(
-    prepared: BatchStatsCache,
-    stats_words: Vec<BatchStatsWord>,
+    mut prepared: BatchStatsCache,
     manifest_path: &Path,
     source: crate::stats_manifest::SourceIdentity,
     batch: crate::stats_manifest::BatchOptions,
-) -> Result<pg_rules::stats::PruneCounters, String> {
-    let BatchStatsCache {
-        mut cache,
-        grammar_path,
-        grammar_hash,
-        existing_words,
-        skipped,
-        options,
-        mode,
-    } = prepared;
-    let BatchStatsCacheMode::Frozen {
-        cache_path,
-        input_words,
-    } = mode
-    else {
+) -> Result<Option<pg_rules::stats::PruneCounters>, String> {
+    let BatchStatsCacheMode::Frozen { input_words, .. } = &prepared.mode else {
         return Err("stats manifest requires a frozen stats cache".into());
     };
-    if skipped != 0 || !existing_words.is_empty() {
+    if prepared.skipped != 0 || !prepared.existing_words.is_empty() {
         return Err("stats manifest requires an initially empty cache".into());
     }
-
-    let completion = frozen_completion(&input_words, &stats_words)?;
-    let input = crate::stats_manifest::input_identity(&input_words)?;
-    let mut prune_totals = pg_rules::stats::PruneCounters::default();
-    let mut total_elapsed_ns = 0u128;
-    let records: Vec<_> = stats_words
-        .into_iter()
-        .map(|stats_word| {
-            prune_totals.accumulate(&stats_word.prunes);
-            total_elapsed_ns += u128::from(stats_word.record.elapsed_ns);
-            stats_word.record
-        })
-        .collect();
-    let total_elapsed = Duration::from_nanos(total_elapsed_ns.min(u128::from(u64::MAX)) as u64);
+    let completion = frozen_completion(input_words, &prepared.observations)?;
+    let input = crate::stats_manifest::input_identity(input_words)?;
+    let (cache, run_id) = prepared.finish_writing()?;
+    let BatchStatsCache {
+        grammar_hash,
+        options,
+        mode,
+        pack,
+        profile,
+        prune_totals,
+        ..
+    } = prepared;
+    let BatchStatsCacheMode::Frozen { cache_path, .. } = mode else {
+        unreachable!("frozen mode checked before committing");
+    };
     let options_identity = stats_options_identity(&options)?;
-    let run_id = finish_stats_flush(
-        &mut cache,
-        StatsFlushRequest {
-            grammar_path: &grammar_path,
-            grammar_hash: &grammar_hash,
-            options: &options,
-            records,
-            skipped,
-            elapsed: total_elapsed,
-            single_run: true,
-        },
-    )?;
     cache
         .checkpoint_and_close()
         .map_err(|error| format!("close frozen stats cache: {error}"))?;
 
+    if pack {
+        pg_stats::pack::pack(&cache_path).map_err(|e| e.to_string())?;
+    }
     let cache_snapshot = pg_stats::StatsCache::read_frozen_run(&cache_path, run_id)
         .map_err(|error| format!("inspect frozen stats cache: {error}"))?;
+    if StatsProfile::from_schema_version(cache_snapshot.schema_version)
+        .map_err(|e| e.to_string())?
+        != profile
+    {
+        return Err("frozen stats cache profile differs from the requested collection".into());
+    }
     validate_frozen_cache(
         &cache_snapshot,
         run_id,
@@ -790,19 +1056,19 @@ pub(crate) fn finish_frozen_batch_stats_hc(
         &completion,
     )?;
     refuse_uncheckpointed_wal(&cache_path)?;
-    let cache_bytes =
-        std::fs::read(&cache_path).map_err(|error| format!("read frozen stats cache: {error}"))?;
+    let (cache_sha256, cache_bytes) = hash_cache_file(&cache_path)?;
     let manifest = crate::stats_manifest::StatsRunManifest {
         format: crate::stats_manifest::FORMAT,
         version: crate::stats_manifest::VERSION,
+        profile: (profile == StatsProfile::WordOnly).then_some(profile),
         source,
         compiler: crate::stats_manifest::CompilerIdentity {
             version: env!("CARGO_PKG_VERSION"),
             build_identity: crate::build_info::embedded_build_info(),
         },
         cache: crate::stats_manifest::CacheIdentity {
-            sha256: crate::stats_manifest::sha256_digest(&cache_bytes),
-            bytes: cache_bytes.len() as u64,
+            sha256: cache_sha256,
+            bytes: cache_bytes,
             schema_version: cache_snapshot.schema_version,
             counter_semantics_version: cache_snapshot.counter_semantics,
         },
@@ -824,13 +1090,36 @@ pub(crate) fn finish_frozen_batch_stats_hc(
         published.bytes,
         published.sha256
     );
-    println!("{}", final_template_stats_line(prune_totals));
+    if let Some(counters) = prune_totals {
+        println!("{}", final_template_stats_line(counters));
+    }
     Ok(prune_totals)
+}
+
+fn hash_cache_file(path: &Path) -> Result<(String, u64), String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("read frozen stats cache: {e}"))?;
+    let mut hash = Sha256::new();
+    let mut bytes = 0;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|e| format!("read frozen stats cache: {e}"))?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+        bytes += count as u64;
+    }
+    Ok((format!("sha256:{:x}", hash.finalize()), bytes))
 }
 
 fn frozen_completion(
     expected: &[String],
-    observations: &[BatchStatsWord],
+    observations: &[pg_stats::FrozenWordSummary],
 ) -> Result<crate::stats_manifest::CompletionCensus, String> {
     if observations.len() != expected.len() {
         return Err(format!(
@@ -844,16 +1133,16 @@ fn frozen_completion(
     let mut invalid_shape = 0;
     let mut words = Vec::with_capacity(expected.len());
     for (index, (form, observation)) in expected.iter().zip(observations).enumerate() {
-        if observation.record.form != *form {
+        if observation.form != *form {
             return Err(format!(
                 "stats manifest word order mismatch at index {index}: expected {form:?}, found {:?}",
-                observation.record.form
+                observation.form
             ));
         }
-        let status = if observation.record.invalid_shape {
+        let status = if observation.invalid_shape {
             invalid_shape += 1;
             "invalid_shape"
-        } else if observation.record.capped || observation.record.timed_out {
+        } else if observation.capped || observation.timed_out {
             incomplete += 1;
             "incomplete"
         } else {
@@ -864,9 +1153,9 @@ fn frozen_completion(
             index,
             form: form.clone(),
             status,
-            capped: observation.record.capped,
-            timed_out: observation.record.timed_out,
-            invalid_shape: observation.record.invalid_shape,
+            capped: observation.capped,
+            timed_out: observation.timed_out,
+            invalid_shape: observation.invalid_shape,
         });
     }
     Ok(crate::stats_manifest::CompletionCensus {
@@ -888,7 +1177,7 @@ fn validate_frozen_cache(
     completion: &crate::stats_manifest::CompletionCensus,
 ) -> Result<(), String> {
     if snapshot.run_id != run_id
-        || snapshot.schema_version != pg_stats::SCHEMA_VERSION
+        || !pg_stats::supported_schema_version(snapshot.schema_version)
         || snapshot.counter_semantics != pg_stats::COUNTER_SEMANTICS_VERSION
         || snapshot.grammar_hash != grammar_hash
         || snapshot.engine != "hc"
@@ -950,28 +1239,36 @@ pub(crate) fn run_batch_stats_hc(
     grammar_path: &str,
     words: &[String],
     stats_words: Vec<BatchStatsWord>,
-    step_cap: StepCap,
+    work_cap: WorkCap,
     word_timeout_ms: Option<u64>,
     guess: bool,
     always_enforce_final_templates: bool,
     cache_override: Option<&str>,
 ) -> Result<pg_rules::stats::PruneCounters, String> {
-    let prepared = prepare_batch_stats_hc(
+    let xml = std::fs::read(grammar_path).map_err(|e| format!("read {grammar_path}: {e}"))?;
+    let mut prepared = prepare_batch_stats_hc(
         grammar_path,
+        &sha256_hex(&xml),
         words,
-        step_cap,
-        crate::resolved_work_cap(step_cap, None),
+        work_cap,
+        Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
         word_timeout_ms,
         guess,
         always_enforce_final_templates,
         cache_override,
+        false,
+        StatsProfile::Full,
+        WordOnlySearchOptions::default(),
     )?;
-    finish_batch_stats_hc(prepared, stats_words)
+    for word in stats_words {
+        prepared.record(word)?;
+    }
+    Ok(finish_batch_stats_hc(prepared)?.expect("full profile measures prune counters"))
 }
 
 // The `stats` subcommand: read-only, no grammar loaded.
 
-const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide] [--by-kind] [--format text|jsonl] [--cache <path>] [--out FILE]";
+const STATS_USAGE: &str = "usage: stats <project-or-grammar> [--group word|object|allomorph|morpheme|group|never-fires|gate] [--kind K] [--object KEY] [--stratum KEY] [--direction analysis|synthesis] [--word FORM] [--top N] [--sort time|no-root|amp|uses|attempts] [--exclude-censored] [--wide (also work_steps with --group object)] [--by-kind] [--format text|jsonl] [--stats-profile full|word-only] [--cache <path>] [--out FILE]";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReportGroup {
@@ -981,6 +1278,7 @@ enum ReportGroup {
     Morpheme,
     Group,
     NeverFires,
+    Gate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1001,7 +1299,7 @@ struct Filters {
     top_n: Option<usize>,
     sort: Option<pg_stats::SortKey>,
     exclude_censored: bool,
-    /// `--wide`: appends `work`/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
+    /// `--wide`: appends `work`/`work_steps` (object group only)/`not_applied`/`no_root`/`surface_mismatch`/`identity_quality`.
     wide: bool,
     /// `--by-kind`: one section per kind, each with its share of the run's total time.
     by_kind: bool,
@@ -1062,7 +1360,7 @@ fn cell_value(kind: &str, counter: &str, value: i64) -> Option<i64> {
     let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
         panic!("kind string from the cache must be a known ObjectKind: {kind}")
     });
-    match pg_rules::stats::counter_support(stats_kind_to_rules_kind(stats_kind), counter) {
+    match pg_rules::stats::counter_support(stats_kind_to_rules_kind(stats_kind)?, counter) {
         pg_rules::stats::CounterSupport::Measured => Some(value),
         pg_rules::stats::CounterSupport::NotApplicable
         | pg_rules::stats::CounterSupport::NotWired => None,
@@ -1090,8 +1388,12 @@ fn engine_omitted_counters(engine: &str) -> &'static [&'static str] {
 }
 
 /// The text-mode note explaining an engine-level column omission; `None` when nothing is omitted.
-fn omitted_counters(engine: &str, _orientation: &str) -> Vec<&'static str> {
-    engine_omitted_counters(engine).to_vec()
+fn omitted_counters(engine: &str, orientation: &str) -> Vec<&'static str> {
+    let mut omitted = engine_omitted_counters(engine).to_vec();
+    if orientation == "object" && !omitted.is_empty() {
+        omitted.push("work_steps");
+    }
+    omitted
 }
 
 fn engine_omission_note(engine: &str, omitted: &[&str]) -> Option<String> {
@@ -1143,6 +1445,9 @@ fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
             if has("work") {
                 r.work = None;
             }
+            if has("work_steps") {
+                r.work_steps = None;
+            }
             if has("outputs") {
                 r.outputs = None;
             }
@@ -1157,6 +1462,7 @@ fn apply_engine_omission(rows: Vec<RowView>, omitted: &[&str]) -> Vec<RowView> {
             }
             if has("uses") {
                 r.uses = None;
+                r.words = None;
             }
             r
         })
@@ -1200,9 +1506,13 @@ struct RowView {
     outputs: Option<i64>,
     uses: Option<i64>,
     work: Option<i64>,
+    /// Parser work reservations: only the object orientation reports them, so every other orientation leaves this `None` and omits the field.
+    work_steps: Option<i64>,
     not_applied: Option<i64>,
     no_root: Option<i64>,
     surface_mismatch: Option<i64>,
+    /// Distinct words with at least one use of this object or allomorph: only the object and allomorph orientations report it, and it is `-` wherever `uses` is.
+    words: Option<i64>,
 }
 
 fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
@@ -1215,9 +1525,11 @@ fn object_row_view(r: &pg_stats::PerObjectRow) -> RowView {
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
         work: cell_value(&r.kind, "work", r.work),
+        work_steps: Some(r.work_steps),
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
+        words: cell_value(&r.kind, "uses", r.uses).map(|_| r.words),
     }
 }
 
@@ -1242,6 +1554,7 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
             cell_value(&r.object_kind, "uses", r.uses)
         },
         work: cell_value(&r.object_kind, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(&r.object_kind, "not_applied", r.not_applied),
         no_root: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
             None
@@ -1249,6 +1562,11 @@ fn allomorph_row_view(r: &pg_stats::PerAllomorphRow) -> RowView {
             cell_value(&r.object_kind, "no_root", r.no_root)
         },
         surface_mismatch: cell_value(&r.object_kind, "surface_mismatch", r.surface_mismatch),
+        words: if r.allomorph_key.is_some() && r.object_kind == "morph_rule" {
+            None
+        } else {
+            cell_value(&r.object_kind, "uses", r.uses).map(|_| r.words)
+        },
     }
 }
 
@@ -1263,9 +1581,11 @@ fn morpheme_row_view(r: &pg_stats::PerMorphemeRow) -> RowView {
         outputs: cell_value(KIND, "outputs", r.outputs),
         uses: cell_value(KIND, "uses", r.uses),
         work: cell_value(KIND, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(KIND, "not_applied", r.not_applied),
         no_root: cell_value(KIND, "no_root", r.no_root),
         surface_mismatch: cell_value(KIND, "surface_mismatch", r.surface_mismatch),
+        words: None,
     }
 }
 
@@ -1279,9 +1599,11 @@ fn kind_row_view(r: &pg_stats::PerKindRow) -> RowView {
         outputs: cell_value(&r.kind, "outputs", r.outputs),
         uses: cell_value(&r.kind, "uses", r.uses),
         work: cell_value(&r.kind, "work", r.work),
+        work_steps: None,
         not_applied: cell_value(&r.kind, "not_applied", r.not_applied),
         no_root: cell_value(&r.kind, "no_root", r.no_root),
         surface_mismatch: cell_value(&r.kind, "surface_mismatch", r.surface_mismatch),
+        words: None,
     }
 }
 
@@ -1295,10 +1617,9 @@ fn direction_time_view(mut view: RowView, direction: Option<&str>) -> RowView {
         let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
             panic!("kind string from the cache must be a known ObjectKind: {kind}")
         });
-        if !pg_rules::stats::self_time_supported_in_direction(
-            stats_kind_to_rules_kind(stats_kind),
-            direction,
-        ) {
+        if !stats_kind_to_rules_kind(stats_kind)
+            .is_some_and(|kind| pg_rules::stats::self_time_supported_in_direction(kind, direction))
+        {
             view.self_time_ns = None;
         }
     }
@@ -1428,6 +1749,8 @@ fn render_narrow(
     let show_amp = show_attempts && show("outputs");
     let show_uses = show("uses");
     let show_work = show("work");
+    let show_work_steps = show("work_steps") && rows.iter().any(|r| r.work_steps.is_some());
+    let show_words = show_uses && rows.iter().any(|r| r.words.is_some());
     let show_not_applied = show("not_applied");
     let show_no_root = show("no_root");
     let show_surface_mismatch = show("surface_mismatch");
@@ -1447,6 +1770,9 @@ fn render_narrow(
         if show_work {
             headers.push("work");
         }
+        if show_work_steps {
+            headers.push("work_steps");
+        }
         if show_not_applied {
             headers.push("not_applied");
         }
@@ -1457,6 +1783,9 @@ fn render_narrow(
             headers.push("surface_mismatch");
         }
         headers.push("identity_quality");
+    }
+    if show_words {
+        headers.push("words");
     }
     let table_rows = rows
         .iter()
@@ -1480,6 +1809,9 @@ fn render_narrow(
                 if show_work {
                     cells.push(fmt_opt_i64(r.work));
                 }
+                if show_work_steps {
+                    cells.push(fmt_opt_i64(r.work_steps));
+                }
                 if show_not_applied {
                     cells.push(fmt_opt_i64(r.not_applied));
                 }
@@ -1495,6 +1827,9 @@ fn render_narrow(
                         .unwrap_or_else(|| "-".to_string()),
                 );
             }
+            if show_words {
+                cells.push(fmt_opt_i64(r.words));
+            }
             cells
         })
         .collect();
@@ -1506,7 +1841,7 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
         (Some(a), Some(o)) if a > 0 => Some(o as f64 / a as f64),
         _ => None,
     };
-    serde_json::json!({
+    let mut row = serde_json::json!({
         "label": r.label,
         "kind": r.kind,
         "identity_quality": r.identity_quality,
@@ -1519,7 +1854,14 @@ fn row_view_to_json(r: &RowView) -> serde_json::Value {
         "not_applied": r.not_applied,
         "no_root": r.no_root,
         "surface_mismatch": r.surface_mismatch,
-    })
+    });
+    if let Some(work_steps) = r.work_steps {
+        row["work_steps"] = work_steps.into();
+    }
+    if let Some(words) = r.words {
+        row["words"] = words.into();
+    }
+    row
 }
 
 /// The totals/attribution line printed under every orientation: row count, row-time sum, and its "N% attributed" check against cached word elapsed time, narrowed by `--word` when selected.
@@ -1696,7 +2038,7 @@ fn jsonl_meta_value(
 ) -> Result<serde_json::Value, String> {
     let (grammar_hash, engine) = run_identity(conn)?;
     let omitted = omitted_counters(&engine, orientation);
-    Ok(serde_json::json!({
+    let mut meta = serde_json::json!({
         "meta": true,
         "orientation": orientation,
         "grammar_hash": grammar_hash,
@@ -1704,7 +2046,33 @@ fn jsonl_meta_value(
         "filters": filters_json(filters),
         "totals": totals.to_json(),
         "unmeasured": unmeasured_json(&engine, orientation, &omitted),
-    }))
+    });
+    add_cache_capabilities(conn, &mut meta)?;
+    Ok(meta)
+}
+
+fn add_cache_capabilities(
+    conn: &rusqlite::Connection,
+    meta: &mut serde_json::Value,
+) -> Result<(), String> {
+    if pg_stats::collection_profile(conn).map_err(|e| e.to_string())?
+        == pg_stats::StatsProfile::WordOnly
+    {
+        meta["profile"] = serde_json::json!(pg_stats::StatsProfile::WordOnly);
+        meta["unavailable_views"] = serde_json::json!([
+            "object",
+            "allomorph",
+            "morpheme",
+            "group",
+            "never-fires",
+            "gate",
+            "stratum"
+        ]);
+    } else if pg_stats::is_compact(conn).map_err(|e| e.to_string())? {
+        meta["cache_mode"] = serde_json::json!("compact");
+        meta["unavailable_views"] = serde_json::json!(["allomorph", "stratum"]);
+    }
+    Ok(())
 }
 
 fn jsonl_meta_line(
@@ -1728,6 +2096,14 @@ fn empty_output(
     match format {
         OutputFormat::Text => Ok(reason),
         OutputFormat::Jsonl => {
+            if orientation == "word"
+                && pg_stats::collection_profile(conn).map_err(|e| e.to_string())?
+                    == pg_stats::StatsProfile::WordOnly
+            {
+                let mut meta = word_report_meta(conn, filters, 0, 0, 0, Some(0))?;
+                meta["empty_reason"] = reason.trim().into();
+                return Ok(format!("{meta}\n"));
+            }
             let comparison_elapsed_ns =
                 pg_stats::word_elapsed_ns_total(conn, filters.word.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -1986,6 +2362,28 @@ fn render_group(
     )
 }
 
+fn word_report_meta(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    rows: usize,
+    shown: usize,
+    time_ns: i64,
+    work: Option<i64>,
+) -> Result<serde_json::Value, String> {
+    let (grammar_hash, engine) = run_identity(conn)?;
+    let mut meta = serde_json::json!({
+        "meta": true,
+        "orientation": "word",
+        "grammar_hash": grammar_hash,
+        "engine": engine,
+        "filters": filters_json(filters),
+        "totals": {"rows": rows, "rows_shown": shown, "time_ns": time_ns, "work": work},
+        "unmeasured": if work.is_some() { serde_json::json!({}) } else { serde_json::json!({"work": "engine=foma never records it"}) },
+    });
+    add_cache_capabilities(conn, &mut meta)?;
+    Ok(meta)
+}
+
 fn render_word(
     conn: &rusqlite::Connection,
     filters: &Filters,
@@ -2014,18 +2412,17 @@ fn render_word(
         };
         return empty_output(conn, "word", filters, reason, format);
     }
-    let (grammar_hash, engine) = run_identity(conn)?;
-    let attempts_measured = engine != "foma";
+    let (_, engine) = run_identity(conn)?;
+    let work_measured = engine != "foma";
     let total_elapsed: i64 = rows.iter().map(|r| r.elapsed_ns).sum();
-    let total_attempts: i64 = rows.iter().map(|r| r.attempts).sum();
     let total_work: i64 = rows.iter().map(|r| r.work).sum();
     let shown_rows = filters.top_n.map_or(rows.len(), |n| n.min(rows.len()));
     let shown = rows.iter().take(shown_rows);
     match format {
         OutputFormat::Text => {
             let mut headers = vec!["form", "time_ms", "time%"];
-            if attempts_measured {
-                headers.extend(["attempts", "attempts%", "work", "work%"]);
+            if work_measured {
+                headers.extend(["work", "work%"]);
             }
             headers.extend(["passes", "capped", "timed_out", "invalid_shape"]);
             let table_rows: Vec<Vec<String>> = shown
@@ -2035,9 +2432,7 @@ fn render_word(
                         format!("{:.3}", r.elapsed_ns as f64 / 1e6),
                         fmt_pct(Some(r.elapsed_ns), Some(total_elapsed)),
                     ];
-                    if attempts_measured {
-                        row.push(r.attempts.to_string());
-                        row.push(fmt_pct(Some(r.attempts), Some(total_attempts)));
+                    if work_measured {
                         row.push(r.work.to_string());
                         row.push(fmt_pct(Some(r.work), Some(total_work)));
                     }
@@ -2051,8 +2446,8 @@ fn render_word(
                 })
                 .collect();
             let mut out = render_table(&headers, &table_rows);
-            if !attempts_measured {
-                out.insert_str(0, "note: engine=foma never records attempts or work; attempts, attempts%, work and work% are omitted (this is not \"zero\")\n");
+            if !work_measured {
+                out.insert_str(0, "note: engine=foma never records work; work and work% are omitted (this is not \"zero\")\n");
             }
             out.push_str(&format!(
                 "TOTAL  {} word(s){}   time {:.3}ms (100.0% of matched word elapsed){}\n",
@@ -2063,8 +2458,8 @@ fn render_word(
                     String::new()
                 },
                 total_elapsed as f64 / 1e6,
-                if attempts_measured {
-                    format!("   attempts {total_attempts}   work {total_work}")
+                if work_measured {
+                    format!("   work {total_work}")
                 } else {
                     String::new()
                 },
@@ -2072,22 +2467,20 @@ fn render_word(
             Ok(out)
         }
         OutputFormat::Jsonl => {
-            let meta = serde_json::json!({
-                "meta": true,
-                "orientation": "word",
-                "grammar_hash": grammar_hash,
-                "engine": engine,
-                "filters": filters_json(filters),
-                "totals": {"rows": rows.len(), "rows_shown": shown_rows, "time_ns": total_elapsed, "attempts": if attempts_measured { serde_json::json!(total_attempts) } else { serde_json::Value::Null }, "work": if attempts_measured { serde_json::json!(total_work) } else { serde_json::Value::Null }},
-                "unmeasured": if attempts_measured { serde_json::json!({}) } else { serde_json::json!({"attempts": "engine=foma never records it", "work": "engine=foma never records it"}) },
-            });
+            let meta = word_report_meta(
+                conn,
+                filters,
+                rows.len(),
+                shown_rows,
+                total_elapsed,
+                work_measured.then_some(total_work),
+            )?;
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in shown {
                 let v = serde_json::json!({
                     "form": r.form,
                     "elapsed_ns": r.elapsed_ns,
-                    "attempts": if attempts_measured { serde_json::json!(r.attempts) } else { serde_json::Value::Null },
-                    "work": if attempts_measured { serde_json::json!(r.work) } else { serde_json::Value::Null },
+                    "work": if work_measured { serde_json::json!(r.work) } else { serde_json::Value::Null },
                     "passes": r.passes,
                     "capped": r.capped,
                     "timed_out": r.timed_out,
@@ -2114,7 +2507,7 @@ fn render_never_fires(
                     .to_string(),
             ),
             OutputFormat::Jsonl => {
-                let value = serde_json::json!({
+                let mut value = serde_json::json!({
                     "meta": true,
                     "orientation": "never-fires",
                     "grammar_hash": grammar_hash,
@@ -2123,6 +2516,7 @@ fn render_never_fires(
                     "totals": {"rows": 0, "attempts_by_kind": {}},
                     "unmeasured": {"never_fires": "engine=foma cannot measure it"},
                 });
+                add_cache_capabilities(conn, &mut value)?;
                 Ok(format!(
                     "{}\n",
                     serde_json::to_string(&value).map_err(|e| e.to_string())?
@@ -2188,7 +2582,7 @@ fn render_never_fires(
         }
         OutputFormat::Jsonl => {
             let (grammar_hash, engine) = run_identity(conn)?;
-            let meta = serde_json::json!({
+            let mut meta = serde_json::json!({
                 "meta": true,
                 "orientation": "never-fires",
                 "grammar_hash": grammar_hash,
@@ -2196,6 +2590,7 @@ fn render_never_fires(
                 "filters": filters_json(filters),
                 "totals": {"rows": rows.len(), "attempts_by_kind": attempts_by_kind},
             });
+            add_cache_capabilities(conn, &mut meta)?;
             let mut lines = vec![serde_json::to_string(&meta).map_err(|e| e.to_string())?];
             for r in &rows {
                 let v = serde_json::json!({
@@ -2230,13 +2625,54 @@ fn render_default(conn: &rusqlite::Connection, filters: &Filters) -> Result<Stri
 }
 
 /// `stats <project-or-grammar> [options]`: reads the cache via a raw `rusqlite::Connection`, never `StatsCache::open`, so a report-only read can never trip the grammar-hash wipe gate.
-pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
+#[derive(Debug)]
+pub(crate) enum StatsCommandError {
+    MissingObjectFacts,
+    Other(String),
+}
+
+impl std::fmt::Display for StatsCommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingObjectFacts => write!(
+                f,
+                "missing_object_facts: {}",
+                pg_stats::StatsError::WordOnlyFactsUnavailable
+            ),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<String> for StatsCommandError {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+
+impl From<&str> for StatsCommandError {
+    fn from(message: &str) -> Self {
+        Self::Other(message.to_owned())
+    }
+}
+
+impl From<pg_stats::StatsError> for StatsCommandError {
+    fn from(error: pg_stats::StatsError) -> Self {
+        match error {
+            pg_stats::StatsError::WordOnlyFactsUnavailable => Self::MissingObjectFacts,
+            other => Self::Other(other.to_string()),
+        }
+    }
+}
+
+pub(crate) fn run_stats(args: &[String]) -> Result<(), StatsCommandError> {
     let mut positional: Vec<&str> = Vec::new();
     let mut group: Option<String> = None;
     let mut filters = Filters::default();
     let mut sort_arg: Option<String> = None;
     let mut format_arg: Option<String> = None;
     let mut cache_override: Option<String> = None;
+    let mut default_profile = StatsProfile::Full;
     let mut out_path: Option<String> = None;
 
     let mut it = args.iter();
@@ -2283,6 +2719,14 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
             s if s.starts_with("--format=") => {
                 format_arg = Some(s["--format=".len()..].to_string())
             }
+            "--stats-profile" => {
+                default_profile = crate::parse_stats_profile(
+                    it.next().ok_or("--stats-profile requires a value")?,
+                )?;
+            }
+            s if s.starts_with("--stats-profile=") => {
+                default_profile = crate::parse_stats_profile(&s["--stats-profile=".len()..])?;
+            }
             "--cache" => {
                 cache_override = Some(it.next().ok_or("--cache requires a value")?.clone())
             }
@@ -2299,10 +2743,11 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     }
 
     let [project_path] = positional[..] else {
-        return Err(STATS_USAGE.to_string());
+        return Err(STATS_USAGE.into());
     };
 
-    let group = match group.as_deref() {
+    let orientation = group.as_deref();
+    let group = match orientation {
         None => None,
         Some("word") => Some(ReportGroup::Word),
         Some("object") => Some(ReportGroup::Object),
@@ -2310,23 +2755,22 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some("morpheme") => Some(ReportGroup::Morpheme),
         Some("group") => Some(ReportGroup::Group),
         Some("never-fires") => Some(ReportGroup::NeverFires),
+        Some("gate") => Some(ReportGroup::Gate),
         Some(other) => {
             return Err(format!(
-            "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires)"
-        ))
+            "invalid --group: {other} (expected word|object|allomorph|morpheme|group|never-fires|gate)"
+        ).into())
         }
     };
     if let Some(d) = filters.direction.as_deref() {
         if d != "analysis" && d != "synthesis" {
-            return Err(format!(
-                "invalid --direction: {d} (expected analysis|synthesis)"
-            ));
+            return Err(format!("invalid --direction: {d} (expected analysis|synthesis)").into());
         }
     }
     if filters.direction.is_some() && matches!(group, Some(ReportGroup::Word)) {
         return Err(
             "--direction does not apply to --group word: word rows have no direction dimension"
-                .to_string(),
+                .into(),
         );
     }
     filters.sort = match sort_arg.as_deref() {
@@ -2339,11 +2783,15 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some(other) => {
             return Err(format!(
                 "invalid --sort: {other} (expected time|no-root|amp|uses|attempts)"
-            ))
+            )
+            .into())
         }
     };
+    if matches!(group, Some(ReportGroup::Gate)) && (filters.direction.is_some() || filters.wide) {
+        return Err("--group gate has no direction or wide dimensions".into());
+    }
     if filters.sort.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
-        return Err("--sort only applies to --group object (or the default view)".to_string());
+        return Err("--sort only applies to --group object (or the default view)".into());
     }
     if matches!(group, None | Some(ReportGroup::Object))
         && filters.kind.is_none()
@@ -2351,11 +2799,11 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     {
         return Err(
             "non-time object sorting requires --kind because counter units are only comparable within a kind"
-                .to_string(),
+                .into(),
         );
     }
     if filters.stratum_key.is_some() && !matches!(group, None | Some(ReportGroup::Object)) {
-        return Err("--stratum only applies to --group object (or the default view)".to_string());
+        return Err("--stratum only applies to --group object (or the default view)".into());
     }
     if filters.object_key.is_some()
         && matches!(
@@ -2366,12 +2814,10 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
                 | Some(ReportGroup::NeverFires)
         )
     {
-        return Err("--object does not apply to this --group".to_string());
+        return Err("--object does not apply to this --group".into());
     }
     if filters.kind.is_some() && matches!(group, Some(ReportGroup::Morpheme)) {
-        return Err(
-            "--kind does not apply to --group morpheme: always scoped to lex_entry".to_string(),
-        );
+        return Err("--kind does not apply to --group morpheme: always scoped to lex_entry".into());
     }
     if filters.by_kind
         && !matches!(
@@ -2381,7 +2827,7 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     {
         return Err(
             "--by-kind applies to --group object and --group allomorph only: every other orientation is either one row per kind already or carries no kind at all"
-                .to_string(),
+                .into(),
         );
     }
     if matches!(group, Some(ReportGroup::NeverFires))
@@ -2392,45 +2838,78 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
     {
         return Err(
             "--group never-fires covers morph_rule and phon_rule only: no other kind wires an `outputs` counter, so \"zero outputs\" would be an artifact there"
-                .to_string(),
+                .into(),
         );
     }
 
     let format = match format_arg.as_deref() {
         None | Some("text") => OutputFormat::Text,
         Some("jsonl") => OutputFormat::Jsonl,
-        Some(other) => return Err(format!("invalid --format: {other} (expected text|jsonl)")),
+        Some(other) => {
+            return Err(format!("invalid --format: {other} (expected text|jsonl)").into())
+        }
     };
     if out_path.is_some() && group.is_none() {
         return Err(
             "--out requires --group (a single file holds one report shape; the default view renders several)"
-                .to_string(),
+                .into(),
         );
     }
     if matches!(format, OutputFormat::Jsonl) && group.is_none() {
         return Err(
-            "--format jsonl requires --group (the default view has no single row shape)"
-                .to_string(),
+            "--format jsonl requires --group (the default view has no single row shape)".into(),
         );
     }
 
-    let cache_path = resolve_cache_path(project_path, cache_override.as_deref())?;
+    let cache_path = resolve_cache_path(project_path, cache_override.as_deref(), default_profile)?;
     if !cache_path.exists() {
-        println!("stats: no cache found at {}", cache_path.display());
+        let word_only =
+            pg_stats::path::default_cache_path_for_profile(project_path, StatsProfile::WordOnly);
+        if cache_override.is_none()
+            && default_profile == StatsProfile::Full
+            && word_only.as_ref().is_ok_and(|p| p.exists())
+        {
+            println!(
+                "stats: no full cache at {}; a word-only cache exists at {}. Pass --stats-profile word-only to read it",
+                cache_path.display(),
+                word_only.unwrap().display()
+            );
+        } else {
+            println!("stats: no cache found at {}", cache_path.display());
+        }
         return Ok(());
     }
-    let conn = rusqlite::Connection::open(&cache_path).map_err(|e| e.to_string())?;
+    let conn = pg_stats::pack::open_read(&cache_path)?;
+    let conn = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    if !matches!(group, Some(ReportGroup::Word)) || filters.kind.is_some() {
+        pg_stats::require_object_facts(&conn)?;
+    }
     let run_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
     if run_count == 0 {
-        println!(
-            "stats: cache at {} has no recorded runs yet",
-            cache_path.display()
-        );
-        return Ok(());
+        let body = match format {
+            OutputFormat::Text => format!(
+                "stats: cache at {} has no recorded runs yet\n",
+                cache_path.display()
+            ),
+            OutputFormat::Jsonl => {
+                let mut meta = serde_json::json!({
+                    "meta": true,
+                    "orientation": orientation,
+                    "filters": filters_json(&filters),
+                    "empty_reason": "no_runs",
+                });
+                add_cache_capabilities(&conn, &mut meta)?;
+                format!("{meta}\n")
+            }
+        };
+        return write_stats_report(out_path.as_deref(), &body).map_err(Into::into);
     }
 
+    if pg_stats::is_compact(&conn).map_err(|e| e.to_string())? {
+        eprintln!("stats: compact cache; allomorph breakdown and stratum filters are unavailable");
+    }
     let mixed = pg_stats::mixed_settings(&conn).map_err(|e| e.to_string())?;
     if mixed.is_mixed() {
         eprintln!(
@@ -2448,9 +2927,14 @@ pub(crate) fn run_stats(args: &[String]) -> Result<(), String> {
         Some(ReportGroup::Morpheme) => render_morpheme(&conn, &filters, format)?,
         Some(ReportGroup::Group) => render_group(&conn, &filters, format)?,
         Some(ReportGroup::NeverFires) => render_never_fires(&conn, &filters, format)?,
+        Some(ReportGroup::Gate) => render_gate(&conn, &filters, format)?,
     };
+    write_stats_report(out_path.as_deref(), &body).map_err(Into::into)
+}
+
+fn write_stats_report(out_path: Option<&str>, body: &str) -> Result<(), String> {
     match out_path {
-        Some(path) => std::fs::write(&path, body).map_err(|e| format!("write {path}: {e}")),
+        Some(path) => std::fs::write(path, body).map_err(|e| format!("write {path}: {e}")),
         None => {
             print!("{body}");
             Ok(())
@@ -2462,7 +2946,136 @@ fn self_time_value(kind: &str, value: i64) -> Option<i64> {
     let stats_kind: pg_stats::ObjectKind = kind.parse().unwrap_or_else(|_| {
         panic!("kind string from the cache must be a known ObjectKind: {kind}")
     });
-    pg_rules::stats::self_time_supported(stats_kind_to_rules_kind(stats_kind)).then_some(value)
+    stats_kind_to_rules_kind(stats_kind)
+        .filter(|kind| pg_rules::stats::self_time_supported(*kind))
+        .map(|_| value)
+}
+
+pub(crate) fn run_stats_cache(args: &[String]) -> Result<(), String> {
+    let usage = "usage: stats-cache pack|unpack --cache PATH [--out PATH (unpack only)]";
+    let Some(action) = args.first() else {
+        return Err(usage.into());
+    };
+    if !matches!(action.as_str(), "pack" | "unpack") {
+        return Err(usage.into());
+    }
+    let mut cache = None;
+    let mut out = None;
+    let mut it = args[1..].iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--cache" => cache = Some(it.next().ok_or(usage)?),
+            "--out" => out = Some(it.next().ok_or(usage)?),
+            _ => return Err(usage.into()),
+        }
+    }
+    let path = Path::new(cache.ok_or(usage)?);
+    if let Some(out) = out {
+        if action != "unpack" {
+            return Err("--out requires unpack".into());
+        }
+        if Path::new(out).exists() {
+            return Err(format!("output_exists: {out}"));
+        }
+        let source = pg_stats::pack::open_read(path).map_err(|e| e.to_string())?;
+        source
+            .execute("VACUUM INTO ?1", [out])
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    if action == "pack" {
+        pg_stats::pack::pack(path)
+    } else {
+        pg_stats::pack::unpack(path)
+    }
+    .map_err(|e| e.to_string())?;
+    eprintln!("stats-cache: storage changed; exact file digests must be recorded again (use batch --cache-pack before publishing a frozen manifest)");
+    Ok(())
+}
+
+fn render_gate(
+    conn: &rusqlite::Connection,
+    filters: &Filters,
+    format: OutputFormat,
+) -> Result<String, String> {
+    let version: i64 = conn
+        .query_row(
+            "SELECT schema_version FROM cache_identity WHERE cache_id=1",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if !pg_stats::supported_schema_version(version) {
+        return Err(
+            "gate statistics unmeasured in this legacy cache; record a new HC batch --stats".into(),
+        );
+    }
+    let (measured, unmeasured, censored): (i64,i64,i64) = conn.query_row(
+        "SELECT COALESCE(SUM(gates_measured),0), COALESCE(SUM(1-gates_measured),0), COALESCE(SUM(capped OR timed_out OR invalid_shape),0) FROM word WHERE (?1 IS NULL OR form=?1) AND (NOT ?2 OR NOT (capped OR timed_out OR invalid_shape))",
+        rusqlite::params![filters.word, filters.exclude_censored], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
+    ).map_err(|e| e.to_string())?;
+    let mut out = match format {
+        OutputFormat::Text => format!("gate statistics: measured_words={measured}, unmeasured_words={unmeasured}, censored_words={censored}\n"),
+        OutputFormat::Jsonl => {
+            let (grammar_hash, engine) = run_identity(conn)?;
+            let mut meta = serde_json::json!({"meta":true,"orientation":"gate","grammar_hash":grammar_hash,"engine":engine,"filters":filters_json(filters),"schema_version":version,"measured_words":measured,"unmeasured_words":unmeasured,"censored_words":censored});
+            add_cache_capabilities(conn, &mut meta)?;
+            format!("{meta}\n")
+        },
+    };
+    let mut stmt = conn.prepare(
+        "SELECT o.key,o.kind,f.key,f.kind,f.label,f.mode,SUM(g.passed),SUM(g.blocked) FROM gate_fact g JOIN word w USING(word_id) JOIN object o USING(object_id) JOIN feature f USING(feature_id)
+         WHERE w.gates_measured=1 AND (?1 IS NULL OR w.form=?1) AND (?2 IS NULL OR o.key=?2) AND (?3 IS NULL OR o.kind=?3) AND (NOT ?4 OR NOT (w.capped OR w.timed_out OR w.invalid_shape))
+         GROUP BY g.object_id,g.feature_id ORDER BY SUM(g.blocked) DESC,o.kind,o.key,f.kind,f.key,f.mode LIMIT ?5"
+    ).map_err(|e|e.to_string())?;
+    let rows = stmt
+        .query_map(
+            rusqlite::params![
+                filters.word,
+                filters.object_key,
+                filters.kind,
+                filters.exclude_censored,
+                filters.top_n.map(|n| n as i64).unwrap_or(-1)
+            ],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, String>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, i64>(7)?,
+                ))
+            },
+        )
+        .map_err(|e| e.to_string())?;
+    let mut table = Vec::new();
+    for row in rows {
+        let (object, kind, feature, feature_kind, label, mode, passed, blocked) =
+            row.map_err(|e| e.to_string())?;
+        match format {
+            OutputFormat::Text => table.push(vec![object,kind,feature,feature_kind,label,mode,passed.to_string(),blocked.to_string()]),
+            OutputFormat::Jsonl => out.push_str(&format!("{}\n",serde_json::json!({"type":"row","object_key":object,"kind":kind,"feature_key":feature,"feature_kind":feature_kind,"label":label,"mode":mode,"passed":passed,"blocked":blocked}))),
+        }
+    }
+    if matches!(format, OutputFormat::Text) {
+        out.push_str(&render_table(
+            &[
+                "object",
+                "kind",
+                "feature",
+                "feature_kind",
+                "label",
+                "mode",
+                "passed",
+                "blocked",
+            ],
+            &table,
+        ));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

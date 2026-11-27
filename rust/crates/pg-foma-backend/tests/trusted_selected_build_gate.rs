@@ -37,13 +37,6 @@ const TUNED_FIXTURE: &str = r#"
 </Language></HermitCrabInput>
 "#;
 
-/// Read at RUN time, not baked in with `include_str!`: a compile-time path breaks the BUILD when
-/// its fixture graduates upstream, instead of failing one test. Details: docs/design/fixture-pins.md
-fn templated_fixture() -> String {
-    pg_conformance_fixtures::require_fixture("edge-cases", "template-category-sharing")
-        .load_grammar_xml()
-}
-
 fn identities(grammar: &Grammar, analyses: &[WordAnalysis]) -> BTreeSet<AnalysisIdentity> {
     analyses
         .iter()
@@ -107,17 +100,6 @@ fn selected_tuned_surface_payload_reconstructs_exact_analysis_pipeline() {
     );
 }
 
-#[test]
-fn selected_templated_underlying_tokens_payload_reconstructs_exact_analysis_pipeline() {
-    let grammar = pg_grammar::load(&templated_fixture()).expect("synthetic fixture must load");
-    assert_selected_payload_route(
-        &grammar,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        CompletionProofKind::TemplatedFullEmission,
-        "pakolosa",
-    );
-}
-
 /// At the PUBLIC boundary a partial-bearing grammar yields no build at all -- an absence, not a filter a caller could route around.
 #[test]
 fn a_partial_bearing_grammar_yields_no_selectable_build() {
@@ -178,31 +160,5 @@ fn stale_completed_build_evidence_is_rejected_before_runtime() {
         )
         .is_err(),
         "a build for another grammar identity must fail closed before analyzer construction"
-    );
-}
-
-#[test]
-fn missing_requested_route_completed_build_must_not_silently_select_a_different_backend() {
-    let grammar = pg_grammar::load(TUNED_FIXTURE).expect("synthetic fixture must load");
-    let requested_strategy = EmissionStrategy::TunedSurfaceProbed;
-    let different_strategy = EmissionStrategy::TemplatedUnderlyingTokens;
-    let request = CompileAttempt::try_new().expect("compile attempt");
-    let different_build = compile_completed_backend(&grammar, different_strategy, &request)
-        .expect("different backend must be independently buildable");
-    let grammar_id = grammar_identity(&grammar);
-
-    let error = select_completed_build(
-        requested_strategy,
-        vec![different_build],
-        &request,
-        &grammar_id,
-    )
-    .expect_err(
-        "selection must fail closed when the requested completed build is absent; silently using \
-         a different payload would misreport requested == selected == realized",
-    );
-    assert!(
-        error.to_string().contains("requested"),
-        "the typed failure must explain that the requested build is missing, got: {error}"
     );
 }

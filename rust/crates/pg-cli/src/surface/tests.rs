@@ -7,6 +7,7 @@ const HISTORICAL_DISPATCH_LITERALS: &[&str] = &[
     "parse",
     "import",
     "fst-health",
+    "fst-verify",
     "coverage",
     "plan-diagram",
     "make-report",
@@ -32,6 +33,7 @@ fn table_covers_every_historical_dispatch_literal() {
         let foma_only = matches!(
             *name,
             "fst-health"
+                | "fst-verify"
                 | "coverage"
                 | "plan-diagram"
                 | "make-report"
@@ -83,6 +85,7 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(spec.flag("--word-timeout-ms").is_some());
     assert!(spec.flag("--analyses").is_some());
     assert!(spec.flag("--stats-manifest").is_some());
+    assert!(spec.flag("--stats-profile").is_some_and(|f| f.takes_value));
     assert!(spec.flag("--work-columns").is_some_and(|f| !f.takes_value));
 
     let value: serde_json::Value =
@@ -103,31 +106,58 @@ fn describe_json_lists_batch_with_threads_and_word_timeout_ms() {
     assert!(flag_names.contains(&"--word-timeout-ms"));
     assert!(flag_names.contains(&"--analyses"));
     assert!(flag_names.contains(&"--stats-manifest"));
+    assert!(flag_names.contains(&"--stats-profile"));
+    assert!(flag_names.contains(&"--engine"));
 }
 
 #[test]
 fn describe_json_publishes_the_facts_identity_contract() {
     let value: serde_json::Value = serde_json::to_value(super::describe_doc()).unwrap();
     assert_eq!(value["facts"]["format"], "pangloss-grammar-facts");
-    assert_eq!(value["facts"]["schemaVersion"], 8);
-    assert_eq!(value["facts"]["statsManifestVersion"], 1);
+    assert_eq!(value["facts"]["schemaVersion"], 9);
+    assert_eq!(value["facts"]["statsManifestVersion"], 2);
     assert_eq!(value["facts"]["applicationId"], 1_346_848_321);
     assert_eq!(value["facts"]["contextFormat"], "pangloss-facts-context");
     assert_eq!(value["facts"]["contextVersion"], 1);
     assert!(find_command("facts").is_some());
-    assert_eq!(value["interfaces"]["serveProtocol"], 1);
+    assert_eq!(value["interfaces"]["serveProtocol"], 2);
     assert_eq!(value["schema_version"], 1);
-    assert_eq!(value["interfaces"]["batchTsv"], 2);
+    assert_eq!(value["interfaces"]["batchTsv"], 5);
     assert!(find_command("serve").is_some());
 }
 
 #[test]
-fn describe_json_step_cap_flag_documents_default_and_unbounded() {
+fn describe_json_summaries_name_the_columns_batch_writes() {
     let spec = find_command("batch").expect("batch must be in COMMANDS");
-    let flag = spec.flag("--step-cap").expect("--step-cap must be listed");
+    let work = spec
+        .flag("--work-columns")
+        .expect("--work-columns must be listed");
+    assert!(work.summary.contains("work_steps"), "{}", work.summary);
+    assert!(!work.summary.contains("steps and"), "{}", work.summary);
+    let cost = spec
+        .flag("--cost-column")
+        .expect("--cost-column must be listed");
+    assert!(cost.summary.contains("work_steps"), "{}", cost.summary);
+}
+
+#[test]
+fn describe_json_work_cap_flag_documents_default_and_unbounded() {
+    let spec = find_command("batch").expect("batch must be in COMMANDS");
+    let flag = spec.flag("--work-cap").expect("--work-cap must be listed");
     assert!(flag.takes_value);
-    assert!(flag.summary.contains("50000000"), "{}", flag.summary);
+    assert!(flag.summary.contains("5000000000"), "{}", flag.summary);
     assert!(flag.summary.contains("unbounded"), "{}", flag.summary);
+}
+
+#[test]
+fn no_subcommand_declares_the_removed_step_cap_flag() {
+    for spec in COMMANDS {
+        assert!(
+            spec.flag("--step-cap").is_none(),
+            "`{}` still declares --step-cap",
+            spec.name
+        );
+    }
 }
 
 #[test]
@@ -142,10 +172,14 @@ fn hidden_commands_are_marked_hidden_in_the_described_json() {
         serde_json::to_value(super::describe_doc()).expect("Describe must serialize");
     for row in value["commands"].as_array().unwrap() {
         let name = row["name"].as_str().unwrap();
-        let expected_hidden = name.starts_with("__");
+        let spec = find_command(name).unwrap_or_else(|| panic!("{name} must be a COMMANDS row"));
         assert_eq!(
-            row["hidden"], expected_hidden,
+            row["hidden"], spec.hidden,
             "{name}: hidden flag in the JSON must match its COMMANDS row"
+        );
+        assert!(
+            !name.starts_with("__") || spec.hidden,
+            "{name}: a double-underscore command is hidden"
         );
     }
 }
@@ -173,5 +207,27 @@ fn make_report_allow_unproven_flag_is_cfg_gated_the_same_way_as_the_parser() {
     assert_eq!(
         declared, compiled_in,
         "--allow-unproven must be declared in the spec exactly when developer-tools is enabled"
+    );
+}
+
+#[test]
+fn describe_json_publishes_the_why_not_capability_and_its_answered_kinds() {
+    let v = serde_json::to_value(super::describe_doc()).unwrap();
+    let w = &v["interfaces"]["whyNot"];
+    assert_eq!(w["schema"], "pangloss.whynot.v1");
+    assert_eq!(w["ids"], "grammar-xml");
+    assert_eq!(w["suiteRows"], true);
+    assert_eq!(w["expectGuidChoices"], true);
+    assert_eq!(
+        w["kinds"],
+        serde_json::json!([
+            "no_morph_match",
+            "environment_unmet",
+            "required_slot_empty",
+            "feature_clash",
+            "adhoc_prohibition",
+            "other_gate",
+            "required_co_occurrence"
+        ])
     );
 }

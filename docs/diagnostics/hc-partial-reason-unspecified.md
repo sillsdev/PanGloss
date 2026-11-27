@@ -12,6 +12,10 @@ The grammar marks this morpheme partial but records no reason. PanGloss cannot i
 
 Inspect the named morpheme and its grammatical analysis in Lexicon > Lexicon Edit. If the analysis is complete, report the finding with its description and PanGloss version; no specific correction has been verified.
 
+Label: **blocks FST**
+
+Present in the converted Grammar because: The HC-XML partial marker is retained without a stated cause; FST support for partial morphemes is unproven.
+
 ## Background
 
 # Modelling a grammar the parser can use
@@ -41,17 +45,6 @@ A stem without a grammatical category may not accept affixes that require one. A
 In Grammar > Category Edit, inspect the category's Affix Templates and Affix Slots; in Lexicon > Lexicon Edit, check the affix's Grammatical Info. and Slots. A partial affix can still be retained when it belongs to no slot.
 
 Feature values and inflection classes are linked by references, not by matching names. If a feature or class reference cannot be resolved, use the diagnostic to find the owner and field. Keep valid linguistic data when the parser lacks support for it, and report that limitation.
-
-## Constructions the parser skips or approximates
-
-Some FieldWorks constructions do not have the same behavior in the parser:
-
-- Reduplication patterns such as `[C^1][V^1]-` are not loaded as affix rules.
-- Metathesis rules are skipped; they are not run as approximations. Words that rely on a rule may fail or differ.
-- Custom strata are replaced by the parser's default strata.
-- Some imported metathesis rules are approximated during conversion. The snapshot compiler subsequently skips these rules too; it does not run the approximation. Read both findings to distinguish the conversion loss from the compiler omission.
-
-Model a construction when it is part of the analysis, then check affected words and report valid behavior the parser cannot preserve.
 
 ## Measure one change
 

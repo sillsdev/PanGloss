@@ -23,21 +23,37 @@ fn render_admission_summary(report: &HealthReport) -> String {
 
 /// `pangloss fst-health <grammar> [<out.json>]`; `<out.json>` omitted writes the canonical JSON to stdout instead of a file, matching this crate's stdout/stderr split.
 pub fn run_fst_health(args: &[String]) -> Result<(), String> {
-    let (grammar_path, out_path): (&str, Option<&str>) = match args {
-        [g] => (g.as_str(), None),
-        [g, o] => (g.as_str(), Some(o.as_str())),
-        _ => {
-            return Err("usage: fst-health <grammar> [<out.json>]".to_string());
+    let mut config = pg_foma::construction::FstCompileConfig::default();
+    let mut compile = false;
+    let mut positionals = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        if config.parse_option(args, &mut index)? {
+            compile = true;
+        } else {
+            if args[index].starts_with("--") {
+                return Err(format!("unknown option: {}", args[index]));
+            }
+            positionals.push(args[index].as_str());
+            index += 1;
         }
+    }
+    config.strategies()?;
+    let (grammar_path, out_path) = match positionals.as_slice() {
+        [g] => (*g, None),
+        [g, o] => (*g, Some(*o)),
+        _ => return Err("usage: fst-health <grammar> [<out.json>] [--fst-strategy surface-enum|factored|auto] [--fst-auto-order surface-enum,factored]".to_string()),
     };
 
     let (grammar, warnings) = crate::load_grammar(grammar_path)?;
     crate::print_grammar_warnings(&warnings);
 
     let report = build_health_report(&grammar);
-    let json = report
-        .to_json()
-        .map_err(|e| format!("serialize health report: {e}"))?;
+    let mut value = serde_json::to_value(&report).map_err(|error| error.to_string())?;
+    if compile {
+        value["construction"] = compile_report(&grammar, &config)?;
+    }
+    let json = serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?;
 
     match out_path {
         Some(path) => {
@@ -47,11 +63,27 @@ pub fn run_fst_health(args: &[String]) -> Result<(), String> {
     }
 
     eprintln!(
-        "fst-health complete: {} finding(s), admission={} (characterization only)",
+        "fst-health complete: {} finding(s), admission={} ({})",
         report.findings.len(),
         render_admission_summary(&report),
+        if compile {
+            "construction attempt recorded"
+        } else {
+            "characterization only"
+        },
     );
     Ok(())
+}
+
+/// Runs the same strategy dispatcher used by the compile API, keeping failures in the report.
+pub(crate) fn compile_report(
+    grammar: &Grammar,
+    config: &pg_foma::construction::FstCompileConfig,
+) -> Result<serde_json::Value, String> {
+    let (result, profile) = pg_foma::analyzer::compile_proposer_with_config(grammar, config);
+    Ok(
+        serde_json::json!({ "complete": result.is_ok(), "error": result.err().map(|error| error.to_string()), "profile": profile }),
+    )
 }
 
 #[cfg(test)]

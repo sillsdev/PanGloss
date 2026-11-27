@@ -63,6 +63,7 @@ const PARTIAL_ENTRY_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?
 const STORED_ANALYSIS_CODE: &str = "grammar.stored-analysis.no-longer-parses";
 const INCOMPLETE_CODE: &str = "grammar.stored-analysis.incomplete";
 const BUDGET_CODE: &str = "grammar.stored-analysis.budget-reached";
+const EXTRA_CODE: &str = "grammar.stored-analysis.extra-reading";
 static STORED_ANALYSIS_TEST_ID: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
@@ -78,13 +79,38 @@ fn grammar(xml: &str) -> Grammar {
 }
 
 #[test]
+fn command_fst_analysis_is_explicit_and_feature_gated() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("grammar.xml");
+    let output = dir.path().join("health.json");
+    fs::write(&input, CLEAN_GRAMMAR_XML).unwrap();
+    let args = [
+        input.display().to_string(),
+        output.display().to_string(),
+        "--fst".to_string(),
+        "--stored-analyses=off".to_string(),
+    ];
+    let result = run_grammar_health(&args);
+    if cfg!(feature = "foma-tools") {
+        result.unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+        assert_eq!(value["fst_checked"], true);
+        assert_eq!(value["diagnostics"], serde_json::json!([]));
+    } else {
+        assert!(result.unwrap_err().contains("foma-tools"));
+        assert!(!output.exists());
+    }
+}
+
+#[test]
 fn clean_grammar_serializes_to_an_empty_versioned_report() {
     let g = grammar(CLEAN_GRAMMAR_XML);
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     assert!(report.is_empty());
     let json = render_json(&report).expect("empty diagnostics serialize");
     let report_value: serde_json::Value = serde_json::from_str(&json).expect("versioned report");
-    assert_eq!(report_value["schema_version"], 4);
+    assert_eq!(report_value["schema_version"], 5);
     assert!(report_value["diagnostics"].is_array());
     assert_eq!(
         render_level_counts(&report),
@@ -98,7 +124,7 @@ fn json_is_versioned_by_default() {
     let report = check_grammar_health(&g, None).expect("clean grammar checks");
     let json = render_json(&report).expect("structured diagnostics serialize");
     let value: serde_json::Value = serde_json::from_str(&json).expect("structured JSON");
-    assert_eq!(value["schema_version"], 4);
+    assert_eq!(value["schema_version"], 5);
     assert!(value["diagnostics"].is_array());
 }
 
@@ -120,7 +146,7 @@ fn command_emits_versioned_json_by_default() {
     let report: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     assert!(report["diagnostics"].is_array());
     assert_eq!(report["diagnostics"][0]["level"], "error");
     assert_eq!(report["diagnostics"].as_array().unwrap().len(), 1);
@@ -170,7 +196,7 @@ fn command_includes_import_warnings_and_infers_fwdata_project() {
         serde_json::from_str(&fs::read_to_string(&output_path).expect("read output"))
             .expect("the report is still written");
 
-    assert_eq!(report["schema_version"], 4);
+    assert_eq!(report["schema_version"], 5);
     let error_count = report["diagnostics"]
         .as_array()
         .expect("diagnostics array")
@@ -375,12 +401,12 @@ fn run_stored_analysis_health_with_synthesis_cap(
     )
     .expect("write capped stored-analysis project");
     let path = project_path.to_string_lossy().into_owned();
-    let loaded = crate::load_grammar_impl(&path, false, false)
+    let loaded = crate::load_grammar_impl(&path, false, crate::StatsIdentityRequest::None)
         .unwrap_or_else(|error| panic!("load capped stored-analysis fixture: {error}"));
     let diagnostics = crate::stored_analysis_health::check_with_options(
         &loaded.grammar,
         &loaded.stored_analyses,
-        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        crate::stored_analysis_health::ANALYSIS_WORK_CAP,
         work_cap,
         1,
         None,
@@ -395,7 +421,7 @@ fn compare_stored_analyses_at(
     project: &str,
     writing_system: &str,
     analyses: &[StoredAnalysisFixture],
-    step_cap: usize,
+    work_cap: usize,
     work_budget: Option<usize>,
     thread_counts: &[usize],
 ) -> Vec<Result<Vec<pg_grammar::grammar_health::GrammarHealthDiagnostic>, String>> {
@@ -412,7 +438,7 @@ fn compare_stored_analyses_at(
     )
     .expect("write threaded stored-analysis project");
     let path = project_path.to_string_lossy().into_owned();
-    let loaded = crate::load_grammar_impl(&path, false, false)
+    let loaded = crate::load_grammar_impl(&path, false, crate::StatsIdentityRequest::None)
         .unwrap_or_else(|error| panic!("load threaded stored-analysis fixture: {error}"));
     assert_eq!(loaded.stored_analyses.len(), analyses.len());
     let results = thread_counts
@@ -421,8 +447,8 @@ fn compare_stored_analyses_at(
             crate::stored_analysis_health::check_with_options(
                 &loaded.grammar,
                 &loaded.stored_analyses,
-                step_cap,
-                pg_rules::stratum::default_work_cap(step_cap),
+                work_cap,
+                work_cap,
                 threads,
                 work_budget,
             )
@@ -457,7 +483,7 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
         &staged_underdefined_project("08-rule-context"),
         "en",
         &analyses,
-        crate::stored_analysis_health::ANALYSIS_STEP_CAP,
+        crate::stored_analysis_health::ANALYSIS_WORK_CAP,
         None,
         &[1, 2, 3, 8],
     );
@@ -470,6 +496,7 @@ fn stored_analysis_comparison_is_identical_at_every_thread_count() {
     let wordform_order: Vec<_> = sequential
         .iter()
         .filter_map(|finding| finding.message.split("for wordform ").nth(1))
+        .filter_map(|rest| rest.split(" (WfiWordform").next())
         .collect();
     let mut sorted = wordform_order.clone();
     sorted.sort();
@@ -490,7 +517,7 @@ fn stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_coun
         &staged_underdefined_project("08-rule-context"),
         "en",
         &analyses,
-        1,
+        0,
         None,
         &[1, 2, 8],
     );
@@ -525,7 +552,7 @@ fn stored_analysis_comparison_reports_every_capped_wordform_at_every_thread_coun
 
 #[test]
 fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
-    const STEP_CAP: usize = 2;
+    const WORK_CAP: usize = 200;
     let compared = [
         StoredAnalysisFixture {
             wordform: "muma",
@@ -541,7 +568,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
         },
     ];
     let capped = StoredAnalysisFixture {
-        wordform: "xmupa",
+        wordform: "xpupa",
         allomorph: "391454a0-50fb-4cec-a965-26ef4db345f2",
         msa: "dfb85f97-d422-47ae-94b8-1b3dee2b8111",
         expected_surface: "xpupa",
@@ -550,7 +577,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     analyses.push(capped);
     let project = staged_underdefined_project("08-rule-context");
     let limits = crate::stored_analysis_health::Limits {
-        step_cap: STEP_CAP,
+        work_cap: WORK_CAP,
         ..crate::stored_analysis_health::Limits::DEFAULT
     };
     let report = run_stored_analysis_health_at("capped", &project, "en", &analyses, limits, &[]);
@@ -563,15 +590,22 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
         .collect();
     assert_eq!(incomplete.len(), 1, "{incomplete:#?}");
     let description = incomplete[0]["description"].as_str().expect("description");
-    assert!(description.contains("wordform \"xmupa\""), "{description}");
+    assert!(description.contains("wordform \"xpupa\""), "{description}");
     assert!(
-        description.contains(&format!(
-            "per-word analysis cap ({STEP_CAP} analysis steps or"
-        )),
+        description.contains(&format!("per-word work cap ({WORK_CAP} work steps)")),
         "{description}"
     );
     assert_eq!(incomplete[0]["level"], "warning");
     assert_eq!(incomplete[0]["scope"], "object");
+    let capped_row = word_row(&report, "xpupa");
+    assert_eq!(capped_row["outcome"], "incomplete");
+    assert_counts(capped_row, (1, 0, 0, 0));
+    assert!(
+        findings_with_code(&report, EXTRA_CODE)
+            .iter()
+            .all(|finding| !finding["description"].as_str().unwrap().contains("xpupa")),
+        "a capped wordform has no extra finding"
+    );
 
     let lost = |report: &serde_json::Value| -> Vec<serde_json::Value> {
         report["diagnostics"]
@@ -585,7 +619,7 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
     assert!(
         lost(&report)
             .iter()
-            .all(|finding| !finding["description"].as_str().unwrap().contains("xmupa")),
+            .all(|finding| !finding["description"].as_str().unwrap().contains("xpupa")),
         "the capped wordform is not reported as lost"
     );
     assert_eq!(
@@ -600,13 +634,13 @@ fn grammar_health_reports_a_capped_wordform_and_compares_the_rest() {
 fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thread_count() {
     let analyses = many_wordform_fixtures();
     let project = staged_underdefined_project("08-rule-context");
-    let step_cap = crate::stored_analysis_health::ANALYSIS_STEP_CAP;
-    let full = compare_stored_analyses_at(&project, "en", &analyses, step_cap, None, &[1])
+    let work_cap = crate::stored_analysis_health::ANALYSIS_WORK_CAP;
+    let full = compare_stored_analyses_at(&project, "en", &analyses, work_cap, None, &[1])
         .remove(0)
         .expect("full comparison succeeds");
     assert!(full
         .iter()
-        .all(|finding| finding.code.wire() == STORED_ANALYSIS_CODE));
+        .all(|finding| { [STORED_ANALYSIS_CODE, EXTRA_CODE].contains(&finding.code.wire()) }));
     let mut wordforms: Vec<_> = analyses.iter().map(|analysis| analysis.wordform).collect();
     wordforms.sort_unstable();
     let mut cutoffs = BTreeSet::new();
@@ -615,7 +649,7 @@ fn stored_analysis_comparison_stops_at_its_work_budget_identically_at_every_thre
             &project,
             "en",
             &analyses,
-            step_cap,
+            work_cap,
             Some(budget),
             &[1, 2, 8],
         );
@@ -983,24 +1017,41 @@ fn stored_analysis_naming_a_merged_msa_matches_its_representatives_parse() {
         append_stored_analyses(&fixture, "fx", &analyses),
     )
     .expect("write merged-MSA project");
-    let mut loaded = crate::load_grammar_impl(&project_path.to_string_lossy(), false, false)
-        .unwrap_or_else(|error| panic!("load merged-MSA fixture: {error}"));
+    let mut loaded = crate::load_grammar_impl(
+        &project_path.to_string_lossy(),
+        false,
+        crate::StatsIdentityRequest::None,
+    )
+    .unwrap_or_else(|error| panic!("load merged-MSA fixture: {error}"));
     fs::remove_dir_all(&scratch).expect("remove merged-MSA fixture directory");
     let compare = |grammar: &Grammar| {
         crate::stored_analysis_health::check_with_options(
             grammar,
             &loaded.stored_analyses,
-            crate::stored_analysis_health::ANALYSIS_STEP_CAP,
-            pg_rules::stratum::default_work_cap(crate::stored_analysis_health::ANALYSIS_STEP_CAP),
+            crate::stored_analysis_health::ANALYSIS_WORK_CAP,
+            crate::stored_analysis_health::ANALYSIS_WORK_CAP,
             1,
             None,
         )
         .expect("comparison runs")
     };
+    let control = compare(&loaded.grammar);
+    let count = |code: &str| {
+        control
+            .iter()
+            .filter(|finding| finding.code.wire() == code)
+            .count()
+    };
+    assert_eq!(control.len(), 2, "{control:#?}");
     assert_eq!(
-        compare(&loaded.grammar).len(),
+        count(STORED_ANALYSIS_CODE),
         1,
         "control: the stored MSA is not the parsed one"
+    );
+    assert_eq!(
+        count(EXTRA_CODE),
+        1,
+        "control: the parsed MSA is not approved"
     );
     loaded.grammar.representative_msas.insert(
         "00000000-0000-0000-0000-000000000042".to_string(),
@@ -1031,11 +1082,166 @@ fn grammar_health_reports_synthesis_budget_as_unattributed() {
     assert!(
         finding
             .message
-            .contains("unattributed: synthesis step budget reached"),
+            .contains("unattributed: synthesis work cap reached"),
         "{}",
         finding.message
     );
     assert!(!finding.message.contains("authored phonological rule"));
+}
+
+/// The `kat` fixture with a second entry spelled `kat`, so the wordform parses to two Readings.
+fn homograph_project() -> String {
+    const FIXTURE: &str = include_str!("../../../pg-fwdata/tests/data/fixture.fwdata");
+    let homograph = r#"<rt class="LexEntry" guid="00000000-0000-0000-0000-000000000060">
+<CitationForm><AUni ws="fx">kat</AUni></CitationForm>
+<LexemeForm><objsur guid="00000000-0000-0000-0000-000000000061" t="o" /></LexemeForm>
+<MorphoSyntaxAnalyses><objsur guid="00000000-0000-0000-0000-000000000062" t="o" /></MorphoSyntaxAnalyses>
+</rt>
+<rt class="MoStemAllomorph" guid="00000000-0000-0000-0000-000000000061" ownerguid="00000000-0000-0000-0000-000000000060">
+<Form><AUni ws="fx">kat</AUni></Form>
+<IsAbstract val="False" />
+<MorphType><objsur guid="d7f713e8-e8cf-11d3-9764-00c04f186933" t="r" /></MorphType>
+</rt>
+<rt class="MoStemMsa" guid="00000000-0000-0000-0000-000000000062" ownerguid="00000000-0000-0000-0000-000000000060">
+<PartOfSpeech><objsur guid="00000000-0000-0000-0000-00000000000b" t="r" /></PartOfSpeech>
+</rt>
+"#;
+    let mut project = FIXTURE
+        .replace(
+            "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+            "guid=\"00000000-0000-0000-0000-000000000017\"",
+        )
+        .replace(
+            "<objsur guid=\"00000000-0000-0000-0000-000000000018\" t=\"o\" />",
+            "",
+        );
+    let end = project
+        .rfind("</languageproject>")
+        .expect("fixture has a root closing tag");
+    project.insert_str(end, homograph);
+    project
+}
+
+const KAT: StoredAnalysisFixture = StoredAnalysisFixture {
+    wordform: "kat",
+    allomorph: "00000000-0000-0000-0000-000000000031",
+    msa: "00000000-0000-0000-0000-000000000032",
+    expected_surface: "kat",
+};
+const KAT_HOMOGRAPH: StoredAnalysisFixture = StoredAnalysisFixture {
+    allomorph: "00000000-0000-0000-0000-000000000061",
+    msa: "00000000-0000-0000-0000-000000000062",
+    ..KAT
+};
+/// An approved analysis of `kat` that names the other root, so it never parses.
+const KAT_AS_RANNA: StoredAnalysisFixture = StoredAnalysisFixture {
+    allomorph: "00000000-0000-0000-0000-000000000041",
+    msa: "00000000-0000-0000-0000-000000000042",
+    ..KAT
+};
+
+fn findings_with_code<'a>(report: &'a serde_json::Value, code: &str) -> Vec<&'a serde_json::Value> {
+    report["diagnostics"]
+        .as_array()
+        .expect("diagnostic array")
+        .iter()
+        .filter(|diagnostic| diagnostic["code"] == code)
+        .collect()
+}
+
+fn word_row<'a>(report: &'a serde_json::Value, wordform: &str) -> &'a serde_json::Value {
+    report["stored_analysis_words"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no stored_analysis_words in {report}"))
+        .iter()
+        .find(|row| row["wordform"] == wordform)
+        .unwrap_or_else(|| panic!("no row for {wordform:?} in {report}"))
+}
+
+fn assert_counts(
+    row: &serde_json::Value,
+    (approved, matched, missing, extra): (u64, u64, u64, u64),
+) {
+    assert_eq!(row["approved"], approved, "{row}");
+    assert_eq!(row["matched"], matched, "{row}");
+    assert_eq!(row["missing"], missing, "{row}");
+    assert_eq!(row["extra"], extra, "{row}");
+}
+
+#[test]
+fn stored_analysis_check_reports_a_parsed_reading_no_approved_analysis_matches() {
+    let report = run_stored_analysis_health("extra", &homograph_project(), "fx", &[KAT]);
+    let extras = findings_with_code(&report, EXTRA_CODE);
+    assert_eq!(extras.len(), 1, "{extras:#?}");
+    assert_eq!(extras[0]["level"], "info");
+    let description = extras[0]["description"].as_str().expect("description");
+    assert!(description.contains("wordform \"kat\""), "{description}");
+    assert!(
+        description.contains(KAT_HOMOGRAPH.allomorph),
+        "{description}"
+    );
+    assert!(description.contains(KAT_HOMOGRAPH.msa), "{description}");
+    assert!(!description.contains(KAT.allomorph), "{description}");
+    assert!(description.contains("divergence"), "{description}");
+    assert!(findings_with_code(&report, STORED_ANALYSIS_CODE).is_empty());
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "extra");
+    assert_counts(row, (1, 1, 0, 1));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_whose_approved_readings_all_parse_as_same() {
+    let report =
+        run_stored_analysis_health("same", &homograph_project(), "fx", &[KAT, KAT_HOMOGRAPH]);
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
+    assert!(findings_with_code(&report, STORED_ANALYSIS_CODE).is_empty());
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "same");
+    assert_counts(row, (2, 2, 0, 0));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_with_both_a_missing_and_an_extra_reading() {
+    let report =
+        run_stored_analysis_health("both", &homograph_project(), "fx", &[KAT, KAT_AS_RANNA]);
+    assert_eq!(findings_with_code(&report, EXTRA_CODE).len(), 1);
+    assert_eq!(findings_with_code(&report, STORED_ANALYSIS_CODE).len(), 1);
+    let row = word_row(&report, "kat");
+    assert_eq!(row["outcome"], "missing_and_extra");
+    assert_counts(row, (2, 1, 1, 1));
+}
+
+#[test]
+fn stored_analysis_check_reports_a_word_with_only_a_missing_reading_as_missing() {
+    let report = run_stored_analysis_health(
+        "missing",
+        &staged_underdefined_project("08-rule-context"),
+        "en",
+        &[StoredAnalysisFixture {
+            wordform: "muma",
+            allomorph: "630dc2aa-eb27-4c92-8e55-15eb12c0db6b",
+            msa: "cbb849b1-13ac-4b86-9a5a-a4a5e950d164",
+            expected_surface: "pupa",
+        }],
+    );
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
+    let row = word_row(&report, "muma");
+    assert_eq!(row["outcome"], "missing");
+    assert_counts(row, (1, 0, 1, 0));
+}
+
+#[test]
+fn stored_analysis_word_rows_are_absent_when_the_comparison_is_off() {
+    let report = run_stored_analysis_health_at(
+        "off",
+        &homograph_project(),
+        "fx",
+        &[KAT],
+        crate::stored_analysis_health::Limits::DEFAULT,
+        &["--stored-analyses", "off"],
+    );
+    assert!(report.get("stored_analysis_words").is_none(), "{report}");
+    assert!(findings_with_code(&report, EXTRA_CODE).is_empty());
 }
 
 #[test]
@@ -1134,4 +1340,34 @@ fn invalid_xml_is_reported_before_grammar_health_returns_failure() {
         serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
     assert_eq!(wire["diagnostics"][0]["code"], "grammar.compile.failed");
     assert_eq!(wire["diagnostics"][0]["level"], "error");
+}
+
+#[cfg(feature = "foma-tools")]
+#[test]
+fn fst_switch_and_auto_order_are_reachable_from_grammar_health() {
+    let scratch = tempfile::tempdir().unwrap();
+    let input = scratch.path().join("grammar.xml");
+    let output = scratch.path().join("report.json");
+    fs::write(
+        &input,
+        CLEAN_GRAMMAR_XML.replace(
+            "<LexicalEntry id=\"e1\">",
+            "<LexicalEntry id=\"e1\" partOfSpeech=\"posV\"> ",
+        ),
+    )
+    .unwrap();
+    run_grammar_health(&[
+        input.to_string_lossy().into_owned(),
+        output.to_string_lossy().into_owned(),
+        "--fst".into(),
+        "--fst-strategy=auto".into(),
+        "--fst-auto-order=factored,surface-enum".into(),
+    ])
+    .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(output).unwrap()).unwrap();
+    let report = &value["fst"]["profile"]["construction"];
+    assert_eq!(report["selected"], "surface-enum");
+    assert_eq!(report["attempts"][0]["strategy"], "factored");
+    assert_eq!(report["attempts"][1]["strategy"], "surface-enum");
 }

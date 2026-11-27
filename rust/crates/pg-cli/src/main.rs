@@ -1,26 +1,24 @@
 //! `pangloss` — the standalone CLI mirroring C# `hc batch`'s TSV protocol so parity diffs against
 //! managed golden runs are line-for-line comparable.
 //!
-//! `batch <grammar.xml> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
+//! `batch <grammar.xml> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses <path>] [--always-enforce-final-templates[=true|false]]`
 //! loads the grammar once and parses every word, writing the `BatchCommand`-compatible TSV.
 //! `--analyses` additionally writes one FieldWorks `ParseAnalysis` JSONL row per input case while
 //! preserving partial projections when a cap or timeout fires.
-//! `--step-cap N` bounds the analysis cascade; omitted,
-//! it defaults to `DEFAULT_STEP_CAP` (50,000,000) so every batch terminates deterministically --
-//! `--step-cap unbounded` opts back into no bound at all. See
-//! `docs/research/step-cap-default-measurements.md` for the measurements behind that number.
-//!
-//! `--work-cap N|unbounded` bounds inner search and confirmation independently. Omitted,
-//! it is 100 times the configured step cap (saturating); unbounded derives unbounded.
+//! `--work-cap N` bounds the work of one word: the running total of work steps across analysis,
+//! lookup and confirmation. Omitted, it defaults to `DEFAULT_WORK_CAP` (5,000,000,000) so every
+//! batch terminates deterministically; `--work-cap unbounded` opts back into no bound at all.
 //! See `docs/research/per-word-search-work-cap.md` for its counting contract and evidence.
+//! `--word-mem-cap-mib` independently bounds counted retained parser state (100 MiB by default;
+//! 0 disables it). A stopped word reports `MEMCAP`, and the batch continues.
 //!
 //! ## `--word-timeout-ms`
-//! A second, independent bound: `--step-cap` bounds the *number* of analysis steps, but per-step
-//! cost is not uniform — some pathological words legitimately spend far longer per step than
-//! others (heavier narrowing/expansion analysis), so a step-count cap alone cannot bound wall-clock
+//! A second, independent bound: `--work-cap` bounds the *amount* of work, but work is not a
+//! time measure — some pathological words legitimately spend far longer per work step than
+//! others (heavier narrowing/expansion analysis), so a work cap alone cannot bound wall-clock
 //! time per word. `--word-timeout-ms N` arms a wall-clock deadline on the same shared
-//! `pg_rules::stratum::StepBudget` the step cap already uses; whichever bound fires first wins,
-//! and each is reported distinctly — a step-cap-exhausted word writes a `CAP` status row (its
+//! `pg_rules::stratum::WordBudget` the work cap already uses; whichever bound fires first wins,
+//! and each is reported distinctly — a work-cap-exhausted word writes a `CAP` status row (its
 //! signature column is the partial, unconfirmed signature reached before the cap fired, kept for
 //! inspection, never a result) alongside the same `CAP` marker on stderr, while a timed-out word
 //! writes a `TIMEOUT` row with signature `-`. Omitted (the default) is a complete no-op: no clock
@@ -61,9 +59,12 @@
 //! measurements belong to a separate post-build operation over an explicitly completed artifact.
 //! `<out.json>` omitted prints the JSON to stdout.
 //!
+//! `fst-verify <grammar> <words> [--out <tsv>] [--json <path>]` compares complete
+//! FST-plus-confirmation and plain HC-Rust analysis sets. See `docs/formats/fst-verify.md`.
+//!
 //! ## `grammar-health` (see `grammar_health.rs`'s own doc for the full contract)
 //! `grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-//! [--stored-analyses bounded|all|off]` runs the ported
+//! [--stored-analyses bounded|all|off] [--shadowed [--include-selectable]]` runs the ported
 //! `hc-*` HermitCrab grammar-authoring checks
 //! (`pg_grammar::grammar_health::check_grammar_health`) and prints/writes a versioned JSON
 //! report. A separate report from `fst-health`: this one asks whether the grammar is
@@ -84,10 +85,16 @@
 
 #[cfg(feature = "alloc-trace")]
 mod alloc_trace;
+mod analyze_text_cmd;
+mod batch_prefilter;
+mod batch_query;
+mod batch_result_cache;
+mod batch_spans;
+mod retire;
 #[cfg(test)]
 mod test_support;
+mod without;
 
-use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::process::ExitCode;
@@ -105,7 +112,7 @@ use pg_parse::{
     parse_morph::{project_parse_analysis, ParseAnalysis, PARSE_ANALYSIS_PROFILE},
     GenMorpheme, Morpher, WordAnalysis,
 };
-use pg_stats::StepCap;
+use pg_stats::{StatsProfile, WorkCap};
 
 #[derive(Clone, Default)]
 struct BatchParseCounter {
@@ -127,8 +134,17 @@ impl BatchParseCounter {
 
 pub(crate) mod build_info;
 mod compile_failure;
+#[cfg(feature = "cost-calibration")]
+mod cost_calibrate;
+mod cost_compare;
+mod engine;
 mod facts_cmd;
+#[cfg(feature = "foma-tools")]
+mod fst_batch;
+#[cfg(feature = "foma-tools")]
+mod fst_engine;
 mod generate_request;
+mod readings_histogram;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;
@@ -136,7 +152,11 @@ pub mod backend_report;
 mod coverage;
 #[cfg(feature = "foma-tools")]
 mod fst_health;
+#[cfg(feature = "foma-tools")]
+mod fst_verify;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
+mod diagnostic;
+mod generate_batch;
 pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
 mod make_report;
@@ -152,11 +172,18 @@ pub mod readiness_verdict;
 mod recipe_optimize;
 mod rich_trace;
 mod serve;
+mod serve_effects;
+mod serve_generate;
+mod serve_inventory;
+mod serve_match;
+mod serve_shadowed;
 mod stats_cmd;
 mod stats_manifest;
 mod stored_analysis_health;
 mod surface;
 mod trace_render;
+mod why_not_cmd;
+mod why_not_suite;
 
 /// Accepts experimental FST controls only in `developer-tools` builds, before positional parsing.
 #[cfg(feature = "foma-tools")]
@@ -182,12 +209,18 @@ fn reject_unknown_option(command: &str, arg: &str) -> Result<(), String> {
     spec.reject_unknown_option(arg)
 }
 
-/// The `(status, signature)` pair both batch writers emit for a word that neither timed out nor was skipped.
-fn row_status(outcome: &pg_parse::ParseOutcome) -> (&'static str, String) {
-    if outcome.capped {
-        ("CAP", outcome.signature())
+/// The result status shared by batch and serve; timeout counts are wall-clock dependent.
+fn outcome_status(outcome: &pg_parse::ParseOutcome) -> &'static str {
+    if outcome.invalid_shape {
+        "SKIPPED"
+    } else if outcome.timed_out {
+        "TIMEOUT"
+    } else if outcome.capture_capped || outcome.word_mem_capped {
+        "MEMCAP"
+    } else if outcome.capped {
+        "CAP"
     } else {
-        ("ok", outcome.signature())
+        "ok"
     }
 }
 
@@ -203,28 +236,67 @@ struct ParseAnalysisBatchRow {
     timed_out: bool,
     #[serde(rename = "invalidShape")]
     invalid_shape: bool,
-    analyses: Vec<ParseAnalysis>,
+    analyses: Vec<ReadingOut>,
     unavailable: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completion: Option<engine::Completion>,
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    query: Option<batch_query::RowFields>,
+}
+
+/// One reading; `morphSpans` is present only under `--morph-spans`, and the flattened `morphs` keep their own key order.
+#[derive(serde::Serialize)]
+struct ReadingRow {
+    #[serde(flatten)]
+    analysis: ParseAnalysis,
+    #[serde(rename = "morphSpans", skip_serializing_if = "Option::is_none")]
+    morph_spans: Option<serde_json::Value>,
+}
+
+/// A reading as written: the plain v1 shape, or the `--query-fields` shape with entry and signature members.
+#[derive(serde::Serialize)]
+#[serde(untagged)]
+enum ReadingOut {
+    Plain(ReadingRow),
+    Query(batch_query::QueryReading),
 }
 
 fn projected_analyses(
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
-) -> (Vec<ParseAnalysis>, Vec<String>) {
+    morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
+    query: bool,
+) -> (Vec<ReadingOut>, Vec<String>) {
     if outcome.invalid_shape {
         return (Vec::new(), Vec::new());
     }
     let mut analyses = Vec::with_capacity(outcome.structured.len());
     let mut unavailable = Vec::new();
-    for analysis in &outcome.structured {
+    for (index, analysis) in outcome.structured.iter().enumerate() {
+        let spans =
+            morph_spans.map(|spans| batch_spans::render(spans.get(index).and_then(Option::as_ref)));
+        if query {
+            match pg_parse::parse_morph::project_parse_analysis_with_morphemes(analysis, grammar) {
+                Ok(projected) => analyses.push(ReadingOut::Query(batch_query::reading(
+                    analysis, projected, grammar, spans,
+                ))),
+                Err(error) => unavailable.push(error.to_string()),
+            }
+            continue;
+        }
         match project_parse_analysis(analysis, grammar) {
-            Ok(projected) => analyses.push(projected),
+            Ok(projected) => analyses.push(ReadingOut::Plain(ReadingRow {
+                analysis: projected,
+                morph_spans: spans,
+            })),
             Err(error) => unavailable.push(error.to_string()),
         }
     }
     (analyses, unavailable)
 }
 
+// Only the fst batch and tests write rows without spans.
+#[cfg_attr(not(any(test, feature = "foma-tools")), allow(dead_code))]
 fn write_parse_analysis_row<W: Write>(
     w: &mut W,
     index: usize,
@@ -232,8 +304,29 @@ fn write_parse_analysis_row<W: Write>(
     elapsed_ms: u128,
     outcome: &pg_parse::ParseOutcome,
     grammar: &Grammar,
+    engine: Option<engine::Engine>,
 ) -> std::io::Result<()> {
-    let (analyses, unavailable) = projected_analyses(outcome, grammar);
+    write_parse_analysis_row_spans(
+        w, index, word, elapsed_ms, outcome, grammar, engine, None, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_parse_analysis_row_spans<W: Write>(
+    w: &mut W,
+    index: usize,
+    word: &str,
+    elapsed_ms: u128,
+    outcome: &pg_parse::ParseOutcome,
+    grammar: &Grammar,
+    engine: Option<engine::Engine>,
+    morph_spans: Option<&[Option<pg_parse::morpher::ParseSpans>]>,
+    query: Option<batch_query::QueryFields>,
+) -> std::io::Result<()> {
+    let (analyses, unavailable) =
+        projected_analyses(outcome, grammar, morph_spans, query.is_some());
+    let query =
+        query.map(|fields| batch_query::row_fields(fields, outcome, &analyses, &unavailable));
     let row = ParseAnalysisBatchRow {
         schema: PARSE_ANALYSIS_PROFILE,
         index,
@@ -244,6 +337,8 @@ fn write_parse_analysis_row<W: Write>(
         invalid_shape: outcome.invalid_shape,
         analyses,
         unavailable,
+        completion: engine.map(|engine| engine::Completion::new(engine, outcome)),
+        query,
     };
     serde_json::to_writer(&mut *w, &row)
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
@@ -286,6 +381,23 @@ fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
     {
         false
     }
+}
+
+/// Refuses a TSV output path that would overwrite the grammar or the word list.
+pub(crate) fn reject_tsv_path_collisions(
+    grammar_path: &str,
+    words_path: &str,
+    out_path: &str,
+) -> Result<(), String> {
+    let out_key = path_key(std::path::Path::new(out_path));
+    for (label, path) in [("grammar", grammar_path), ("word list", words_path)] {
+        if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+            return Err(format!(
+                "<out.tsv> path cannot overwrite {label} path: {out_path}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reject_analysis_path_collisions(
@@ -355,15 +467,45 @@ const REPORT_DEVELOPER_HELP: &str = " [--allow-unproven]";
 #[cfg(not(feature = "developer-tools"))]
 const REPORT_DEVELOPER_HELP: &str = "";
 
-/// Ten times the highest step count any measured legitimate word reached across every corpus sampled; a runaway guard, never a performance tuning knob.
-const DEFAULT_STEP_CAP: StepCap = StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap());
+/// A runaway guard, never a tuning knob: 5,000,000,000 work steps, the cap a 50,000,000-attempt limit implied at 100 work steps per attempt.
+const DEFAULT_WORK_CAP: WorkCap =
+    WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap());
 
-fn parse_work_cap(value: &str) -> Result<StepCap, String> {
-    value.parse::<StepCap>().map_err(|err| {
-        err.replace("--step-cap", "--work-cap")
-            .replace("step cap", "work cap")
-            .replace("first step", "first work unit")
-    })
+/// The limit on one `generate` run, in work steps and seed choices alike.
+const DEFAULT_GENERATION_WORK_CAP: usize = 50_000_000;
+
+fn parse_work_cap(value: &str) -> Result<WorkCap, String> {
+    value.parse::<WorkCap>()
+}
+
+/// `--capture-cap-mib N|unbounded`: MiB of matcher capture state one word may hold at once, as the byte ceiling `Morpher::with_capture_cap` takes.
+fn parse_capture_cap(value: &str) -> Result<Option<usize>, String> {
+    if value == "unbounded" {
+        return Ok(None);
+    }
+    value
+        .parse::<usize>()
+        .ok()
+        .and_then(|mib| mib.checked_mul(1024 * 1024))
+        .map(Some)
+        .ok_or_else(|| {
+            format!("invalid --capture-cap-mib: {value} (expected MiB or \"unbounded\")")
+        })
+}
+
+fn parse_word_mem_cap(value: &str) -> Result<Option<usize>, String> {
+    if value == "unbounded" {
+        return Ok(None);
+    }
+    let mib = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid --word-mem-cap-mib: {value} (expected MiB or 0)"))?;
+    if mib == 0 {
+        return Ok(None);
+    }
+    mib.checked_mul(1024 * 1024)
+        .map(Some)
+        .ok_or_else(|| format!("invalid --word-mem-cap-mib: {value} (expected MiB or 0)"))
 }
 
 /// The value of a `--flag=true|false` override of a project parser setting.
@@ -375,19 +517,30 @@ fn parse_bool_flag(flag: &str, value: &str) -> Result<bool, String> {
     }
 }
 
-fn resolved_work_cap(step_cap: StepCap, work_cap: Option<StepCap>) -> usize {
-    work_cap.map_or_else(
-        || pg_rules::stratum::default_work_cap(step_cap.as_morpher_cap()),
-        StepCap::as_morpher_cap,
-    )
-}
-
 /// Allocator-level ground truth for `docs/research/word-memory-trace.md`; off unless built with `--features alloc-trace`.
 #[cfg(feature = "alloc-trace")]
 #[global_allocator]
 static GLOBAL_ALLOC: alloc_trace::CountingAlloc = alloc_trace::CountingAlloc;
 
+/// Inert until `--cost-column` or `cost-calibrate` turns counting on.
+#[cfg(not(feature = "alloc-trace"))]
+#[global_allocator]
+static GLOBAL_ALLOC: pg_cost::CountingAllocator = pg_cost::CountingAllocator;
+
 fn main() -> ExitCode {
+    let mut args = std::env::args_os().skip(1);
+    if args.next().as_deref() == Some(pg_stats::cache::staged::STAGE_CLEANUP_ARG.as_ref()) {
+        let Some(directory) = args.next().filter(|_| args.next().is_none()) else {
+            return ExitCode::FAILURE;
+        };
+        return match pg_stats::cache::staged::clean_up_stage(std::path::Path::new(&directory)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("stats staging cleanup: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     // The analysis cascade recurses to the depth of a word's unapplication chain, which on heavy corpus words exceeds the default 8 MiB main-thread stack, so the whole batch runs on a worker thread with a generous stack.
     std::thread::Builder::new()
         .stack_size(1 << 30) // 1 GiB
@@ -417,19 +570,25 @@ fn run() -> ExitCode {
 fn print_usage_and_fail() -> ExitCode {
     let help = format!(
         "pangloss {} — HermitCrab Rust engine CLI\n\
-         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
-         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
-         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
-         usage: pangloss serve --project <project.fwdata|snapshot.json> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
+         usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--without <guid>[,<guid>...]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
+         usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
+         usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
+         usage: pangloss readings-histogram <batch.tsv> [--json]\n\
+         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json> | pangloss generate <snapshot|project> --requests <requests.jsonl|-> [--attested <words.txt>]\n\
+         usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
+         usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
-         usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]\n\
-         usage: pangloss fst-health <grammar> [<out.json>]\n\
-         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off]\n\
+         usage: pangloss facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]\n\
+         usage: pangloss fst-health <grammar> [<out.json>] [--fst-strategy surface-enum|factored|auto]\n\
+         usage: pangloss fst-verify <grammar> <words> [--out <tsv>] [--json <path>] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids] [--stored-analyses bounded|all|off] [--shadowed [--include-selectable]] [--fst] [--fst-strategy surface-enum|factored|auto] [--snapshot-out <snapshot.json>] [--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]\n\
          usage: pangloss coverage [--json] [--grammar=<path>] [<out.json>]\n\
          usage: pangloss plan-diagram <grammar> [--json] [--full] [--threshold=N] [<out>]\n\
          usage: pangloss make-report <grammar> <out.md> [--pack=<path>] [--policy=<path>]{}\n\
          usage: pangloss recipe-optimize <grammar> <words.txt> <out-dir> [--seed N] [--candidates N] [--evaluations N] [--elapsed-ns N] [--build-ns N] [--memory-bytes N] [--confirmation-work N] [--reserve-ns N]\n\
          usage: pangloss stats <project-or-grammar> [options] (run `pangloss stats` with no arguments to print the full current option list)\n\
+         usage: pangloss why-not <grammar> <word> (--expect <ids> | --expect-guid <e:m> | --expect-json <file|->)... [--allomorphs <ids>] [--json] [--work-cap N|unbounded] [--word-timeout-ms N]\n\
+         usage: pangloss why-not <grammar> <queries.jsonl> <output.jsonl> [--work-cap N|unbounded] [--word-timeout-ms N]\n\
          usage: pangloss --describe | pangloss describe (machine-readable JSON of every subcommand and flag, from the same table run() dispatches on)\n\
          \n\
          <grammar> is one of: a HermitCrab XML export (.xml, the legacy path), a\n\
@@ -437,6 +596,12 @@ fn print_usage_and_fail() -> ExitCode {
          FieldWorks project file (.fwdata/.fwbackup, imported in-memory and compiled on the fly).\n\
          In a generate request, the morphemes array is generation order, not surface order.\n\
          See docs/generation.md.\n\
+         \n\
+         --engine hc|fst (`batch`, default hc) adds JSON completion metadata; fst requires foma-tools,\n\
+         --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false.\n\
+         FST has no per-word deadline or process RSS bound: use an external watchdog with a deadline\n\
+         and memory ceiling. Proposal caps do not contain confirmation; no implicit HC fallback.\n\
+         See docs/formats/batch-tsv.md for unsupported controls.\n\
          \n\
          --guess (`batch`/`parse`/`serve`): a word whose normal analysis is empty is retried\n\
          via the lexical-pattern guesser (docs/p11-guesser-api-design.md). A FieldWorks project\n\
@@ -446,8 +611,30 @@ fn print_usage_and_fail() -> ExitCode {
          with --guess, `parse` prints a `guessed:` line and `batch` adds a `guessed` TSV column\n\
          after `signature`; without the flag the stdout layout is unchanged, `parse` notes a\n\
          guess on stderr, and `batch --analyses` reports each guessed morph's guessedString.\n\
-         --work-columns (`batch`) appends `steps` and `work_steps` to every result row\n\
+         --work-columns (`batch`) appends `work_steps` to every result row\n\
          (docs/formats/batch-tsv.md); off by default, the row layout is unchanged.\n\
+         --no-flush (`batch --threads 1`) keeps rows in the write buffer instead of flushing after each
+         word; the file is identical at exit, but a killed run loses the unflushed rows and the live
+         STARTED sentinel. For instruction counting, where per-word writes add kernel work.
+         --phase-marks (`batch --threads 1`) starts and joins one spinning thread before the first word and one after the\n\
+         last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare.\n\
+         --cost-column (`batch`) appends `work_steps`, then each word's fixed-weight parse cost, as the last fields; off by\n\
+         default. Compare two runs of one word list with `cost-compare`; it totals only words that are\n\
+         ok in both, reports the rest, and says inconclusive when a status changed. Use the total;\n\
+         per-word costs repeat exactly only with --threads 1 (docs/design/parse-cost.md). With --trace-rejections the cost is `-`.\n\
+         --prefilter on (`batch`, needs the foma-tools build feature) is a verification and measurement mode: it skips the\n\
+         warm-up, calibration, budget and minimum batch length, runs every stage that is valid for the grammar on every\n\
+         word (a stage that is not valid is off with its reason, as under auto), pays the whole construction whatever the\n\
+         batch length, and prints the same PREFILTER and PREFILTER-TOTAL lines.\n\
+         --prefilter auto (`batch`, needs the foma-tools build feature) lets a load-time calibration decide whether a\n\
+         rule-admission filter and a tiled whole-word test narrow each parse; the analyses equal --prefilter off (the\n\
+         default) on every word whose parse completes in both modes; a word that is incomplete in either mode (work cap,\n\
+         capture cap) can have a different partial list. Batches under 512 words stay plain. The guess-only path for grammars\n\
+         with lexical patterns is covered by synthetic tests only. It prints PREFILTER and PREFILTER-TOTAL lines on\n\
+         stderr and is refused with --stats and --word-timeout-ms. Auto and on turn the cost meter on, with or without\n\
+         --cost-column, so the gate prices every parse in full parser work and the decision does not depend on the\n\
+         column; with --work-columns or --cost-column the columns are the work the selected pipeline spent on the word\n\
+         (docs/development/fst-construction-strategies.md).\n\
          --always-enforce-final-templates is result-changing: enforce template order even\n\
          when partial-rule rescue would otherwise allow an interleaving. A FieldWorks project\n\
          sets it with <HC><MakePartialsFinal>; an explicit flag overrides the project, and\n\
@@ -478,10 +665,10 @@ fn run_import(args: &[String]) -> Result<(), String> {
     let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(fwdata_path))
         .map_err(|e| format!("import {fwdata_path}: {e}"))?;
 
-    if compile_failure::CompileFailure::import_has_fatal_issues(&report.provenance) {
+    if compile_failure::CompileFailure::import_has_fatal_issues(&snapshot.conversion_provenance) {
         let failure = compile_failure::CompileFailure::from_import_provenance(
             fwdata_path,
-            &report.provenance,
+            &snapshot.conversion_provenance,
         );
         return Err(serde_json::to_string(&failure)
             .map_err(|error| format!("serialize import refusal: {error}"))?);
@@ -512,14 +699,53 @@ struct LoadedGrammar {
     warnings: Vec<pg_snapshot::Warning>,
     stored_analyses: Vec<pg_fwdata::StoredAnalysis>,
     metadata: Option<rich_trace::TraceMetadata>,
-    stats_source_identity: Option<stats_manifest::SourceIdentity>,
+    stats_identity: LoadedStatsIdentity,
     substrate: pg_grammar::compile::issues::SubstrateReport,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatsIdentityRequest {
+    None,
+    Reusable,
+    Frozen,
+}
+
+enum LoadedStatsIdentity {
+    None,
+    Reusable(String),
+    Frozen(stats_manifest::SourceIdentity),
+}
+
+/// What a FieldWorks import produced, kept for `grammar-health --snapshot-out`/`--facts-out` so the
+/// one import also yields the files `import` and `facts` would. Filled right after the import and
+/// before the compile, so a compile refusal still leaves it behind, as `import` alone would.
+#[derive(Default)]
+pub(crate) struct ImportCapture {
+    /// The snapshot JSON; `None` when the import has a fatal issue.
+    pub snapshot_json: Option<String>,
+    pub import_refused: bool,
+    /// Set by the caller that will write facts: keep the compile's results for it, when reusing them is safe.
+    pub keep_compile: bool,
+    /// The successful compile's results, kept only when the snapshot JSON parses back to an equal Snapshot.
+    pub compiled: Option<pg_facts::CompiledParts>,
+    reuse_compile: bool,
+    capture_diagnostic_slots: bool,
+    diagnostic_slots: diagnostic::SlotBindings,
 }
 
 fn load_grammar_impl(
     path: &str,
     capture_metadata: bool,
-    capture_stats_identity: bool,
+    stats_request: StatsIdentityRequest,
+) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
+    load_grammar_capturing(path, capture_metadata, stats_request, None)
+}
+
+pub(crate) fn load_grammar_capturing(
+    path: &str,
+    capture_metadata: bool,
+    stats_request: StatsIdentityRequest,
+    mut capture: Option<&mut ImportCapture>,
 ) -> Result<LoadedGrammar, compile_failure::GrammarLoadError> {
     let ext = std::path::Path::new(path)
         .extension()
@@ -534,21 +760,51 @@ fn load_grammar_impl(
             } else {
                 fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?
             };
+            // Release the fingerprint's generic JSON tree before allocating the typed Snapshot.
+            let frozen_hashes = (stats_request == StatsIdentityRequest::Frozen)
+                .then(|| stats_manifest::SnapshotSourceHashes::from_source(&json));
             let snapshot = pg_snapshot::Snapshot::from_json(&json)
                 .map_err(|e| format!("parse snapshot {path}: {e}"))?;
+            drop(json);
             serve::record_ms(&serve::IMPORT_MS, t_phase);
-            let stats_source_identity = capture_stats_identity
-                .then(|| stats_manifest::SourceIdentity::from_snapshot_source(&json, &snapshot))
-                .transpose()?;
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable => {
+                    LoadedStatsIdentity::Reusable(snapshot.grammar_hash())
+                }
+                StatsIdentityRequest::Frozen => LoadedStatsIdentity::Frozen(
+                    frozen_hashes
+                        .expect("frozen stats computed source hashes")?
+                        .with_snapshot(&snapshot),
+                ),
+            };
             let t_compile = Instant::now();
-            let output = pg_grammar::compile_project_with(&snapshot, Default::default()).map_err(
-                |error| {
-                    compile_failure::GrammarLoadError::Compile(Box::new(
-                        compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
-                    ))
-                },
-            )?;
+            let output = if capture
+                .as_ref()
+                .is_some_and(|capture| capture.capture_diagnostic_slots)
+            {
+                pg_grammar::compile_project_with_options_and_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    std::iter::empty(),
+                )
+            } else {
+                pg_grammar::compile_project_grammar_only_with_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    std::iter::empty(),
+                )
+            }
+            .map_err(|error| {
+                compile_failure::GrammarLoadError::Compile(Box::new(
+                    compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
+                ))
+            })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
+            if let Some(capture) = capture.filter(|capture| capture.capture_diagnostic_slots) {
+                capture.diagnostic_slots =
+                    diagnostic::SlotBindings::from_decisions(&output.load_decisions);
+            }
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "snapshot"));
             Ok(LoadedGrammar {
@@ -556,19 +812,43 @@ fn load_grammar_impl(
                 warnings: output.warnings,
                 stored_analyses: Vec::new(),
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: output.substrate,
             })
         }
         _ if ext.eq_ignore_ascii_case("fwdata") || ext.eq_ignore_ascii_case("fwbackup") => {
-            let source_bytes = if capture_stats_identity {
+            let source_bytes = if stats_request == StatsIdentityRequest::Frozen {
                 Some(fs::read(path).map_err(|e| format!("read {path}: {e}"))?)
             } else {
                 None
             };
-            let (snapshot, report) = pg_fwdata::import_file(std::path::Path::new(path))
-                .map_err(|e| format!("import {path}: {e}"))?;
+            // The facts export (a capture) and frozen stats fingerprint the full snapshot, provenance included, so only a plain load goes lean.
+            let imported = if capture
+                .as_ref()
+                .is_some_and(|capture| !capture.capture_diagnostic_slots)
+                || source_bytes.is_some()
+            {
+                pg_fwdata::import_file(std::path::Path::new(path))
+            } else {
+                pg_fwdata::import_file_lean(std::path::Path::new(path))
+            };
+            let (snapshot, report) = imported.map_err(|e| format!("import {path}: {e}"))?;
             serve::record_ms(&serve::IMPORT_MS, t_phase);
+            if let Some(capture) = capture
+                .as_deref_mut()
+                .filter(|capture| !capture.capture_diagnostic_slots)
+            {
+                capture.import_refused = compile_failure::CompileFailure::import_has_fatal_issues(
+                    &snapshot.conversion_provenance,
+                );
+                if !capture.import_refused {
+                    let json = snapshot.to_json();
+                    capture.reuse_compile = capture.keep_compile
+                        && pg_snapshot::Snapshot::from_json(&json)
+                            .is_ok_and(|parsed| parsed == snapshot);
+                    capture.snapshot_json = Some(json);
+                }
+            }
             let stored_analyses = report.stored_analyses;
             if let Some(source_bytes) = source_bytes.as_deref() {
                 let bytes_after_import =
@@ -580,26 +860,70 @@ fn load_grammar_impl(
                     .into());
                 }
             }
-            let stats_source_identity = source_bytes
-                .as_deref()
-                .map(|bytes| {
-                    stats_manifest::SourceIdentity::from_imported_snapshot(bytes, &snapshot)
-                })
-                .transpose()?;
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable if ext == "fwdata" => {
+                    LoadedStatsIdentity::Reusable(snapshot.grammar_hash())
+                }
+                StatsIdentityRequest::Reusable => {
+                    // Reusable archive and mixed-case project identities hash the original file.
+                    let bytes = fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+                    LoadedStatsIdentity::Reusable(stats_manifest::sha256_hex(&bytes))
+                }
+                StatsIdentityRequest::Frozen => LoadedStatsIdentity::Frozen(
+                    stats_manifest::SourceIdentity::from_imported_snapshot(
+                        source_bytes
+                            .as_deref()
+                            .expect("frozen stats read source bytes"),
+                        &snapshot,
+                    )?,
+                ),
+            };
             let mut import_warnings = report.warnings;
             import_warnings.extend(snapshot.validate());
             let t_compile = Instant::now();
-            let output = pg_grammar::compile_project_with_options_and_import_warnings(
-                &snapshot,
-                Default::default(),
-                import_warnings,
-            )
-            .map_err(|error| {
+            let compiled = if capture
+                .as_ref()
+                .is_some_and(|capture| capture.reuse_compile || capture.capture_diagnostic_slots)
+            {
+                pg_grammar::compile_project_with_options_and_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    import_warnings,
+                )
+            } else {
+                pg_grammar::compile_project_grammar_only_with_import_warnings(
+                    &snapshot,
+                    Default::default(),
+                    import_warnings,
+                )
+            };
+            let output = compiled.map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
                     compile_failure::CompileFailure::new(path, error, Some(&snapshot)),
                 ))
             })?;
             serve::record_ms(&serve::COMPILE_MS, t_compile);
+            if let Some(capture) = capture
+                .as_deref_mut()
+                .filter(|capture| capture.capture_diagnostic_slots)
+            {
+                capture.diagnostic_slots =
+                    diagnostic::SlotBindings::from_decisions(&output.load_decisions);
+            }
+            if let Some(capture) = capture.filter(|capture| capture.reuse_compile) {
+                capture.compiled = Some(pg_facts::CompiledParts {
+                    inventory: output.inventory,
+                    decisions: output.load_decisions,
+                    compile_issues: output.issues,
+                    environment_resolutions: output.environment_resolutions,
+                    compiled_outputs: output.compiled_outputs,
+                    compiled_mappings: output.compiled_mappings,
+                    compiled_allomorph_order: output.compiled_allomorph_order,
+                    allomorph_gates: output.allomorph_gates,
+                    allomorph_output_ids: output.allomorph_output_ids,
+                });
+            }
             let metadata =
                 capture_metadata.then(|| rich_trace::metadata_from_snapshot(snapshot, "fwdata"));
             Ok(LoadedGrammar {
@@ -607,7 +931,7 @@ fn load_grammar_impl(
                 warnings: output.warnings,
                 stored_analyses,
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: output.substrate,
             })
         }
@@ -623,10 +947,14 @@ fn load_grammar_impl(
                     None,
                 )
             };
-            let stats_source_identity = if capture_stats_identity {
-                Some(stats_manifest::SourceIdentity::from_hc_xml(&xml)?)
-            } else {
-                None
+            let stats_identity = match stats_request {
+                StatsIdentityRequest::None => LoadedStatsIdentity::None,
+                StatsIdentityRequest::Reusable => {
+                    LoadedStatsIdentity::Reusable(stats_manifest::sha256_hex(xml.as_bytes()))
+                }
+                StatsIdentityRequest::Frozen => {
+                    LoadedStatsIdentity::Frozen(stats_manifest::SourceIdentity::from_hc_xml(&xml)?)
+                }
             };
             let grammar = pg_grammar::load(&xml).map_err(|error| {
                 compile_failure::GrammarLoadError::Compile(Box::new(
@@ -639,7 +967,7 @@ fn load_grammar_impl(
                 warnings: Vec::new(),
                 stored_analyses: Vec::new(),
                 metadata,
-                stats_source_identity,
+                stats_identity,
                 substrate: Default::default(),
             })
         }
@@ -647,28 +975,10 @@ fn load_grammar_impl(
 }
 
 pub(crate) fn load_grammar(path: &str) -> Result<(Grammar, Vec<pg_snapshot::Warning>), String> {
-    let loaded = load_grammar_impl(path, false, false).map_err(|error| error.to_string())?;
+    let loaded = load_grammar_impl(path, false, StatsIdentityRequest::None)
+        .map_err(|error| error.to_string())?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings))
-}
-
-fn load_grammar_with_stats_identity(
-    path: &str,
-) -> Result<
-    (
-        Grammar,
-        Vec<pg_snapshot::Warning>,
-        stats_manifest::SourceIdentity,
-    ),
-    String,
-> {
-    let mut loaded = load_grammar_impl(path, true, true).map_err(|error| error.to_string())?;
-    let source_identity = loaded
-        .stats_source_identity
-        .take()
-        .ok_or_else(|| "stats source identity was not captured".to_string())?;
-    print_substrate_report(&loaded.substrate);
-    Ok((loaded.grammar, loaded.warnings, source_identity))
 }
 
 pub(crate) fn load_grammar_with_trace_metadata(
@@ -681,13 +991,42 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let loaded = load_grammar_impl(path, true, false).map_err(|error| error.to_string())?;
+    let (grammar, warnings, metadata) = load_grammar_for_serve(path)?;
+    Ok((grammar, warnings, metadata))
+}
+
+/// `load_grammar_with_trace_metadata` that also keeps the project's stored analyses, which `serve`'s `health` op compares; empty for a snapshot or grammar XML.
+pub(crate) fn load_grammar_for_serve(
+    path: &str,
+) -> Result<
+    (
+        Grammar,
+        Vec<pg_snapshot::Warning>,
+        rich_trace::TraceMetadata,
+    ),
+    String,
+> {
+    let loaded = load_grammar_impl(path, true, StatsIdentityRequest::None)
+        .map_err(|error| error.to_string())?;
     let metadata = loaded
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
     print_substrate_report(&loaded.substrate);
     Ok((loaded.grammar, loaded.warnings, metadata))
 }
+fn load_diagnostic_grammar(
+    path: &str,
+) -> Result<(LoadedGrammar, diagnostic::SlotBindings), String> {
+    let mut capture = ImportCapture {
+        capture_diagnostic_slots: true,
+        ..Default::default()
+    };
+    let loaded = load_grammar_capturing(path, true, StatsIdentityRequest::None, Some(&mut capture))
+        .map_err(|error| diagnostic::error("compile", error))?;
+    print_substrate_report(&loaded.substrate);
+    Ok((loaded, capture.diagnostic_slots))
+}
+
 fn print_substrate_report(report: &pg_grammar::compile::issues::SubstrateReport) {
     for inferred in &report.inferred_segments {
         eprintln!(
@@ -718,6 +1057,13 @@ pub(crate) fn print_grammar_warnings(warnings: &[pg_snapshot::Warning]) {
 
 /// `parse <grammar> <word> [flags...]`: traces, glosses, and/or realizes exactly one word's analyses. Flag semantics are detailed in the top-level usage banner; `--gloss`/`--natural-gloss` never touch the `word\tsignature` parity line, and a missing default-resolved realize-map sidecar degrades to empty while an explicitly named one failing is a hard error.
 fn run_parse(args: &[String]) -> Result<(), String> {
+    diagnostic::with_options(args, run_parse_impl)
+}
+
+fn run_parse_impl(
+    args: &[String],
+    diagnostic: Option<diagnostic::Options<'_>>,
+) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
     let mut trace_dest: Option<Option<String>> = None; // None = --trace not given; Some(None) = stdout; Some(Some(path)) = file
     let mut trace_format = "text".to_string();
@@ -726,13 +1072,35 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     let mut natural_gloss: Option<String> = None;
     let mut realize_map_arg: Option<String> = None;
     let mut guess_arg: Option<bool> = None;
-    let mut step_cap = DEFAULT_STEP_CAP;
-    let mut work_cap = None;
+    let mut work_cap = DEFAULT_WORK_CAP;
+    let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut word_timeout = None;
+    let mut without_arg: Option<Vec<String>> = None;
+    let mut rule_costs: Option<usize> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--rule-costs" => rule_costs = Some(rich_trace::DEFAULT_RULE_COSTS),
+            s if s.starts_with("--rule-costs=") => {
+                rule_costs = Some(
+                    s["--rule-costs=".len()..]
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| *n >= 1)
+                        .ok_or("--rule-costs must be a positive integer")?,
+                );
+            }
+            "--without" => {
+                let v = it.next().ok_or("--without requires a value")?;
+                retire::merge_ids(&mut without_arg, retire::parse_ids(v, "--without")?);
+            }
+            s if s.starts_with("--without=") => {
+                retire::merge_ids(
+                    &mut without_arg,
+                    retire::parse_ids(&s["--without=".len()..], "--without")?,
+                );
+            }
             "--trace" => trace_dest = Some(None),
             s if s.starts_with("--trace=") => {
                 trace_dest = Some(Some(s["--trace=".len()..].to_string()))
@@ -763,21 +1131,19 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             s if s == "--guess" || s.starts_with("--guess=") => {
                 guess_arg = Some(parse_guess_flag(s)?)
             }
-            "--step-cap" => {
-                step_cap = it
-                    .next()
-                    .ok_or("--step-cap requires a value")?
-                    .parse::<StepCap>()?;
-            }
-            value if value.starts_with("--step-cap=") => {
-                step_cap = value["--step-cap=".len()..].parse::<StepCap>()?;
-            }
             "--work-cap" => {
                 let value = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(parse_work_cap(value)?);
+                work_cap = parse_work_cap(value)?;
             }
             value if value.starts_with("--work-cap=") => {
-                work_cap = Some(parse_work_cap(&value["--work-cap=".len()..])?);
+                work_cap = parse_work_cap(&value["--work-cap=".len()..])?;
+            }
+            "--word-mem-cap-mib" => {
+                word_mem_cap =
+                    parse_word_mem_cap(it.next().ok_or("--word-mem-cap-mib requires a value")?)?;
+            }
+            value if value.starts_with("--word-mem-cap-mib=") => {
+                word_mem_cap = parse_word_mem_cap(&value["--word-mem-cap-mib=".len()..])?;
             }
             "--word-timeout-ms" => {
                 let value = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -800,6 +1166,27 @@ fn run_parse(args: &[String]) -> Result<(), String> {
             }
         }
     }
+    if diagnostic.is_some() && (trace_dest.is_some() || trace_details) {
+        return Err(diagnostic::error(
+            "unsupported",
+            "legacy trace cannot be combined with rejection trace",
+        ));
+    }
+    if without_arg.is_some() && (diagnostic.is_some() || trace_details) {
+        return Err(
+            "--without cannot be combined with --trace-details or a rejection trace".into(),
+        );
+    }
+    if rule_costs.is_some()
+        && (diagnostic.is_some()
+            || (trace_dest.is_some() && !trace_details)
+            || without_arg.is_some())
+    {
+        return Err(
+            "--rule-costs cannot be combined with --trace without --trace-details, --without or a rejection trace"
+                .into(),
+        );
+    }
     if trace_format != "text" && trace_format != "json" {
         return Err(format!(
             "invalid --trace-format: {trace_format} (expected text|json)"
@@ -819,11 +1206,24 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
     }
     let [grammar_path, word] = positional[..] else {
-        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N]".into());
+        return Err("usage: parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]".into());
     };
 
-    let (grammar, warnings, trace_metadata) = if trace_details {
+    let mut diagnostic_slots = None;
+    let (grammar, warnings, trace_metadata) = if let Some(options) = &diagnostic {
+        options.distinct_from(std::iter::once(grammar_path).chain(realize_map_arg.as_deref()))?;
+        let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
+        diagnostic_slots = Some(slots);
+        (
+            loaded.grammar,
+            loaded.warnings,
+            loaded.metadata.expect("diagnostic grammar identity"),
+        )
+    } else if trace_details {
         load_grammar_with_trace_metadata(grammar_path)?
+    } else if let Some(ids) = &without_arg {
+        let (grammar, warnings) = retire::load_without(grammar_path, ids, "--without")?;
+        (grammar, warnings, rich_trace::TraceMetadata::default())
     } else {
         let (grammar, warnings) = load_grammar(grammar_path)?;
         (grammar, warnings, rich_trace::TraceMetadata::default())
@@ -842,9 +1242,9 @@ fn run_parse(args: &[String]) -> Result<(), String> {
     };
 
     let morpher = with_guess_override(
-        Morpher::new(&grammar, step_cap.as_morpher_cap())
-            .with_work_cap(resolved_work_cap(step_cap, work_cap))
-            .with_word_timeout(word_timeout),
+        Morpher::new(&grammar, work_cap.as_morpher_cap())
+            .with_word_timeout(word_timeout)
+            .with_word_mem_cap(word_mem_cap),
         guess_arg,
     );
     let opts = morpher.project_parse_options();
@@ -868,6 +1268,7 @@ fn run_parse(args: &[String]) -> Result<(), String> {
                 &rows,
                 started.elapsed(),
                 &trace_metadata,
+                rule_costs,
             )?;
             match dest {
                 None => print!("{rendered}"),
@@ -895,10 +1296,52 @@ fn run_parse(args: &[String]) -> Result<(), String> {
         }
         require_complete_parse(&outcome)?;
     } else {
-        // No --trace: behave like a minimal, single-word `batch` (the parse result only).
-        let outcome = morpher.parse_word_opts(word, &opts);
+        let mut costs_line = None;
+        let outcome = if let Some(options) = diagnostic {
+            let identity = diagnostic::identity(
+                &grammar,
+                &trace_metadata,
+                diagnostic_slots.as_ref().expect("diagnostic slot bindings"),
+            )?;
+            let mut trace = diagnostic::Run::begin(
+                options,
+                identity,
+                diagnostic::SearchOptions {
+                    guess: opts.guess_root,
+                    final_templates: grammar.always_enforce_final_templates,
+                    work_cap,
+                    timeout_ms: word_timeout.map(|time| time.as_millis() as u64),
+                    memory_bytes: word_mem_cap,
+                    capture_bytes: None,
+                },
+                diagnostic::Scope {
+                    source: word,
+                    row_count: 1,
+                    start: 0,
+                },
+            )?;
+            let (outcome, row) = trace.parse(&morpher, &opts, 0, word);
+            trace.write_row(row)?;
+            trace.finish()?;
+            outcome
+        } else if let Some(top_n) = rule_costs {
+            let (outcome, rows) = morpher.parse_word_with_stats(word, &opts);
+            costs_line = Some(rich_trace::rule_costs_json(
+                &grammar,
+                &pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar),
+                &rows,
+                &outcome,
+                top_n,
+            )?);
+            outcome
+        } else {
+            morpher.parse_word_opts(word, &opts)
+        };
         println!("{}\t{}", word, outcome.signature());
         print_guessed_line(guess, outcome.guessed);
+        if let Some(costs) = costs_line {
+            println!("ruleCosts:\t{costs}");
+        }
         print_realize_lines(&grammar, &outcome.structured, word, gloss, natural.as_ref());
         require_complete_parse(&outcome)?;
     }
@@ -1012,24 +1455,48 @@ fn default_realize_map_path(grammar_path: &str) -> std::path::PathBuf {
     dir.join(format!("{stem}-realize.toml"))
 }
 
-/// The batch TSV layout published as `interfaces.batchTsv` in `--describe`; 2 means `--work-columns` exists.
-pub(crate) const BATCH_TSV_VERSION: u32 = 2;
+/// Version 5 removes the `steps` column from `--work-columns`, which now writes only `work_steps`; `--cost-column` writes `work_steps` then `cost`, so the two layouts differ by field count.
+pub(crate) const BATCH_TSV_VERSION: u32 = 5;
 
 /// The columns a `batch` result row carries after `signature`.
 struct BatchRowTail {
+    completion: Option<engine::Completion>,
+    partials: Option<String>,
     /// `Some(guessed)` only when `--guess` or `--guess=true` was passed, never for a project's own `GuessRoots`.
     guessed: Option<bool>,
-    /// `Some((steps, work_steps))` only when `--work-columns` was passed.
-    counts: Option<(usize, usize)>,
+    /// `Some(work_steps)` only when `--work-columns` was passed.
+    work_steps: Option<usize>,
+    cost: Option<BatchCost>,
+}
+
+enum BatchCost {
+    Measured(u64),
+    TraceInstrumented,
 }
 
 impl BatchRowTail {
     fn new(flags: BatchRowFlags, outcome: &pg_parse::ParseOutcome) -> Self {
         Self {
+            completion: flags
+                .engine
+                .map(|engine| engine::Completion::new(engine, outcome)),
+            partials: flags
+                .partials
+                .then(|| serde_json::to_string(&outcome.partials).expect("partial serialization")),
             guessed: flags.guess.then_some(outcome.guessed),
-            counts: flags
-                .work_columns
-                .then_some((outcome.steps, outcome.work_steps)),
+            work_steps: (flags.work_columns || flags.cost_column).then_some(outcome.work_steps),
+            cost: flags.cost_column.then(|| {
+                if flags.trace_rejections {
+                    BatchCost::TraceInstrumented
+                } else {
+                    BatchCost::Measured(
+                        outcome
+                            .cost
+                            .expect("--cost-column turned cost measurement on before parsing")
+                            .cost(),
+                    )
+                }
+            }),
         }
     }
 }
@@ -1037,11 +1504,15 @@ impl BatchRowTail {
 /// The batch flags that add optional TSV columns.
 #[derive(Clone, Copy)]
 struct BatchRowFlags {
+    engine: Option<engine::Engine>,
+    partials: bool,
     guess: bool,
     work_columns: bool,
+    cost_column: bool,
+    trace_rejections: bool,
 }
 
-/// Writes one `idx word elapsed_ms status signature [guessed] [steps work_steps]` row; see `docs/formats/batch-tsv.md`.
+/// Writes one `idx word elapsed_ms status signature [guessed] [work_steps] [cost]` row; see `docs/formats/batch-tsv.md`.
 fn write_batch_row<W: Write>(
     w: &mut W,
     idx: usize,
@@ -1055,10 +1526,38 @@ fn write_batch_row<W: Write>(
     if let Some(guessed) = tail.guessed {
         write!(w, "\t{guessed}")?;
     }
-    if let Some((steps, work_steps)) = tail.counts {
-        write!(w, "\t{steps}\t{work_steps}")?;
+    if let Some(partials) = tail.partials {
+        write!(w, "\t{partials}")?;
+    }
+    if let Some(completion) = tail.completion {
+        write!(w, "\t{}", serde_json::to_string(&completion)?)?;
+    }
+    if let Some(work_steps) = tail.work_steps {
+        write!(w, "\t{work_steps}")?;
+    }
+    match tail.cost {
+        Some(BatchCost::Measured(cost)) => write!(w, "\t{cost}")?,
+        Some(BatchCost::TraceInstrumented) => write!(w, "\t-")?,
+        None => {}
     }
     writeln!(w)
+}
+
+fn parse_stats_profile(value: &str) -> Result<StatsProfile, String> {
+    match value {
+        "full" => Ok(StatsProfile::Full),
+        "word-only" => Ok(StatsProfile::WordOnly),
+        _ => Err(format!(
+            "invalid --stats-profile {value:?} (expected full or word-only)"
+        )),
+    }
+}
+
+fn parse_partials(value: &str) -> Result<u8, String> {
+    match value.parse::<u8>() {
+        Ok(limit @ 1..=3) => Ok(limit),
+        _ => Err("--partials must be between 1 and 3".into()),
+    }
 }
 
 /// The parallel batch dispatch for a run that guesses roots, since `hc_parse_batch` has no `ParseOptions` parameter and so cannot express "guess on"; deliberately simpler than that function's longest-surface-first scheduling, using a plain order-preserving `rayon` `par_iter`.
@@ -1069,7 +1568,22 @@ fn parse_batch_with_opts(
     opts: &pg_parse::ParseOptions,
     parse_counter: &BatchParseCounter,
 ) -> Vec<pg_parse::BatchWordOutcome> {
+    parse_batch_in_order(words, max_threads, |_, word| {
+        let start = Instant::now();
+        parse_counter.record();
+        let outcome = morpher.parse_word_opts(word, opts);
+        let elapsed = start.elapsed();
+        pg_parse::BatchWordOutcome { outcome, elapsed }
+    })
+}
+
+fn parse_batch_in_order<T: Send>(
+    words: &[String],
+    max_threads: usize,
+    parse: impl Fn(usize, &str) -> T + Sync,
+) -> Vec<T> {
     use rayon::prelude::*;
+
     if words.is_empty() {
         return Vec::new();
     }
@@ -1079,41 +1593,30 @@ fn parse_batch_with_opts(
     }
     let pool = pool_builder
         .build()
-        .expect("build rayon pool for --guess batch dispatch");
+        .expect("build rayon pool for ordered batch dispatch");
     pool.install(|| {
         words
             .par_iter()
-            .map(|word| {
-                let start = Instant::now();
-                parse_counter.record();
-                let outcome = morpher.parse_word_opts(word, opts);
-                let elapsed = start.elapsed();
-                pg_parse::BatchWordOutcome { outcome, elapsed }
-            })
+            .enumerate()
+            .map(|(index, word)| parse(index, word))
             .collect()
     })
-}
-
-struct BatchWordRun {
-    outcome: pg_parse::BatchWordOutcome,
-    stats: Option<stats_cmd::BatchStatsWord>,
 }
 
 #[allow(clippy::too_many_arguments)]
 fn parse_batch_with_stats(
     morpher: &Morpher,
-    grammar: &Grammar,
-    identities: &pg_grammar::stats_identity::StatsIdentityCatalog,
+    collector: &stats_cmd::BatchStatsCollector<'_>,
     words: &[String],
     max_threads: usize,
     opts: &pg_parse::ParseOptions,
     start_idx: usize,
-    existing_words: &HashSet<String>,
+    stats_cache: &mut stats_cmd::BatchStatsCache,
     parse_counter: &BatchParseCounter,
-) -> Vec<Option<BatchWordRun>> {
+) -> Result<Vec<Option<pg_parse::BatchWordOutcome>>, String> {
     use rayon::prelude::*;
     if words.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut pool_builder = rayon::ThreadPoolBuilder::new().stack_size(1 << 30);
     if max_threads > 0 {
@@ -1122,37 +1625,37 @@ fn parse_batch_with_stats(
     let pool = pool_builder
         .build()
         .expect("build rayon pool for --stats batch dispatch");
-    pool.install(|| {
-        words
-            .par_iter()
-            .enumerate()
-            .map(|(index, word)| {
-                if index < start_idx && existing_words.contains(word.as_str()) {
-                    return None;
-                }
-                let start = Instant::now();
-                parse_counter.record();
-                let (outcome, rows, prune_rows) =
-                    morpher.parse_word_with_stats_and_prunes(word, opts);
-                let result = pg_parse::BatchWordOutcome {
-                    outcome,
-                    elapsed: start.elapsed(),
-                };
-                let stats = stats_cmd::batch_stats_word(
-                    grammar,
-                    identities,
-                    word,
-                    &result,
-                    &rows,
-                    &prune_rows,
-                );
-                Some(BatchWordRun {
-                    outcome: result,
-                    stats: Some(stats),
+    let chunk_size = collector.parse_chunk_size();
+    let mut results = Vec::with_capacity(words.len());
+    for (chunk_index, chunk) in words.chunks(chunk_size).enumerate() {
+        let existing_words = stats_cache.existing_words();
+        let chunk_results: Result<Vec<_>, String> = pool.install(|| {
+            chunk
+                .par_iter()
+                .enumerate()
+                .map(|(index, word)| {
+                    if chunk_index * chunk_size + index < start_idx
+                        && existing_words.contains(word.as_str())
+                    {
+                        return Ok(None);
+                    }
+                    collector
+                        .parse(morpher, word, opts, parse_counter)
+                        .map(Some)
                 })
-            })
-            .collect()
-    })
+                .collect()
+        });
+        for result in chunk_results? {
+            results.push(match result {
+                Some((outcome, stats)) => {
+                    stats_cache.record(stats)?;
+                    Some(outcome)
+                }
+                None => None,
+            });
+        }
+    }
+    Ok(results)
 }
 
 fn per_word_diagnostics_requested() -> bool {
@@ -1172,6 +1675,7 @@ fn per_word_diagnostics_requested() -> bool {
 /// Reset per-word thread-local diagnostic counters before the next parse.
 fn reset_per_word_diagnostics() {
     pg_fst::profile::reset();
+    pg_fst::profile::enable();
     pg_rules::morph::dedup_profile::reset();
     pg_rules::stratum::frontier_profile::reset();
     pg_rules::word_stats::reset();
@@ -1194,14 +1698,46 @@ pub(crate) fn run_batch_counted(args: &[String]) -> Result<usize, String> {
     Ok(parse_counter.count())
 }
 
+/// Iterations of the marker thread's busy loop; its instruction total (about 60M) is how a PMC trace tells a marker thread from the loader and pool threads a process also starts.
+const PHASE_MARK_SPIN: u64 = 20_000_000;
+
+/// Starts and joins a thread that only spins: the thread start and the context switches around it are the edge of the parse phase in a PMC trace (rust/tools/instruction_compare_etl.py).
+#[inline(never)]
+fn phase_mark() {
+    let _ = std::thread::spawn(|| {
+        let mut x = 0u64;
+        for _ in 0..PHASE_MARK_SPIN {
+            x = std::hint::black_box(x.wrapping_add(1));
+        }
+        x
+    })
+    .join();
+}
+
 fn run_batch_with_counter(
     args: &[String],
     parse_counter: &BatchParseCounter,
 ) -> Result<(), String> {
+    if batch_result_cache::requested(args) {
+        return batch_result_cache::run(args, parse_counter);
+    }
+    diagnostic::with_options(args, |args, diagnostic| {
+        run_batch_impl(args, parse_counter, diagnostic)
+    })
+}
+
+fn run_batch_impl(
+    args: &[String],
+    parse_counter: &BatchParseCounter,
+    diagnostic: Option<diagnostic::Options<'_>>,
+) -> Result<(), String> {
     let mut positional: Vec<&str> = Vec::new();
-    let mut step_cap: StepCap = DEFAULT_STEP_CAP;
-    let mut work_cap = None;
-    // --word-timeout-ms: an optional wall-clock deadline per word, independent of --step-cap; None (omitted) is a complete no-op.
+    let mut engine = None;
+    let mut work_cap: WorkCap = DEFAULT_WORK_CAP;
+    let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
+    // --capture-cap-mib: ceiling on matcher capture state one word may hold at once; None = unbounded.
+    let mut capture_cap: Option<usize> = Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES);
+    // --word-timeout-ms: an optional wall-clock deadline per word, independent of --work-cap; None (omitted) is a complete no-op.
     let mut word_timeout_ms: Option<u64> = None;
     // Default (unspecified --threads only) is logical CPUs capped at 8, since per-word memory on a pathological grammar multiplies by thread count and an uncapped default can exhaust machine memory.
     const DEFAULT_THREAD_CAP: usize = 8;
@@ -1215,33 +1751,66 @@ fn run_batch_with_counter(
     let mut guess_arg: Option<bool> = None;
     // Default-off so the 5/6-column contract external adapters require stays byte-identical.
     let mut work_columns = false;
+    let mut partials: u8 = 0;
+    let mut morph_spans = false;
+    let mut retire_arg: Option<Vec<String>> = None;
+    let mut retire_out_arg: Option<String> = None;
+    let mut without_arg: Option<Vec<String>> = None;
+    let mut query_fields_flag = false;
+    let mut cost_column = false;
+    // Measurement only: skips the per-word flushes of the `--threads 1` path, whose write syscalls add kernel instructions to the run.
+    let mut flush_each_word = true;
+    // Measurement only: a thread starts and ends at each edge of the `--threads 1` parse loop, so a PMC trace can count the parse apart from the grammar load.
+    let mut phase_marks = false;
+    #[cfg(feature = "cost-calibration")]
+    let mut word_phase_marks = false;
     // --stats: additionally drives the `pg_stats` cache (`stats_cmd.rs`); never touches the TSV rows above.
     let mut stats_requested = false;
+    let mut stats_profile = None;
+    let mut stats_compact = false;
+    let mut cache_pack = false;
     // None defers to the project's own `<HC><MakePartialsFinal>` once the grammar is loaded.
     let mut always_enforce_final_templates_arg: Option<bool> = None;
     let mut cache_path_arg: Option<String> = None;
     let mut stats_manifest_path_arg: Option<String> = None;
+    let mut prefilter_mode = batch_prefilter::PrefilterMode::Off;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--step-cap" => {
-                let v = it.next().ok_or("--step-cap requires a value")?;
-                step_cap = v
-                    .parse::<StepCap>()
-                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
+            "--engine" => {
+                engine = Some(engine::Engine::parse(
+                    it.next().ok_or("--engine requires a value")?,
+                )?);
             }
-            s if s.starts_with("--step-cap=") => {
-                let v = &s["--step-cap=".len()..];
-                step_cap = v
-                    .parse::<StepCap>()
-                    .map_err(|e| format!("invalid --step-cap: {e}"))?;
+            s if s.starts_with("--engine=") => {
+                engine = Some(engine::Engine::parse(&s["--engine=".len()..])?);
+            }
+            "--partials" => {
+                partials = parse_partials(it.next().ok_or("--partials requires a value")?)?;
+            }
+            s if s.starts_with("--partials=") => {
+                partials = parse_partials(&s["--partials=".len()..])?;
             }
             "--work-cap" => {
                 let value = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(parse_work_cap(value)?);
+                work_cap = parse_work_cap(value)?;
             }
             s if s.starts_with("--work-cap=") => {
-                work_cap = Some(parse_work_cap(&s["--work-cap=".len()..])?);
+                work_cap = parse_work_cap(&s["--work-cap=".len()..])?;
+            }
+            "--word-mem-cap-mib" => {
+                word_mem_cap =
+                    parse_word_mem_cap(it.next().ok_or("--word-mem-cap-mib requires a value")?)?;
+            }
+            s if s.starts_with("--word-mem-cap-mib=") => {
+                word_mem_cap = parse_word_mem_cap(&s["--word-mem-cap-mib=".len()..])?;
+            }
+            "--capture-cap-mib" => {
+                let v = it.next().ok_or("--capture-cap-mib requires a value")?;
+                capture_cap = parse_capture_cap(v)?;
+            }
+            s if s.starts_with("--capture-cap-mib=") => {
+                capture_cap = parse_capture_cap(&s["--capture-cap-mib=".len()..])?;
             }
             "--word-timeout-ms" => {
                 let v = it.next().ok_or("--word-timeout-ms requires a value")?;
@@ -1283,8 +1852,58 @@ fn run_batch_with_counter(
             s if s == "--guess" || s.starts_with("--guess=") => {
                 guess_arg = Some(parse_guess_flag(s)?)
             }
+            "--morph-spans" => morph_spans = true,
+            "--retire" => {
+                let v = it.next().ok_or("--retire requires a value")?;
+                retire::merge_ids(&mut retire_arg, retire::parse_ids(v, "--retire")?);
+            }
+            s if s.starts_with("--retire=") => {
+                retire::merge_ids(
+                    &mut retire_arg,
+                    retire::parse_ids(&s["--retire=".len()..], "--retire")?,
+                );
+            }
+            "--retire-out" => {
+                retire_out_arg = Some(it.next().ok_or("--retire-out requires a value")?.clone());
+            }
+            s if s.starts_with("--retire-out=") => {
+                retire_out_arg = Some(s["--retire-out=".len()..].to_string());
+            }
+            "--without" => {
+                let v = it.next().ok_or("--without requires a value")?;
+                retire::merge_ids(&mut without_arg, retire::parse_ids(v, "--without")?);
+            }
+            s if s.starts_with("--without=") => {
+                retire::merge_ids(
+                    &mut without_arg,
+                    retire::parse_ids(&s["--without=".len()..], "--without")?,
+                );
+            }
+            "--query-fields" => query_fields_flag = true,
             "--work-columns" => work_columns = true,
+            "--cost-column" => cost_column = true,
+            "--no-flush" => flush_each_word = false,
+            "--phase-marks" => phase_marks = true,
+            #[cfg(feature = "cost-calibration")]
+            "--word-phase-marks" => word_phase_marks = true,
             "--stats" => stats_requested = true,
+            "--stats-profile" => {
+                stats_profile = Some(parse_stats_profile(
+                    it.next().ok_or("--stats-profile requires a value")?,
+                )?);
+            }
+            s if s.starts_with("--stats-profile=") => {
+                stats_profile = Some(parse_stats_profile(&s["--stats-profile=".len()..])?);
+            }
+            "--stats-compact" => stats_compact = true,
+            "--cache-pack" => cache_pack = true,
+            "--prefilter" => {
+                let v = it.next().ok_or("--prefilter requires a value")?;
+                prefilter_mode = batch_prefilter::PrefilterMode::parse(v)?;
+            }
+            s if s.starts_with("--prefilter=") => {
+                prefilter_mode = batch_prefilter::PrefilterMode::parse(&s["--prefilter=".len()..])?;
+            }
             "--always-enforce-final-templates" => always_enforce_final_templates_arg = Some(true),
             s if s.starts_with("--always-enforce-final-templates=") => {
                 always_enforce_final_templates_arg = Some(parse_bool_flag(
@@ -1315,6 +1934,18 @@ fn run_batch_with_counter(
     if threads == 0 {
         return Err("--threads must be >= 1".into());
     }
+    if without_arg.is_some()
+        && (retire_arg.is_some()
+            || stats_requested
+            || partials != 0
+            || engine.is_some()
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || cache_path_arg.is_some()
+            || stats_manifest_path_arg.is_some())
+    {
+        return Err("--without cannot be combined with --retire, --stats, --partials, --engine, --prefilter, --cache, --stats-manifest or a diagnostic run".into());
+    }
     let per_word_diagnostics = per_word_diagnostics_requested();
     if per_word_diagnostics && threads != 1 {
         return Err(format!(
@@ -1323,10 +1954,73 @@ fn run_batch_with_counter(
     }
     let [grammar_path, words_path, out_path] = positional.as_slice() else {
         return Err(
-            "usage: batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path>] [--guess[=true|false]] [--work-columns] [--stats] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]"
+            "usage: batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--without <guid>[,<guid>...]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]] [--prefilter auto|on|off]"
                 .into(),
         );
     };
+    if let Some(options) = &diagnostic {
+        if prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || stats_requested
+            || stats_profile.is_some()
+            || cache_path_arg.is_some()
+            || stats_manifest_path_arg.is_some()
+        {
+            return Err(diagnostic::error(
+                "unsupported",
+                "rejection trace requires prefilter off and no stats or cache",
+            ));
+        }
+        options.distinct_from(
+            [*grammar_path, *words_path, *out_path]
+                .into_iter()
+                .chain(analyses_path_arg.as_deref()),
+        )?;
+    }
+    if engine == Some(engine::Engine::Fst) {
+        #[cfg(feature = "foma-tools")]
+        {
+            fst_batch::validate(args, work_cap, word_mem_cap, capture_cap, threads)?;
+            if prefilter_mode != batch_prefilter::PrefilterMode::Off {
+                return Err("--engine=fst requires --prefilter off".into());
+            }
+            if guess_arg == Some(true) {
+                return Err("--engine=fst cannot honour --guess; pass --guess=false".into());
+            }
+            return fst_batch::run(fst_batch::Args {
+                grammar_path,
+                words_path,
+                out_path,
+                analyses_path: analyses_path_arg.as_deref(),
+                start_idx,
+                flush_each_word,
+                phase_marks,
+                guess_arg,
+            });
+        }
+        #[cfg(not(feature = "foma-tools"))]
+        unreachable!("engine parsing rejects feature-off FST requests");
+    }
+    batch_prefilter::check(
+        prefilter_mode,
+        &batch_prefilter::SearchDependent {
+            stats: stats_requested,
+            word_timeout: word_timeout_ms.is_some(),
+            per_word_diagnostics,
+        },
+    )?;
+    if stats_profile.is_some() && !stats_requested {
+        return Err("--stats-profile requires --stats".into());
+    }
+    let stats_profile = stats_profile.unwrap_or(StatsProfile::Full);
+    if stats_profile == StatsProfile::WordOnly && (stats_compact || cache_pack) {
+        return Err("--stats-compact and --cache-pack require full stats".into());
+    }
+    if cache_pack && !stats_requested {
+        return Err("--cache-pack requires --stats".into());
+    }
+    if stats_compact && !stats_requested {
+        return Err("--stats-compact requires --stats".into());
+    }
     if stats_manifest_path_arg.is_some() && !stats_requested {
         return Err("--stats-manifest requires --stats".into());
     }
@@ -1339,18 +2033,101 @@ fn run_batch_with_counter(
     if analyses_path_arg.is_some() && start_idx > 0 {
         return Err("--start cannot be combined with --analyses".into());
     }
+    if morph_spans
+        && (analyses_path_arg.is_none()
+            || stats_requested
+            || partials != 0
+            || engine == Some(engine::Engine::Fst)
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off)
+    {
+        return Err("--morph-spans requires --analyses and cannot be combined with --stats, --partials, --engine fst, a diagnostic run or --prefilter".into());
+    }
+    if retire_arg.is_some() != retire_out_arg.is_some() {
+        return Err("--retire and --retire-out go together".into());
+    }
+    if retire_arg.is_some()
+        && (analyses_path_arg.is_some()
+            || stats_requested
+            || partials != 0
+            || engine.is_some()
+            || diagnostic.is_some()
+            || prefilter_mode != batch_prefilter::PrefilterMode::Off
+            || start_idx != 0
+            || work_columns
+            || cost_column
+            || !flush_each_word
+            || phase_marks
+            || cache_path_arg.is_some())
+    {
+        return Err("--retire cannot be combined with --analyses, --stats, --partials, --engine, --start, --prefilter, --work-columns, --cost-column, --no-flush, --phase-marks, --cache or a diagnostic run".into());
+    }
+    if query_fields_flag && (analyses_path_arg.is_none() || engine == Some(engine::Engine::Fst)) {
+        return Err(
+            "--query-fields requires --analyses and cannot be combined with --engine fst".into(),
+        );
+    }
+    let query_fields = query_fields_flag.then(|| batch_query::QueryFields::new(&work_cap));
+    if cost_column && stats_requested {
+        return Err(
+            "--cost-column cannot be combined with --stats, whose collector would be counted as parse cost"
+                .into(),
+        );
+    }
+    if partials != 0 && prefilter_mode != batch_prefilter::PrefilterMode::Off {
+        return Err("--partials requires --prefilter off: prefilter rejection skips the parser's diagnostic gates".into());
+    }
+    // The gate prices parses in full parser work, so `--prefilter auto` and `on` meter the batch with or without the column.
+    if (cost_column && diagnostic.is_none())
+        || prefilter_mode != batch_prefilter::PrefilterMode::Off
+    {
+        pg_cost::enable().map_err(|e| match prefilter_mode {
+            batch_prefilter::PrefilterMode::Off => e.to_string(),
+            mode if !cost_column => format!("--prefilter {} cannot run: {e}", mode.name()),
+            _ => e.to_string(),
+        })?;
+    }
 
     // LOADTIME always prints unconditionally, since one line per invocation costs nothing.
     let t_load = Instant::now();
-    let (grammar, warnings, stats_source_identity) = if stats_manifest_path_arg.is_some() {
-        let (grammar, warnings, identity) = load_grammar_with_stats_identity(grammar_path)?;
-        (grammar, warnings, Some(identity))
+    let mut diagnostic_slots = None;
+    let loaded = if diagnostic.is_some() {
+        let (loaded, slots) = load_diagnostic_grammar(grammar_path)?;
+        diagnostic_slots = Some(slots);
+        loaded
+    } else if let Some(ids) = &without_arg {
+        let (grammar, warnings) = retire::load_without(grammar_path, ids, "--without")?;
+        LoadedGrammar {
+            grammar,
+            warnings,
+            stored_analyses: Vec::new(),
+            metadata: None,
+            stats_identity: LoadedStatsIdentity::None,
+            substrate: Default::default(),
+        }
     } else {
-        let (grammar, warnings) = load_grammar(grammar_path)?;
-        (grammar, warnings, None)
+        let stats_request = if stats_manifest_path_arg.is_some() {
+            StatsIdentityRequest::Frozen
+        } else if stats_requested {
+            StatsIdentityRequest::Reusable
+        } else {
+            StatsIdentityRequest::None
+        };
+        let loaded = load_grammar_impl(grammar_path, false, stats_request)
+            .map_err(|error| error.to_string())?;
+        print_substrate_report(&loaded.substrate);
+        loaded
     };
-    let stats_identities =
-        stats_requested.then(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(&grammar));
+    let LoadedGrammar {
+        grammar,
+        warnings,
+        stats_identity,
+        metadata,
+        ..
+    } = loaded;
+    let diagnostic_metadata = metadata;
+    let stats_collector =
+        stats_requested.then(|| stats_cmd::BatchStatsCollector::new(stats_profile, &grammar));
     print_grammar_warnings(&warnings);
     let always_enforce_final_templates =
         always_enforce_final_templates_arg.unwrap_or(grammar.always_enforce_final_templates);
@@ -1358,7 +2135,7 @@ fn run_batch_with_counter(
     let grammar_load_ms = t_load.elapsed().as_secs_f64() * 1e3;
     let stats_cache_path = if stats_requested {
         Some(
-            stats_cmd::resolve_cache_path(grammar_path, cache_path_arg.as_deref())?
+            stats_cmd::resolve_cache_path(grammar_path, cache_path_arg.as_deref(), stats_profile)?
                 .to_string_lossy()
                 .into_owned(),
         )
@@ -1393,53 +2170,127 @@ fn run_batch_with_counter(
             ));
         }
     }
-    let words: Vec<String> = fs::read_to_string(words_path)
-        .map_err(|e| format!("read {words_path}: {e}"))?
+    let source = fs::read_to_string(words_path).map_err(|e| {
+        if diagnostic.is_some() {
+            diagnostic::io_error(e)
+        } else {
+            format!("read {words_path}: {e}")
+        }
+    })?;
+    let words: Vec<String> = source
         .lines()
         .map(|w| w.trim().to_string())
         .filter(|w| !w.is_empty())
         .collect();
+    if let (Some(ids), Some(retire_out)) = (&retire_arg, &retire_out_arg) {
+        let out_key = path_key(std::path::Path::new(retire_out));
+        for (label, path) in [
+            ("grammar", grammar_path),
+            ("word list", words_path),
+            ("TSV output", out_path),
+        ] {
+            if same_path(&out_key, &path_key(std::path::Path::new(path))) {
+                return Err(format!(
+                    "--retire-out path cannot overwrite {label} path: {retire_out}"
+                ));
+            }
+        }
+        let settings = retire::Settings {
+            words: &words,
+            threads,
+            work_cap: work_cap.as_morpher_cap(),
+            capture_cap,
+            word_mem_cap,
+            word_timeout: word_timeout_ms.map(Duration::from_millis),
+            always_enforce_final_templates,
+            guess,
+        };
+        let counts = retire::run(grammar_path, &grammar, ids, &settings, retire_out)?;
+        eprintln!("RETIRE\t{counts:?}");
+        return Ok(());
+    }
+    let mut diagnostic_run = if let Some(options) = diagnostic {
+        let identity = diagnostic::identity(
+            &grammar,
+            diagnostic_metadata
+                .as_ref()
+                .expect("diagnostic grammar identity"),
+            diagnostic_slots.as_ref().expect("diagnostic slot bindings"),
+        )?;
+        Some(diagnostic::Run::begin(
+            options,
+            identity,
+            diagnostic::SearchOptions {
+                guess,
+                final_templates: always_enforce_final_templates,
+                work_cap,
+                timeout_ms: word_timeout_ms,
+                memory_bytes: word_mem_cap,
+                capture_bytes: Some(capture_cap),
+            },
+            diagnostic::Scope {
+                source: &source,
+                row_count: words.len(),
+                start: start_idx,
+            },
+        )?)
+    } else {
+        None
+    };
+    drop(source);
 
-    let work_cap = resolved_work_cap(step_cap, work_cap);
+    let stats_word_search = stats_cmd::WordOnlySearchOptions {
+        capture_cap_bytes: capture_cap,
+        partials,
+    };
     // A cache refusal must fire before the TSV below is truncated.
-    let stats_cache = if let Some(manifest_path) = stats_manifest_path {
-        let cache_path = stats_cache_path
-            .as_deref()
-            .expect("--stats-manifest requires --stats and --cache");
-        let source = stats_source_identity
-            .as_ref()
-            .expect("--stats-manifest captures a source identity with the grammar");
-        Some((
+    let mut stats_cache = match &stats_identity {
+        LoadedStatsIdentity::Frozen(source) => Some((
             stats_cmd::prepare_frozen_batch_stats_hc(
                 grammar_path,
                 &words,
-                step_cap,
                 work_cap,
+                word_mem_cap,
                 word_timeout_ms,
                 guess,
                 always_enforce_final_templates,
-                cache_path,
+                stats_cache_path
+                    .as_deref()
+                    .expect("--stats-manifest requires --stats and --cache"),
                 &source.grammar_hash,
+                stats_compact,
+                stats_profile,
+                stats_word_search,
             )?,
-            Some(manifest_path),
-        ))
-    } else if stats_requested {
-        Some((
+            stats_manifest_path,
+        )),
+        LoadedStatsIdentity::Reusable(grammar_hash) => Some((
             stats_cmd::prepare_batch_stats_hc(
                 grammar_path,
+                grammar_hash,
                 &words,
-                step_cap,
                 work_cap,
+                word_mem_cap,
                 word_timeout_ms,
                 guess,
                 always_enforce_final_templates,
                 cache_path_arg.as_deref(),
+                stats_compact,
+                stats_profile,
+                stats_word_search,
             )?,
             None,
-        ))
-    } else {
-        None
+        )),
+        LoadedStatsIdentity::None => None,
     };
+
+    if cache_pack {
+        stats_cache
+            .as_mut()
+            .expect("--cache-pack requires --stats")
+            .0
+            .pack_on_finish();
+    }
 
     // start_idx=0 is a fresh run (truncate); >0 is a resume (append to the prior partial TSV).
     let file = if start_idx == 0 {
@@ -1467,86 +2318,118 @@ fn run_batch_with_counter(
     let mut timed_out_words = 0u64;
 
     let t_morpher = Instant::now();
-    let morpher = Morpher::new(&grammar, step_cap.as_morpher_cap())
-        .with_work_cap(work_cap)
+    let morpher = Morpher::new(&grammar, work_cap.as_morpher_cap())
+        .with_capture_cap(capture_cap)
+        .with_word_mem_cap(word_mem_cap)
         .with_word_timeout(word_timeout_ms.map(Duration::from_millis))
         .with_always_enforce_final_templates(always_enforce_final_templates)
         .with_guess_roots(guess);
     let morpher_build_ms = t_morpher.elapsed().as_secs_f64() * 1e3;
+    let timing_engine = if engine.is_some() { "hc" } else { "default" };
     eprintln!(
-        "LOADTIME\tengine=default\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
+        "LOADTIME\tengine={timing_engine}\tgrammar_load_ms={grammar_load_ms:.3}\tmorpher_build_ms={morpher_build_ms:.3}\ttotal_ms={:.3}",
         grammar_load_ms + morpher_build_ms
     );
-    let opts = morpher.project_parse_options();
+    let opts = morpher
+        .project_parse_options()
+        .with_partials(partials)
+        .with_morph_spans(morph_spans);
     let row_flags = BatchRowFlags {
+        engine,
+        partials: partials != 0,
         guess: guess_arg == Some(true),
         work_columns,
+        cost_column,
+        trace_rejections: diagnostic_run.is_some(),
     };
-    let mut stats_words = Vec::new();
 
     // Printed unconditionally (not just under --stats) so `--stats`'s own overhead is measurable: without this, disabling --stats leaves no elapsed figure to compare against.
     let t_parse = Instant::now();
+    let mut prefilter = match prefilter_mode {
+        batch_prefilter::PrefilterMode::Off => None,
+        mode => Some(batch_prefilter::BatchPrefilter::prepare(
+            mode,
+            &grammar,
+            &morpher,
+            &opts,
+            &words,
+            start_idx.min(words.len()),
+        )?),
+    };
+    // Under `auto` the meter priced the calibration parses only; the batch itself needs it just for the cost column.
+    if prefilter_mode == batch_prefilter::PrefilterMode::Auto && !cost_column {
+        pg_cost::disable();
+    }
+    if phase_marks && threads != 1 {
+        return Err("--phase-marks needs --threads 1".to_string());
+    }
+    #[cfg(feature = "cost-calibration")]
+    if word_phase_marks && (!phase_marks || stats_requested || start_idx != 0) {
+        return Err(
+            "--word-phase-marks needs --phase-marks, no --stats, and --start 0".to_string(),
+        );
+    }
+    #[cfg(not(feature = "cost-calibration"))]
+    let word_phase_marks = false;
     if threads == 1 {
         // Legacy sequential path: STARTED sentinel + per-line flush, crash-resumable.
+        if phase_marks && !word_phase_marks {
+            phase_mark();
+        }
         for (i, word) in words.iter().enumerate() {
             if i < start_idx {
-                if stats_cache
-                    .as_ref()
-                    .is_some_and(|(cache, _)| !cache.contains(word))
-                {
-                    if per_word_diagnostics {
-                        reset_per_word_diagnostics();
-                    }
-                    let start = Instant::now();
-                    parse_counter.record();
-                    let (outcome, rows, prune_rows) =
-                        morpher.parse_word_with_stats_and_prunes(word, &opts);
-                    let result = pg_parse::BatchWordOutcome {
-                        outcome,
-                        elapsed: start.elapsed(),
-                    };
-                    stats_words.push(stats_cmd::batch_stats_word(
-                        &grammar,
-                        stats_identities
+                if let Some((cache, _)) = &mut stats_cache {
+                    if !cache.contains(word) {
+                        if per_word_diagnostics {
+                            reset_per_word_diagnostics();
+                        }
+                        let (_, stats) = stats_collector
                             .as_ref()
-                            .expect("--stats creates a typed identity catalog"),
-                        word,
-                        &result,
-                        &rows,
-                        &prune_rows,
-                    ));
+                            .expect("--stats creates a collector")
+                            .parse(&morpher, word, &opts, parse_counter)?;
+                        cache.record(stats)?;
+                    }
                 }
                 continue;
             }
             writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
-            w.flush().map_err(|e| e.to_string())?;
+            if flush_each_word {
+                w.flush().map_err(|e| e.to_string())?;
+            }
             if per_word_diagnostics {
                 reset_per_word_diagnostics();
             }
-            let start = Instant::now();
-            let (result, stats) = if stats_requested {
-                parse_counter.record();
-                let (outcome, rows, prune_rows) =
-                    morpher.parse_word_with_stats_and_prunes(word, &opts);
-                let result = pg_parse::BatchWordOutcome {
-                    outcome,
-                    elapsed: start.elapsed(),
-                };
-                let stats = stats_cmd::batch_stats_word(
-                    &grammar,
-                    stats_identities
-                        .as_ref()
-                        .expect("--stats creates a typed identity catalog"),
-                    word,
-                    &result,
-                    &rows,
-                    &prune_rows,
-                );
+            let mut row_spans: Vec<Option<pg_parse::morpher::ParseSpans>> = Vec::new();
+            let (result, stats) = if let Some(collector) = &stats_collector {
+                let (result, stats) = collector.parse(&morpher, word, &opts, parse_counter)?;
                 (result, Some(stats))
             } else {
+                let start = Instant::now();
                 parse_counter.record();
-                let outcome = morpher.parse_word_opts(word, &opts);
+                if word_phase_marks {
+                    phase_mark();
+                }
+                let outcome = match prefilter.as_mut() {
+                    Some(prefilter) => prefilter.parse(i, &morpher, word, &opts),
+                    None if morph_spans => {
+                        let (outcome, spans) = morpher.parse_word_morph_spans(word, &opts);
+                        row_spans = spans;
+                        outcome
+                    }
+                    None => {
+                        if let Some(trace) = diagnostic_run.as_mut() {
+                            let (outcome, row) = trace.parse(&morpher, &opts, i, word);
+                            trace.write_row(row)?;
+                            outcome
+                        } else {
+                            morpher.parse_word_opts(word, &opts)
+                        }
+                    }
+                };
+                if word_phase_marks {
+                    phase_mark();
+                }
                 (
                     pg_parse::BatchWordOutcome {
                         outcome,
@@ -1556,30 +2439,40 @@ fn run_batch_with_counter(
                 )
             };
             if let Some(stats) = stats {
-                stats_words.push(stats);
+                stats_cache.as_mut().expect("stats cache").0.record(stats)?;
             }
             let outcome = result.outcome;
             let elapsed_ms = result.elapsed.as_millis();
-            let (status, signature) = if outcome.invalid_shape {
-                skipped += 1;
-                ("SKIPPED", "-".to_string())
-            } else if outcome.timed_out {
-                // --word-timeout-ms fired; its counts are wall-clock dependent, unlike a CAP row's.
-                timed_out_words += 1;
-                eprintln!("TIMEOUT\t{i}\t{word}");
-                ("TIMEOUT", "-".to_string())
-            } else {
-                parsed += 1;
-                if outcome.capped {
-                    capped_words += 1;
-                    eprintln!("CAP\t{i}\t{word}");
+            let status = outcome_status(&outcome);
+            let signature = match status {
+                "SKIPPED" => {
+                    skipped += 1;
+                    "-".to_string()
                 }
-                row_status(&outcome)
+                "TIMEOUT" => {
+                    timed_out_words += 1;
+                    eprintln!("TIMEOUT\t{i}\t{word}");
+                    "-".to_string()
+                }
+                "CAP" | "MEMCAP" => {
+                    parsed += 1;
+                    capped_words += 1;
+                    eprintln!("{status}\t{i}\t{word}");
+                    outcome.signature()
+                }
+                _ => {
+                    parsed += 1;
+                    outcome.signature()
+                }
             };
-            // Diagnostic only: raw StepBudget tick count for this word, regardless of whether the cap fired.
+            // Diagnostic only: raw work total for this word, regardless of whether the cap fired.
             if std::env::var("HC_STEP_STATS").is_ok() {
-                eprintln!("STEPS\t{i}\t{word}\t{}", outcome.steps);
                 eprintln!("WORK_STEPS\t{i}\t{word}\t{}", outcome.work_steps);
+                let shadow = pg_rules::required_slots::take_shadow();
+                eprintln!(
+                    "RSL_SHADOW\t{i}\t{word}\t{}\t{}\t{}",
+                    shadow.fired, shadow.violated, shadow.completed_under_fired
+                );
                 eprintln!(
                     "IDENTITY_REFUSALS\t{i}\t{word}\t{}",
                     pg_parse::root_trie::take_identity_refusals()
@@ -1663,7 +2556,7 @@ fn run_batch_with_counter(
                 eprintln!(
                     "WORDSTATS\t{i}\t{word}\t\
                      live_peak_count={}\tlive_peak_total={}\t\
-                     live_base={}\tlive_shape={}\tlive_syn_fs={}\tlive_real_fs={}\tlive_morphs={}\t\
+                     live_base={}\tlive_shape={}\tlive_syn_fs={}\tlive_real_fs={}\tlive_mpr={}\tlive_morphs={}\t\
                      live_mrule_apps={}\tlive_obligatory={}\tlive_unapplied_rule_counts={}\t\
                      live_root_runtime_id={}\tlive_non_heads={}\tlive_alternatives={}\t\
                      max_single_word_bytes={}\t\
@@ -1675,6 +2568,7 @@ fn run_batch_with_counter(
                     b.shape,
                     b.syn_fs,
                     b.real_fs,
+                    b.mpr,
                     b.morphs,
                     b.mrule_apps,
                     b.obligatory,
@@ -1732,85 +2626,139 @@ fn run_batch_with_counter(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &outcome, &grammar)
-                    .map_err(|e| e.to_string())?;
+                write_parse_analysis_row_spans(
+                    analyses_w,
+                    i,
+                    word,
+                    elapsed_ms,
+                    &outcome,
+                    &grammar,
+                    engine,
+                    morph_spans.then_some(row_spans.as_slice()),
+                    query_fields,
+                )
+                .map_err(|e| e.to_string())?;
             }
-            w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
-            if let Some(analyses_w) = analyses_w.as_mut() {
-                analyses_w.flush().map_err(|e| e.to_string())?;
+            if flush_each_word {
+                w.flush().map_err(|e| e.to_string())?; // per-line flush (AutoFlush), crash/monitor resumable
+                if let Some(analyses_w) = analyses_w.as_mut() {
+                    analyses_w.flush().map_err(|e| e.to_string())?;
+                }
             }
+        }
+        if phase_marks && !word_phase_marks {
+            phase_mark();
         }
     } else {
         // Parallel path: hc_parse_batch parallelizes internally and returns results already reindexed to original word order; buffered and written once, no STARTED lines, so --start only skips work with no per-word crash-resume in this mode.
-        let remaining = &words[start_idx..];
-        let (results, result_start) = if stats_requested {
+        let start = if diagnostic_run.is_some() {
+            start_idx.min(words.len())
+        } else {
+            start_idx
+        };
+        let remaining = &words[start..];
+        let mut diagnostic_rows = None;
+        let mut batch_spans_rows = None;
+        let (results, result_start) = if let Some(collector) = &stats_collector {
             let cache = stats_cache
-                .as_ref()
+                .as_mut()
                 .expect("--stats initializes the batch stats cache before parsing");
             (
                 parse_batch_with_stats(
                     &morpher,
-                    &grammar,
-                    stats_identities
-                        .as_ref()
-                        .expect("--stats creates a typed identity catalog"),
+                    collector,
                     &words,
                     threads,
                     &opts,
                     start_idx,
-                    cache.0.existing_words(),
+                    &mut cache.0,
                     parse_counter,
-                ),
+                )?,
                 0,
             )
         } else {
             // Without a lexical pattern the guess branch never runs, so `hc_parse_batch` returns the same rows.
-            let results = if opts.guess_root && !morpher.lexical_patterns().is_empty() {
+            let results = if let Some(prefilter) = prefilter.as_mut() {
+                prefilter.parse_batch(&morpher, remaining, threads, &opts, parse_counter)
+            } else if let Some(trace) = &diagnostic_run {
+                let (results, rows): (Vec<_>, Vec<_>) =
+                    parse_batch_in_order(remaining, threads, |index, word| {
+                        let started = Instant::now();
+                        parse_counter.record();
+                        let (outcome, row) = trace.parse(&morpher, &opts, start + index, word);
+                        (
+                            pg_parse::BatchWordOutcome {
+                                outcome,
+                                elapsed: started.elapsed(),
+                            },
+                            row,
+                        )
+                    })
+                    .into_iter()
+                    .unzip();
+                diagnostic_rows = Some(rows.into_iter());
+                results
+            } else if morph_spans {
+                let (results, spans): (Vec<_>, Vec<_>) =
+                    parse_batch_in_order(remaining, threads, |_, word| {
+                        let started = Instant::now();
+                        parse_counter.record();
+                        let (outcome, spans) = morpher.parse_word_morph_spans(word, &opts);
+                        (
+                            pg_parse::BatchWordOutcome {
+                                outcome,
+                                elapsed: started.elapsed(),
+                            },
+                            spans,
+                        )
+                    })
+                    .into_iter()
+                    .unzip();
+                batch_spans_rows = Some(spans.into_iter());
+                results
+            } else if opts.partials != 0
+                || (opts.guess_root && !morpher.lexical_patterns().is_empty())
+            {
                 parse_batch_with_opts(&morpher, remaining, threads, &opts, parse_counter)
             } else {
                 hc_parse_batch(&morpher, remaining, threads)
             };
-            (
-                results
-                    .into_iter()
-                    .map(|outcome| BatchWordRun {
-                        outcome,
-                        stats: None,
-                    })
-                    .map(Some)
-                    .collect(),
-                start_idx,
-            )
+            (results.into_iter().map(Some).collect(), start)
         };
         for (j, result) in results.into_iter().enumerate() {
             let i = result_start + j;
-            let Some(mut result) = result else {
+            let Some(r) = result else {
                 continue;
             };
-            if let Some(stats) = result.stats.take() {
-                stats_words.push(stats);
-            }
             if i < start_idx {
                 continue;
             }
+            if let (Some(trace), Some(rows)) = (&mut diagnostic_run, &mut diagnostic_rows) {
+                trace.write_row(rows.next().expect("diagnostic row for each parse"))?;
+            }
             let word = &words[i];
-            let r = result.outcome;
             let elapsed_ms = r.elapsed.as_millis();
-            let (status, signature) = if r.outcome.invalid_shape {
-                skipped += 1;
-                ("SKIPPED", "-".to_string())
-            } else if r.outcome.timed_out {
-                // Same --word-timeout-ms outcome as the sequential path above; the row shape is identical in both thread modes.
-                timed_out_words += 1;
-                eprintln!("TIMEOUT\t{i}\t{word}");
-                ("TIMEOUT", "-".to_string())
-            } else {
-                parsed += 1;
-                if r.outcome.capped {
-                    capped_words += 1;
-                    eprintln!("CAP\t{i}\t{word}");
+            let status = outcome_status(&r.outcome);
+            let signature = match status {
+                "SKIPPED" => {
+                    skipped += 1;
+                    "-".to_string()
                 }
-                row_status(&r.outcome)
+                "TIMEOUT" => {
+                    timed_out_words += 1;
+                    eprintln!("TIMEOUT\t{i}\t{word}");
+                    "-".to_string()
+                }
+                "CAP" | "MEMCAP" => {
+                    parsed += 1;
+                    capped_words += 1;
+                    eprintln!("{status}\t{i}\t{word}");
+                    r.outcome.signature()
+                }
+                _ => {
+                    parsed += 1;
+                    r.outcome.signature()
+                }
             };
             write_batch_row(
                 &mut w,
@@ -1823,8 +2771,19 @@ fn run_batch_with_counter(
             )
             .map_err(|e| e.to_string())?;
             if let Some(analyses_w) = analyses_w.as_mut() {
-                write_parse_analysis_row(analyses_w, i, word, elapsed_ms, &r.outcome, &grammar)
-                    .map_err(|e| e.to_string())?;
+                let spans = batch_spans_rows.as_mut().and_then(|rows| rows.next());
+                write_parse_analysis_row_spans(
+                    analyses_w,
+                    i,
+                    word,
+                    elapsed_ms,
+                    &r.outcome,
+                    &grammar,
+                    engine,
+                    spans.as_deref(),
+                    query_fields,
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
@@ -1834,7 +2793,13 @@ fn run_batch_with_counter(
         analyses_w.flush().map_err(|e| e.to_string())?;
     }
 
-    eprintln!("PARSEELAPSED\tengine=default\telapsed_ms={parse_elapsed_ms:.3}");
+    if let Some(trace) = diagnostic_run {
+        trace.finish()?;
+    }
+    eprintln!("PARSEELAPSED\tengine={timing_engine}\telapsed_ms={parse_elapsed_ms:.3}");
+    if let Some(prefilter) = &prefilter {
+        eprintln!("PREFILTER-TOTAL\t{}", prefilter.total_line());
+    }
     eprintln!(
         "batch complete: {} words parsed ({} skipped), {} hit a search cap, {} timed out [threads={}]",
         parsed,
@@ -1845,13 +2810,14 @@ fn run_batch_with_counter(
     );
     if let Some((stats_cache, manifest_path)) = stats_cache {
         if let Some(manifest_path) = manifest_path {
-            let source = stats_source_identity
-                .expect("--stats-manifest captures a source identity with the grammar");
+            let LoadedStatsIdentity::Frozen(source) = stats_identity else {
+                return Err("missing grammar identity for frozen stats manifest".into());
+            };
             let batch_options = stats_manifest::BatchOptions {
                 engine: "hc",
                 threads,
-                step_cap,
                 work_cap,
+                word_mem_cap,
                 search_budget_semantics: stats_cmd::SEARCH_BUDGET_SEMANTICS,
                 word_timeout_ms,
                 guess,
@@ -1861,23 +2827,33 @@ fn run_batch_with_counter(
             };
             let _ = stats_cmd::finish_frozen_batch_stats_hc(
                 stats_cache,
-                stats_words,
                 std::path::Path::new(manifest_path),
                 source,
                 batch_options,
             )?;
         } else {
-            let _ = stats_cmd::finish_batch_stats_hc(stats_cache, stats_words)?;
+            let _ = stats_cmd::finish_batch_stats_hc(stats_cache)?;
         }
     }
     Ok(())
 }
 
-/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot.
+/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot; `generate <grammar> --requests <file.jsonl|-> [--attested <words.txt>]` answers a JSONL batch of `serve` `generate` requests, marking each surface attested or not against the word list.
 fn run_generate(args: &[String]) -> Result<(), String> {
+    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|-> [--attested <words.txt>]";
     let Some(grammar_path) = args.first() else {
-        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
+        return Err(USAGE.into());
     };
+
+    if args.get(1).is_some_and(|arg| arg == "--requests") {
+        return run_generate_requests(grammar_path, &args[2..]);
+    }
+    if args.iter().skip(1).any(|arg| arg == "--requests") {
+        return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
+    }
+    if args.iter().skip(1).any(|arg| arg == "--attested") {
+        return Err("--attested applies only to generate --requests".to_string());
+    }
 
     if args.get(1).is_some_and(|arg| arg == "--request") {
         if args.len() == 2 {
@@ -1902,13 +2878,14 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     }
 
     let [_, root_id, other_ids @ ..] = args else {
-        return Err("usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json>".into());
+        return Err(USAGE.into());
     };
 
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     // The shared Morpher generation allowance covers seed selection and synthesis.
-    let morpher = Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap());
+    let morpher = Morpher::new(&grammar, DEFAULT_GENERATION_WORK_CAP)
+        .with_generation_cap(DEFAULT_GENERATION_WORK_CAP);
 
     let root = lex_entry_by_morpheme_id(&grammar, root_id)
         .ok_or_else(|| format!("no LexicalEntry with <MorphemeId>{root_id}</MorphemeId>"))?;
@@ -1927,6 +2904,48 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     }
     for w in &outcome.surfaces {
         println!("{w}");
+    }
+    Ok(())
+}
+
+/// `generate <grammar> --requests <file.jsonl|->`: one `serve` `generate` request per input line, one `serve` response per output line on stdout, in input order. A bad line is an error row and the batch goes on; the exit status is 0 once every line is answered, and 1 only for a bad argument, an unreadable input, a grammar that fails to load or a failed write.
+fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), String> {
+    let (source, attested_path) = match rest {
+        [] => return Err("--requests requires a path to a JSONL file, or - for stdin".to_string()),
+        [source] => (source, None),
+        [source, flag, path] if flag == "--attested" => (source, Some(path)),
+        [flag, path, source] if flag == "--attested" => (source, Some(path)),
+        _ => return Err(generate_request::GenerateRequestError::MixedSelectors.to_string()),
+    };
+    let attested = attested_path
+        .map(|path| serve_generate::load_attested_file(path))
+        .transpose()?;
+    // Open the input before loading, so a missing file fails fast.
+    let input: Box<dyn std::io::BufRead> = if source == "-" {
+        Box::new(std::io::BufReader::new(std::io::stdin()))
+    } else {
+        Box::new(std::io::BufReader::new(
+            std::fs::File::open(source).map_err(|e| format!("cannot read {source}: {e}"))?,
+        ))
+    };
+    let (grammar, warnings) = load_grammar(grammar_path)?;
+    print_grammar_warnings(&warnings);
+    // The defaults `pangloss serve` starts with, so a row equals the serve op's answer.
+    let morpher = with_guess_override(
+        Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap())
+            .with_word_mem_cap(Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES))
+            .with_word_timeout(None),
+        None,
+    );
+    let stdout = std::io::stdout();
+    let summary =
+        generate_batch::run_requests(&grammar, &morpher, attested.as_ref(), input, stdout.lock())
+            .map_err(|e| format!("generate --requests: {e}"))?;
+    if summary.errors > 0 {
+        eprintln!(
+            "generate --requests: {} of {} requests were refused; see the error rows",
+            summary.errors, summary.rows
+        );
     }
     Ok(())
 }

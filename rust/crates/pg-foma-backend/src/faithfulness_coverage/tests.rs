@@ -34,50 +34,34 @@ fn observation_with_soundness(
     }
 }
 
-/// A single held observation must classify as held, never as not-attempted or failed.
+/// A single held observation must classify as held, never as not-attempted or failed; a selector refusal is not-attempted.
 #[test]
 fn a_held_pair_is_classified_held() {
-    let report = build_report(
-        "all",
-        1,
-        &[observation(
-            "synthetic",
-            &[CharacteristicKind::Affixation],
-            &[
-                (EmissionStrategy::PlanComposed, ContainmentOutcome::Held),
-                (
-                    EmissionStrategy::TunedSurfaceProbed,
-                    ContainmentOutcome::Held,
-                ),
-                (
-                    EmissionStrategy::TemplatedUnderlyingTokens,
-                    ContainmentOutcome::NotAttempted {
-                        reason: NotAttemptedReason::RefusedBySelector,
-                    },
-                ),
-            ],
-        )],
-    );
+    let strategy = EmissionStrategy::TunedSurfaceProbed;
+    let report_for = |outcome: ContainmentOutcome| {
+        build_report(
+            "all",
+            1,
+            &[observation(
+                "synthetic",
+                &[CharacteristicKind::Affixation],
+                &[(strategy, outcome)],
+            )],
+        )
+    };
+
+    let held = report_for(ContainmentOutcome::Held);
+    assert_eq!(held.held, vec![(CharacteristicKind::Affixation, strategy)]);
+    assert!(held.failed.is_empty());
+    assert!(held.not_attempted.is_empty());
+
+    let refused = report_for(ContainmentOutcome::NotAttempted {
+        reason: NotAttemptedReason::RefusedBySelector,
+    });
+    assert!(refused.held.is_empty());
     assert_eq!(
-        report.held,
-        vec![
-            (
-                CharacteristicKind::Affixation,
-                EmissionStrategy::PlanComposed
-            ),
-            (
-                CharacteristicKind::Affixation,
-                EmissionStrategy::TunedSurfaceProbed
-            ),
-        ]
-    );
-    assert!(report.failed.is_empty());
-    assert_eq!(
-        report.not_attempted,
-        vec![(
-            CharacteristicKind::Affixation,
-            EmissionStrategy::TemplatedUnderlyingTokens
-        )]
+        refused.not_attempted,
+        vec![(CharacteristicKind::Affixation, strategy)]
     );
 }
 
@@ -91,13 +75,13 @@ fn any_failure_among_exhibiting_fixtures_wins_over_held() {
             observation(
                 "held-fixture",
                 &[CharacteristicKind::Affixation],
-                &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+                &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
             ),
             observation(
                 "failing-fixture",
                 &[CharacteristicKind::Affixation],
                 &[(
-                    EmissionStrategy::PlanComposed,
+                    EmissionStrategy::TunedSurfaceProbed,
                     ContainmentOutcome::Failed {
                         word: "kolo".to_string(),
                         detail: "missing identity".to_string(),
@@ -110,7 +94,7 @@ fn any_failure_among_exhibiting_fixtures_wins_over_held() {
         report.failed,
         vec![(
             CharacteristicKind::Affixation,
-            EmissionStrategy::PlanComposed
+            EmissionStrategy::TunedSurfaceProbed
         )]
     );
     assert!(report.held.is_empty());
@@ -127,7 +111,7 @@ fn an_unexhibited_kind_is_not_in_any_bucket() {
         &[observation(
             "synthetic",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
         )],
     );
     for &kind in CharacteristicKind::ALL {
@@ -161,7 +145,7 @@ fn the_strict_requirement_rejects_a_failure_the_lenient_one_reports() {
             "synthetic",
             &[CharacteristicKind::Affixation],
             &[(
-                EmissionStrategy::PlanComposed,
+                EmissionStrategy::TunedSurfaceProbed,
                 ContainmentOutcome::Failed {
                     word: "kolo".to_string(),
                     detail: "missing identity".to_string(),
@@ -188,7 +172,7 @@ fn the_ratchet_admits_its_own_count_and_refuses_one_more() {
             "synthetic",
             &[CharacteristicKind::Affixation],
             &[(
-                EmissionStrategy::PlanComposed,
+                EmissionStrategy::TunedSurfaceProbed,
                 ContainmentOutcome::Failed {
                     word: "kolo".to_string(),
                     detail: "missing identity".to_string(),
@@ -220,15 +204,15 @@ fn over_generation_is_counted_independently_of_containment() {
         &[observation_with_soundness(
             "over-generating-but-held",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
-            &[(EmissionStrategy::PlanComposed, 3)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, 3)],
         )],
     );
     assert_eq!(
         report.held,
         vec![(
             CharacteristicKind::Affixation,
-            EmissionStrategy::PlanComposed
+            EmissionStrategy::TunedSurfaceProbed
         )],
         "recall containment must still read HELD"
     );
@@ -236,7 +220,7 @@ fn over_generation_is_counted_independently_of_containment() {
         report.over_generating,
         vec![(
             CharacteristicKind::Affixation,
-            EmissionStrategy::PlanComposed
+            EmissionStrategy::TunedSurfaceProbed
         )],
         "a candidate-only identity must be visible even though recall containment held"
     );
@@ -257,8 +241,8 @@ fn zero_and_not_compared_soundness_readings_never_over_generate() {
         &[observation_with_soundness(
             "clean",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
-            &[(EmissionStrategy::PlanComposed, 0)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, 0)],
         )],
     );
     assert!(report.over_generating.is_empty());
@@ -270,7 +254,7 @@ fn zero_and_not_compared_soundness_readings_never_over_generate() {
         &[observation(
             "uncompared",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
         )],
     );
     assert!(uncompared.over_generating.is_empty());
@@ -285,8 +269,8 @@ fn the_soundness_ratchet_fires_on_a_forced_over_generation_and_admits_its_own_co
         &[observation_with_soundness(
             "synthetic",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
-            &[(EmissionStrategy::PlanComposed, 0)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, 0)],
         )],
     );
     assert!(
@@ -311,8 +295,8 @@ fn the_soundness_ratchet_fires_on_a_forced_over_generation_and_admits_its_own_co
         &[observation_with_soundness(
             "synthetic",
             &[CharacteristicKind::Affixation],
-            &[(EmissionStrategy::PlanComposed, ContainmentOutcome::Held)],
-            &[(EmissionStrategy::PlanComposed, 1)],
+            &[(EmissionStrategy::TunedSurfaceProbed, ContainmentOutcome::Held)],
+            &[(EmissionStrategy::TunedSurfaceProbed, 1)],
         )],
     );
     let violations = sabotaged

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use pg_facts::{FactsError, ProducerIdentity, StatsInput};
+use pg_facts::{FactsError, FactsOptions, ProducerIdentity, StatsInput};
 
 pub(crate) fn run_facts(args: &[String]) -> ExitCode {
     let parsed = match parse_args(args) {
@@ -44,22 +44,22 @@ pub(crate) fn run_facts(args: &[String]) -> ExitCode {
         Ok(bytes) => bytes,
         Err(error) => return fail("facts_write_failed", &error.to_string()),
     };
-    let producer = ProducerIdentity {
-        compiler_version: env!("CARGO_PKG_VERSION"),
-        source_revision: env!("PANGLOSS_BUILD_REVISION"),
-        build_identity: crate::build_info::embedded_build_info(),
-    };
-    let write_result = match (&parsed.stats_cache, &parsed.stats_manifest) {
-        (Some(cache_path), Some(manifest_path)) => pg_facts::write_facts_with_stats(
-            &source,
-            &context,
-            &parsed.output,
-            producer,
-            StatsInput::new(cache_path, manifest_path),
-        ),
-        (None, None) => pg_facts::write_facts(&source, &context, &parsed.output, producer),
+    let producer = producer_identity();
+    let stats = match (&parsed.stats_cache, &parsed.stats_manifest) {
+        (Some(cache_path), Some(manifest_path)) => Some(StatsInput::new(cache_path, manifest_path)),
+        (None, None) => None,
         _ => unreachable!("parse_args requires --stats and --stats-manifest together"),
     };
+    let write_result = pg_facts::write_facts_with_options(
+        &source,
+        &context,
+        &parsed.output,
+        producer,
+        FactsOptions {
+            light: parsed.light,
+            stats,
+        },
+    );
     let result = match write_result {
         Ok(result) => result,
         Err(error) => return fail(error.code(), &error.to_string()),
@@ -89,19 +89,29 @@ pub(crate) fn run_facts(args: &[String]) -> ExitCode {
     }
 }
 
+/// The producer `facts` stamps into every facts file; `grammar-health --facts-out` stamps the same one.
+pub(crate) fn producer_identity() -> ProducerIdentity<'static> {
+    ProducerIdentity {
+        compiler_version: env!("CARGO_PKG_VERSION"),
+        source_revision: env!("PANGLOSS_BUILD_REVISION"),
+        build_identity: crate::build_info::embedded_build_info(),
+    }
+}
+
 struct FactsArgs {
     snapshot: PathBuf,
     output: PathBuf,
     context: PathBuf,
     stats_cache: Option<PathBuf>,
     stats_manifest: Option<PathBuf>,
+    light: bool,
     json: bool,
 }
 
 fn parse_args(args: &[String]) -> Result<FactsArgs, FactsError> {
     let Some(snapshot) = args.first() else {
         return Err(FactsError::InvalidContext(
-            "usage: facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--json]"
+            "usage: facts <snapshot.json> --out <facts.sqlite> --context <context.json> [--stats <cache.sqlite> --stats-manifest <manifest.json>] [--light] [--json]"
                 .into(),
         ));
     };
@@ -109,6 +119,7 @@ fn parse_args(args: &[String]) -> Result<FactsArgs, FactsError> {
     let mut context = None;
     let mut stats_cache = None;
     let mut stats_manifest = None;
+    let mut light = false;
     let mut json = false;
     let mut index = 1;
     while index < args.len() {
@@ -137,6 +148,7 @@ fn parse_args(args: &[String]) -> Result<FactsArgs, FactsError> {
                     FactsError::InvalidContext("--stats-manifest requires a manifest path".into())
                 })?));
             }
+            "--light" => light = true,
             "--json" => json = true,
             unknown => {
                 return Err(FactsError::InvalidContext(format!(
@@ -160,11 +172,12 @@ fn parse_args(args: &[String]) -> Result<FactsArgs, FactsError> {
         context,
         stats_cache,
         stats_manifest,
+        light,
         json,
     })
 }
 
-fn same_path(input: &Path, output: &Path) -> bool {
+pub(crate) fn same_path(input: &Path, output: &Path) -> bool {
     normalized_path(input)
         .zip(normalized_path(output))
         .is_some_and(|(a, b)| a == b)

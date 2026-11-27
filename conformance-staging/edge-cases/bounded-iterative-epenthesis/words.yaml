@@ -1,0 +1,18 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: BoundedIterativeEpenthesis
+inspired_by: ["bounded word-initial vowel insertion"]
+sources: ["read-only review of af9a4b58"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: aae
+    note: "Initial empty focus inserts a, then the one-a left context permits a second insertion."
+    parses:
+      - signature: "ROOT|aae"
+        rules: [rInsert]
+  - word: ae
+    note: "Provisional control for whether the iterative rule revisits the inserted gap."
+    expect_fail: true
+  - word: e
+    note: "The initial insertion condition holds."
+    expect_fail: true

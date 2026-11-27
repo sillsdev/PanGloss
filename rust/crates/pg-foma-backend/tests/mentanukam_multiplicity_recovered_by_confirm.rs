@@ -1,8 +1,6 @@
-//! "mentanukam" (machine:edge-cases/mpr-gated-exception) has two derivation orders sharing one
-//! identity; confirm's D4 recovery restores both from one deduplicated proposal. See `docs/adr/0001-honest-capability-boundary.md`.
+//! Confirms both derivation orders from one proposal in a scalar-deletion control derived from mpr-gated-exception.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, LoweredCandidate};
 use pg_foma::grammar_semantics::GrammarSemantics;
@@ -13,10 +11,16 @@ use pg_foma_backend::backend_runtime::{
 };
 
 fn load() -> pg_grammar::model::Grammar {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../machine/conformance/edge-cases/mpr-gated-exception/grammar.xml");
+    let path =
+        pg_conformance_fixtures::suite_root().join("edge-cases/mpr-gated-exception/grammar.xml");
     let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"))
+    let wide_target = r#"<SimpleContext naturalClass="ncVoicelessObstruent" />"#;
+    assert_eq!(xml.matches(wide_target).count(), 1);
+    let xml = xml.replace(wide_target, r#"<Segment segment="cT" />"#);
+    let mut g =
+        pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}\n{xml}"));
+    pg_conformance_fixtures::drop_segment_deletions(&mut g);
+    g
 }
 
 #[test]
@@ -27,10 +31,8 @@ fn mentanukam_proposes_once_but_confirms_the_oracles_full_multiplicity() {
     let phonology = PhonologyProbe::new_with_semantics(&semantics);
     let baseline_plan = enumerate_default(&g, semantics.prules_in_order(), phonology.as_ref());
 
-    for strategy in [
-        EmissionStrategy::TunedSurfaceProbed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ] {
+    {
+        let strategy = EmissionStrategy::TunedSurfaceProbed;
         let candidate = LoweredCandidate {
             label: "mentanukam-multiplicity",
             plan: baseline_plan.clone(),

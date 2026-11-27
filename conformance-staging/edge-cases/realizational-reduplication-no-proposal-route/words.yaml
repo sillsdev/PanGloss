@@ -14,7 +14,7 @@ words:
     note: Bare lexical root, with no realization.
     parses:
       - signature: "ROOT|ta"
-        rules: []
+        rules: [rr]
 
   - word: tata
     note: The RealizationalRule copies the entire stem twice.

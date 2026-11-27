@@ -24,7 +24,10 @@ use pg_snapshot::{
     Snapshot, SourceInventoryStatus, WsForm,
 };
 
-use crate::model::{MorphRuleDef, PartialMorphemeReason, TemplateSlotZone};
+use crate::model::{
+    AnchorSide, Dir, MorphRuleDef, PartialMorphemeReason, PatternNode, PhonRuleDef,
+    TemplateSlotZone,
+};
 use crate::GrammarError;
 
 use super::test_support::assert_grammars_equal;
@@ -111,7 +114,7 @@ fn missing_natural_class_reports_info_and_drops_the_entire_environment() {
         diagnostic.subjects[0].guid.as_deref(),
         Some("missing-class-environment")
     );
-    let outcome = pg_parse::Morpher::new(&compiled.grammar, 100_000).parse_word("kumata");
+    let outcome = pg_parse::Morpher::new(&compiled.grammar, 10_000_000).parse_word("kumata");
     assert!(!outcome.capped && !outcome.timed_out && !outcome.invalid_shape);
     assert!(
         !outcome.analyses.is_empty(),
@@ -124,7 +127,7 @@ fn missing_natural_class_reports_info_and_drops_the_entire_environment() {
         .iter()
         .any(|warning| warning.code == "grammar.environment.missing-natural-class"));
     assert!(
-        pg_parse::Morpher::new(&repaired.grammar, 100_000)
+        pg_parse::Morpher::new(&repaired.grammar, 10_000_000)
             .parse_word("kumata")
             .analyses
             .is_empty(),
@@ -371,6 +374,7 @@ fn provisional_letter_has_no_membership_in_feature_or_segment_classes() {
     let listed = crate::model::NaturalClass {
         xml_id: "listed-q".into(),
         name: Some("Listed q".into()),
+        full_name: None,
         kind: crate::model::NaturalClassKind::Segments(vec![q]),
     };
     for class in [feature, &listed] {
@@ -402,6 +406,7 @@ fn featureless_authored_phoneme_keeps_list_membership_but_no_feature_class_membe
     let listed = crate::model::NaturalClass {
         xml_id: "listed-q".into(),
         name: Some("Listed q".into()),
+        full_name: None,
         kind: crate::model::NaturalClassKind::Segments(vec![q]),
     };
     let pg_shape::CdSet::Members(bits) = crate::segment::nat_class_cd_set(table, &listed) else {
@@ -742,7 +747,7 @@ fn compacted_natural_class_and_msa_without_usable_allomorphs_reach_grammar_healt
 }
 
 /// Compiles `snapshot` through the recording seam and asserts the recorder's own invariants hold; returns everything a caller might want to inspect further.
-fn compile_recording_ok(
+pub(super) fn compile_recording_ok(
     snapshot: &Snapshot,
 ) -> (
     crate::model::Grammar,
@@ -818,7 +823,7 @@ fn subjects_without_a_tool_of_their_own_open_where_fieldworks_edits_them() {
         .closed_features
         .push(feature(inflection));
     let subject = |source: FwObjectRef| {
-        Warning::new(super::issue_codes::STRATA_CUSTOM_UNSUPPORTED, "m").with_subject(source)
+        Warning::new(super::issue_codes::STRATA_UNKNOWN_RULE, "m").with_subject(source)
     };
     let mut warnings = vec![
         subject(FwObjectRef::new(FwClass::PhBdryMarker).guid(marker)),
@@ -1006,7 +1011,7 @@ fn import_warning_sanitizes_rule_form_failure_when_analysis_has_no_name() {
     );
 }
 
-fn ws(ws: &str, form: &str) -> WsForm {
+pub(super) fn ws(ws: &str, form: &str) -> WsForm {
     WsForm {
         ws: ws.to_string(),
         form: form.to_string(),
@@ -1047,7 +1052,7 @@ fn base_phonology() -> Phonology {
     }
 }
 
-fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph {
+pub(super) fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph {
     Allomorph {
         guid: guid.to_string(),
         morph_type,
@@ -1064,17 +1069,17 @@ fn simple_allomorph(guid: &str, morph_type: MorphType, form: &str) -> Allomorph 
 }
 
 /// One POS ("Noun") with one affix slot and one template using it, a stem entry, and an inflectional suffix entry filling that slot; every test below starts from this and mutates the parts it cares about.
-struct Fixture {
+pub(super) struct Fixture {
     noun_pos: String,
     slot: String,
     template: String,
-    stem_entry: String,
+    pub(super) stem_entry: String,
     stem_msa: String,
-    suffix_entry: String,
+    pub(super) suffix_entry: String,
     suffix_msa: String,
 }
 
-fn fixture() -> (Snapshot, Fixture) {
+pub(super) fn fixture() -> (Snapshot, Fixture) {
     let f = Fixture {
         noun_pos: "pos-noun".to_string(),
         slot: "slot-pl".to_string(),
@@ -1173,6 +1178,11 @@ fn fixture() -> (Snapshot, Fixture) {
     );
 
     (snapshot, f)
+}
+
+/// The shared fixture's snapshot alone, for limit tests that start from a valid project.
+pub(super) fn fixture_snapshot() -> Snapshot {
+    fixture().0
 }
 
 // --- 1. stem + inflectional affix + template ------------------------------------------------
@@ -1321,8 +1331,9 @@ fn sample_invalid_environments_compile_with_warnings_and_preserve_parses() {
                 warning_metadata(warning).level,
                 pg_snapshot::DiagnosticLevel::Warning
             );
-            let expected = pg_parse::Morpher::new(&baseline.grammar, 100_000).parse_word("kumata");
-            let actual = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+            let expected =
+                pg_parse::Morpher::new(&baseline.grammar, 10_000_000).parse_word("kumata");
+            let actual = pg_parse::Morpher::new(&out.grammar, 10_000_000).parse_word("kumata");
             assert!(
                 !actual.analyses.is_empty(),
                 "seeded allomorph must remain usable: {text}"
@@ -1330,7 +1341,7 @@ fn sample_invalid_environments_compile_with_warnings_and_preserve_parses() {
             assert!(!actual.capped && !actual.timed_out && !actual.invalid_shape);
             assert!(!expected.capped && !expected.timed_out && !expected.invalid_shape);
             assert_eq!(actual.signature(), expected.signature());
-            assert!(pg_parse::Morpher::new(&out.grammar, 100_000)
+            assert!(pg_parse::Morpher::new(&out.grammar, 10_000_000)
                 .parse_word("takuma")
                 .analyses
                 .is_empty());
@@ -1356,7 +1367,7 @@ fn invalid_environment_does_not_widen_valid_root_restrictions() {
         ]);
         snapshot.lexicon.entries[entry_index].allomorphs[0].environments = vec!["valid-env".into()];
         let valid = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        assert!(pg_parse::Morpher::new(&valid.grammar, 100_000)
+        assert!(pg_parse::Morpher::new(&valid.grammar, 10_000_000)
             .parse_word("kumata")
             .analyses
             .is_empty());
@@ -1364,7 +1375,7 @@ fn invalid_environment_does_not_widen_valid_root_restrictions() {
             .environments
             .push("bad-env".into());
         let mixed = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        let parses = pg_parse::Morpher::new(&mixed.grammar, 100_000).parse_word("kumata");
+        let parses = pg_parse::Morpher::new(&mixed.grammar, 10_000_000).parse_word("kumata");
         assert_eq!(
             parses.analyses.is_empty(),
             entry_index == 0,
@@ -1402,7 +1413,7 @@ fn invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar() {
             .warnings
             .iter()
             .any(|w| w.code == "grammar.environment.invalid"));
-        let morpher = pg_parse::Morpher::new(&out.grammar, 100_000);
+        let morpher = pg_parse::Morpher::new(&out.grammar, 10_000_000);
         assert!(!morpher.parse_word("kumata").analyses.is_empty());
         assert!(
             morpher.parse_word("kutama").analyses.is_empty(),
@@ -1410,7 +1421,7 @@ fn invalid_infix_positions_skip_the_allomorph_without_refusing_the_grammar() {
         );
         snapshot.phonology.environments[0].representation = "/ku_m".into();
         let repaired = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-        let repaired = pg_parse::Morpher::new(&repaired.grammar, 100_000).parse_word("kutama");
+        let repaired = pg_parse::Morpher::new(&repaired.grammar, 10_000_000).parse_word("kutama");
         assert!(
             !repaired.analyses.is_empty(),
             "a repaired infix must become usable"
@@ -1663,7 +1674,7 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
         assert_eq!(grammar.mpr_names[id], feature.name);
     }
     let first = grammar
-        .mpr_feature(crate::model::MprId(class_bit as u8))
+        .mpr_feature(crate::model::MprId::try_from(class_bit).expect("compiled MPR index fits u32"))
         .expect("default class bit must resolve");
     assert_eq!(first.xml_id, class_guid);
     let second = grammar
@@ -1674,9 +1685,9 @@ fn stem_msa_without_its_own_inflection_class_defaults_up_the_pos_chain() {
     assert_ne!(class_bit, second);
     assert_eq!(grammar.mpr_names[class_bit], grammar.mpr_names[second]);
     assert!(
-        grammar.entries[0]
-            .mpr
-            .contains(crate::model::MprId(class_bit as u8)),
+        grammar.entries[0].mpr.contains(
+            crate::model::MprId::try_from(class_bit).expect("compiled MPR index fits u32")
+        ),
         "the stem entry's MPR set must carry the POS's defaulted inflection class"
     );
     let (_, _, decisions) = recorder.finish_with_load_decisions();
@@ -1738,6 +1749,135 @@ fn unsupported_affix_process_arity_is_published_without_changing_compilation_war
         Some(r#"{"inputParts":1,"outputParts":1}"#)
     );
     let _ = f;
+}
+
+/// HCLoader rejects a process whose input part is a bare word boundary (`LoadPatternNode` fails, HCLoader.cs:1407) but erases one inside a sequence (#164).
+#[test]
+fn word_boundary_affix_process_input_is_rejected_not_erased() {
+    let process = |input: PhonContext| AffixProcess {
+        input: vec![input],
+        output: vec![
+            RuleMapping::CopyFromInput { part: 1 },
+            RuleMapping::InsertSegments { text: "a".into() },
+        ],
+    };
+    let rule_count = |grammar: &crate::model::Grammar| {
+        grammar
+            .mrules
+            .iter()
+            .filter(|rule| matches!(rule, MorphRuleDef::AffixProcess(_)))
+            .count()
+    };
+    for (input, loads) in [
+        (PhonContext::WordBoundary, false),
+        (
+            PhonContext::Iteration {
+                min: 0,
+                max: -1,
+                member: Box::new(PhonContext::WordBoundary),
+            },
+            false,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![PhonContext::WordBoundary],
+            },
+            false,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![PhonContext::WordBoundary, PhonContext::Variable],
+            },
+            true,
+        ),
+        (
+            PhonContext::Sequence {
+                members: vec![
+                    PhonContext::Iteration {
+                        min: 0,
+                        max: -1,
+                        member: Box::new(PhonContext::WordBoundary),
+                    },
+                    PhonContext::Variable,
+                ],
+            },
+            true,
+        ),
+    ] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].process = Some(process(input.clone()));
+        let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+        assert_eq!(rule_count(&grammar), usize::from(loads), "{input:?}");
+        assert_eq!(
+            warnings
+                .iter()
+                .any(|w| w.code == super::issue_codes::ALLOMORPH_PROCESS_BUILD_FAILED.wire()),
+            !loads,
+            "{input:?}: {warnings:?}"
+        );
+    }
+}
+
+/// HCLoader's `IsValidRuleForm` accepts any `MoAffixProcess` with more than one part whatever its morph type, so a simulfix or suprafix process loads as a rule exactly as a suffix process does (#149).
+#[test]
+fn simulfix_and_suprafix_process_forms_load_as_affix_process_rules() {
+    for morph_type in [MorphType::Simulfix, MorphType::Suprafix] {
+        let (mut snapshot, _f) = fixture();
+        let allomorph = &mut snapshot.lexicon.entries[1].allomorphs[0];
+        allomorph.morph_type = morph_type;
+        allomorph.process = Some(AffixProcess {
+            input: vec![PhonContext::Variable],
+            output: vec![
+                RuleMapping::CopyFromInput { part: 1 },
+                RuleMapping::InsertSegments { text: "a".into() },
+            ],
+        });
+        snapshot.lexicon.entries[1].lexeme_morph_type = morph_type;
+
+        let (grammar, warnings, _inventory, issues) = compile_recording_ok(&snapshot);
+        assert!(warnings.is_empty(), "{morph_type:?}: {warnings:?}");
+        assert!(issues.is_empty(), "{morph_type:?}: {issues:?}");
+        assert_eq!(
+            grammar
+                .mrules
+                .iter()
+                .filter(|rule| matches!(rule, MorphRuleDef::AffixProcess(_)))
+                .count(),
+            1,
+            "{morph_type:?} process form must load as one rule"
+        );
+    }
+}
+
+/// A simulfix or suprafix written as literal text is no rule form in HCLoader (`IsValidRuleForm` has no case for it, and `IsValidLexEntryForm` wants a stem type), so it is selected then rejected, never loaded (#149).
+#[test]
+fn simulfix_and_suprafix_literal_forms_are_selected_then_rejected() {
+    for morph_type in [MorphType::Simulfix, MorphType::Suprafix] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.lexicon.entries[1].allomorphs[0].morph_type = morph_type;
+        snapshot.lexicon.entries[1].lexeme_morph_type = morph_type;
+
+        let (grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.code == "grammar.allomorph.morph-type-unsupported"),
+            "{warnings:?}"
+        );
+        assert!(
+            grammar
+                .mrules
+                .iter()
+                .all(|rule| !matches!(rule, MorphRuleDef::AffixProcess(_))),
+            "{morph_type:?} literal form must not load"
+        );
+        let key = InventoryKey::object(InventoryKind::Allomorph, "allo-suffix".to_string());
+        assert!(inventory.selected.contains(&key));
+        assert!(inventory.rejected.contains(&key));
+        assert!(issues
+            .iter()
+            .any(|i| i.code == super::issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED));
+    }
 }
 
 // --- 4. variant entry with gloss append -------------------------------------------------------
@@ -2123,6 +2263,102 @@ fn empty_template_slot_reaches_one_linguist_warning() {
     assert!(grammar.templates.is_empty());
 }
 
+#[test]
+fn empty_required_template_slot_is_skipped_and_warned_once() {
+    let (mut snapshot, f) = fixture();
+    let empty_slot_guid = "slot-empty";
+    let slot = AffixSlot {
+        guid: empty_slot_guid.to_string(),
+        name: "SG".to_string(),
+        optional: false,
+    };
+    snapshot.morphology.parts_of_speech[0]
+        .affix_slots
+        .push(slot);
+    let template = &mut snapshot.morphology.parts_of_speech[0].affix_templates[0];
+    template.suffix_slots.insert(0, empty_slot_guid.to_string());
+    snapshot.morphology.parts_of_speech[0]
+        .affix_templates
+        .push(AffixTemplate {
+            guid: "tmpl-shared".to_string(),
+            name: "SharedTemplate".to_string(),
+            disabled: false,
+            prefix_slots: Vec::new(),
+            suffix_slots: vec![empty_slot_guid.to_string(), f.slot.clone()],
+            is_final: true,
+        });
+
+    let required =
+        super::compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let control = pg_parse::Morpher::new(&required.grammar, 10_000_000).parse_word("kuma");
+    assert!(!control.capped && !control.timed_out && !control.invalid_shape);
+    assert!(
+        control.analyses.is_empty(),
+        "the filled required slot must still bind"
+    );
+
+    snapshot.morphology.parts_of_speech[0].affix_slots[0].optional = true;
+    let output =
+        super::compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let grammar = output.grammar;
+    let warnings = output.warnings;
+    let slot_warnings: Vec<_> = warnings
+        .iter()
+        .filter(|warning| warning.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES.wire())
+        .collect();
+    assert_eq!(
+        slot_warnings.len(),
+        1,
+        "the shared empty slot collapses to one linguist warning"
+    );
+    let warning = slot_warnings[0];
+    assert_eq!(
+        warning.message,
+        "Incomplete affix slot 'SG' in affix templates 'NounTemplate' and 'SharedTemplate': it has no loaded inflectional affixes, so parsing skips it."
+    );
+    let diagnostic = crate::grammar_health::GrammarHealthDiagnostic::from_import_warning(warning);
+    assert_eq!(diagnostic.group_name, "Incomplete affix slot");
+    assert!(diagnostic
+        .explanation
+        .as_deref()
+        .is_some_and(|explanation| explanation.contains("parsing skips that slot")));
+    let slot_issues: Vec<_> = output
+        .issues
+        .iter()
+        .filter(|issue| issue.code == super::issue_codes::TEMPLATE_SLOT_NO_RULES)
+        .collect();
+    assert_eq!(
+        slot_issues.len(),
+        4,
+        "both template attachments must retain the shared slot identity"
+    );
+    assert!(slot_issues
+        .iter()
+        .all(|issue| issue.source.as_ref().is_some_and(|source| {
+            source.kind == pg_snapshot::FwClass::MoInflAffixSlot && source.id == empty_slot_guid
+        })));
+    assert!(slot_issues.iter().all(
+        |issue| issue.message == "Affix template slot 'SG' has no loaded inflectional affixes."
+    ));
+    assert_eq!(grammar.templates.len(), 2);
+    assert!(grammar
+        .templates
+        .iter()
+        .all(|template| template.slots.len() == 1 && template.slots[0].rules.len() == 1));
+
+    let morpher = pg_parse::Morpher::new(&grammar, 10_000_000);
+    for word in ["kuma", "kumata"] {
+        let outcome = morpher.parse_word(word);
+        assert!(!outcome.capped, "{word}: unexpected cap");
+        assert!(!outcome.timed_out, "{word}: unexpected timeout");
+        assert!(!outcome.invalid_shape, "{word}: unexpected invalid shape");
+        assert!(
+            !outcome.analyses.is_empty(),
+            "{word}: parsing must skip the empty required slot while retaining the filled slot"
+        );
+    }
+}
+
 /// `chardef::build`'s morph-boundary fallback (no authored `+` representation) must be recorded rejected. Default compounding is suppressed: it unconditionally segments a literal `"+"` (`compounding::plus_join`), an unrelated pre-existing assumption this test must not trip.
 #[test]
 fn missing_morph_boundary_marker_is_recorded_with_its_structured_warning() {
@@ -2265,22 +2501,110 @@ fn compounding_over_a_table_with_no_phonemes_or_boundary_refuses_instead_of_pani
     }
 }
 
+/// `HCLoader.CreateStrata` on the fixture: the stem entry named by its headword leaves Morphology for the first stratum; the predefined `Morphology` stratum takes the rest; the empty Clitics and Surface strata are dropped.
 #[test]
-fn custom_strata_parser_parameter_warns_and_falls_back_to_the_default_layout() {
+fn custom_strata_move_a_named_entry_and_fold_the_predefined_names() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.strata = Some("kuma , Morphology".to_string());
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let names: Vec<_> = grammar.strata.iter().map(|s| s.name.as_deref()).collect();
+    assert_eq!(names, [Some("kuma"), Some("Morphology")]);
+    assert_eq!(grammar.strata[0].entries.len(), 1);
+    assert!(grammar.strata[1].entries.is_empty());
+    assert!(
+        !grammar.strata[1].templates.is_empty(),
+        "the template stays with Morphology"
+    );
+    for (i, stratum) in grammar.strata.iter().enumerate() {
+        for entry in &stratum.entries {
+            let morpheme = grammar.entries[entry.0 as usize].morpheme;
+            assert_eq!(
+                grammar.morphemes[morpheme.0 as usize].stratum,
+                crate::model::StratumId(i as u8)
+            );
+        }
+    }
+    let _ = f;
+}
+
+/// Without a `Strata` string the default three strata remain, and with only `Morphology` and `Clitics` named the empty ones go.
+#[test]
+fn custom_strata_drop_empty_strata_and_default_layout_is_unchanged() {
+    let (snapshot, _f) = fixture();
+    let (default, _) = compile_project(&snapshot).expect("must compile");
+    assert_eq!(default.strata.len(), 3);
+
     let (mut snapshot, _f) = fixture();
     snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
     let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
-    assert!(
-        warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
-        }),
-        "expected a warning about unsupported custom Strata reorganization; got {warnings:?}"
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(grammar.strata.len(), 1);
+    assert_eq!(grammar.strata[0].name.as_deref(), Some("Morphology"));
+}
+
+/// `Phonology` collects every phonological rule, whichever of Morphology or Clitics (`NotOnClitics`) held it; without it they follow the last declared stratum.
+#[test]
+fn custom_strata_place_phonological_rules_like_createstrata() {
+    let rule = || {
+        PhonologicalRule::Rewrite(pg_snapshot::phonology::RewriteRule {
+            guid: "prule-1".to_string(),
+            name: "raise-a".to_string(),
+            direction: RuleDirection::LeftToRight,
+            structural_description: Vec::new(),
+            feature_constraint_variables: Vec::new(),
+            right_hand_sides: vec![pg_snapshot::phonology::RewriteRhs::default()],
+        })
+    };
+    for (strata, not_on_clitics, expected) in [
+        ("Morphology,(Phonology)", true, "Phonology"),
+        ("Morphology,(Phonology)", false, "Phonology"),
+        ("Phonology,Morphology", true, "Phonology"),
+        ("(Phonology),Morphology", true, "Phonology"),
+        ("Templates,Morphology", true, "Morphology"),
+        ("raise-a,Morphology", true, "raise-a"),
+    ] {
+        let (mut snapshot, _f) = fixture();
+        snapshot.morphology.parser_parameters.not_on_clitics = not_on_clitics;
+        snapshot.morphology.parser_parameters.strata = Some(strata.to_string());
+        snapshot.phonology.rules.push(rule());
+        let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+        assert!(warnings.is_empty(), "{strata}: {warnings:?}");
+        let holders: Vec<_> = grammar
+            .strata
+            .iter()
+            .filter(|s| !s.prules.is_empty())
+            .map(|s| s.name.as_deref())
+            .collect();
+        assert_eq!(
+            holders,
+            [Some(expected)],
+            "{strata} (notOnClitics {not_on_clitics})"
+        );
+    }
+}
+
+#[test]
+fn strata_string_groups_follow_parse_strata_string() {
+    use super::strata::parse;
+    let g = |v: &[&[&str]]| -> Vec<Vec<String>> {
+        v.iter()
+            .map(|x| x.iter().map(|s| s.to_string()).collect())
+            .collect()
+    };
+    assert_eq!(
+        parse("Morphology,(Clitics)"),
+        g(&[&["Morphology"], &["Clitics"]])
     );
     assert_eq!(
-        grammar.strata.len(),
-        3,
-        "default Morphology/Clitics/Surface layout still used"
+        parse(" (Phonology, Templates) ,CompoundRules,(Morphology) "),
+        g(&[
+            &["Phonology", "Templates"],
+            &["CompoundRules"],
+            &["Morphology"]
+        ])
     );
+    assert!(parse("  ").is_empty());
 }
 
 #[test]
@@ -2312,54 +2636,114 @@ fn not_on_clitics_false_places_rewrite_rules_on_the_clitic_stratum() {
     );
 }
 
-// --- 7. unsupported active phonological constructs refuse production ---------------------
+// --- 7. metathesis rules load as HCLoader loads them ---------------------------------------
 
+fn seg(phoneme: &str) -> PhonContext {
+    PhonContext::Segment {
+        phoneme: phoneme.to_string(),
+    }
+}
+
+fn metathesis_rule(
+    description: Vec<PhonContext>,
+    left_switch_index: i32,
+    right_switch_index: i32,
+) -> PhonologicalRule {
+    PhonologicalRule::Metathesis(MetathesisRule {
+        guid: "meta-1".to_string(),
+        name: "swap".to_string(),
+        direction: RuleDirection::LeftToRight,
+        structural_description: description,
+        left_switch_index,
+        right_switch_index,
+    })
+}
+
+/// `HCLoader` names the context at `RightSwitchIndex` "r" (the engine's `left_switch`) and the one at `LeftSwitchIndex` "l" (`right_switch`); a leading and trailing word boundary become anchors and take no pattern index. FieldWorks authors the physically-left switch as the left one, so `XmlLanguageWriter` writes `leftSwitch` on the later node.
 #[test]
-fn unsupported_active_metathesis_refuses_and_remains_measurable() {
+fn metathesis_rule_maps_switch_indices_onto_pattern_nodes() {
+    let (mut snapshot, _f) = fixture();
+    snapshot.phonology.rules.push(metathesis_rule(
+        vec![
+            PhonContext::WordBoundary,
+            seg("ph-k"),
+            seg("ph-a"),
+            seg("ph-t"),
+            PhonContext::WordBoundary,
+        ],
+        1,
+        3,
+    ));
+    let (grammar, warnings) = compile_project(&snapshot).expect("metathesis must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    let [PhonRuleDef::Metathesis(def)] = grammar.prules.as_slice() else {
+        panic!(
+            "expected exactly the metathesis rule: {:?}",
+            grammar.prules.len()
+        )
+    };
+    // Anchor, k, a, t, anchor.
+    assert_eq!(def.pattern.nodes.len(), 5);
+    assert!(matches!(
+        def.pattern.nodes[0],
+        PatternNode::Anchor(AnchorSide::Left)
+    ));
+    assert!(matches!(
+        def.pattern.nodes[4],
+        PatternNode::Anchor(AnchorSide::Right)
+    ));
+    assert_eq!((def.left_switch, def.right_switch), (3, 1));
+    assert_eq!(def.dir, Dir::LeftToRight);
+    assert_eq!(grammar.strata[0].prules.len(), 1);
+}
+
+/// `HCLoader` silently skips a metathesis rule with an unset switch; it is neither run nor an error.
+#[test]
+fn metathesis_rule_with_unset_switch_is_skipped_like_hcloader() {
     let (mut snapshot, _f) = fixture();
     snapshot
         .phonology
         .rules
-        .push(PhonologicalRule::Metathesis(MetathesisRule {
-            guid: "meta-1".to_string(),
-            name: "swap".to_string(),
-            direction: RuleDirection::LeftToRight,
-            structural_description: Vec::new(),
-            left_switch_index: 0,
-            right_switch_index: 1,
-        }));
+        .push(metathesis_rule(vec![seg("ph-k"), seg("ph-t")], -1, 0));
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    assert!(grammar.prules.is_empty());
+    assert_eq!(
+        grammar.skipped_prules.len(),
+        1,
+        "the skipped rule stays visible"
+    );
+    assert_eq!(grammar.skipped_prules[0].status, "disabled");
+    assert_eq!(grammar.skipped_prules[0].kind, "metathesis");
+}
 
-    let production = compile_project_with(&snapshot, CompileOptions::default());
-    let Err(GrammarError::Conversion(refused)) = production else {
-        panic!("active restriction or rule must refuse if it cannot be preserved")
-    };
-    assert!(refused.issues.iter().any(|issue| issue.code
-        == super::issue_codes::RULE_METATHESIS_UNSUPPORTED
-        && issue.fatal
-        && issue.source.is_some()));
-    assert!(!refused.compiled_mappings.iter().any(|mapping| {
-        mapping.source_kind == "phonologicalRule"
-            && mapping.source_guid.as_deref() == Some("meta-1")
-    }));
-
-    let out = compile_project_with(
-        &snapshot,
-        CompileOptions {
-            semantic_loss: SemanticLossPolicy::MeasureOnly,
-        },
-    )
-    .expect("measure-only records unsupported metathesis");
-    assert!(
-        out.issues
+/// A switch naming no element (or both switches naming one) has no HC meaning; it refuses rather than guessing.
+#[test]
+fn malformed_metathesis_switches_refuse_and_remain_measurable() {
+    for (left, right) in [(5, 0), (1, 1)] {
+        let (mut snapshot, _f) = fixture();
+        snapshot
+            .phonology
+            .rules
+            .push(metathesis_rule(vec![seg("ph-k"), seg("ph-t")], left, right));
+        let Err(GrammarError::Conversion(refused)) =
+            compile_project_with(&snapshot, CompileOptions::default())
+        else {
+            panic!("metathesis switches {left}/{right} must refuse production")
+        };
+        assert!(refused
+            .issues
             .iter()
-            .any(|i| i.code == super::issue_codes::RULE_METATHESIS_UNSUPPORTED && i.fatal),
-        "expected a fatal RULE_METATHESIS_UNSUPPORTED issue; got {:?}",
-        out.issues
-    );
-    assert!(
-        out.grammar.prules.is_empty(),
-        "the metathesis rule itself must not appear in the grammar"
-    );
+            .any(|i| i.code == super::issue_codes::RULE_BUILD_FAILED && i.fatal));
+        let out = compile_project_with(
+            &snapshot,
+            CompileOptions {
+                semantic_loss: SemanticLossPolicy::MeasureOnly,
+            },
+        )
+        .expect("measure-only records the refusal");
+        assert!(out.grammar.prules.is_empty());
+    }
 }
 
 /// A circumfix entry with `prefix_env`/`suffix_env` attached to its two halves (empty = unconditioned).
@@ -2458,6 +2842,10 @@ fn an_unconditioned_circumfix_entry_builds_the_half_cross_product() {
             Some("allo-circ-prefix".to_string()),
             Some("allo-circ-suffix".to_string())
         ]
+    );
+    assert_eq!(
+        source.form_texts,
+        vec![Some("ka-".to_string()), Some("-ta".to_string())]
     );
 }
 
@@ -2623,7 +3011,7 @@ fn a_circumfix_half_carrying_a_position_builds_with_it_unioned_in() {
     );
 }
 
-/// The structural half of docs/divergences/039's fix; parse behavior is pinned in `tests/circumfix_conditioning_parity.rs`.
+/// The structural half of retired divergence 039's fix (docs/divergences/README.md, Retired entries); parse behavior is pinned in `tests/circumfix_conditioning_parity.rs`.
 #[test]
 fn circumfix_cross_product_embeds_each_halfs_context_in_lhs_not_environment_union() {
     let (mut snapshot, f) = fixture();
@@ -3151,36 +3539,6 @@ fn fixture_recording_authored_minus_considered_is_empty_and_selected_minus_repre
     assert_no_authored_or_selected_falls_through(&inventory2);
 }
 
-/// Only a `Variant` ref's guid is authored as an `EntryReference` atom, never a `ComplexForm`'s.
-#[test]
-fn complex_form_ref_guid_is_never_authored_as_an_entry_reference() {
-    let (mut snapshot, f) = fixture();
-    snapshot.lexicon.entries.push(LexEntry {
-        guid: "entry-complex".to_string(),
-        citation_form: vec![ws("sen", "kumita")],
-        lexeme_morph_type: MorphType::Stem,
-        allomorphs: vec![simple_allomorph("allo-complex", MorphType::Stem, "kumita")],
-        msas: Vec::new(),
-        senses: Vec::new(),
-        entry_refs: vec![EntryRef::ComplexForm {
-            guid: "entryref-complex-unauthored".to_string(),
-            component_lexemes: vec![f.stem_entry.clone()],
-            complex_entry_types: Vec::new(),
-        }],
-    });
-
-    let (_grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
-    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
-    let complex_form_key = InventoryKey::object(
-        InventoryKind::EntryReference,
-        "entryref-complex-unauthored".to_string(),
-    );
-    assert!(
-        !inventory.authored.contains(&complex_form_key),
-        "a ComplexForm ref's guid must never be authored as an EntryReference atom"
-    );
-}
-
 /// Every existing fixture-derived scenario elsewhere in this file must also leave the recorder's invariants intact; each snapshot here mirrors an existing test's mutation, checked through `compile_recording_ok` rather than duplicating that test's own assertions.
 #[test]
 fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
@@ -3252,9 +3610,9 @@ fn every_existing_fixture_variant_leaves_recorder_invariants_intact() {
             guid: "meta-1".to_string(),
             name: "swap".to_string(),
             direction: RuleDirection::LeftToRight,
-            structural_description: Vec::new(),
-            left_switch_index: 0,
-            right_switch_index: 1,
+            structural_description: vec![seg("ph-k"), seg("ph-t")],
+            left_switch_index: 1,
+            right_switch_index: 0,
         }));
     compile_recording_ok(&metathesis_variant);
 
@@ -3885,19 +4243,23 @@ fn null_affix_output_has_synthetic_order_and_optional_slots_omit_it() {
 }
 
 #[test]
-fn custom_strata_setting_is_recorded_rejected() {
+fn custom_strata_unknown_name_warns_and_a_valid_string_is_represented() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(NoSuchRule)".to_string());
 
     let (_grammar, warnings, inventory, issues) = compile_recording_ok(&snapshot);
     assert!(warnings
         .iter()
-        .any(|warning| { warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire() }));
+        .any(|warning| { warning.code == super::issue_codes::STRATA_UNKNOWN_RULE.wire() }));
     let key = InventoryKey::setting(InventoryKind::StrataConfiguration, "Strata");
     assert!(inventory.rejected.contains(&key));
+    let (mut valid, _f) = fixture();
+    valid.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    let (_g, _w, inventory, _i) = compile_recording_ok(&valid);
+    assert!(inventory.represented.contains(&key) && !inventory.rejected.contains(&key));
     assert!(issues
         .iter()
-        .any(|i| i.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED && !i.fatal));
+        .any(|i| i.code == super::issue_codes::STRATA_UNKNOWN_RULE && !i.fatal));
 }
 
 /// C# `HCLoader.LoadUnclassifiedAffixProcessRule` (HCLoader.cs:1013) always sets `IsPartial = true`.
@@ -3962,13 +4324,13 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
 
     assert!(
         warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED.wire()
+            warning.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()
                 && warning
                     .subjects
                     .iter()
                     .any(|subject| subject.guid.as_deref() == Some("allo-bracket-form"))
         }),
-        "expected a structured reduplication warning; got {warnings:?}"
+        "expected a not-a-rule-form warning for a bracket pattern with no valid environment; got {warnings:?}"
     );
 
     let infix_key = InventoryKey::object(InventoryKind::Allomorph, "allo-infix-nopos".to_string());
@@ -3988,9 +4350,9 @@ fn is_valid_rule_form_rejections_are_recorded_selected_before_rejected() {
         "the bracket-pattern allomorph must be selected before rejection"
     );
     assert!(inventory.rejected.contains(&bracket_key));
-    assert!(issues
+    assert!(!issues
         .iter()
-        .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED));
+        .any(|i| i.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID));
 }
 
 /// A bare `Circumfix`/`DiscontigPhrase`-typed allomorph must be selected then rejected, not left dangling.
@@ -4779,6 +5141,175 @@ fn allomorph_cooccurrence_rule_whose_only_target_is_compacted_away_is_revoked() 
     }
 }
 
+/// A stem entry with two stem MSAs (Verb first, Noun second) compiles to two grammar entries that each carry their own id for the one authored allomorph; an ad-hoc allomorph prohibition must cover every copy in both directions, as `HCLoader.LoadAllomorphCoOccurrenceRules` does.
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_msa_copy_of_a_multi_msa_stem() {
+    let (mut snapshot, f) = fixture();
+    // Each stem MSA stays its own grammar entry only with MSA merging off (or unequal MSAs).
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.morphology.parts_of_speech.push(PartOfSpeech {
+        guid: "pos-verb".to_string(),
+        name: "Verb".to_string(),
+        abbreviation: "v".to_string(),
+        children: Vec::new(),
+        inflection_classes: Vec::new(),
+        default_inflection_class: None,
+        inflectable_features: Vec::new(),
+        stem_names: Vec::new(),
+        affix_slots: Vec::new(),
+        affix_templates: Vec::new(),
+    });
+    let stem_msa = |guid: &str, pos: &str| Msa::Stem {
+        guid: guid.to_string(),
+        part_of_speech: Some(pos.to_string()),
+        inflection_class: None,
+        features: None,
+        exception_features: Vec::new(),
+        from_parts_of_speech: Vec::new(),
+        slots: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-two".to_string(),
+        citation_form: vec![ws("sen", "kuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-two", MorphType::Stem, "kuta")],
+        msas: vec![
+            stem_msa("msa-two-verb", "pos-verb"),
+            stem_msa("msa-two-noun", &f.noun_pos),
+        ],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    for (guid, primary, other) in [
+        ("coocc-stem-first", "allo-two", "allo-suffix"),
+        ("coocc-affix-first", "allo-suffix", "allo-two"),
+    ] {
+        snapshot
+            .morphology
+            .adhoc_prohibitions
+            .push(AdhocProhibition::Allomorph {
+                guid: guid.to_string(),
+                disabled: false,
+                primary: primary.to_string(),
+                others: vec![other.to_string()],
+                adjacency: Adjacency::Anywhere,
+            });
+    }
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies: Vec<_> = grammar
+        .entries
+        .iter()
+        .filter(|e| e.authored_id == "entry-two")
+        .collect();
+    assert_eq!(copies.len(), 2, "one grammar entry per stem MSA");
+    let copy_ids: Vec<_> = copies.iter().map(|e| e.allomorphs[0].id).collect();
+    assert_ne!(copy_ids[0], copy_ids[1]);
+
+    // Stem first: the prohibition rides on EVERY copy, naming the suffix.
+    let suffix_rule = grammar
+        .mrules
+        .iter()
+        .find_map(|r| r.affix_allomorphs().filter(|a| !a.is_empty()))
+        .and_then(|a| a.first())
+        .expect("suffix allomorph");
+    for copy in &copies {
+        let rules = &copy.allomorphs[0].co_occurrence;
+        assert_eq!(rules.len(), 1, "each stem copy carries the rule");
+        assert_eq!(rules[0].others, vec![suffix_rule.id]);
+    }
+
+    // Affix first: one rule per stem copy on the suffix allomorph.
+    let mut others: Vec<_> = suffix_rule
+        .co_occurrence
+        .iter()
+        .map(|r| {
+            assert_eq!(r.others.len(), 1);
+            r.others[0]
+        })
+        .collect();
+    others.sort();
+    let mut expected = copy_ids.clone();
+    expected.sort();
+    assert_eq!(others, expected, "one rule per stem copy");
+}
+
+/// Two `others` stems with two MSA copies each: HCLoader's `Permute` makes one rule per combination (2 x 2), attached to the primary, first list slowest.
+#[test]
+fn adhoc_allomorph_prohibition_crosses_two_multi_copy_others() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    for (entry, allo, form) in [
+        ("entry-two-a", "allo-two-a", "kuta"),
+        ("entry-two-b", "allo-two-b", "kuka"),
+    ] {
+        let msas = (0..2)
+            .map(|i| Msa::Stem {
+                guid: format!("{entry}-msa-{i}"),
+                part_of_speech: Some(f.noun_pos.clone()),
+                inflection_class: None,
+                features: None,
+                exception_features: Vec::new(),
+                from_parts_of_speech: Vec::new(),
+                slots: Vec::new(),
+            })
+            .collect();
+        snapshot.lexicon.entries.push(LexEntry {
+            guid: entry.to_string(),
+            citation_form: vec![ws("sen", form)],
+            lexeme_morph_type: MorphType::Stem,
+            allomorphs: vec![simple_allomorph(allo, MorphType::Stem, form)],
+            msas,
+            senses: Vec::new(),
+            entry_refs: Vec::new(),
+        });
+    }
+    snapshot
+        .morphology
+        .adhoc_prohibitions
+        .push(AdhocProhibition::Allomorph {
+            guid: "coocc-cross".to_string(),
+            disabled: false,
+            primary: "allo-suffix".to_string(),
+            others: vec!["allo-two-a".to_string(), "allo-two-b".to_string()],
+            adjacency: Adjacency::Anywhere,
+        });
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let ids = |entry: &str| -> Vec<_> {
+        grammar
+            .entries
+            .iter()
+            .filter(|e| e.authored_id == entry)
+            .map(|e| e.allomorphs[0].id)
+            .collect()
+    };
+    let (a, b) = (ids("entry-two-a"), ids("entry-two-b"));
+    assert_eq!((a.len(), b.len()), (2, 2));
+    let suffix = grammar
+        .mrules
+        .iter()
+        .find_map(|r| r.affix_allomorphs().filter(|a| !a.is_empty()))
+        .and_then(|a| a.first())
+        .expect("suffix allomorph");
+    let got: Vec<_> = suffix
+        .co_occurrence
+        .iter()
+        .map(|r| r.others.clone())
+        .collect();
+    let want = vec![
+        vec![a[0], b[0]],
+        vec![a[0], b[1]],
+        vec![a[1], b[0]],
+        vec![a[1], b[1]],
+    ];
+    assert_eq!(got, want, "one rule per combination, first list slowest");
+}
+
 /// An allomorph co-occurrence rule whose owner and every `others` target survive stays represented.
 #[test]
 fn allomorph_cooccurrence_rule_whose_owner_and_targets_survive_stays_represented() {
@@ -5054,12 +5585,12 @@ fn compile_project_with_default_options_matches_compile_project() {
 #[test]
 fn every_compile_stage_warning_becomes_a_non_fatal_conversion_issue() {
     let (mut snapshot, _f) = fixture();
-    snapshot.morphology.parser_parameters.strata = Some("Morphology,(Clitics)".to_string());
+    snapshot.morphology.parser_parameters.strata = Some("Morphology,(NoSuchRule)".to_string());
     let (_grammar, warnings) = compile_project(&snapshot).expect("must compile");
     assert!(
-        warnings.iter().any(|warning| {
-            warning.code == super::issue_codes::STRATA_CUSTOM_UNSUPPORTED.wire()
-        }),
+        warnings
+            .iter()
+            .any(|warning| { warning.code == super::issue_codes::STRATA_UNKNOWN_RULE.wire() }),
         "fixture must still produce the legacy Strata warning; got {warnings:?}"
     );
 
@@ -5564,9 +6095,9 @@ fn xample_authored_project_infers_a_missing_exemplar_segment_from_a_suffix_form(
     assert_eq!(affix_rules[0].allomorphs.len(), 1);
 }
 
-/// A bracket-pattern/reduplication affix form must compile exactly as it did without substrate completion, and now also publish `conversion.unsupported-construct`.
+/// A bracket-pattern/reduplication affix form is a pattern, so it publishes no literal text and substrate completion never treats its brackets as characters.
 #[test]
-fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupported_construct() {
+fn bracket_pattern_affix_form_publishes_no_literal_text() {
     let (mut snapshot, f) = fixture();
     snapshot.morphology.parser_parameters.active_parser = ActiveParser::XAmple;
     snapshot.lexicon.entries[1].allomorphs[0].forms = vec![ws("sen", "[X]")];
@@ -5574,17 +6105,10 @@ fn bracket_pattern_affix_form_still_compiles_unaffected_and_publishes_unsupporte
     let out =
         compile_project_with(&snapshot, CompileOptions::default()).expect("must still compile");
     assert!(
-        out.issues
+        !out.issues
             .iter()
-            .any(|i| i.message.contains("reduplication/bracket-pattern") && !i.fatal),
-        "the legacy reduplication warning must survive unchanged: {:?}",
-        out.issues
-    );
-    assert!(
-        out.issues
-            .iter()
-            .any(|i| i.code == pg_snapshot::ImportWarningCode::UnsupportedConstruct && !i.fatal),
-        "expected a non-fatal conversion.unsupported-construct issue; got {:?}",
+            .any(|i| i.message.contains("reduplication/bracket-pattern")),
+        "the removed unsupported-reduplication issue must not return: {:?}",
         out.issues
     );
     assert!(out.substrate.inferred_segments.is_empty());
@@ -5603,9 +6127,7 @@ fn text_use_collection_covers_every_represented_allomorph() {
     let (snapshot, _f) = fixture();
     let mut recorder = pg_snapshot::SelectionRecorder::default();
     super::lexicon::collect_text_uses(&snapshot, &mut recorder);
-    let mut collection_issues = Vec::new();
-    super::affixes::collect_text_uses(&snapshot, &mut recorder, &mut collection_issues);
-    assert!(collection_issues.is_empty());
+    super::affixes::collect_text_uses(&snapshot, &mut recorder);
     let collected: std::collections::BTreeSet<String> = recorder
         .text_uses()
         .iter()
@@ -5718,7 +6240,7 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
         "an exemplar character used only inside an environment must still be inferred"
     );
     assert_eq!(out.substrate.inferred_segments[0].representation, "q");
-    let constrained = pg_parse::Morpher::new(&out.grammar, 10_000).parse_word("kumata");
+    let constrained = pg_parse::Morpher::new(&out.grammar, 1_000_000).parse_word("kumata");
     assert!(
         constrained.analyses.is_empty(),
         "a suffix requiring q must not apply after a"
@@ -5728,7 +6250,7 @@ fn environment_only_undeclared_exemplar_is_completed_from_usage() {
         .environments
         .clear();
     let control = compile_project_with(&snapshot, CompileOptions::default()).unwrap();
-    let unconstrained = pg_parse::Morpher::new(&control.grammar, 10_000).parse_word("kumata");
+    let unconstrained = pg_parse::Morpher::new(&control.grammar, 1_000_000).parse_word("kumata");
     assert!(
         !unconstrained.analyses.is_empty(),
         "removing the restriction must change the parse effect"
@@ -5877,7 +6399,7 @@ fn discarded_affix_environment_does_not_refuse_a_surviving_sibling() {
         .allomorphs
         .iter()
         .all(|allomorph| allomorph.environments.is_empty()));
-    let parsed = pg_parse::Morpher::new(&out.grammar, 100_000).parse_word("kumata");
+    let parsed = pg_parse::Morpher::new(&out.grammar, 10_000_000).parse_word("kumata");
     assert!(
         !parsed.analyses.is_empty(),
         "valid sibling must remain executable"
@@ -6625,4 +7147,759 @@ fn template_slot_surface_ordinals_count_outward_from_the_stem() {
     .into_iter()
     .collect();
     assert_eq!(surface_by_slot, expected);
+}
+
+/// A suffix entry whose one allomorph `allo_guid` has one inflectional MSA per entry of `slots`, so it compiles to one morphological rule (with its own allomorph id) per MSA.
+fn multi_msa_suffix_entry(
+    entry: &str,
+    allo_guid: &str,
+    noun_pos: &str,
+    slots: &[&str],
+) -> LexEntry {
+    LexEntry {
+        guid: entry.to_string(),
+        citation_form: vec![ws("sen", "-ma")],
+        lexeme_morph_type: MorphType::Suffix,
+        allomorphs: vec![simple_allomorph(allo_guid, MorphType::Suffix, "ma")],
+        msas: slots
+            .iter()
+            .enumerate()
+            .map(|(i, slot)| Msa::Inflectional {
+                guid: format!("{entry}-msa-{i}"),
+                part_of_speech: Some(noun_pos.to_string()),
+                slots: vec![slot.to_string()],
+                features: None,
+                exception_features: Vec::new(),
+            })
+            .collect(),
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    }
+}
+
+fn adhoc_allomorph(guid: &str, primary: &str, others: &[&str]) -> AdhocProhibition {
+    AdhocProhibition::Allomorph {
+        guid: guid.to_string(),
+        disabled: false,
+        primary: primary.to_string(),
+        others: others.iter().map(|o| o.to_string()).collect(),
+        adjacency: Adjacency::Anywhere,
+    }
+}
+
+/// Every affix allomorph in `grammar` whose source is `guid`, in rule order.
+fn affix_copies_of<'a>(
+    grammar: &'a crate::model::Grammar,
+    guid: &str,
+) -> Vec<&'a crate::model::AffixAllomorphDef> {
+    grammar
+        .mrules
+        .iter()
+        .filter_map(|r| r.affix_allomorphs())
+        .flatten()
+        .filter(|a| {
+            grammar.allomorph_sources[a.id.0 as usize]
+                .form_guids
+                .first()
+                .is_some_and(|g| g.as_deref() == Some(guid))
+        })
+        .collect()
+}
+
+/// An affix entry with two MSAs compiles to two morphological rules that each carry their own id for the one authored allomorph; an ad-hoc allomorph prohibition must cover every copy in both directions, as `HCLoader.LoadAllomorphCoOccurrenceRules` does (its `m_allomorphs` keeps all of them).
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_mrule_copy_of_a_multi_msa_affix() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+        "entry-multi",
+        "allo-multi",
+        &f.noun_pos,
+        &[&f.slot, &f.slot],
+    ));
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-affix-first", "allo-multi", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-multi"]),
+    ]);
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies = affix_copies_of(&grammar, "allo-multi");
+    assert_eq!(copies.len(), 2, "one affix allomorph per MSA");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for copy in &copies {
+        assert_eq!(
+            copy.co_occurrence.len(),
+            1,
+            "affix first: every copy carries the rule"
+        );
+        assert_eq!(copy.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = copies.iter().map(|c| c.id).collect();
+    expected.sort();
+    assert_eq!(targets, expected, "stem first: one rule per affix copy");
+}
+
+/// Two `others` forms with two copies each: HCLoader's `Permute` makes one rule per combination (2 x 2), attached to the primary.
+#[test]
+fn adhoc_allomorph_prohibition_crosses_two_multi_copy_affixes() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    for (entry, allo) in [
+        ("entry-multi-a", "allo-multi-a"),
+        ("entry-multi-b", "allo-multi-b"),
+    ] {
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            entry,
+            allo,
+            &f.noun_pos,
+            &[&f.slot, &f.slot],
+        ));
+    }
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-cross",
+        "allo-stem",
+        &["allo-multi-a", "allo-multi-b"],
+    ));
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let a: Vec<_> = affix_copies_of(&grammar, "allo-multi-a")
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    let b: Vec<_> = affix_copies_of(&grammar, "allo-multi-b")
+        .iter()
+        .map(|c| c.id)
+        .collect();
+    assert_eq!((a.len(), b.len()), (2, 2));
+    let got: Vec<_> = grammar.entries[0].allomorphs[0]
+        .co_occurrence
+        .iter()
+        .map(|r| r.others.clone())
+        .collect();
+    let want = vec![
+        vec![a[0], b[0]],
+        vec![a[0], b[1]],
+        vec![a[1], b[0]],
+        vec![a[1], b[1]],
+    ];
+    assert_eq!(got, want, "one rule per combination, first list slowest");
+}
+
+/// All rules of one prohibition share one inventory key: when only one copy's mrule is compacted away as dead code, the key must stay represented because the sibling copy's rule survives.
+#[test]
+fn adhoc_prohibition_key_survives_while_any_copy_rule_remains_after_compaction() {
+    for primary_is_affix in [true, false] {
+        let (mut snapshot, f) = fixture();
+        snapshot.morphology.parser_parameters.merge_msas = false;
+        // Second MSA's slot is in no template, so its mrule is pruned.
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            "entry-multi",
+            "allo-multi",
+            &f.noun_pos,
+            &[&f.slot, "slot-never-templated"],
+        ));
+        snapshot
+            .morphology
+            .adhoc_prohibitions
+            .push(if primary_is_affix {
+                adhoc_allomorph("coocc-partial", "allo-multi", &["allo-stem"])
+            } else {
+                adhoc_allomorph("coocc-partial", "allo-stem", &["allo-multi"])
+            });
+
+        let (grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+        assert_eq!(
+            affix_copies_of(&grammar, "allo-multi").len(),
+            1,
+            "the dead copy is compacted"
+        );
+        let key = InventoryKey::object(
+            InventoryKind::AllomorphCoOccurrence,
+            "coocc-partial".to_string(),
+        );
+        assert!(
+            inventory.represented.contains(&key),
+            "primary_is_affix={primary_is_affix}: a copy's rule still holds"
+        );
+        assert!(!inventory.rejected.contains(&key));
+    }
+}
+
+/// The key is revoked once every rule under it is gone (all copies unreachable).
+#[test]
+fn adhoc_prohibition_key_is_revoked_when_every_copy_rule_is_compacted_away() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+        "entry-multi",
+        "allo-multi",
+        &f.noun_pos,
+        &["slot-never-templated", "slot-never-templated-2"],
+    ));
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-all-dead",
+        "allo-multi",
+        &["allo-stem"],
+    ));
+
+    let (_grammar, _warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    let key = InventoryKey::object(
+        InventoryKind::AllomorphCoOccurrence,
+        "coocc-all-dead".to_string(),
+    );
+    assert!(inventory.rejected.contains(&key));
+    assert!(!inventory.represented.contains(&key));
+}
+
+/// Unresolved `others` on a multi-copy affix primary: refuses while ANY copy's mrule survives (here only the second copy does), and is non-fatal only when every copy is dead code.
+#[test]
+fn cooccurrence_refusal_on_a_multi_copy_affix_primary_is_fatal_while_any_copy_survives() {
+    let build = |slots: &[&str]| {
+        let (mut snapshot, f) = fixture();
+        snapshot.morphology.parser_parameters.merge_msas = false;
+        snapshot.lexicon.entries.push(multi_msa_suffix_entry(
+            "entry-multi",
+            "allo-multi",
+            &f.noun_pos,
+            slots,
+        ));
+        snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+            "coocc-refused",
+            "allo-multi",
+            &["allo-does-not-exist"],
+        ));
+        compile_project_with(&snapshot, CompileOptions::default())
+    };
+    let err = build(&["slot-never-templated", "slot-pl"])
+        .expect_err("a surviving second copy must still make the refusal fatal");
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
+
+    let out = build(&["slot-never-templated", "slot-never-templated-2"])
+        .expect("every copy dead: the refusal is non-fatal");
+    assert!(out
+        .inventory
+        .issues
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && !i.fatal));
+}
+
+fn adhoc_morpheme(guid: &str, primary: &str, others: &[&str]) -> AdhocProhibition {
+    AdhocProhibition::Morpheme {
+        guid: guid.to_string(),
+        disabled: false,
+        primary: primary.to_string(),
+        others: others.iter().map(|o| o.to_string()).collect(),
+        adjacency: Adjacency::Anywhere,
+    }
+}
+
+/// Ids of every morpheme built from MSA `guid`: the main entry's, plus one per variant entry that borrows it (a variant's `xml_key` is `variant#msa`, its `source_msa_guid` the main MSA).
+fn morphemes_of_msa(grammar: &crate::model::Grammar, guid: &str) -> Vec<crate::model::MorphemeId> {
+    grammar
+        .morphemes
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.source_msa_guid.as_deref() == Some(guid))
+        .map(|(i, _)| crate::model::MorphemeId(i as u32))
+        .collect()
+}
+
+/// A variant stem borrows its main entry's MSAs, and HCLoader registers it under the main MSA (`AddEntry` into `m_morphemes[msa]`), so an ad hoc morpheme prohibition on that MSA covers the main entry and every variant copy, in both directions.
+#[test]
+fn adhoc_morpheme_prohibition_covers_variant_stem_copies_of_a_multi_msa_main_entry() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    let stem_msa = |guid: &str| Msa::Stem {
+        guid: guid.to_string(),
+        part_of_speech: Some(f.noun_pos.clone()),
+        inflection_class: None,
+        features: None,
+        exception_features: Vec::new(),
+        from_parts_of_speech: Vec::new(),
+        slots: Vec::new(),
+    };
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-main".to_string(),
+        citation_form: vec![ws("sen", "kuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-main", MorphType::Stem, "kuta")],
+        msas: vec![stem_msa("msa-main-a"), stem_msa("msa-main-b")],
+        senses: Vec::new(),
+        entry_refs: Vec::new(),
+    });
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-var".to_string(),
+        citation_form: vec![ws("sen", "kuuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-var", MorphType::Stem, "kuuta")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-var".to_string(),
+            component_lexemes: vec!["entry-main".to_string()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_morpheme("coocc-main-first", "msa-main-a", &[&f.suffix_msa]),
+        adhoc_morpheme("coocc-suffix-first", &f.suffix_msa, &["msa-main-a"]),
+    ]);
+
+    let (grammar, warnings, inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let copies = morphemes_of_msa(&grammar, "msa-main-a");
+    assert_eq!(copies.len(), 2, "the main entry and its variant");
+    let suffix = morphemes_of_msa(&grammar, &f.suffix_msa);
+    assert_eq!(suffix.len(), 1);
+    for copy in &copies {
+        let rules = &grammar.morphemes[copy.0 as usize].co_occurrence;
+        assert_eq!(rules.len(), 1, "main-first: every copy carries the rule");
+        assert_eq!(rules[0].others, suffix);
+    }
+    let mut targets: Vec<_> = grammar.morphemes[suffix[0].0 as usize]
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected = copies.clone();
+    expected.sort();
+    assert_eq!(targets, expected, "suffix-first: one rule per stem copy");
+    // The other main MSA is not part of either prohibition.
+    for copy in morphemes_of_msa(&grammar, "msa-main-b") {
+        assert!(grammar.morphemes[copy.0 as usize].co_occurrence.is_empty());
+    }
+    for guid in ["coocc-main-first", "coocc-suffix-first"] {
+        let key = InventoryKey::object(InventoryKind::MorphemeCoOccurrence, guid.to_string());
+        assert!(inventory.represented.contains(&key), "{guid}");
+    }
+}
+
+/// A variant affix rule keeps its own morpheme under the main MSA's guid; both the main and the variant rule are 'others' copies, so the stem primary gets one rule per choice (HCLoader's `Permute`).
+#[test]
+fn adhoc_morpheme_prohibition_crosses_variant_affix_copies() {
+    let (mut snapshot, f) = fixture();
+    variant_affix_sharing_main_msa(&mut snapshot, &f);
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_morpheme(
+        "coocc-stem",
+        &f.stem_msa,
+        &[&f.suffix_msa],
+    ));
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let suffix = morphemes_of_msa(&grammar, &f.suffix_msa);
+    assert_eq!(suffix.len(), 2, "main affix rule and variant affix rule");
+    let stem = morphemes_of_msa(&grammar, &f.stem_msa);
+    assert_eq!(stem.len(), 1);
+    let mut targets: Vec<_> = grammar.morphemes[stem[0].0 as usize]
+        .co_occurrence
+        .iter()
+        .map(|r| {
+            assert_eq!(r.others.len(), 1);
+            r.others[0]
+        })
+        .collect();
+    targets.sort();
+    let mut expected = suffix.clone();
+    expected.sort();
+    assert_eq!(targets, expected, "one rule per affix copy");
+}
+
+/// Unresolved `others` on a variant-stem primary still refuses (a stem morpheme is never compacted away), now over every copy.
+#[test]
+fn adhoc_morpheme_refusal_on_a_variant_stem_primary_is_fatal() {
+    let (mut snapshot, f) = fixture();
+    snapshot.lexicon.entries.push(LexEntry {
+        guid: "entry-var".to_string(),
+        citation_form: vec![ws("sen", "kuuta")],
+        lexeme_morph_type: MorphType::Stem,
+        allomorphs: vec![simple_allomorph("allo-var", MorphType::Stem, "kuuta")],
+        msas: Vec::new(),
+        senses: Vec::new(),
+        entry_refs: vec![EntryRef::Variant {
+            guid: "entryref-var".to_string(),
+            component_lexemes: vec![f.stem_entry.clone()],
+            variant_entry_types: Vec::new(),
+        }],
+    });
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_morpheme(
+        "coocc-refused",
+        &f.stem_msa,
+        &["msa-does-not-exist"],
+    ));
+    let err = compile_project_with(&snapshot, CompileOptions::default())
+        .expect_err("an unresolved 'others' on a stem primary refuses");
+    assert!(err
+        .issues()
+        .iter()
+        .any(|i| i.code == pg_snapshot::ImportWarningCode::AdhocProhibitionUnresolved && i.fatal));
+}
+
+/// An affix allomorph naming two environments builds one allomorph per environment pass, and HCLoader registers each in `m_allomorphs` (HCLoader.cs:1167-1178), so an ad-hoc allomorph prohibition must reach every pass in both directions.
+#[test]
+fn adhoc_allomorph_prohibition_covers_every_environment_pass_of_an_affix_allomorph() {
+    let (mut snapshot, f) = fixture();
+    snapshot.morphology.parser_parameters.merge_msas = false;
+    snapshot
+        .phonology
+        .natural_classes
+        .push(SnapNaturalClass::Segments {
+            guid: "nc-vowel".to_string(),
+            name: "V".to_string(),
+            display_name: None,
+            phonemes: vec!["ph-a".to_string(), "ph-i".to_string(), "ph-u".to_string()],
+        });
+    for (guid, name, representation) in [
+        ("env-after-vowel", "after vowel", "/[V]_"),
+        ("env-before-vowel", "before vowel", "/_[V]"),
+    ] {
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: guid.to_string(),
+                name: name.to_string(),
+                representation: representation.to_string(),
+            });
+    }
+    let mut entry = multi_msa_suffix_entry("entry-envs", "allo-envs", &f.noun_pos, &[&f.slot]);
+    entry.allomorphs[0].environments = vec![
+        "env-after-vowel".to_string(),
+        "env-before-vowel".to_string(),
+    ];
+    snapshot.lexicon.entries.push(entry);
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-affix-first", "allo-envs", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-envs"]),
+    ]);
+
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+
+    let passes = affix_copies_of(&grammar, "allo-envs");
+    assert_eq!(passes.len(), 2, "one allomorph per environment pass");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for pass in &passes {
+        assert_eq!(
+            pass.co_occurrence.len(),
+            1,
+            "affix first: every environment pass carries the rule"
+        );
+        assert_eq!(pass.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = passes.iter().map(|c| c.id).collect();
+    expected.sort();
+    assert_eq!(
+        targets, expected,
+        "stem first: one rule per environment pass"
+    );
+}
+
+/// A circumfix registers every prefix x suffix pairing under its lexeme form and never under a half (HCLoader.cs:1100-1122), so a prohibition naming the lexeme form covers all pairings and one naming a half resolves to nothing.
+#[test]
+fn adhoc_allomorph_prohibition_on_a_circumfix_covers_every_pairing_under_the_lexeme_form() {
+    let (mut snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == "entry-circumfix")
+        .expect("circumfix entry exists");
+    // A second prefix half and the circumfix-typed lexeme form (always last).
+    entry.allomorphs.insert(
+        1,
+        simple_allomorph("allo-circ-prefix-2", MorphType::Prefix, "ke"),
+    );
+    entry.allomorphs.push(simple_allomorph(
+        "allo-circ-lexeme",
+        MorphType::Circumfix,
+        "ka-...-ta",
+    ));
+    snapshot.morphology.adhoc_prohibitions.extend([
+        adhoc_allomorph("coocc-lexeme-first", "allo-circ-lexeme", &["allo-stem"]),
+        adhoc_allomorph("coocc-stem-first", "allo-stem", &["allo-circ-lexeme"]),
+        adhoc_allomorph("coocc-half", "allo-circ-prefix", &["allo-stem"]),
+    ]);
+
+    let (grammar, warnings) = compile_project(&snapshot).expect("must compile");
+    let pairings = circumfix_rule_allomorphs(&grammar);
+    assert_eq!(pairings.len(), 2, "two prefix halves x one suffix half");
+    let stem = &grammar.entries[0].allomorphs[0];
+    for pairing in &pairings {
+        assert_eq!(
+            pairing.co_occurrence.len(),
+            1,
+            "lexeme form first: every pairing carries exactly the lexeme-form rule, none from the half"
+        );
+        assert_eq!(pairing.co_occurrence[0].others, vec![stem.id]);
+    }
+    let mut targets: Vec<_> = stem
+        .co_occurrence
+        .iter()
+        .flat_map(|r| r.others.clone())
+        .collect();
+    targets.sort();
+    let mut expected: Vec<_> = pairings.iter().map(|p| p.id).collect();
+    expected.sort();
+    assert_eq!(targets, expected, "stem first: one rule per pairing");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("allo-circ-prefix")
+                && w.message.contains("does not resolve")),
+        "a prohibition naming a half resolves to nothing, as in HCLoader: {warnings:?}"
+    );
+}
+
+/// HCLoader registers a circumfix only under its lexeme form, so a prohibition naming a half in `others` finds nothing and emits no rule; the grammar still loads, with a warning.
+#[test]
+fn adhoc_allomorph_prohibition_naming_a_circumfix_half_in_others_warns_and_emits_no_rule() {
+    let (mut snapshot, _f) = circumfix_snapshot(&[], &[]);
+    let entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|entry| entry.guid == "entry-circumfix")
+        .expect("circumfix entry exists");
+    entry.allomorphs.push(simple_allomorph(
+        "allo-circ-lexeme",
+        MorphType::Circumfix,
+        "ka-...-ta",
+    ));
+    snapshot.morphology.adhoc_prohibitions.push(adhoc_allomorph(
+        "coocc-half-other",
+        "allo-stem",
+        &["allo-circ-prefix"],
+    ));
+
+    let (grammar, warnings) =
+        compile_project(&snapshot).expect("a half-named prohibition must not refuse the grammar");
+    let stem = &grammar.entries[0].allomorphs[0];
+    assert!(stem.co_occurrence.is_empty(), "no rule is emitted");
+    assert!(
+        circumfix_rule_allomorphs(&grammar)
+            .iter()
+            .all(|pairing| pairing.co_occurrence.is_empty()),
+        "no pairing carries a rule"
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.message.contains("allo-circ-prefix") && w.message.contains("circumfix half")),
+        "the dropped prohibition is warned about: {warnings:?}"
+    );
+}
+
+/// A reduplication fixture: a suffix `[C^1][V^1]` whose environment `/ [C^1][V^1] _` names the stem-final CV to copy.
+fn reduplication_snapshot(form: &str, environment: Option<&str>) -> Snapshot {
+    let (mut snapshot, _f) = fixture();
+    for (guid, name, phonemes) in [
+        ("nc-c", "C", vec!["ph-k", "ph-t", "ph-m", "ph-s"]),
+        ("nc-v", "V", vec!["ph-a", "ph-i", "ph-u"]),
+    ] {
+        snapshot
+            .phonology
+            .natural_classes
+            .push(SnapNaturalClass::Segments {
+                guid: guid.to_string(),
+                name: name.to_string(),
+                display_name: None,
+                phonemes: phonemes.into_iter().map(String::from).collect(),
+            });
+    }
+    let allomorph = &mut snapshot.lexicon.entries[1].allomorphs[0];
+    allomorph.forms = vec![ws("sen", form)];
+    if let Some(representation) = environment {
+        snapshot
+            .phonology
+            .environments
+            .push(pg_snapshot::phonology::Environment {
+                guid: "env-redup".to_string(),
+                name: String::new(),
+                representation: representation.to_string(),
+            });
+        snapshot.lexicon.entries[1].allomorphs[0]
+            .environments
+            .push("env-redup".to_string());
+    }
+    snapshot
+}
+
+fn only_affix_allomorphs(grammar: &crate::model::Grammar) -> Vec<&crate::model::AffixAllomorphDef> {
+    grammar
+        .mrules
+        .iter()
+        .filter_map(|r| match r {
+            MorphRuleDef::AffixProcess(d) => Some(d),
+            _ => None,
+        })
+        .flat_map(|d| d.allomorphs.iter())
+        .collect()
+}
+
+/// HCLoader.cs:1544-1553: a suffix pattern is stem, the environment's left-hand class patterns, suffixNull; the output copies the stem, the left-hand copies, suffixNull, a morpheme break, then the form's own copies.
+#[test]
+fn suffix_reduplication_pattern_loads_as_a_process_allomorph() {
+    let snapshot = reduplication_snapshot("[C^1][V^1]", Some("/ [C^1][V^1] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert!(output.warnings.is_empty(), "{:?}", output.warnings);
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    let allomorph = allomorphs[0];
+    assert_eq!(allomorph.lhs.len(), 4, "stem, C^1, V^1, suffixNull");
+    let copies: Vec<_> = allomorph
+        .rhs
+        .iter()
+        .map(|action| match action {
+            crate::model::OutputAction::Copy(crate::model::PartRef::Input(part)) => Some(*part),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        copies,
+        vec![Some(0), Some(1), Some(2), Some(3), None, Some(1), Some(2)]
+    );
+    assert!(matches!(
+        allomorph.redup_hint,
+        crate::model::ReduplicationHint::Implicit
+    ));
+    assert!(allomorph.environments.is_empty());
+}
+
+/// HCLoader.cs:1555-1563: a prefix pattern is prefixNull, the environment's right-hand class patterns, stem; the output starts with the form's copies.
+#[test]
+fn prefix_reduplication_pattern_loads_as_a_process_allomorph() {
+    let mut snapshot = reduplication_snapshot("[C^1][V^1]", Some("/ _ [C^1][V^1]"));
+    snapshot.lexicon.entries[1].allomorphs[0].morph_type = MorphType::Prefix;
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    let allomorph = allomorphs[0];
+    assert_eq!(allomorph.lhs.len(), 4, "prefixNull, C^1, V^1, stem");
+    let copies: Vec<_> = allomorph
+        .rhs
+        .iter()
+        .map(|action| match action {
+            crate::model::OutputAction::Copy(crate::model::PartRef::Input(part)) => Some(*part),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        copies,
+        vec![Some(1), Some(2), None, Some(0), Some(1), Some(2), Some(3)]
+    );
+}
+
+/// HCLoader.cs:1497-1516: `[...]` is not read as a class pattern; the stem is copied around the literal text and no environment is needed.
+#[test]
+fn stem_copy_form_loads_without_an_environment() {
+    let mut snapshot = reduplication_snapshot("ta[...]", None);
+    snapshot.lexicon.entries[1].allomorphs[0].morph_type = MorphType::Prefix;
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("must compile");
+    assert!(output.warnings.is_empty(), "{:?}", output.warnings);
+    let allomorphs = only_affix_allomorphs(&output.grammar);
+    assert_eq!(allomorphs.len(), 1);
+    assert_eq!(allomorphs[0].lhs.len(), 1);
+    assert_eq!(allomorphs[0].rhs.len(), 3);
+    assert!(matches!(
+        allomorphs[0].redup_hint,
+        crate::model::ReduplicationHint::Prefix
+    ));
+}
+
+/// IsValidRuleForm (HCLoader.cs:571): a bracket pattern other than `[...]` with no valid environment is not a rule form.
+#[test]
+fn reduplication_pattern_without_a_valid_environment_is_not_a_rule_form() {
+    let snapshot = reduplication_snapshot("[C^1][V^1]", None);
+    let (_grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_NOT_RULE_FORM.wire()));
+}
+
+/// A pattern that is not a valid environment (here an unknown class) is skipped with the reduplication warning, as C# logs `InvalidReduplicationFormException`.
+#[test]
+fn malformed_reduplication_pattern_is_skipped_with_a_warning() {
+    let snapshot = reduplication_snapshot("[X^1]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert!(only_affix_allomorphs(&grammar).is_empty());
+}
+
+/// LoadReduplicationOutputActions (HCLoader.cs:1689-1706): an index with no matching pattern is warned about and its copy dropped; the allomorph still loads.
+#[test]
+fn unmatched_reduplication_index_drops_the_copy_and_warns() {
+    let snapshot = reduplication_snapshot("[C^1][V^2]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert_eq!(only_affix_allomorphs(&grammar).len(), 1);
+}
+
+/// The digits-only rule is in the shared environment resolver, so it holds for a literal (non-reduplication) form too.
+#[test]
+fn non_digit_class_index_is_invalid_for_a_literal_form_environment() {
+    let snapshot = reduplication_snapshot("ta", Some("/ [C^x] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("compiles");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|r| r.environment_guid == "env-redup")
+        .unwrap();
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
+    );
+}
+
+/// HCLoader.cs:1664-1710: a `[C]` token with no `^` index in the form has no reduplication index; C# throws or loads a dangling copy, here the allomorph is skipped with the warning (divergence 124).
+#[test]
+fn form_token_without_an_index_is_skipped_with_a_warning() {
+    let snapshot = reduplication_snapshot("[C]", Some("/ [C^1] _"));
+    let (grammar, warnings, _inventory, _issues) = compile_recording_ok(&snapshot);
+    assert!(warnings
+        .iter()
+        .any(|w| w.code == super::issue_codes::ALLOMORPH_REDUPLICATION_INVALID.wire()));
+    assert!(only_affix_allomorphs(&grammar).is_empty());
+}
+
+/// The recognizer accepts only digits after `^` (liblcm PhonEnvRecognizerTests): `[C^x]` is an invalid environment.
+#[test]
+fn class_index_must_be_digits() {
+    let snapshot = reduplication_snapshot("[C^1]", Some("/ [C^x] _"));
+    let output = compile_project_with(&snapshot, CompileOptions::default()).expect("compiles");
+    let resolution = output
+        .environment_resolutions
+        .iter()
+        .find(|r| r.environment_guid == "env-redup")
+        .unwrap();
+    assert_eq!(
+        resolution.status,
+        super::EnvironmentResolutionStatus::Invalid
+    );
 }

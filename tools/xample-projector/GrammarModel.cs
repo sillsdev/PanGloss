@@ -8,6 +8,9 @@ namespace XampleProjector
 		internal string Id { get; set; }
 		internal bool IsPrefix { get; set; }
 		internal string InsertShape { get; set; }
+		/// <summary>Set only for a circumfix pairing: the suffix half (InsertShape is the prefix half).</summary>
+		internal string SuffixShape { get; set; }
+		internal bool IsCircumfix => SuffixShape != null;
 		internal IReadOnlyList<string> RequiredMprFeatureIds { get; set; } = System.Array.Empty<string>();
 		internal IReadOnlyList<EnvironmentModel> RequiredEnvironments { get; set; } = System.Array.Empty<EnvironmentModel>();
 	}
@@ -39,6 +42,12 @@ namespace XampleProjector
 		internal string OutputPartOfSpeechId { get; set; }
 		internal string MorphemeId { get; set; }
 		internal string Gloss { get; set; }
+		/// <summary>
+		/// A rule of the stratum named Clitics: an enclitic. HCLoader emits a FieldWorks enclitic entry as one such rule
+		/// (no part of speech, listed in the Clitics stratum's morphologicalRules rather than in a slot) plus a stem
+		/// LexicalEntry copy; <c>--enclitic-of</c> pairs the two back into one entry.
+		/// </summary>
+		internal bool IsClitic { get; set; }
 		internal IReadOnlyList<SubruleModel> Subrules { get; set; } = System.Array.Empty<SubruleModel>();
 	}
 
@@ -46,6 +55,7 @@ namespace XampleProjector
 	{
 		internal string Name { get; set; }
 		internal bool Optional { get; set; }
+		internal bool IsPrefix { get; set; }
 		internal IReadOnlyList<string> RuleIds { get; set; } = System.Array.Empty<string>();
 	}
 
@@ -69,6 +79,8 @@ namespace XampleProjector
 		internal string PartOfSpeechId { get; set; }
 		internal string MorphemeId { get; set; }
 		internal string Gloss { get; set; }
+		/// <summary>True when the entry was declared in the stratum named Clitics (the only place an enclitic stem entry copy may live).</summary>
+		internal bool InCliticsStratum { get; set; }
 		internal IReadOnlyList<AllomorphModel> Allomorphs { get; set; } = System.Array.Empty<AllomorphModel>();
 		internal IReadOnlyList<string> RuleFeatureIds { get; set; } = System.Array.Empty<string>();
 	}

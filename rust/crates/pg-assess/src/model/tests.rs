@@ -90,3 +90,78 @@ fn xml_attribute_order_moves_the_fingerprint_a_known_conservative_limit() {
         model_fingerprint(SourceKind::HcXml, b, VERSION).unwrap()
     );
 }
+
+#[test]
+fn a_parsed_snapshot_value_gives_the_fingerprint_of_its_text() {
+    let documents = [
+        r#"{ "b": 1, "a": [2, 3] }"#,
+        r#"{"n":[0,-7,18446744073709551615,-9223372036854775808],"s":"\u00e9\n\"x","t":true,"z":null,"o":{"k":{}}}"#,
+        "[]",
+        "{}",
+    ];
+    for text in documents {
+        let value = crate::jcs::parse_strict_json(text).unwrap();
+        assert_eq!(
+            snapshot_value_fingerprint(&value, VERSION).unwrap(),
+            model_fingerprint(SourceKind::Snapshot, text, VERSION).unwrap(),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_parsed_snapshot_value_fails_where_its_text_fails() {
+    let text = r#"{"x":1.5}"#;
+    let value = crate::jcs::parse_strict_json(text).unwrap();
+    assert_eq!(
+        snapshot_value_fingerprint(&value, VERSION)
+            .unwrap_err()
+            .to_string(),
+        model_fingerprint(SourceKind::Snapshot, text, VERSION)
+            .unwrap_err()
+            .to_string()
+    );
+}
+
+#[test]
+fn streamed_model_fingerprints_match_the_materialized_preimage() {
+    let snapshot = serde_json::json!({
+        "z": ["é💡", "\"\\\n\r\t\u{0000}\u{001f}", i64::MIN, u64::MAX],
+        "\u{e000}": true,
+        "\u{10000}": null,
+        "a": "é\"".repeat(10_000),
+    });
+    let snapshot_json = serde_json::to_string_pretty(&snapshot).unwrap();
+    let compiler = "compiler\"\\💡";
+    for (kind, source, canonical) in [
+        (
+            SourceKind::Snapshot,
+            snapshot_json.as_str(),
+            jcs::canonicalize(&snapshot).unwrap(),
+        ),
+        (
+            SourceKind::Snapshot,
+            "{\r\ninvalid\r",
+            "{\ninvalid\n".into(),
+        ),
+        (
+            SourceKind::HcXml,
+            "<A \"\\\r\né\"/>",
+            "<A \"\\\né\"/>".into(),
+        ),
+    ] {
+        let preimage = jcs::canonicalize(&serde_json::json!({
+            "projection": MODEL_PROJECTION,
+            "value": {
+                "sourceKind": kind.as_str(),
+                "canonicalSource": canonical,
+                "compilerVersion": compiler,
+            },
+        }))
+        .unwrap();
+        assert_eq!(
+            model_fingerprint(kind, source, compiler).unwrap(),
+            sha256_bytes(preimage.as_bytes())
+        );
+    }
+}

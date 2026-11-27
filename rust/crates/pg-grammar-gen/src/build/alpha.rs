@@ -2,8 +2,7 @@
 //! parameterized over `alpha_var_count` × `alpha_class_size`.
 //!
 //! ## Design choice: a same-var LHS/RHS IDENTITY rule, not a copy-from-environment rule
-//! **Found empirically while building the recall-parity gate for this module** (`pg-foma/tests/
-//! phase_c_alpha_scale.rs`), recorded here because it is load-bearing, in two stages:
+//! **Found empirically while building the recall-parity gate for this module**, recorded here because it is load-bearing, in two stages:
 //! 1. An EARLIER version gave each rule exactly ONE alpha-bound occurrence (RHS only, no
 //!    environment) -- `pg_foma::replace::compile_rewrite_rule_subset`'s own proven fixture shape
 //!    (`compose_budget_tests::SYNTH_ALPHA_XML`). With no environment to constrain which tuple's
@@ -78,8 +77,7 @@ pub fn build(var_count: usize, table: &TableSpec, ids: &mut IdMinter) -> AlphaBu
     let mut prules_xml = String::new();
     let mut rule_xml_ids = Vec::with_capacity(var_count);
     let mut root_shape = String::new();
-    for j in 0..var_count {
-        let seg = &table.segments[j];
+    for (j, seg) in table.segments.iter().take(var_count).enumerate() {
         root_shape.push(seg.ch);
         let rule_xml_id = ids.next("pruleAlpha");
         let var_xml_id = ids.next("var");

@@ -7,6 +7,8 @@ mod circumfix_candidate_selection;
 mod circumfix_cross_product_and_infix_drop_candidate_selection;
 #[path = "../closure_unbounded_realizational.rs"]
 mod closure_unbounded_realizational;
+#[path = "../compound_identity_recovery.rs"]
+mod compound_identity_recovery;
 #[path = "../cover_bistratal_overlapping_segment_representation.rs"]
 mod cover_bistratal_overlapping_segment_representation;
 #[path = "../cover_compounding.rs"]
@@ -15,6 +17,8 @@ mod cover_compounding;
 mod cover_compounding_recursive_depth_bound;
 #[path = "../cover_mpr_groups.rs"]
 mod cover_mpr_groups;
+#[path = "../cover_multiple_application_chain.rs"]
+mod cover_multiple_application_chain;
 #[path = "../cover_realizational_morphology_constraints.rs"]
 mod cover_realizational_morphology_constraints;
 #[path = "../cover_recursive_endocentric_compounding.rs"]
@@ -35,15 +39,5 @@ mod free_fluctuation_containment;
 mod late_structural_anchor_recall;
 #[path = "../mentanukam_multiplicity_recovered_by_confirm.rs"]
 mod mentanukam_multiplicity_recovered_by_confirm;
-#[path = "../morphology_relation_plan_gate.rs"]
-mod morphology_relation_plan_gate;
 #[path = "../morphotactics_boundary_cleanup_slice.rs"]
 mod morphotactics_boundary_cleanup_slice;
-#[path = "../multi_table_metathesis_shared_representation.rs"]
-mod multi_table_metathesis_shared_representation;
-#[path = "../realizational_pc_represents_gate.rs"]
-mod realizational_pc_represents_gate;
-#[path = "../two_table_shared_representation_recall.rs"]
-mod two_table_shared_representation_recall;
-#[path = "../two_table_symbol_divergence.rs"]
-mod two_table_symbol_divergence;

@@ -98,15 +98,15 @@ pub struct SemanticEntryGroup {
 /// genuinely expensive ones (`Self::entry_partition` and `Self::characteristics`) are memoized
 /// behind a `OnceLock` so the first caller pays and every later caller reads the same value.
 ///
-/// # Why those two are lazy and the rest are not
+/// # Why characterization and partition are lazy
 /// `derive` has to be cheap enough that every consumer can afford to call it -- an owner nobody can
 /// afford to build gets bypassed, and then it owns nothing. The eager facts are all O(rules +
-/// strata + entries) scans over already-loaded vectors. The two lazy ones are not:
+/// strata + entries) scans over already-loaded vectors. The two expensive lazy facts are not:
 /// `crate::gate::partition_entries` is O(entries x gated subrules) and evaluates the engine's own
 /// `pg_rules::rewrite::subrule_applicable` predicate for each pair, and
 /// `crate::capability::characterize` builds real `foma` networks for `Simultaneous`-mode subrules.
 /// A registry applicability check that only needs "does this grammar have templates" must not pay
-/// for either.
+/// for either. The proposal-recall report is also memoized so admission and reporting share its scan.
 pub struct GrammarSemantics<'g> {
     grammar: &'g Grammar,
     prules_in_order: Vec<&'g PhonRuleDef>,
@@ -129,6 +129,7 @@ pub struct GrammarSemantics<'g> {
     primary_table_boundary_symbols: Vec<String>,
     entry_partition: OnceLock<Vec<SemanticEntryGroup>>,
     characteristics: OnceLock<CharacteristicsProfile>,
+    proposal_recall: OnceLock<crate::proposal_recall::RefusalReport>,
 }
 
 impl std::fmt::Debug for GrammarSemantics<'_> {
@@ -245,6 +246,7 @@ impl<'g> GrammarSemantics<'g> {
             primary_table_boundary_symbols,
             entry_partition: OnceLock::new(),
             characteristics: OnceLock::new(),
+            proposal_recall: OnceLock::new(),
         }
     }
 
@@ -253,6 +255,13 @@ impl<'g> GrammarSemantics<'g> {
     /// re-derive a fact this type already owns.
     pub fn grammar(&self) -> &'g Grammar {
         self.grammar
+    }
+
+    /// The proposal-recall owner's witnesses and first-witness diagnostics, shared by admission
+    /// and compile reporting without repeating the owner scan.
+    pub(crate) fn proposal_recall(&self) -> &crate::proposal_recall::RefusalReport {
+        self.proposal_recall
+            .get_or_init(|| crate::proposal_recall::refusals(self.grammar))
     }
 
     /// `g`'s phonological rules in stratum-cascade (authored) order, as literal borrows of

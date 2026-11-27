@@ -16,7 +16,7 @@ fn collect_reasons(sink: &TreeTraceSink, h: TraceHandle, out: &mut Vec<FailureRe
     }
 }
 
-/// `wakta`/`pakda` must be rejected BY the disjunctive re-check, not merely rejected.
+/// `wakta`/`pakdeta` must be rejected BY the disjunctive re-check, not merely rejected.
 /// Why a signature alone cannot show that: docs/design/fixture-pins.md
 #[test]
 fn disjunctive_recheck_rejects_for_the_disjunctive_reason() {
@@ -25,7 +25,7 @@ fn disjunctive_recheck_rejects_for_the_disjunctive_reason() {
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", fixture.label()));
     let morpher = Morpher::new(&grammar, usize::MAX);
 
-    for word in ["wakta", "pakda"] {
+    for word in ["wakta", "pakdeta"] {
         let sink = TreeTraceSink::new();
         let _ = morpher.parse_word_traced(word, &ParseOptions::default(), &sink);
         let root = sink.root().expect("analyze_word must mint a root");

@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::ops::ControlFlow;
 use std::time::Instant;
 
 use foma::apply::apply_init;
@@ -34,19 +35,18 @@ fn render_refusal(diagnostics: &[pg_health::capability::CapabilityDiagnostic]) -
         .join("; ")
 }
 /// Errors constructing a `FomaProposer`. Deliberately small (this stage doesn't need a rich
-/// error hierarchy) — a grammar whose foma path fails to compile should fall back to the full
-/// engine (plan §1's per-grammar tiering), which only needs to know THAT it failed.
+/// error hierarchy) — a grammar whose foma path fails to compile is refused with the emitter's
+/// report. Nothing in the compiler or its constructors falls back to another engine; choosing the full
+/// parser is the caller's decision, made from the readiness verdict.
 #[derive(Debug)]
 pub enum FomaError {
+    ConstructionRefused(Box<crate::construction::ConstructionReport>),
+    StrategyNotImplemented(crate::construction::ConstructionStrategy),
     /// `fsm_lexc_parse_string` returned `None`; carries the emitter's own report for diagnosis.
     LexcCompileFailed(Box<EmitReport>),
     /// The emitter proved that no complete Foma artifact can be built for this grammar.
     Unsupported(Box<EmitReport>),
-    /// The emitter produced lexc material but also identified constructs which can contribute
-    /// analyses that material does not propose. Confirmation cannot restore omitted candidates,
-    /// so normal construction must refuse this report before compiling the partial network.
-    Incomplete(Box<EmitReport>),
-    /// The capability envelope refused this backend before any emission ran. Unlike the three
+    /// The capability envelope refused this backend before any emission ran. Unlike the two
     /// above, this verdict costs no emission and names the construct rather than a tier.
     CapabilityRefused(Vec<pg_health::capability::CapabilityDiagnostic>),
 }
@@ -54,6 +54,8 @@ pub enum FomaError {
 impl fmt::Display for FomaError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            FomaError::StrategyNotImplemented(strategy) => write!(f, "FST strategy {} is not implemented", strategy.label()),
+            FomaError::ConstructionRefused(report) => write!(f, "FST construction refused: {report:?}"),
             FomaError::LexcCompileFailed(report) => write!(
                 f,
                 "foma lexc compile failed (emit report: {} uncovered constructs, tier {:?})",
@@ -63,13 +65,6 @@ impl fmt::Display for FomaError {
             FomaError::Unsupported(report) => write!(
                 f,
                 "foma backend unsupported for this grammar (emit report: {} uncovered constructs, tier {:?}): {}",
-                report.uncovered.len(),
-                report.tier,
-                uncovered_constructs(report)
-            ),
-            FomaError::Incomplete(report) => write!(
-                f,
-                "foma emission is incomplete and cannot be used as a trusted proposer (emit report: {} uncovered constructs, tier {:?}): {}",
                 report.uncovered.len(),
                 report.tier,
                 uncovered_constructs(report)
@@ -110,6 +105,8 @@ pub struct ProposalDiagnostics {
     pub decoded_paths: usize,
     pub malformed_paths: usize,
     pub unique_candidates: usize,
+    /// Alternatives the repeat-ambiguity relation added beyond each path's legacy candidate, counted before deduplication.
+    pub normalized_alternatives: usize,
     pub traversal_elapsed: std::time::Duration,
     pub decode_dedup_elapsed: std::time::Duration,
 }
@@ -124,6 +121,59 @@ pub struct ProposalDiagnostics {
 pub struct ProposalCounts {
     pub raw_paths: usize,
     pub unique_candidates: usize,
+    /// Alternatives the repeat-ambiguity relation added beyond each path's legacy candidate, counted before deduplication.
+    pub normalized_alternatives: usize,
+}
+
+/// The deduplicated candidates of one proposal; the counted and diagnostic loops share it so they cannot offer different sets or trip differently.
+struct CandidateIntake {
+    seen: HashSet<(Vec<u32>, i32)>,
+    out: Vec<Candidate>,
+    normalized: usize,
+}
+
+/// The dimension, value and limit an `ApplyBudget` tripped on.
+type IntakeTrip = (ApplyDimension, usize, usize);
+
+impl CandidateIntake {
+    fn new() -> Self {
+        CandidateIntake {
+            seen: HashSet::new(),
+            out: Vec::new(),
+            normalized: 0,
+        }
+    }
+
+    /// Adds every candidate of `path`, stopping at the first exceeded cap; recovered alternatives are counted before deduplication.
+    fn take_path(&mut self, path: &tags::RawPath, budget: &ApplyBudget) -> Option<IntakeTrip> {
+        let mut trip = None;
+        let _ = tags::visit_candidate_superset(path, |candidate, origin| {
+            if origin == tags::CandidateOrigin::Recovered {
+                self.normalized += 1;
+                if let Some(limit) = budget.normalization_cap() {
+                    if self.normalized > limit {
+                        trip = Some((ApplyDimension::NormalizedCandidates, self.normalized, limit));
+                        return ControlFlow::Break(());
+                    }
+                }
+            }
+            let key: (Vec<u32>, i32) = (
+                candidate.morphemes.iter().map(|m| m.0).collect(),
+                candidate.root_index,
+            );
+            if self.seen.insert(key) {
+                self.out.push(candidate);
+                if let Some(limit) = budget.candidate_cap() {
+                    if self.out.len() > limit {
+                        trip = Some((ApplyDimension::Candidates, self.out.len(), limit));
+                        return ControlFlow::Break(());
+                    }
+                }
+            }
+            ControlFlow::Continue(())
+        });
+        trip
+    }
 }
 
 /// Minimum arc count before `FomaProposer::new` pays `fsm_sort_arcs`'s cost to switch `apply_up` to its binary-search branch.
@@ -146,8 +196,9 @@ pub struct FomaProposer {
     // Fully owned/`'static` (a clone of the compiled `Fsm`), not a borrow this struct would also need to store.
     handle: Box<ApplyHandle>,
     /// Diagnostics from the compiler that built this proposer, when that compiler produces an
-    /// `EmitReport`. Plan-composed networks deliberately carry `None`: asking the tuned-surface
-    /// emitter to manufacture diagnostics for a different backend can itself be unbounded work.
+    /// `EmitReport`. A network built by a compiler that makes none carries `None`: asking the
+    /// tuned-surface emitter to manufacture diagnostics for a different backend can itself be
+    /// unbounded work.
     pub report: Option<EmitReport>,
     query_encoder: Option<SegmentQueryEncoder>,
 }
@@ -327,8 +378,7 @@ impl FomaProposer {
                 ProposalCounts::default(),
             );
         };
-        let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
-        let mut out = Vec::new();
+        let mut intake = CandidateIntake::new();
         let mut counts = ProposalCounts::default();
         for s in self.handle.up(&normalized) {
             counts.raw_paths += 1;
@@ -347,28 +397,21 @@ impl FomaProposer {
             let Some(path) = tags::decode_path(&s) else {
                 continue;
             };
-            for c in tags::to_candidates(&path) {
-                let key: (Vec<u32>, i32) =
-                    (c.morphemes.iter().map(|m| m.0).collect(), c.root_index);
-                if seen.insert(key) {
-                    out.push(c);
-                    counts.unique_candidates = out.len();
-                    if let Some(limit) = budget.candidate_cap() {
-                        if out.len() > limit {
-                            return (
-                                ApplyOutcome::Incomplete {
-                                    dimension: ApplyDimension::Candidates,
-                                    value: out.len(),
-                                    limit,
-                                },
-                                counts,
-                            );
-                        }
-                    }
-                }
+            let trip = intake.take_path(&path, budget);
+            counts.unique_candidates = intake.out.len();
+            counts.normalized_alternatives = intake.normalized;
+            if let Some((dimension, value, limit)) = trip {
+                return (
+                    ApplyOutcome::Incomplete {
+                        dimension,
+                        value,
+                        limit,
+                    },
+                    counts,
+                );
             }
         }
-        (ApplyOutcome::Complete(out), counts)
+        (ApplyOutcome::Complete(intake.out), counts)
     }
 
     /// `Self::propose_budgeted` with opt-in path, byte, decode, dedup, and timing diagnostics.
@@ -384,8 +427,7 @@ impl FomaProposer {
                 ProposalDiagnostics::default(),
             );
         };
-        let mut seen: HashSet<(Vec<u32>, i32)> = HashSet::new();
-        let mut out = Vec::new();
+        let mut intake = CandidateIntake::new();
         let mut diagnostics = ProposalDiagnostics::default();
         let mut paths = self.handle.up(&normalized);
 
@@ -427,33 +469,24 @@ impl FomaProposer {
                 diagnostics.decode_dedup_elapsed += decode_start.elapsed();
                 continue;
             };
-            for candidate in tags::to_candidates(&path) {
-                let key = (
-                    candidate.morphemes.iter().map(|m| m.0).collect(),
-                    candidate.root_index,
+            let trip = intake.take_path(&path, budget);
+            diagnostics.unique_candidates = intake.out.len();
+            diagnostics.normalized_alternatives = intake.normalized;
+            if let Some((dimension, value, limit)) = trip {
+                diagnostics.decode_dedup_elapsed += decode_start.elapsed();
+                return (
+                    ApplyOutcome::Incomplete {
+                        dimension,
+                        value,
+                        limit,
+                    },
+                    diagnostics,
                 );
-                if seen.insert(key) {
-                    out.push(candidate);
-                    diagnostics.unique_candidates = out.len();
-                    if let Some(limit) = budget.candidate_cap() {
-                        if out.len() > limit {
-                            diagnostics.decode_dedup_elapsed += decode_start.elapsed();
-                            return (
-                                ApplyOutcome::Incomplete {
-                                    dimension: ApplyDimension::Candidates,
-                                    value: out.len(),
-                                    limit,
-                                },
-                                diagnostics,
-                            );
-                        }
-                    }
-                }
             }
             diagnostics.decode_dedup_elapsed += decode_start.elapsed();
         }
 
-        (ApplyOutcome::Complete(out), diagnostics)
+        (ApplyOutcome::Complete(intake.out), diagnostics)
     }
 
     /// Serializes this proposer's own compiled network to foma's existing binary-memory encoding

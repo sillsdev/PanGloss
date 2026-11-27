@@ -28,7 +28,8 @@ pub(crate) fn insert_allomorphs(
             .as_deref()
             .map(|guid| checked_guid(guid, "allomorph.stemName"))
             .transpose()?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO allomorph(guid, entry_guid, ordinal, morph_type, form_class, is_abstract, stem_name_guid) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 allomorph_guid,
@@ -41,7 +42,8 @@ pub(crate) fn insert_allomorphs(
             ],
         )?;
         for (form_ordinal, form) in allomorph.forms.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO allomorph_form(allomorph_guid, ordinal, writing_system, form) VALUES (?1, ?2, ?3, ?4)",
                 params![allomorph_guid, form_ordinal as i64, form.ws, form.form],
             )?;
@@ -76,7 +78,8 @@ fn insert_process(
             insert_context(tx, root, None, 0, context)?;
             Some(root)
         };
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO affix_process_input(allomorph_guid, part, is_variable, pattern_root_id) VALUES (?1, ?2, ?3, ?4)",
             params![allomorph_guid, part, i64::from(is_variable), pattern_root_id],
         )?;
@@ -97,7 +100,8 @@ fn insert_process(
         let natural_class = natural_class
             .map(|guid| checked_guid(guid, "affixProcess.output.naturalClass"))
             .transpose()?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO affix_process_output(allomorph_guid, ordinal, kind, part, natural_class_guid, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![allomorph_guid, ordinal as i64, kind, part, natural_class, text],
         )?;
@@ -127,7 +131,9 @@ pub(crate) fn form_class(allomorph: &Allomorph) -> &'static str {
         | MorphType::Enclitic
         | MorphType::PrefixingInterfix
         | MorphType::InfixingInterfix
-        | MorphType::SuffixingInterfix => "affix",
+        | MorphType::SuffixingInterfix
+        | MorphType::Simulfix
+        | MorphType::Suprafix => "affix",
     }
 }
 
@@ -237,7 +243,7 @@ pub(crate) fn insert_gates(
     Ok(())
 }
 
-/// Publishes variant links and their types; complex-form links are not walked by the compiler.
+/// Publishes variant links and their types. A complex-form ref is published too when its entry has no senses, because the compiler (like `HCLoader`) builds every entry ref of a sense-less entry as a variant; it has no types.
 pub(crate) fn insert_entry_variants(
     tx: &Transaction<'_>,
     snapshot: &Snapshot,
@@ -259,14 +265,12 @@ pub(crate) fn insert_entry_variants(
     for entry in &snapshot.lexicon.entries {
         let variant_entry_guid = checked_guid(&entry.guid, "lexicon.entries.guid")?;
         for entry_ref in &entry.entry_refs {
-            let EntryRef::Variant {
-                guid,
-                component_lexemes,
-                variant_entry_types,
-            } = entry_ref
-            else {
+            if matches!(entry_ref, EntryRef::ComplexForm { .. }) && !entry.senses.is_empty() {
                 continue;
-            };
+            }
+            let guid = entry_ref.guid();
+            let component_lexemes = entry_ref.component_lexemes();
+            let variant_entry_types = entry_ref.variant_entry_types();
             let ref_guid = checked_guid(guid, "entryRef.guid")?;
             for (ordinal, component) in component_lexemes.iter().enumerate() {
                 let component_guid = checked_guid(component, "entryRef.componentLexeme")?;
@@ -277,7 +281,8 @@ pub(crate) fn insert_entry_variants(
                 } else {
                     "unresolved"
                 };
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO entry_variant(variant_entry_guid, ref_guid, ordinal, component_guid, component_kind) VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![
                         variant_entry_guid,
@@ -291,7 +296,8 @@ pub(crate) fn insert_entry_variants(
             for (ordinal, type_guid) in variant_entry_types.iter().enumerate() {
                 let type_guid = checked_guid(type_guid, "entryRef.variantEntryType")?;
                 let is_infl_type = i64::from(infl_type_guids.contains(&type_guid));
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO entry_variant_type(ref_guid, ordinal, type_guid, is_infl_type) VALUES (?1, ?2, ?3, ?4)",
                     params![ref_guid, ordinal as i64, type_guid, is_infl_type],
                 )?;
@@ -360,7 +366,8 @@ fn insert_gate(
     row: GateRow<'_>,
 ) -> Result<(), FactsError> {
     let (parser_effect, reason_code) = row.outcome;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO allomorph_gate(allomorph_guid, gate_kind, ordinal, target_guid, fs_id, parser_effect, reason_code) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             allomorph_guid,

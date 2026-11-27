@@ -17,7 +17,7 @@ fn final_templates_skipped_in(morpher: &Morpher, word: &str, stratum: StratumId)
 /// `mrNotClitic` (in `Clitics`, `isCliticRule="false"`) marks `sagdt` `NonTemplate`; that state must reach `Main`, which does not block, and stop its final verb template there.
 #[test]
 fn non_clitic_state_crosses_a_non_blocking_stratum_and_prunes_its_final_template() {
-    let fixture = require_fixture("edge-cases", "clitic-rule-designation");
+    let fixture = require_fixture("edge-cases", "clitic-rule-designation-iscliticrule");
     let grammar = pg_grammar::load(&fixture.load_grammar_xml())
         .unwrap_or_else(|e| panic!("{}: grammar failed to load: {e}", fixture.label()));
     let main = StratumId(0);

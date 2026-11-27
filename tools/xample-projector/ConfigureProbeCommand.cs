@@ -45,7 +45,7 @@ namespace XampleProjector
 				return ExitCodes.MutationIntegrityFailure;
 			}
 			foreach (JObject op in operations)
-				if (!new[] { "accept-unspecified", "wordforming", "environment", "feature-class", "segment-class", "clear-features", "rewrite" }.Contains((string)op["op"]))
+				if (!new[] { "accept-unspecified", "wordforming", "environment", "feature-class", "segment-class", "clear-features", "rewrite", "metathesis" }.Contains((string)op["op"]))
 				{
 					Console.Error.WriteLine("Unknown probe operation: " + (string)op["op"]);
 					return ExitCodes.MutationRefusal;
@@ -122,6 +122,12 @@ namespace XampleProjector
 					var members = pd.NaturalClassesOS.OfType<IPhNCSegments>().Single(n => n.Abbreviation.BestAnalysisAlternative.Text == "V").SegmentsRC
 						.Select(p => p.CodesOS[0].Representation.VernacularDefaultWritingSystem.Text).OrderBy(r => r);
 					ok = members.SequenceEqual(((JArray)op["members"]).Select(r => (string)r).OrderBy(r => r));
+					break;
+				case "metathesis":
+					var meta = pd.PhonRulesOS.OfType<IPhMetathesisRule>().Single(r => r.Name.BestAnalysisAlternative.Text == "probe-metathesis");
+					ok = meta.StrucDescOS.OfType<IPhSimpleContextSeg>().Select(c => c.FeatureStructureRA.CodesOS[0].Representation.VernacularDefaultWritingSystem.Text)
+						.SequenceEqual(((JArray)op["description"]).Select(r => (string)r));
+					ok &= meta.LeftSwitchIndex == ((int?)op["leftSwitch"] ?? -1) && meta.RightSwitchIndex == ((int?)op["rightSwitch"] ?? -1);
 					break;
 				case "rewrite":
 					var rule = pd.PhonRulesOS.OfType<IPhRegularRule>().Single(r => r.Name.BestAnalysisAlternative.Text == "probe-rewrite");
@@ -213,6 +219,20 @@ namespace XampleProjector
 					segmentClass.Abbreviation.SetAnalysisDefaultWritingSystem("V");
 					foreach (var member in (JArray)op["members"])
 						segmentClass.SegmentsRC.Add(phonemes.Single(p => p.CodesOS[0].Representation.VernacularDefaultWritingSystem.Text == (string)member));
+					break;
+				case "metathesis":
+					var metathesis = cache.ServiceLocator.GetInstance<IPhMetathesisRuleFactory>().Create();
+					pd.PhonRulesOS.Add(metathesis);
+					metathesis.Name.SetAnalysisDefaultWritingSystem("probe-metathesis");
+					metathesis.Direction = (int?)op["direction"] ?? 0;
+					foreach (var rep in (JArray)op["description"])
+					{
+						var context = cache.ServiceLocator.GetInstance<IPhSimpleContextSegFactory>().Create();
+						metathesis.StrucDescOS.Add(context);
+						context.FeatureStructureRA = phonemes.Single(p => p.CodesOS[0].Representation.VernacularDefaultWritingSystem.Text == (string)rep);
+					}
+					// StrucChange order is [left env, right switch, middle, left switch, right env]; -1 = absent.
+					metathesis.SetStrucChangeIndices(new[] { (int?)op["leftEnv"] ?? -1, (int?)op["rightSwitch"] ?? -1, (int?)op["middle"] ?? -1, (int?)op["leftSwitch"] ?? -1, (int?)op["rightEnv"] ?? -1 }, (bool?)op["middleWithLeftSwitch"] ?? false);
 					break;
 				case "rewrite":
 					var rule = cache.ServiceLocator.GetInstance<IPhRegularRuleFactory>().Create();

@@ -104,6 +104,273 @@ fn char_feature_lanes(g: &Grammar, xml_id: &str) -> Vec<u64> {
     table(g).get(char_def(g, xml_id)).feature_lanes().to_vec()
 }
 
+fn default_probe_grammar() -> Grammar {
+    let xml = GRAMMAR_XML
+        .replace(
+            "<SymbolicFeature id=\"feat_voi\">",
+            "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vm\">",
+        )
+        .replacen(
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+            "",
+            1,
+        );
+    pg_grammar::load(&xml).expect("default probe grammar loads")
+}
+
+#[test]
+fn defaults_reject_unspecified_rewrite_environment() {
+    let g = default_probe_grammar();
+    let r = rule(
+        pat_char(char_def(&g, "char_t")),
+        subrule(
+            Pattern::default(),
+            Some(pat_ctx(nat_class(&g, "nc_voi"))),
+            None,
+        ),
+    );
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "dt")).is_empty());
+}
+
+#[test]
+fn defaults_reject_unspecified_narrow_synthesis_target() {
+    let g = default_probe_grammar();
+    let mut r = rule(
+        pat_ctx(nat_class(&g, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        r.mode = mode;
+        assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "a")).is_empty());
+        assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "d")).is_empty());
+    }
+}
+
+#[test]
+fn defaults_reject_unspecified_epenthesis_analysis_target() {
+    let g = default_probe_grammar();
+    let mut r = rule(
+        Pattern::default(),
+        subrule(pat_ctx(nat_class(&g, "nc_voi")), None, None),
+    );
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        r.mode = mode;
+        let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+        assert!(out.is_empty());
+        let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+        assert!(out.iter().any(|shape| interior(shape)[0].3));
+    }
+}
+
+#[test]
+fn defaults_reject_unspecified_narrow_analysis_target() {
+    let g = default_probe_grammar();
+    let r = rule(
+        Pattern {
+            nodes: vec![
+                PatternNode::CharDef(char_def(&g, "char_t")),
+                PatternNode::CharDef(char_def(&g, "char_t")),
+            ],
+        },
+        subrule(pat_ctx(nat_class(&g, "nc_voi")), None, None),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+    assert!(out.is_empty());
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+    assert!(out.iter().any(|shape| interior(shape).len() > 1));
+}
+
+#[test]
+fn defaults_apply_when_target_binds_an_alpha_variable() {
+    let g = default_probe_grammar();
+    let voice = feat(&g, "feat_voi");
+    let var = || PatternNode::Context(ctx_var(nat_class(&g, "nc_voi"), voice, 0, true));
+    let r = rule(
+        Pattern { nodes: vec![var()] },
+        subrule(
+            Pattern::default(),
+            None,
+            Some(Pattern { nodes: vec![var()] }),
+        ),
+    );
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ad")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "at")).is_empty());
+    assert!(pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "da")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "dd")).is_empty());
+}
+
+#[test]
+fn defaults_apply_to_quantified_right_environment_in_analysis() {
+    let g = default_probe_grammar();
+    let env = Pattern {
+        nodes: vec![PatternNode::Quantifier {
+            min: 1,
+            max: None,
+            children: vec![PatternNode::Context(ctx(nat_class(&g, "nc_voi")))],
+        }],
+    };
+    let r = rule(
+        pat_char(char_def(&g, "char_t")),
+        subrule(Pattern::default(), None, Some(env)),
+    );
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "a"), None);
+    assert!(out.is_empty());
+    let out = pg_rules::rewrite::analyze(&g, &r, &seg(&g, "d"), None);
+    assert!(out.iter().any(|shape| interior(shape).len() > 1));
+}
+
+#[test]
+fn defaults_allow_matching_the_declared_default_and_absent_default() {
+    let xml = GRAMMAR_XML.replacen(
+        "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+        "",
+        1,
+    );
+    let with_default = pg_grammar::load(&xml.replace(
+        "<SymbolicFeature id=\"feat_voi\">",
+        "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vp\">",
+    ))
+    .unwrap();
+    let r = rule(
+        pat_ctx(nat_class(&with_default, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    assert!(!pg_rules::rewrite::synthesize(&with_default, &r, &seg(&with_default, "a")).is_empty());
+    let without_default = pg_grammar::load(&xml).unwrap();
+    let r = rule(
+        pat_ctx(nat_class(&without_default, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    // Divergence 129 (partial-feature grammars): a pinned feature the node lacks, with no default, still matches (unification); hc.dll's synthesis subsumption would fail it.
+    assert!(
+        !pg_rules::rewrite::synthesize(&without_default, &r, &seg(&without_default, "a"))
+            .is_empty()
+    );
+}
+
+/// `default_probe_grammar` with `a` authoring `voi` as the full set {+,-} instead of omitting it, a present value C# `UseDefaults` leaves alone; C# verdicts are in docs/research/rewrite-explicit-full-set-csharp-probe.md.
+fn full_set_probe_grammar() -> Grammar {
+    let xml = GRAMMAR_XML
+        .replace(
+            "<SymbolicFeature id=\"feat_voi\">",
+            "<SymbolicFeature id=\"feat_voi\" defaultSymbol=\"sym_vm\">",
+        )
+        .replacen(
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp\" />\n",
+            "          <FeatureValue feature=\"feat_voi\" symbolValues=\"sym_vp sym_vm\" />\n",
+            1,
+        );
+    pg_grammar::load(&xml).expect("full-set probe grammar loads")
+}
+
+#[test]
+fn explicit_full_set_unifies_with_environment_and_target_pins_that_an_absent_default_rejects() {
+    let absent = default_probe_grammar();
+    let full = full_set_probe_grammar();
+    for g in [&absent, &full] {
+        assert_eq!(
+            g.phon_features.default_bits(feat(g, "feat_voi")),
+            Some(0b10)
+        );
+    }
+    // Environment unification: voi=+ before t.
+    let env_rule = |g: &Grammar| {
+        rule(
+            pat_char(char_def(g, "char_t")),
+            subrule(
+                Pattern::default(),
+                Some(pat_ctx(nat_class(g, "nc_voi"))),
+                None,
+            ),
+        )
+    };
+    assert!(
+        pg_rules::rewrite::synthesize(&absent, &env_rule(&absent), &seg(&absent, "at")).is_empty()
+    );
+    assert!(!pg_rules::rewrite::synthesize(&full, &env_rule(&full), &seg(&full, "at")).is_empty());
+    // Target unification: delete a voi=+ segment, both modes.
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        let target_rule = |g: &Grammar| {
+            let mut r = rule(
+                pat_ctx(nat_class(g, "nc_voi")),
+                subrule(Pattern::default(), None, None),
+            );
+            r.mode = mode;
+            r
+        };
+        assert!(
+            pg_rules::rewrite::synthesize(&absent, &target_rule(&absent), &seg(&absent, "a"))
+                .is_empty()
+        );
+        assert!(
+            !pg_rules::rewrite::synthesize(&full, &target_rule(&full), &seg(&full, "a")).is_empty()
+        );
+    }
+    // Analysis target unification: an epenthesised voi=+ node.
+    let ana_rule = |g: &Grammar| {
+        rule(
+            Pattern::default(),
+            subrule(pat_ctx(nat_class(g, "nc_voi")), None, None),
+        )
+    };
+    assert!(
+        pg_rules::rewrite::analyze(&absent, &ana_rule(&absent), &seg(&absent, "a"), None)
+            .is_empty()
+    );
+    assert!(
+        !pg_rules::rewrite::analyze(&full, &ana_rule(&full), &seg(&full, "a"), None).is_empty()
+    );
+}
+
+#[test]
+fn explicit_full_set_keeps_its_whole_set_when_binding_an_alpha_variable() {
+    let absent = default_probe_grammar();
+    let full = full_set_probe_grammar();
+    let rule_for = |g: &Grammar| {
+        let voice = feat(g, "feat_voi");
+        let var = || PatternNode::Context(ctx_var(nat_class(g, "nc_voi"), voice, 0, true));
+        rule(
+            Pattern { nodes: vec![var()] },
+            subrule(
+                Pattern::default(),
+                None,
+                Some(Pattern { nodes: vec![var()] }),
+            ),
+        )
+    };
+    // Absent `a` binds the default -, which disagrees with + on d; explicit {+,-} binds the whole set, which agrees with both.
+    assert!(
+        pg_rules::rewrite::synthesize(&absent, &rule_for(&absent), &seg(&absent, "ad")).is_empty()
+    );
+    assert!(
+        !pg_rules::rewrite::synthesize(&absent, &rule_for(&absent), &seg(&absent, "at")).is_empty()
+    );
+    assert!(!pg_rules::rewrite::synthesize(&full, &rule_for(&full), &seg(&full, "ad")).is_empty());
+    assert!(!pg_rules::rewrite::synthesize(&full, &rule_for(&full), &seg(&full, "at")).is_empty());
+}
+
+/// Pins current behaviour (GH#85): a rule re-derives `explicit_full` from `char_def`, so a featured rewrite's node reads as absent to the next rule; C# keeps it present; docs/research/rewrite-explicit-full-set-csharp-probe.md.
+#[test]
+fn explicit_full_set_is_dropped_between_rules_once_a_featured_rewrite_cleared_the_char_def() {
+    let full = full_set_probe_grammar();
+    // Rule 1 changes only `cons` on `a`; `voi` stays the authored full set {+,-}.
+    let featured = rule(
+        pat_char(char_def(&full, "char_a")),
+        subrule(pat_ctx(nat_class(&full, "nc_cons")), None, None),
+    );
+    // Rule 2 deletes a voi=+ segment, which the explicit full set unifies with and an absent default rejects.
+    let reads_default = rule(
+        pat_ctx(nat_class(&full, "nc_voi")),
+        subrule(Pattern::default(), None, None),
+    );
+    let input = seg(&full, "a");
+    assert!(!pg_rules::rewrite::synthesize(&full, &reads_default, &input).is_empty());
+    let after = pg_rules::rewrite::synthesize(&full, &featured, &input);
+    assert_eq!(after.len(), 1);
+    assert!(pg_rules::rewrite::synthesize(&full, &reads_default, &after[0]).is_empty());
+}
+
 // Feature-change: t -> [+voice] / V _ V (C# FeatureSynthesisRewriteSubruleSpec.ApplyRhs / FeatureAnalysisRewriteRuleSpec.Unapply)
 
 fn voicing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
@@ -406,7 +673,7 @@ fn narrowing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
 fn narrow_synthesis_replacement_segment_is_not_optional() {
     let g = load_probe_grammar();
     let r = narrowing_rule(&g);
-    // "atta" -> "ana": genuine narrowing (2 LHS nodes to 1 RHS node) via syn_narrow's RHS-insert path; the coalesced "n" must not be OPTIONAL, matching C#'s AddAfter/SetDirty split which never conflates the two flags.
+    // "atta" -> "ana": genuine narrowing (2 LHS nodes to 1 RHS node) via the RHS insertion path; the coalesced "n" must not be OPTIONAL, matching C#'s AddAfter/SetDirty split which never conflates the two flags.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "atta"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -433,7 +700,7 @@ fn narrow_synthesis_replacement_segment_is_not_optional() {
     );
 }
 
-// Narrowing RHS alpha-variable resolution: syn_narrow's RHS build resolves an alpha variable bound from a merged LHS segment instead of leaving it fully unconstrained. C# analog: RewriteRuleTests.AlphaVariableRules x MergeRules.
+// Narrowing RHS alpha-variable resolution: the synthesis RHS build resolves an alpha variable bound from a merged LHS segment instead of leaving it fully unconstrained. C# analog: RewriteRuleTests.AlphaVariableRules x MergeRules.
 
 fn merge_with_alpha_voice_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     let voi = feat(g, "feat_voi");
@@ -678,7 +945,7 @@ fn double_t_narrow_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef 
 fn narrow_synthesis_rejects_an_over_wide_optional_skip_span() {
     let g = load_probe_grammar();
     let r = double_t_narrow_rule(&g);
-    // Same fixture as the syn_feature sibling above; without the width guard, syn_narrow's delete-and-splice would swallow the over-wide [0,3) span's extra node ('a') along with the two real targets.
+    // Same fixture as the feature rewrite sibling above; without the width guard, narrowing deletion would swallow the over-wide [0,3) span's extra node ('a') along with the two real targets.
     let base = seg(&g, "tat");
     let input = mark_optional(&base, 1);
     let out = pg_rules::rewrite::synthesize(&g, &r, &input);
@@ -901,7 +1168,7 @@ fn feature_change_word_final_anchor_environment() {
     );
 }
 
-// Multi-subrule Simultaneous disjunction: Rust dispatches sim_feature/sim_narrow per-subrule rather than C#'s one collect-then-apply pass with per-position first-applicable dispatch, so this test pins which subrule wins when two Simultaneous subrules' environments both hold at the same position.
+// Simultaneous disjunction selects the first matching subrule at each site.
 
 /// Two Simultaneous subrules over nc_cons: subrule 1 voices before another consonant, subrule 2 is an unconditional catch-all — on "td", both environments hold at position 0, a genuine same-position overlap; only subrule 2 can apply at position 1.
 fn disjunctive_simultaneous_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
@@ -923,7 +1190,7 @@ fn disjunctive_simultaneous_rule(g: &pg_grammar_model::model::Grammar) -> Rewrit
 fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_position() {
     let g = load_probe_grammar();
     let r = disjunctive_simultaneous_rule(&g);
-    // "td": both subrules' environments hold at position 0, but subrule 1 runs first and marks the node dirty before subrule 2's snapshot, so subrule 2 correctly skips it — matching C#'s first-applicable-subrule-wins semantics.
+    // Both subrules match the first position; C# selects the first one.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "td"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -935,11 +1202,7 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
     assert_eq!(
         phonological_lanes(&g, &got[0].2),
         char_feature_lanes(&g, "char_d"),
-        "position 0: subrule 1 (voicing, RightEnvironment=Cons) wins over subrule 2's catch-all, \
-         even though subrule 2's own vacuous environment ALSO holds there -- confirming Rust's \
-         per-subrule-sequential dirty-carryover reproduces C#'s first-applicable-subrule-wins \
-         semantics for this overlapping-position case, not just for the non-overlapping cases every \
-         reference-grammar rule and every other fixture in this pass happens to have"
+        "position 0: the first matching subrule wins"
     );
     assert_eq!(
         phonological_lanes(&g, &got[1].2),
@@ -949,7 +1212,7 @@ fn simultaneous_multi_subrule_disjunction_first_subrule_wins_at_overlapping_posi
     );
 }
 
-// sim_narrow coverage: its splice-then-delete-descending transform is genuinely new code with no oracle fixture exercising a Simultaneous Narrow/Expansion synthesis rule, unlike sim_feature and Simultaneous Epenthesis (both covered elsewhere).
+// Simultaneous narrowing selects every site from the original shape.
 
 fn simultaneous_narrowing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteRuleDef {
     // tt -> n / V _ V, tagged Simultaneous — the Iterative form of this same rule is narrowing_rule, tested elsewhere via a single site.
@@ -973,7 +1236,7 @@ fn simultaneous_narrowing_rule(g: &pg_grammar_model::model::Grammar) -> RewriteR
 fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() {
     let g = load_probe_grammar();
     let r = simultaneous_narrowing_rule(&g);
-    // "attatta": two separate "tt" sites; sim_narrow must collect both against one pristine snapshot and apply them descending so the first splice/delete doesn't shift the second site's captured indices.
+    // Both non-overlapping targets are selected before either is changed.
     let out = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "attatta"));
     assert_eq!(out.len(), 1, "rule applied");
     let got = interior(&out[0]);
@@ -1004,7 +1267,7 @@ fn simultaneous_narrow_synthesis_merges_two_non_overlapping_sites_in_one_pass() 
             );
             assert!(
                 !node.3,
-                "the narrowed RHS segment must NOT be optional (same R1 invariant syn_narrow has)"
+                "the narrowed RHS segment must NOT be optional (same invariant as iterative narrowing)"
             );
         }
     }
@@ -1032,7 +1295,7 @@ fn traced_synthesis_pattern_fallback_when_nothing_matches() {
         &r,
         &seg(&g, "aaa"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1061,7 +1324,7 @@ fn traced_synthesis_applied_carries_no_reason_and_the_rewritten_output() {
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1098,15 +1361,23 @@ fn traced_synthesis_required_mpr_gate_reports_reason_before_the_pattern_is_tried
     let r = rule(pat_char(char_def(&g, "char_t")), sr);
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
+    let budget = pg_fst::work::WorkBudget::new(usize::MAX);
+    let guard = budget.enter();
     let out = pg_rules::rewrite::synthesize_with_mpr_traced(
         &g,
         PRuleId(1),
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY, // the synthesizing word has NONE of the required MPR features
+        &MprSet::EMPTY, // the synthesizing word has NONE of the required MPR features
         &sink,
         root,
+    );
+    drop(guard);
+    assert_eq!(
+        budget.used(),
+        0,
+        "a fully gated rule must not traverse the target"
     );
     assert!(
         out.is_empty(),
@@ -1114,6 +1385,50 @@ fn traced_synthesis_required_mpr_gate_reports_reason_before_the_pattern_is_tried
     );
     let ev = sink.node(children_of(&sink, root)[0]);
     assert_eq!(ev.failure_reason, Some(FailureReason::RequiredMprFeatures));
+}
+
+#[test]
+fn traced_synthesis_retains_indices_when_an_earlier_subrule_is_gated() {
+    let g = load_probe_grammar();
+    let mut gated = subrule(pat_char(char_def(&g, "char_d")), None, None);
+    gated.required_mpr.insert(MprId(0));
+    let eligible = subrule(pat_char(char_def(&g, "char_d")), None, None);
+    let r = rule_multi(
+        pat_char(char_def(&g, "char_t")),
+        vec![gated, eligible],
+        RewriteMode::Iterative,
+    );
+    let sink = TreeTraceSink::new();
+    let root = sink.generate_words();
+    let out = pg_rules::rewrite::synthesize_with_mpr_traced(
+        &g,
+        PRuleId(0),
+        &r,
+        &seg(&g, "ata"),
+        &FeatureStruct::EMPTY,
+        &MprSet::EMPTY,
+        &sink,
+        root,
+    );
+    assert_eq!(out.len(), 1);
+    let events = children_of(&sink, root);
+    assert_eq!(events.len(), 2);
+    let first = sink.node(events[0]);
+    assert_eq!(first.subrule_index, Some(0));
+    assert_eq!(
+        first.failure_reason,
+        Some(FailureReason::RequiredMprFeatures)
+    );
+    let second = sink.node(events[1]);
+    assert_eq!(second.subrule_index, Some(1));
+    assert_eq!(second.failure_reason, None);
+    let lanes = |shape: &Shape| {
+        interior(shape)
+            .into_iter()
+            .map(|n| phonological_lanes(&g, &n.2).to_vec())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lanes(&out[0]), lanes(&seg(&g, "ada")));
 }
 
 /// The dual gate (`ExcludedMprFeatures`, C# `SynthesisRewriteSubruleSpec.cs:61-74`).
@@ -1139,7 +1454,7 @@ fn traced_synthesis_excluded_mpr_gate_reports_reason() {
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        have,
+        &have,
         &sink,
         root,
     );
@@ -1178,7 +1493,7 @@ fn traced_synthesis_multi_subrule_readout_reports_failure_then_applied_in_order(
         &r,
         &seg(&g, "ata"),
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &sink,
         root,
     );
@@ -1368,4 +1683,134 @@ fn epenthesis_natural_class_rhs_round_trips_with_environment() {
             "{dir:?}: only the epenthetic medial segment is marked optional"
         );
     }
+}
+
+#[test]
+fn mixed_subrules_feed_at_the_next_site_but_simultaneous_reads_the_original() {
+    let g = load_probe_grammar();
+    let t = char_def(&g, "char_t");
+    let a = char_def(&g, "char_a");
+    let d = char_def(&g, "char_d");
+    let rules = || {
+        vec![
+            subrule(pat_char(d), Some(pat_char(a)), None),
+            subrule(
+                Pattern {
+                    nodes: vec![PatternNode::CharDef(a), PatternNode::CharDef(a)],
+                },
+                Some(pat_char(t)),
+                None,
+            ),
+        ]
+    };
+    for (mode, expected) in [
+        (RewriteMode::Iterative, "taad"),
+        (RewriteMode::Simultaneous, "taaaa"),
+    ] {
+        let r = rule_multi(pat_char(t), rules(), mode);
+        let actual = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ttt"));
+        assert_eq!(actual.len(), 1);
+        let lanes = |s: &Shape| {
+            interior(s)
+                .into_iter()
+                .map(|n| phonological_lanes(&g, &n.2).to_vec())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lanes(&actual[0]), lanes(&seg(&g, expected)), "{mode:?}");
+    }
+}
+
+#[test]
+fn multiple_epenthesis_subrules_select_by_site() {
+    let g = load_probe_grammar();
+    let a = char_def(&g, "char_a");
+    let t = char_def(&g, "char_t");
+    let d = char_def(&g, "char_d");
+    let rules = || {
+        vec![
+            subrule(pat_char(d), Some(pat_char(a)), Some(pat_char(t))),
+            subrule(pat_char(t), Some(pat_char(a)), Some(pat_char(a))),
+        ]
+    };
+    for mode in [RewriteMode::Iterative, RewriteMode::Simultaneous] {
+        let r = rule_multi(Pattern::default(), rules(), mode);
+        let actual = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "aata"));
+        assert_eq!(actual.len(), 1);
+        let lanes = |s: &Shape| {
+            interior(s)
+                .into_iter()
+                .map(|n| phonological_lanes(&g, &n.2).to_vec())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(lanes(&actual[0]), lanes(&seg(&g, "atadta")), "{mode:?}");
+    }
+    for (mode, dir, expected) in [
+        (RewriteMode::Iterative, Dir::LeftToRight, "atda"),
+        (RewriteMode::Iterative, Dir::RightToLeft, "ata"),
+        (RewriteMode::Simultaneous, Dir::LeftToRight, "ata"),
+        (RewriteMode::Simultaneous, Dir::RightToLeft, "ata"),
+    ] {
+        let mut r = rule_multi(
+            Pattern::default(),
+            vec![
+                subrule(pat_char(d), Some(pat_char(t)), Some(pat_char(a))),
+                subrule(pat_char(t), Some(pat_char(a)), Some(pat_char(a))),
+            ],
+            mode,
+        );
+        r.dir = dir;
+        let actual = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "aa"));
+        assert_eq!(actual.len(), 1);
+        let lanes = |s: &Shape| {
+            interior(s)
+                .into_iter()
+                .map(|n| phonological_lanes(&g, &n.2).to_vec())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            lanes(&actual[0]),
+            lanes(&seg(&g, expected)),
+            "{mode:?} {dir:?}"
+        );
+    }
+}
+
+#[test]
+fn simultaneous_overlapping_narrow_matches_keep_original_node_references() {
+    let g = load_probe_grammar();
+    let t = char_def(&g, "char_t");
+    let a = char_def(&g, "char_a");
+    let r = rule_multi(
+        Pattern {
+            nodes: vec![PatternNode::CharDef(t), PatternNode::CharDef(t)],
+        },
+        vec![subrule(pat_char(a), None, None)],
+        RewriteMode::Simultaneous,
+    );
+    let actual = pg_rules::rewrite::synthesize(&g, &r, &seg(&g, "ttt"));
+    assert_eq!(actual.len(), 1);
+    let got = interior(&actual[0]);
+    assert_eq!(got.len(), 1);
+    assert_eq!(
+        phonological_lanes(&g, &got[0].2),
+        char_feature_lanes(&g, "char_a")
+    );
+}
+
+#[test]
+fn expansion_cascade_preserves_symbolic_captured_output() {
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cascade-symbolic-output")
+        .load_grammar_xml();
+    let grammar = pg_grammar::load(&xml).unwrap();
+    let mut shape =
+        pg_rules::shape_feat::segment_with_features(&grammar, &grammar.char_tables[0], "uuuu")
+            .unwrap();
+    for def in grammar.prules.iter().rev() {
+        let pg_grammar_model::model::PhonRuleDef::Rewrite(rule) = def else {
+            panic!("rewrite")
+        };
+        let results = pg_rules::rewrite::analyze(&grammar, rule, &shape, None);
+        shape = results.into_iter().next().expect("rule applies");
+    }
+    assert_eq!(shape.len(), 12, "C# retains ten segments and two anchors");
 }

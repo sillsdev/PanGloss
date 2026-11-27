@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>EmptyRequiredSlotProbe</Name>
+    <!--
+      Author-input probe for XampleProjector's own build.ps1 -Mode test, not a conformance
+      fixture. The template has a required prefix slot with no affix rules (direction is the
+      author-only attribute naming which list the slot joins) and one optional suffix slot with one
+      affix. HCLoader never loads a slot without a loaded affix, so project drops the empty slot.
+    -->
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech>
+    </PartsOfSpeech>
+    <CharacterDefinitionTable id="t1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cM"><Representations><Representation>m</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cO"><Representations><Representation>o</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="mrSfx" requiredPartsOfSpeech="posN" outputPartOfSpeech="posN">
+            <Name>sfx</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subSfx">
+                <MorphologicalInput><PhoneticSequence id="stemSfx"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemSfx" /><InsertSegments><PhoneticShape>a</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>SFX</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate requiredPartsOfSpeech="posN">
+            <Name>probeTemplate</Name>
+            <Slot optional="false" direction="prefix">
+              <Name>slotEmptyRequired</Name>
+            </Slot>
+            <Slot optional="true" morphologicalRules="mrSfx">
+              <Name>slotSuffix</Name>
+            </Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="eMonu" partOfSpeech="posN">
+            <Allomorphs><Allomorph id="aMonu"><PhoneticShape>monu</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>MONU</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

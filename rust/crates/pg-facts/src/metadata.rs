@@ -1,11 +1,11 @@
 use serde::Serialize;
 
 pub const APPLICATION_ID: i64 = 1_346_848_321;
-pub const FACT_SCHEMA_VERSION: u32 = 8;
+pub const FACT_SCHEMA_VERSION: u32 = 9;
 pub const FACT_FORMAT: &str = "pangloss-grammar-facts";
 pub const FACTS_CONTEXT_FORMAT: &str = "pangloss-facts-context";
 pub const FACTS_CONTEXT_VERSION: u32 = 1;
-pub const STATS_MANIFEST_FORMAT_VERSION: u32 = 1;
+pub const STATS_MANIFEST_FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

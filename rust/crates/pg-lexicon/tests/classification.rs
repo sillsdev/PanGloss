@@ -225,7 +225,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let ordinary = morpher.synthesize_resolved_stem(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
     );
@@ -236,33 +236,33 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
         morpher.synthesize_resolved_stem_bounded(
             "sato",
             resolved.syn_fs,
-            resolved.mpr,
+            &resolved.mpr,
             resolved.stratum,
             &[],
             &ample
         ),
         ordinary
     );
-    assert!(ample.steps() > 0);
+    assert!(ample.work_steps() > 0);
     assert!(ample.candidates() > 0);
 
     let step = pg_parse::SynthesisBudget::new(1, 10_000, Duration::from_secs(1));
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &step,
     );
-    assert!(step.step_capped());
-    assert_eq!(step.steps(), 1);
+    assert!(step.work_capped());
+    assert_eq!(step.work_steps(), 1);
 
     let candidates = pg_parse::SynthesisBudget::new(10_000, 1, Duration::from_secs(1));
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &candidates,
@@ -270,7 +270,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &candidates,
@@ -282,7 +282,7 @@ fn parser_budget_instrumentation_is_shared_and_ordinary_synthesis_stays_unbounde
     let _ = morpher.synthesize_resolved_stem_bounded(
         "sato",
         resolved.syn_fs,
-        resolved.mpr,
+        &resolved.mpr,
         resolved.stratum,
         &[],
         &expired,

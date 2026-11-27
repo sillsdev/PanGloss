@@ -1,4 +1,4 @@
-//! Checks provisional segment engine parity, CLI diagnostics, and parse completion status.
+//! Checks provisional segment parser parity, typed FST refusal, CLI diagnostics and completion status.
 
 use pg_grammar::compile::CompileOptions;
 use pg_grammar::compile_project_with;
@@ -271,20 +271,66 @@ fn analyze_direct(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
     outcome.signature()
 }
 
+/// The grammar's two default compounds are proved at its two-stem cap, so the multi-character segment spellings are admitted; every word up to four letters over the lexicon's alphabet must come back complete with exactly the HC analyses (no missing identity, no surviving extra).
 #[cfg(feature = "foma-tools")]
-fn analyze_fst_confirm(grammar: &pg_grammar::model::Grammar, word: &str) -> String {
-    let mut analyzer =
-        pg_foma::composite::compile_analyzer(grammar).expect("fixture grammar must foma-compile");
-    let outcome = analyzer.analyze_word(word);
-    assert!(
-        outcome.peel_chain_depth_error.is_none(),
-        "FST analysis of {word:?} must complete"
-    );
-    pg_parse::result_signature(&outcome.analyses)
+fn assert_fst_matches_hc(grammar: &pg_grammar::model::Grammar) -> (usize, Vec<String>) {
+    let mut analyzer = pg_foma::composite::compile_analyzer(grammar)
+        .unwrap_or_else(|e| panic!("the proved compound route must be admitted: {e:?}"));
+    let morpher = pg_parse::Morpher::new(grammar, usize::MAX);
+    let mut words: Vec<String> = [
+        "qta", "kumata", "qtu", "kumatu", "q", "kuma", "taku", "kumaq", "qkuma", "kumakuma",
+    ]
+    .iter()
+    .map(|w| w.to_string())
+    .collect();
+    let tokens = ["k", "u", "m", "a", "q", "t", "s"];
+    let mut frontier = vec![String::new()];
+    for _ in 0..4 {
+        let mut next = Vec::new();
+        for base in &frontier {
+            for token in tokens {
+                next.push(format!("{base}{token}"));
+            }
+        }
+        words.extend(next.iter().cloned());
+        frontier = next;
+    }
+    words.sort_unstable();
+    words.dedup();
+    let mut compared = 0;
+    let mut analysed_compounds = Vec::new();
+    for (index, word) in words.iter().enumerate() {
+        let row = pg_foma::differential::measure_word(
+            grammar,
+            &morpher,
+            Some(&mut analyzer),
+            index,
+            word,
+            &pg_foma_backend::compose_budget::ApplyBudget::unbounded(),
+            None,
+        )
+        .unwrap();
+        if row.hc_status == "invalid_shape" {
+            continue;
+        }
+        assert!(!row.incomplete, "{word}: {row:?}");
+        assert_eq!(row.proposal_misses.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.spurious_confirmed.as_deref(), Some(&[][..]), "{word}");
+        assert_eq!(row.confirmed_multiset_equal, Some(true), "{word}");
+        if matches!(word.as_str(), "kumaq" | "qkuma" | "kumakuma") {
+            assert!(row.oracle.is_empty() && row.confirmed.is_empty(), "{word}");
+        }
+        if word.len() >= 5 && !row.oracle.is_empty() {
+            assert!(!row.confirmed.is_empty(), "{word}");
+            analysed_compounds.push(word.clone());
+        }
+        compared += 1;
+    }
+    (compared, analysed_compounds)
 }
 
 #[test]
-fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() {
+fn inferred_q_analyzes_like_an_authored_featureless_q_except_for_letter_unification() {
     let inferred_snapshot = base_snapshot();
     let inferred = compile(&inferred_snapshot);
     assert!(
@@ -316,68 +362,58 @@ fn inferred_q_analyzes_like_an_authored_featureless_q_and_unlike_a_valued_one() 
     });
     let valued = compile(&valued_snapshot);
 
-    for (word, unvalued_has_analysis, valued_has_analysis) in [
-        ("qta", false, true),
-        ("kumata", false, false),
-        ("qtu", true, true),
-        ("kumatu", true, true),
-        ("q", false, false),
-        ("kuma", false, false),
-        ("taku", false, false),
+    #[cfg(feature = "foma-tools")]
+    {
+        let mut covered = Vec::new();
+        for grammar in [&inferred, &explicit, &valued] {
+            let (compared, analysed) = assert_fst_matches_hc(grammar);
+            assert!(compared > 1000);
+            covered.extend(analysed);
+        }
+        // Only the suffixed stems have analyses at five letters or more; the compound-shaped words are HC non-words.
+        covered.sort_unstable();
+        covered.dedup();
+        assert_eq!(covered, ["kumata", "kumatu"]);
+    }
+
+    // Pinned C# HermitCrab parses the t-final words in all three grammars, and kuma and taku with an authored featureless q.
+    for (word, inferred_has, explicit_has, valued_has) in [
+        ("qta", true, true, true),
+        ("kumata", true, true, true),
+        ("qtu", true, true, true),
+        ("kumatu", true, true, true),
+        ("q", false, false, false),
+        ("kuma", false, true, false),
+        ("taku", false, true, false),
     ] {
         let inferred_direct = analyze_direct(&inferred, word);
         let explicit_direct = analyze_direct(&explicit, word);
         let valued_direct = analyze_direct(&valued, word);
         assert_eq!(
-            inferred_direct, explicit_direct,
-            "direct-HC analysis of {word:?} must match between the inferred and \
-             explicit-featureless grammars"
+            inferred_direct != "-",
+            inferred_has,
+            "provisional analysis presence for {word:?}"
         );
         assert_eq!(
-            inferred_direct != "-",
-            unvalued_has_analysis,
-            "provisional and featureless analysis presence for {word:?}"
+            explicit_direct != "-",
+            explicit_has,
+            "featureless analysis presence for {word:?}"
         );
         assert_eq!(
             valued_direct != "-",
-            valued_has_analysis,
+            valued_has,
             "feature-valued analysis presence for {word:?}"
         );
         assert_eq!(
-            inferred_direct == valued_direct,
-            unvalued_has_analysis == valued_has_analysis,
-            "only the constrained q environment must distinguish the valued grammar for {word:?}"
+            inferred_direct == explicit_direct,
+            inferred_has == explicit_has,
+            "provisional and featureless analyses must agree whenever both exist for {word:?}"
         );
-        #[cfg(feature = "foma-tools")]
-        {
-            let inferred_fst = analyze_fst_confirm(&inferred, word);
-            let explicit_fst = analyze_fst_confirm(&explicit, word);
-            let valued_fst = analyze_fst_confirm(&valued, word);
-            assert_eq!(
-                inferred_fst, inferred_direct,
-                "provisional engine parity for {word:?}"
-            );
-            assert_eq!(
-                explicit_fst, explicit_direct,
-                "featureless engine parity for {word:?}"
-            );
-            assert_eq!(
-                valued_fst, valued_direct,
-                "feature-valued engine parity for {word:?}"
-            );
-            assert_eq!(
-                inferred_fst, explicit_fst,
-                "provisional/featureless FST parity for {word:?}"
-            );
-            assert_eq!(
-                inferred_fst == valued_fst,
-                unvalued_has_analysis == valued_has_analysis,
-                "feature-valued FST contrast for {word:?}"
-            );
-            eprintln!(
-                "{word}: HC/foma agree; provisional={inferred_fst:?}; featureless={explicit_fst:?}; valued={valued_fst:?}"
-            );
-        }
+        assert_eq!(
+            inferred_direct == valued_direct,
+            inferred_has == valued_has,
+            "provisional and valued analyses must agree whenever both exist for {word:?}"
+        );
     }
 }
 
@@ -516,7 +552,7 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
         ("kumata", vec![], usize::MAX, None, None),
         ("taku", vec![], usize::MAX, None, None),
         ("q?", vec![], usize::MAX, None, Some("invalid_shape")),
-        ("qtu", vec!["--step-cap", "1"], 1, None, Some("capped")),
+        ("qtu", vec!["--work-cap", "100"], 1, None, Some("capped")),
         (
             "qtu",
             vec!["--word-timeout-ms", "0"],
@@ -539,7 +575,10 @@ fn cli_plain_and_ordinary_trace_report_owner_completion_status() {
                 "complete positive control must have an analysis"
             );
         }
-        if matches!(word, "qta" | "kumata" | "taku") {
+        if matches!(word, "qta" | "kumata") {
+            assert!(!expected.structured.is_empty());
+        }
+        if word == "taku" {
             assert!(expected.structured.is_empty());
         }
         for trace in [false, true] {

@@ -4,10 +4,11 @@ use pg_foma_backend::backend_selection::{BackendReport, BackendStatus};
 use pg_foma_backend::health::{FindingCode, Severity};
 
 fn refused(strategy: EmissionStrategy) -> BackendReport {
-    // Not `BackendReport::refused` (pg-health's data-only half); the predicate id must be real and registered, since `capability_shape_key`'s advice-shape lookup is closed and panics on one it does not own.
+    // Exercise the compiler-facing constructor; author advice is owned by grammar-health.
     pg_foma_backend::backend_selection::refused(
         strategy,
         CompileDecision::Refuse(vec![CapabilityDiagnostic {
+            refusal: pg_health::capability::CapabilityRefusal::StrategyCoverage,
             predicate: "surface-probe.root-spelling-cap",
             construct: "unsupported".to_string(),
             witness: "synthetic".to_string(),
@@ -30,7 +31,7 @@ fn accepted_constructor_rejects_refusal() {
 }
 
 #[test]
-fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
+fn capability_refusal_is_a_typed_cannot_represent_with_grammar_health_guidance() {
     let report = refused(EmissionStrategy::TunedSurfaceProbed);
     assert_eq!(report.status(), BackendStatus::Refused);
     assert_eq!(report.worst_severity(), Severity::CannotRepresent);
@@ -40,8 +41,11 @@ fn capability_refusal_is_a_typed_cannot_represent_with_actionable_advice() {
         FindingCode::BackendCoverageIncomplete
     );
     assert!(!report.failed_predicates().is_empty());
-    assert!(!report.shapes().is_empty());
-    assert!(!report.advice_references().is_empty());
+    assert!(report.shapes().is_empty());
+    assert!(report.advice_references().is_empty());
+    assert!(report.findings()[0]
+        .explanation
+        .contains("see grammar-health"));
 }
 
 #[test]
@@ -49,14 +53,14 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
     for (report, expected_code) in [
         (
             BackendReport::missing(
-                EmissionStrategy::TemplatedUnderlyingTokens,
+                EmissionStrategy::TunedSurfaceProbed,
                 "backend executable is unavailable",
             ),
             FindingCode::BuildProcessFailed,
         ),
         (
             BackendReport::failed(
-                EmissionStrategy::PlanComposed,
+                EmissionStrategy::TunedSurfaceProbed,
                 "compiler process exited unsuccessfully",
             ),
             FindingCode::BackendCompilationFailed,
@@ -78,35 +82,4 @@ fn missing_and_failed_backends_are_typed_errors_carrying_no_grammar_advice() {
              owner to edit a grammar that is not what went wrong: {report:?}"
         );
     }
-}
-
-#[test]
-fn plan_composed_required_subtrees_are_a_typed_cannot_represent_refusal() {
-    // mpr-gated-exception's empty material is never admitted, a stable witness; read at run time so a moved submodule pin fails this test rather than the build.
-    let grammar_xml = pg_conformance_fixtures::require_fixture("edge-cases", "mpr-gated-exception")
-        .load_grammar_xml();
-    let grammar = pg_grammar::load(&grammar_xml).expect("marker fixture must load");
-    let selection = pg_foma_backend::backend_selection::select_backends_for_grammar(&grammar);
-    let composed = selection
-        .report_for(EmissionStrategy::PlanComposed)
-        .expect("PlanComposed must always have one report");
-
-    assert_eq!(composed.status(), BackendStatus::Refused);
-    assert_eq!(composed.worst_severity(), Severity::CannotRepresent);
-    assert!(composed.findings().iter().any(|finding| {
-        finding.code == FindingCode::BackendCoverageIncomplete
-            && finding
-                .affected
-                .iter()
-                .any(|affected| affected.contains("Composite") && affected.contains("Marker"))
-    }));
-    assert!(composed
-        .shapes()
-        .contains(&"plan-composed-missing-subtrees".to_string()));
-    assert!(composed.declined_on().iter().any(|diagnostic| {
-        diagnostic.predicate == "strategy-materializer.marker-subtree-not-buildable"
-            && diagnostic.witness.contains("build_controllable")
-    }));
-    assert!(!composed.failed_predicates().is_empty());
-    assert!(!composed.advice_references().is_empty());
 }

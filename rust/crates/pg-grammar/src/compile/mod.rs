@@ -12,15 +12,17 @@
 //!
 //! ## Coverage
 //! **Implemented**: feature systems, phonemes/char-def synthesis, stems, environments,
-//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style),
-//! templates (+ null-affix synthesis for irregular slots), compounding (default + authored),
-//! rewrite rules, ad-hoc co-occurrence rules, strata, variants, parser parameters.
+//! inflectional/derivational/unclassified affixes (concatenative and `MoAffixProcess`-style,
+//! including reduplication bracket-pattern forms and circumfix cross-products), templates
+//! (+ null-affix synthesis for irregular slots), compounding (default + authored), rewrite and
+//! metathesis rules, clitics (both as stems and as affix-process rules, with their stratum
+//! placement), ad-hoc co-occurrence rules, strata, variants, parser parameters.
 //!
-//! **Not implemented** (each occurrence produces a warning, never an error, mirroring the existing
-//! loader's managed-fallback lint philosophy): metathesis rules, reduplication
-//! (bracket-pattern affix forms), circumfix cross-products, clitic-as-affix-rule
-//! (`LoadCliticAffixProcessRule`) and clitic-as-stem stratum placement, user-defined `<Strata>`
-//! reorganization strings.
+//! **Not implemented**: complex phonological features (warned as `PhonComplexFeatureUnsupported`)
+//! and variant forms of clitic-typed entries (variants are built for the Morphology bucket only,
+//! with no warning). A construct that cannot be converted (an unknown phoneme, natural class or
+//! boundary in a pattern, alpha variables in an affix process input) refuses its allomorph or rule
+//! with a warning instead of being dropped as `HCLoader` does; see divergence 126.
 //!
 //! Never panics on real data: dangling snapshot references, malformed environment strings, and
 //! unsupported constructs all become warnings (an allomorph/entry/rule is dropped, not the whole
@@ -37,24 +39,30 @@ pub(crate) mod inventory;
 pub(crate) mod issue_codes;
 pub mod issues;
 mod lexicon;
+#[cfg(test)]
+mod limit_tests;
 mod lineage;
 mod mpr;
 mod msa_merge;
 mod natclass;
 pub mod options;
 mod reachability;
+mod reduplication;
 pub(crate) mod roles;
 mod rules;
+mod strata;
 mod substrate;
 mod templates;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod variant_source_tests;
 mod warnings;
 
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use hashbrown::HashMap;
 
@@ -98,7 +106,7 @@ pub(crate) const MORPHER_SETTINGS: &[&str] = &[
 /// Compile a `pg-snapshot` `Snapshot` into a runnable `Grammar`, returning any non-fatal
 /// warnings alongside it (dangling references, unsupported Phase-B constructs, dropped
 /// allomorphs/entries — see the module doc). A handful of hard limits inherited from
-/// `mod@crate::load` (>64 symbols in a feature, >64 total MPR features) surface as `Err`, and so
+/// `mod@crate::load` (symbolic-feature or MPR identity space exhaustion) surface as `Err`, and so
 /// does [`SemanticLossPolicy::Refuse`]'s own fatal-conversion-issue check — see
 /// [`compile_project_with`], which this is a thin, source-compatible wrapper over.
 pub fn compile_project(
@@ -176,6 +184,24 @@ pub fn compile_project_with_options_and_import_warnings(
     options: CompileOptions,
     import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
 ) -> Result<CompileOutput, GrammarError> {
+    compile_project_inner(snapshot, options, import_warnings, false)
+}
+
+/// As [`compile_project_with_options_and_import_warnings`], for callers that read only `grammar`, `warnings`, `substrate` and `issues`: the facts-only inventory, load decisions and lineage publication are never built, so those `CompileOutput` fields (and a refusal's facts fields) come back empty. The `Grammar`, the warnings and any refusal are the same.
+pub fn compile_project_grammar_only_with_import_warnings(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+) -> Result<CompileOutput, GrammarError> {
+    compile_project_inner(snapshot, options, import_warnings, true)
+}
+
+fn compile_project_inner(
+    snapshot: &Snapshot,
+    options: CompileOptions,
+    import_warnings: impl IntoIterator<Item = pg_snapshot::Warning>,
+    lean: bool,
+) -> Result<CompileOutput, GrammarError> {
     let mut external_issues: Vec<ConversionIssue> =
         snapshot.conversion_provenance.import_issues.clone();
     let provenance_error = snapshot
@@ -204,19 +230,29 @@ pub fn compile_project_with_options_and_import_warnings(
         owner_warnings,
         environment_resolutions,
         allomorph_gates,
-    ) = compile_project_recording(snapshot)?;
+    ) = compile_project_recording_with(snapshot, lean)?;
     if let Err(violation) = recorder.check_invariants() {
         panic!("compile_project_with: selection recorder invariant violated: {violation}");
     }
     let (recorded_inventory, recorded_issues, load_decisions) =
         recorder.finish_with_load_decisions();
-    let compiled_outputs = lineage::compiled_outputs(&grammar);
-    let allomorph_output_ids = (0..grammar.allomorph_owners.len())
-        .map(|index| compiled_outputs.allomorph(AllomorphId(index as u32)))
-        .collect();
-    let (compiled_mappings, compiled_allomorph_order) =
-        lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
-    let compiled_outputs = compiled_outputs.outputs().to_vec();
+    let (compiled_outputs, allomorph_output_ids, compiled_mappings, compiled_allomorph_order) =
+        if lean {
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+        } else {
+            let compiled_outputs = lineage::compiled_outputs(&grammar);
+            let allomorph_output_ids = (0..grammar.allomorph_owners.len())
+                .map(|index| compiled_outputs.allomorph(AllomorphId(index as u32)))
+                .collect();
+            let (compiled_mappings, compiled_allomorph_order) =
+                lineage::publish(snapshot, &grammar, &compiled_outputs, &load_decisions);
+            (
+                compiled_outputs.outputs().to_vec(),
+                allomorph_output_ids,
+                compiled_mappings,
+                compiled_allomorph_order,
+            )
+        };
     issues.extend(recorded_issues.iter().cloned());
     issues.extend(substrate_issues.iter().cloned());
     let mut warnings: Vec<_> = import_warnings.into_iter().collect();
@@ -270,7 +306,7 @@ pub fn compile_project_with_options_and_import_warnings(
     })
 }
 
-/// What [`compile_project_recording`] yields: the grammar, recording seams, and owner-published warning subjects.
+/// What `compile_project_recording_with` yields: the grammar, recording seams, and owner-published warning subjects.
 pub(crate) type CompiledProject = (
     Grammar,
     SelectionRecorder,
@@ -315,12 +351,28 @@ pub fn descendant_closures(snapshot: &Snapshot) -> Result<DescendantClosures, Gr
 /// `reachability::compact_mrules`/`trim_unreachable_morpheme_coocurrence`/`natclass::compact_to_referenced`
 /// run, so `represented` is a pre-compaction claim, not a claim about the returned `Grammar` after
 /// compaction.
+#[cfg(test)]
 pub(crate) fn compile_project_recording(
     snapshot: &Snapshot,
 ) -> Result<CompiledProject, GrammarError> {
-    let mut recorder = SelectionRecorder::for_stage(pg_snapshot::LoadPipelineStage::Compile);
+    compile_project_recording_with(snapshot, false)
+}
+
+/// Compile with the full recorder or the grammar-only recorder (see [`SelectionRecorder::lean_for_stage`]).
+pub(crate) fn compile_project_recording_with(
+    snapshot: &Snapshot,
+    lean: bool,
+) -> Result<CompiledProject, GrammarError> {
+    let stage = pg_snapshot::LoadPipelineStage::Compile;
+    let mut recorder = if lean {
+        SelectionRecorder::lean_for_stage(stage)
+    } else {
+        SelectionRecorder::for_stage(stage)
+    };
     let mut lineage = Lineage::default();
-    inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
+    if !lean {
+        inventory::seed_authored_from_snapshot(&mut recorder, snapshot);
+    }
 
     // --- MPR feature groups: inflection classes, exception features, lexEntryInflTypes --------
     let mpr = mpr::build(snapshot, &mut recorder)?;
@@ -334,7 +386,7 @@ pub(crate) fn compile_project_recording(
     // --- text usage: owners publish literal text they already selected, for substrate inference -
     let mut substrate_issues: Vec<ConversionIssue> = Vec::new();
     lexicon::collect_text_uses(snapshot, &mut recorder);
-    affixes::collect_text_uses(snapshot, &mut recorder, &mut substrate_issues);
+    affixes::collect_text_uses(snapshot, &mut recorder);
 
     // Authored definitions take precedence over provisional definitions.
     let raw = chardef::build_raw(snapshot, &phon_features, &mut recorder)?;
@@ -453,28 +505,24 @@ pub(crate) fn compile_project_recording(
         templates: Vec::new(),
         entries: Vec::new(),
         allomorph_guid_index: HashMap::new(),
+        allomorph_key_counts: HashMap::new(),
+        circumfix_half_guids: HashSet::new(),
         msa_guid_index: HashMap::new(),
         slot_rules: HashMap::new(),
     };
 
-    // Strata: Morphology (unordered), Clitics (unordered), Surface (linear). Custom `<Strata>` reorganization is not implemented; a snapshot that declares one gets a warning and the default 3-stratum layout regardless.
-    if snapshot
+    // Strata: Morphology (unordered), Clitics (unordered), Surface (linear), then reshaped by the `Strata` parser parameter when one is set (`strata::create`).
+    let strata_text = snapshot
         .morphology
         .parser_parameters
         .strata
         .as_deref()
-        .is_some_and(|s| !s.trim().is_empty())
-    {
-        let key = InventoryKey::setting(pg_snapshot::InventoryKind::StrataConfiguration, "Strata");
-        ctx.considered(key.clone());
-        ctx.selected(key.clone());
-        ctx.reject(
-            key,
-            issue_codes::STRATA_CUSTOM_UNSUPPORTED,
-            IssueClass::UnrepresentableForHc,
-            "unsupported: custom Strata parser-parameter reorganization not implemented; using \
-             the default Morphology/Clitics/Surface layout",
-        );
+        .filter(|s| !s.trim().is_empty());
+    let strata_key =
+        InventoryKey::setting(pg_snapshot::InventoryKind::StrataConfiguration, "Strata");
+    if strata_text.is_some() {
+        ctx.considered(strata_key.clone());
+        ctx.selected(strata_key.clone());
     }
     {
         let not_on_clitics_key =
@@ -508,10 +556,6 @@ pub(crate) fn compile_project_recording(
             ctx.represented(key);
         }
     }
-    let morphology_stratum = StratumId(0);
-    let clitic_stratum = StratumId(1);
-    let surface_stratum = StratumId(2);
-
     // --- compound rules (defaults if none authored) ----------------------------------------------
     let mut morphology_mrules: Vec<MRuleId> = Vec::new();
     compounding::build(snapshot, &ctx, &mut acc, &mut morphology_mrules)?;
@@ -534,29 +578,20 @@ pub(crate) fn compile_project_recording(
     templates::record_unconsidered_slots(snapshot, &ctx);
 
     // --- phonological rules ----------------------------------------------------------------------
-    let (prules, morphology_prules, clitic_prules) = rules::build(snapshot, &ctx)?;
+    let (prules, morphology_prules, clitic_prules, skipped_prules) = rules::build(snapshot, &ctx)?;
     rules::record_unreferenced_feature_constraints(snapshot, &ctx);
 
-    // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated; `xml_key` doubles as the MSA/entry guid this morpheme was built from.
+    // Ad-hoc co-occurrence rules: post-hoc, run after every entry/rule is loaded so the guid -> registry maps are fully populated. A morpheme is registered under the MSA it was built from (`source_msa_guid`), so a variant entry's copy sits beside its main entry's, as HCLoader's `m_morphemes[msa]`; synthetic morphemes with no MSA fall back to their `xml_key`.
     for (i, m) in acc.morphemes.iter().enumerate() {
+        let guid = m.source_msa_guid.as_ref().unwrap_or(&m.xml_key);
         acc.msa_guid_index
-            .insert(m.xml_key.clone(), MorphemeId(i as u32));
+            .entry(guid.clone())
+            .or_default()
+            .push(MorphemeId(i as u32));
     }
     strata_assign_co_occurrence(snapshot, &ctx, &mut acc);
     environment::record_unattempted(snapshot, &ctx);
-    // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
-    let owner_warnings = ctx.owner_warnings.into_inner();
-    let environment_resolutions = ctx
-        .environment_resolutions
-        .into_inner()
-        .into_values()
-        .collect();
-    let mut recorder = ctx.recorder.into_inner();
-    let lineage = ctx.lineage.into_inner();
-    let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
-    let allomorph_gates = ctx.allomorph_gates.into_inner().into_outcomes();
-
-    let strata = vec![
+    let mut strata = vec![
         StratumDef {
             name: Some("Morphology".to_string()),
             table: table_id,
@@ -585,7 +620,40 @@ pub(crate) fn compile_project_recording(
             entries: Vec::new(),
         },
     ];
-    let _ = (clitic_stratum, surface_stratum, morphology_stratum);
+    if let Some(text) = strata_text {
+        let groups = strata::parse(text);
+        let named = strata::Named {
+            snapshot,
+            prules: &prules,
+            mrules: &acc.mrules,
+            templates: &acc.templates,
+            entries: &acc.entries,
+        };
+        let (rebuilt, unknown) = strata::create(strata, &groups, &named, &mut acc.morphemes);
+        strata = rebuilt;
+        if unknown.is_empty() {
+            ctx.represented(strata_key);
+        } else {
+            ctx.reject(
+                strata_key,
+                issue_codes::STRATA_UNKNOWN_RULE,
+                IssueClass::UnrepresentableForHc,
+                format!("Unknown rule in Strata: {}.", unknown.join(", ")),
+            );
+        }
+    }
+
+    // The recorder and lineage must leave `ctx` before `Grammar` takes ownership of what `ctx` borrows.
+    let owner_warnings = ctx.owner_warnings.into_inner();
+    let environment_resolutions = ctx
+        .environment_resolutions
+        .into_inner()
+        .into_values()
+        .collect();
+    let mut recorder = ctx.recorder.into_inner();
+    let lineage = ctx.lineage.into_inner();
+    let pending_rule_refusals = ctx.pending_rule_refusals.into_inner();
+    let allomorph_gates = ctx.allomorph_gates.into_inner().into_outcomes();
 
     // `IsTemplateRule` post-pass, exactly mirroring `crate::load::load`'s own post-pass.
     let mut is_template_rule = vec![false; acc.mrules.len()];
@@ -618,6 +686,7 @@ pub(crate) fn compile_project_recording(
         allomorph_owners: acc.allomorph_owners,
         allomorph_sources: acc.allomorph_sources,
         prules,
+        skipped_prules,
         mrules: acc.mrules,
         templates: acc.templates,
         entries: acc.entries,
@@ -658,6 +727,7 @@ pub(crate) fn compile_project_recording(
         removed_natclasses,
     );
 
+    grammar.shrink_to_fit();
     grammar.final_template_prune_facts()?;
 
     Ok((
@@ -723,7 +793,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     continue;
                 }
                 ctx.selected(key.clone());
-                let Some(&primary_id) = acc.allomorph_guid_index.get(primary) else {
+                let Some(primary_ids) = acc
+                    .allomorph_guid_index
+                    .get(primary)
+                    .filter(|copies| !copies.is_empty())
+                    .cloned()
+                else {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -735,13 +810,29 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 };
-                let mut other_ids = Vec::with_capacity(others.len());
+                let mut other_copies: Vec<Vec<AllomorphId>> = Vec::with_capacity(others.len());
                 let mut unresolved = Vec::new();
                 for o in others {
                     match acc.allomorph_guid_index.get(o) {
-                        Some(&id) => other_ids.push(id),
-                        None => unresolved.push(o.clone()),
+                        Some(copies) if !copies.is_empty() => other_copies.push(copies.clone()),
+                        _ => unresolved.push(o.clone()),
                     }
+                }
+                if unresolved
+                    .iter()
+                    .any(|o| acc.circumfix_half_guids.contains(o))
+                {
+                    // HCLoader finds no `m_allomorphs` entry for a circumfix half and silently emits no rule; warn and drop instead of refusing.
+                    ctx.reject(
+                        key,
+                        issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
+                        IssueClass::InvalidSource,
+                        format!(
+                            "ad-hoc allomorph prohibition: 'others' names circumfix half \
+                             {unresolved:?}, which HCLoader does not register; skipped"
+                        ),
+                    );
+                    continue;
                 }
                 if !unresolved.is_empty() {
                     // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
@@ -750,26 +841,33 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                          'others' target(s) {unresolved:?} do not resolve; refusing rather \
                          than silently dropping a prohibition on a real allomorph"
                     );
-                    match acc.allomorph_owners[primary_id.0 as usize] {
-                        // A root-owned allomorph always survives reachability compaction, so there is nothing to defer.
-                        AllomorphOwner::Root(..) => ctx.refuse(
+                    // A root-owned copy always survives reachability compaction, so there is nothing to defer. Otherwise every copy is affix-owned and the refusal is fatal while ANY of their mrules survives.
+                    let affix_mrules: Vec<MRuleId> = primary_ids
+                        .iter()
+                        .filter_map(|id| match acc.allomorph_owners[id.0 as usize] {
+                            AllomorphOwner::Root(..) => None,
+                            AllomorphOwner::Affix(mr, _) => Some(mr),
+                        })
+                        .collect();
+                    if affix_mrules.len() < primary_ids.len() {
+                        ctx.refuse(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                        ),
-                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
-                        AllomorphOwner::Affix(mr, _) => ctx.defer_cooccurrence_refusal(
+                        );
+                    } else {
+                        ctx.defer_cooccurrence_refusal(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                            mr,
-                        ),
+                            affix_mrules,
+                        );
                     }
                     continue;
                 }
-                if other_ids.is_empty() {
+                if other_copies.is_empty() {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -778,31 +876,39 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 }
-                let index = allomorph_co_occurrence_len(acc, primary_id);
-                ctx.represent_via(
-                    LineageTarget::AllomorphCoOccurrence(primary_id.0, index),
-                    key,
-                );
-                let def = AllomorphCoOccurrenceRuleDef {
-                    require: false,
-                    others: other_ids,
-                    adjacency: adjacency(*adj),
-                };
-                match acc.allomorph_owners[primary_id.0 as usize] {
-                    AllomorphOwner::Root(le, idx) => {
-                        acc.entries[le.0 as usize].allomorphs[idx as usize]
-                            .co_occurrence
-                            .push(def);
+                // HCLoader.LoadAllomorphCoOccurrenceRules: one Exclude rule per choice of one copy for each 'others' form, attached to every copy of the primary.
+                for others_ids in copy_cross_product(&other_copies) {
+                    for &primary_id in &primary_ids {
+                        let index = allomorph_co_occurrence_len(acc, primary_id);
+                        ctx.represent_via(
+                            LineageTarget::AllomorphCoOccurrence(primary_id.0, index),
+                            key.clone(),
+                        );
+                        let def = AllomorphCoOccurrenceRuleDef {
+                            require: false,
+                            others: others_ids.clone(),
+                            adjacency: adjacency(*adj),
+                            source_guid: Some(guid.clone()),
+                        };
+                        match acc.allomorph_owners[primary_id.0 as usize] {
+                            AllomorphOwner::Root(le, idx) => {
+                                acc.entries[le.0 as usize].allomorphs[idx as usize]
+                                    .co_occurrence
+                                    .push(def);
+                            }
+                            AllomorphOwner::Affix(mr, idx) => {
+                                match &mut acc.mrules[mr.0 as usize] {
+                                    MorphRuleDef::AffixProcess(d) => {
+                                        d.allomorphs[idx as usize].co_occurrence.push(def)
+                                    }
+                                    MorphRuleDef::Realizational(d) => {
+                                        d.allomorphs[idx as usize].co_occurrence.push(def)
+                                    }
+                                    MorphRuleDef::Compounding(_) => {}
+                                }
+                            }
+                        }
                     }
-                    AllomorphOwner::Affix(mr, idx) => match &mut acc.mrules[mr.0 as usize] {
-                        MorphRuleDef::AffixProcess(d) => {
-                            d.allomorphs[idx as usize].co_occurrence.push(def)
-                        }
-                        MorphRuleDef::Realizational(d) => {
-                            d.allomorphs[idx as usize].co_occurrence.push(def)
-                        }
-                        MorphRuleDef::Compounding(_) => {}
-                    },
                 }
             }
             AdhocProhibition::Morpheme {
@@ -830,7 +936,12 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                 ctx.selected(key.clone());
                 // HCLoader.cs:2265-2268: the key morpheme and the others, as their representatives.
                 let primary = ctx.msa_merge.representative_guid(primary);
-                let Some(&primary_id) = acc.msa_guid_index.get(primary) else {
+                let Some(primary_ids) = acc
+                    .msa_guid_index
+                    .get(primary)
+                    .filter(|copies| !copies.is_empty())
+                    .cloned()
+                else {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -842,41 +953,45 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 };
-                let mut other_ids = Vec::with_capacity(others.len());
+                let mut other_copies: Vec<Vec<MorphemeId>> = Vec::with_capacity(others.len());
                 let mut unresolved = Vec::new();
                 for o in ctx.msa_merge.unique_guids(others) {
                     match acc.msa_guid_index.get(o) {
-                        Some(&id) => other_ids.push(id),
-                        None => unresolved.push(o.to_string()),
+                        Some(copies) if !copies.is_empty() => other_copies.push(copies.clone()),
+                        _ => unresolved.push(o.to_string()),
                     }
                 }
                 if !unresolved.is_empty() {
-                    // primary_id resolved, so dropping this would silently permit a combination it was authored to prohibit.
+                    // primary_ids resolved, so dropping this would silently permit a combination it was authored to prohibit.
                     let message = format!(
                         "ad-hoc morpheme prohibition on active morpheme {primary:?}: \
                          'others' target(s) {unresolved:?} do not resolve; refusing rather \
                          than silently dropping a prohibition on a real morpheme"
                     );
-                    match morpheme_owning_mrule.get(&primary_id.0) {
-                        // A stem-entry morpheme always survives reachability compaction, so there is nothing to defer.
-                        None => ctx.refuse(
+                    // A stem-entry morpheme always survives reachability compaction, so there is nothing to defer. Otherwise every copy is affix-owned and the refusal is fatal while ANY of their mrules survives.
+                    let affix_mrules: Vec<MRuleId> = primary_ids
+                        .iter()
+                        .filter_map(|id| morpheme_owning_mrule.get(&id.0).copied())
+                        .collect();
+                    if affix_mrules.len() < primary_ids.len() {
+                        ctx.refuse(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                        ),
-                        // An affix-owned primary's own mrule might still be pruned as unreachable dead code -- defer until that is known.
-                        Some(&mr) => ctx.defer_cooccurrence_refusal(
+                        );
+                    } else {
+                        ctx.defer_cooccurrence_refusal(
                             key,
                             issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
                             IssueClass::InvalidSource,
                             message,
-                            mr,
-                        ),
+                            affix_mrules,
+                        );
                     }
                     continue;
                 }
-                if other_ids.is_empty() {
+                if other_copies.is_empty() {
                     ctx.reject(
                         key,
                         issue_codes::ADHOC_PROHIBITION_UNRESOLVED,
@@ -885,18 +1000,24 @@ fn strata_assign_co_occurrence(snapshot: &Snapshot, ctx: &Ctx, acc: &mut Acc) {
                     );
                     continue;
                 }
-                let index = acc.morphemes[primary_id.0 as usize].co_occurrence.len();
-                ctx.represent_via(
-                    LineageTarget::MorphemeCoOccurrence(primary_id.0, index),
-                    key,
-                );
-                acc.morphemes[primary_id.0 as usize].co_occurrence.push(
-                    MorphemeCoOccurrenceRuleDef {
-                        require: false,
-                        others: other_ids,
-                        adjacency: adjacency(*adj),
-                    },
-                );
+                // HCLoader.LoadMorphemeCoOccurrenceRules: one Exclude rule per choice of one copy for each 'others' MSA, attached to every copy of the primary.
+                for others_ids in copy_cross_product(&other_copies) {
+                    for &primary_id in &primary_ids {
+                        let index = acc.morphemes[primary_id.0 as usize].co_occurrence.len();
+                        ctx.represent_via(
+                            LineageTarget::MorphemeCoOccurrence(primary_id.0, index),
+                            key.clone(),
+                        );
+                        acc.morphemes[primary_id.0 as usize].co_occurrence.push(
+                            MorphemeCoOccurrenceRuleDef {
+                                require: false,
+                                others: others_ids.clone(),
+                                adjacency: adjacency(*adj),
+                                source_guid: Some(guid.clone()),
+                            },
+                        );
+                    }
+                }
             }
         }
     }
@@ -909,13 +1030,31 @@ fn resolve_pending_rule_refusals(
     removed_mrules: &[u32],
 ) {
     for refusal in pending {
-        let refusal = if removed_mrules.contains(&refusal.mrule.0) {
+        let refusal = if refusal.mrules.iter().all(|m| removed_mrules.contains(&m.0)) {
             refusal.unreachable("owning rule is unreachable after reachability compaction")
         } else {
             refusal
         };
         recorder.rejected(refusal.key, refusal.issue);
     }
+}
+
+/// Every way to pick one id from each list, in HCLoader's `Permute` order (first list varies slowest).
+fn copy_cross_product<T: Copy>(lists: &[Vec<T>]) -> Vec<Vec<T>> {
+    let mut out: Vec<Vec<T>> = vec![Vec::new()];
+    for list in lists {
+        out = out
+            .into_iter()
+            .flat_map(|prefix| {
+                list.iter().map(move |&id| {
+                    let mut next = prefix.clone();
+                    next.push(id);
+                    next
+                })
+            })
+            .collect();
+    }
+    out
 }
 
 /// The index the about-to-be-pushed co-occurrence rule will occupy on `primary_id`'s own list.
@@ -977,7 +1116,8 @@ pub(crate) struct Ctx<'a> {
 pub(crate) struct PendingRuleRefusal {
     key: InventoryKey,
     issue: ConversionIssue,
-    mrule: MRuleId,
+    /// Every rule that keeps the refusal live; it is dead code only when all of them are removed.
+    mrules: Vec<MRuleId>,
 }
 
 impl PendingRuleRefusal {
@@ -1073,6 +1213,11 @@ impl Ctx<'_> {
 
     pub(crate) fn record_load_decision(&self, draft: pg_snapshot::LoadDecisionDraft) {
         self.recorder.borrow_mut().record_load_decision(draft);
+    }
+
+    /// Whether this compile is grammar-only, so loops whose sole effect is recording inventory can be skipped.
+    pub(crate) fn is_lean(&self) -> bool {
+        self.recorder.borrow().is_lean()
     }
 
     pub(crate) fn has_load_decision(&self, key: &InventoryKey) -> bool {
@@ -1210,7 +1355,7 @@ impl Ctx<'_> {
         code: ImportWarningCode,
         class: IssueClass,
         message: String,
-        mrule: MRuleId,
+        mrules: Vec<MRuleId>,
     ) {
         let source = warnings::source_for_key(self.snapshot, &key);
         self.defer_rule_refusal(
@@ -1222,7 +1367,7 @@ impl Ctx<'_> {
                 fatal: true,
                 message,
             },
-            mrule,
+            mrules,
         );
     }
 
@@ -1230,11 +1375,11 @@ impl Ctx<'_> {
         &self,
         key: InventoryKey,
         issue: ConversionIssue,
-        mrule: MRuleId,
+        mrules: Vec<MRuleId>,
     ) {
         self.pending_rule_refusals
             .borrow_mut()
-            .push(PendingRuleRefusal { key, issue, mrule });
+            .push(PendingRuleRefusal { key, issue, mrules });
     }
 
     /// The `authored → considered → selected → represented|rejected` sequence every attachment-resolution site repeats; `resolved` picks the branch.
@@ -1266,12 +1411,16 @@ pub(crate) struct Acc {
     pub allomorph_sources: Vec<AllomorphSource>,
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
-    /// Allomorph guid -> registry id, for ad-hoc allomorph-prohibition resolution.
-    pub allomorph_guid_index: HashMap<String, AllomorphId>,
-    /// MSA/entry guid -> morpheme registry id, for ad-hoc morpheme-prohibition resolution.
-    /// Rebuilt from `morphemes[*].xml_key` right before the ad-hoc pass runs (see
+    /// Allomorph guid -> every registry id compiled for it (one per stem MSA copy of its entry, as HCLoader's `m_allomorphs` lists), for ad-hoc allomorph-prohibition resolution.
+    pub allomorph_guid_index: HashMap<String, Vec<AllomorphId>>,
+    /// Allomorphs already keyed per form-guid base, so `snapshot_allomorph_key` can number repeats.
+    pub allomorph_key_counts: HashMap<String, u32>,
+    /// Prefix and suffix half guids of circumfix entries: HCLoader registers only the lexeme form, so a prohibition naming a half finds nothing and emits no rule.
+    pub circumfix_half_guids: HashSet<String>,
+    /// MSA guid -> every morpheme registry id built from it (the main entry's, and one per variant entry, clitic stem/rule copy or infl-type copy), for ad-hoc morpheme-prohibition resolution.
+    /// Rebuilt from `morphemes[*].source_msa_guid` right before the ad-hoc pass runs (see
     /// `compile_project`); unpopulated (and unused) before then.
-    pub msa_guid_index: HashMap<String, MorphemeId>,
+    pub msa_guid_index: HashMap<String, Vec<MorphemeId>>,
     /// Affix-template slot guid -> every loaded inflectional-affix rule whose MSA declared that
     /// slot (`MoInflAffMsa.SlotsRC`), in the order those rules were built. Populated by
     /// `affixes::build_affix_rule` while building each `Msa::Inflectional` rule; consumed by
@@ -1330,7 +1479,37 @@ pub(crate) fn ws_forms<'a>(
     forms.iter().map(|f| f.form.as_str()).collect()
 }
 
+/// An allomorph's authored form for a human reader, marked as an affix by its morph type (`ta-`, `-ak`, `-x-`); `None` when blank.
+pub(crate) fn source_form_text(
+    allo: &pg_snapshot::lexicon::Allomorph,
+    preferred_ws: Option<&str>,
+) -> Option<String> {
+    let text = best_ws(&allo.forms, preferred_ws)?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(match affixes::shape_of(allo.morph_type) {
+        Some(affixes::Shape::Prefix) => format!("{text}-"),
+        Some(affixes::Shape::Suffix) => format!("-{text}"),
+        Some(affixes::Shape::Infix) => format!("-{text}-"),
+        None => text.to_string(),
+    })
+}
+
 /// `HCLoader.FormatForm` (HCLoader.cs:2573-2576): trim, then replace every space with `.`.
 pub(crate) fn format_form(s: &str) -> String {
     s.trim().replace(' ', ".")
+}
+
+impl Acc {
+    /// The `xml_key` of a snapshot-built allomorph: its source form guid(s) plus how many allomorphs this build already keyed under those guids. A form builds one allomorph per environment pass and a variant entry repeats its main entry's forms, so the guid alone is not unique; the count follows compile order, so the key does not depend on registry ids that reachability compaction later renumbers. Opaque outside one compiled grammar.
+    pub(super) fn snapshot_allomorph_key(&mut self, form_guids: &str) -> String {
+        let n = self
+            .allomorph_key_counts
+            .entry(form_guids.to_string())
+            .or_insert(0);
+        let key = format!("{form_guids}#{n}");
+        *n += 1;
+        key
+    }
 }

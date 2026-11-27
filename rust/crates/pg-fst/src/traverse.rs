@@ -4,8 +4,8 @@
 use std::cell::Cell;
 use std::collections::HashSet;
 use std::rc::Rc;
-// std::time::Instant panics on wasm32-unknown-unknown; web-time is a drop-in replacement needed since the O2 profiling calls below are unconditional on every traversal.
-use web_time::Instant;
+
+use rustc_hash::FxBuildHasher;
 
 use crate::fst::Fst;
 use crate::{Cmd, Direction, Register, CURRENT_POSITION};
@@ -14,7 +14,23 @@ use crate::{Cmd, Direction, Register, CURRENT_POSITION};
 pub mod profile {
     use super::Cell;
 
+    pub(super) fn start() -> Option<web_time::Instant> {
+        ENABLED.with(|e| e.get()).then(web_time::Instant::now)
+    }
+
+    /// Ask for timing on the current thread (the counters below are per thread too), after `reset`. Without it no clock is read per traversal.
+    pub fn enable() {
+        ENABLED.with(|e| e.set(true));
+    }
+
+    /// Whether timing is being read on the current thread.
+    pub fn enabled() -> bool {
+        ENABLED.with(|e| e.get())
+    }
+
     thread_local! {
+        /// Timing is read only when a host asks for diagnostics via `enable`, so otherwise no clock is read per traversal.
+        static ENABLED: Cell<bool> = const { Cell::new(false) };
         static RUN_CALLS: Cell<u64> = const { Cell::new(0) };
         static RUN_NANOS: Cell<u128> = const { Cell::new(0) };
         static RUN_MAX_NANOS: Cell<u128> = const { Cell::new(0) };
@@ -89,8 +105,9 @@ pub mod profile {
         )
     }
 
-    /// Clear traversal counters on the current thread before measuring another word.
+    /// Clear traversal counters on the current thread and turn timing off; call `enable` after it to measure the next word.
     pub fn reset() {
+        ENABLED.with(|e| e.set(false));
         RUN_CALLS.with(|c| c.set(0));
         RUN_NANOS.with(|c| c.set(0));
         RUN_MAX_NANOS.with(|c| c.set(0));
@@ -112,6 +129,8 @@ pub mod profile {
 pub struct Segment {
     pub lanes: Vec<u64>,
     pub optional: bool,
+    /// Features whose full-mask lane was authored with every symbol, not left absent; `UseDefaults` must not replace them. Empty for nearly every segment.
+    pub explicit_full: Vec<u32>,
 }
 
 impl Segment {
@@ -119,13 +138,19 @@ impl Segment {
         Segment {
             lanes,
             optional: false,
+            explicit_full: Vec::new(),
         }
     }
     pub fn optional(lanes: Vec<u64>) -> Self {
         Segment {
             lanes,
             optional: true,
+            explicit_full: Vec::new(),
         }
+    }
+    pub fn with_explicit_full(mut self, explicit_full: Vec<u32>) -> Self {
+        self.explicit_full = explicit_full;
+        self
     }
 }
 
@@ -156,18 +181,108 @@ impl FstResult {
     }
 }
 
-/// A live traversal instance (C# `TraversalInstance`). `registers` is copy-on-write shared (`Rc`): cloning an `Inst` is an O(1) refcount bump, and `Rc::make_mut` deep-copies lazily, only when an arc's non-empty command range actually writes.
+/// A capture register in one `u32` (bit 0 `has`, bit 1 `start`, the rest the offset): half the bytes of `Register`, which is what the visited set keeps one block of per configuration. Equality is `Register` equality on every register the traversal can build (`unset` is the single zero value).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+struct Packed(u32);
+
+impl Packed {
+    const UNSET: Packed = Packed(0);
+
+    #[inline]
+    fn at(offset: i32, start: bool) -> Packed {
+        assert!(
+            (0..1 << 30).contains(&offset),
+            "register offset {offset} does not fit the packed form"
+        );
+        Packed(((offset as u32) << 2) | (u32::from(start) << 1) | 1)
+    }
+
+    #[inline]
+    fn unpack(self) -> Register {
+        if self.0 & 1 == 0 {
+            Register::unset()
+        } else {
+            Register::at((self.0 >> 2) as i32, self.0 & 2 != 0)
+        }
+    }
+}
+
+/// A live traversal instance (C# `TraversalInstance`). `registers` is copy-on-write shared (`Rc<[Packed]>`, one allocation): cloning an `Inst` is an O(1) refcount bump, and `writable` deep-copies lazily, only when an arc's non-empty command range actually writes.
 /// See `docs/research/pg-fst-traverse-design-notes.md` for why this representation change was needed and why it's purely a representation change.
 #[derive(Clone)]
 struct Inst {
     state: usize,
     ann_index: usize,
-    registers: Rc<Vec<Register>>,
+    registers: Rc<[Packed]>,
+    /// This instance's `Visited` record, the parent of the keys it spawns; `None` until the visited set has switched to its compact form.
+    record: Option<VisitedRecord>,
 }
 
-/// Visited-set key wrapper for the shared register scaffold of the nondeterministic traversal: semantically identical to the plain `Vec<Register>` key it replaces, but stores the instance's `Rc` instead of a second deep clone of the registers.
-/// See `docs/research/pg-fst-traverse-design-notes.md` for the `Eq`/`Hash` contract this must preserve.
-struct RegKey(Rc<Vec<Register>>);
+/// The registers of `rc` for writing: in place when this instance is their only owner, else a private copy first (the copy-on-write step `Rc::make_mut` did for `Rc<Vec<_>>`).
+fn writable(rc: &mut Rc<[Packed]>) -> &mut [Packed] {
+    if Rc::get_mut(rc).is_none() {
+        *rc = Rc::from(&**rc);
+    }
+    Rc::get_mut(rc).expect("a just-created Rc is unique")
+}
+
+/// Capture state charged to the active work budget; returns whatever is still charged when the traversal ends, however it ends.
+struct RetainedCharge(usize);
+
+impl RetainedCharge {
+    fn add(&mut self, bytes: usize) -> bool {
+        if !crate::work::charge_retained(bytes) {
+            return false;
+        }
+        self.0 += bytes;
+        true
+    }
+}
+
+impl Drop for RetainedCharge {
+    fn drop(&mut self) {
+        crate::work::release_retained(self.0);
+    }
+}
+
+/// Start positions already seeded in one `run`; a cheap hash, since nothing here needs the standard hasher's flooding resistance.
+type InitAnns = HashSet<usize, FxBuildHasher>;
+
+/// The nondeterministic traversal's visited set (C# `traversed`): each key is a byte record holding only the registers that differ from its parent instance's record, with a full snapshot at least every `SNAPSHOT_HOPS` levels; equality reconstructs the stored registers exactly, so `insert` answers as a `HashSet` of `(state, ann_index, registers)` would.
+struct Visited {
+    slots: usize,
+    state_width: usize,
+    width: usize,
+    slot_width: usize,
+    chunks: Vec<Vec<u8>>,
+    /// Record locations, `chunk << 32 | byte offset`; the hash is re-derived from the record's stored 32-bit key hash.
+    table: hashbrown::HashTable<u64>,
+    /// `seen[slot] == generation` marks a slot already compared while walking one record chain.
+    seen: Vec<u32>,
+    generation: u32,
+    /// All ones; tests narrow it to force hash collisions, so equality is decided by the record walk.
+    hash_mask: u32,
+    charge: RetainedCharge,
+}
+
+/// Retained bytes below which the visited set stays a plain hash set of shared register blocks: small sets (the common case) are cheaper that way, and only a set that grows large switches to the compact records.
+const SMALL_SET_BYTES: usize = 1 << 20;
+
+/// Bytes of capture state the plain set keeps alive per entry besides the registers: the `(state, ann_index, key)` entry, its control byte, and the `Rc` counts.
+const SMALL_ENTRY_BYTES: usize =
+    std::mem::size_of::<(usize, usize, Rc<[Packed]>)>() + 1 + 2 * std::mem::size_of::<usize>();
+
+/// The nondeterministic traversal's visited set. It answers every `insert` exactly as a `HashSet` of `(state, ann_index, registers)` keys would in both forms; the switch from the plain set to `Visited` copies every key across, so no decision depends on when it happens.
+enum Seen {
+    Small {
+        set: HashSet<(usize, usize, RegKey), FxBuildHasher>,
+        charge: RetainedCharge,
+    },
+    Large(Visited),
+}
+
+/// Plain-set key: contents are hashed and compared, so independently allocated equal blocks deduplicate.
+struct RegKey(Rc<[Packed]>);
 
 impl PartialEq for RegKey {
     #[inline]
@@ -180,34 +295,401 @@ impl Eq for RegKey {}
 impl std::hash::Hash for RegKey {
     #[inline]
     fn hash<H: std::hash::Hasher>(&self, h: &mut H) {
-        // Content-based, delegating to Vec<Register>'s derived Hash -- bit-for-bit the hash the old key produced for the registers component.
         self.0.hash(h);
+    }
+}
+
+/// Outcome of `Seen::insert`.
+enum Insert {
+    Present,
+    /// New and kept; the record is `Some` once the compact form is in use.
+    New(Option<VisitedRecord>),
+    /// Its storage passed the retained-capture ceiling.
+    Ceiling,
+}
+
+impl Seen {
+    fn new() -> Self {
+        Seen::Small {
+            set: HashSet::default(),
+            charge: RetainedCharge(0),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Seen::Small { set, .. } => set.len(),
+            Seen::Large(v) => v.len(),
+        }
+    }
+
+    fn insert(
+        &mut self,
+        inst: &Inst,
+        parent: Option<(VisitedRecord, &[Packed])>,
+        fst_states: usize,
+        n: usize,
+        slots: usize,
+    ) -> Insert {
+        match self {
+            Seen::Small { set, charge } => {
+                let key = (
+                    inst.state,
+                    inst.ann_index,
+                    RegKey(Rc::clone(&inst.registers)),
+                );
+                if !set.insert(key) {
+                    return Insert::Present;
+                }
+                if !charge.add(SMALL_ENTRY_BYTES + std::mem::size_of_val(&*inst.registers)) {
+                    return Insert::Ceiling;
+                }
+                if charge.0 >= SMALL_SET_BYTES {
+                    // Grown large: carry every key into the compact form (their order cannot matter) and release the plain set's charge.
+                    let mut visited = Visited::new(fst_states, n, slots);
+                    let old = std::mem::take(set);
+                    *charge = RetainedCharge(0);
+                    for (state, ann, key) in old {
+                        match visited.insert(state, ann, &key.0, None) {
+                            Some(Some(_)) => {}
+                            Some(None) => unreachable!("plain-set keys are distinct"),
+                            None => return Insert::Ceiling,
+                        }
+                    }
+                    *self = Seen::Large(visited);
+                }
+                Insert::New(None)
+            }
+            Seen::Large(v) => match v.insert(inst.state, inst.ann_index, &inst.registers, parent) {
+                Some(Some(r)) => Insert::New(Some(r)),
+                Some(None) => Insert::Present,
+                None => Insert::Ceiling,
+            },
+        }
+    }
+}
+
+/// Where a kept key's record is and how many diff records separate it from the nearest full snapshot.
+#[derive(Clone, Copy)]
+struct VisitedRecord {
+    loc: u64,
+    hops: u8,
+}
+
+/// Bound on diff records walked per comparison; a record this far from a snapshot is stored in full.
+const SNAPSHOT_HOPS: u8 = 8;
+const FULL: u64 = u64::MAX;
+const FIRST_CHUNK_BYTES: usize = 4 << 10;
+const MAX_CHUNK_BYTES: usize = 1 << 20;
+/// Hash-table bytes per unit of capacity: a `u64` slot and a control byte, at hashbrown's 7/8 maximum load.
+const TABLE_BYTES_PER_ENTRY: usize = (std::mem::size_of::<u64>() + 1) * 8 / 7 + 1;
+/// Record prefix: key hash, then (after state and position) the parent location.
+const HASH_BYTES: usize = 4;
+const PARENT_BYTES: usize = 8;
+
+/// Little-endian bytes needed to hold every value up to `max`.
+fn width_for(max: u64) -> usize {
+    match max {
+        0..=0xFF => 1,
+        0x100..=0xFFFF => 2,
+        0x1_0000..=0xFFFF_FFFF => 4,
+        _ => 8,
+    }
+}
+
+fn read_le(bytes: &[u8], at: usize, width: usize) -> u64 {
+    let mut buf = [0u8; 8];
+    buf[..width].copy_from_slice(&bytes[at..at + width]);
+    u64::from_le_bytes(buf)
+}
+
+fn key_hash(state: usize, ann_index: usize, registers: &[Packed]) -> u32 {
+    use std::hash::Hasher;
+    let mut h = rustc_hash::FxHasher::default();
+    h.write_usize(state);
+    h.write_usize(ann_index);
+    for r in registers {
+        h.write_u32(r.0);
+    }
+    let x = h.finish();
+    (x ^ (x >> 32)) as u32
+}
+
+/// Spreads a stored 32-bit key hash over the 64 bits hashbrown reads (bucket bits low, tag bits high).
+fn table_hash(h: u32) -> u64 {
+    u64::from(h).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+impl Visited {
+    /// For keys whose state is below `state_count` and whose positions and register offsets are at most `n`.
+    fn new(state_count: usize, n: usize, slots: usize) -> Self {
+        Visited {
+            slots,
+            state_width: width_for(state_count.saturating_sub(1) as u64),
+            // Largest `Packed` over offsets `0..=n` (start and has bits set); `ann_index <= n` is smaller.
+            width: width_for(((n as u64) << 2) | 3),
+            slot_width: width_for(slots as u64),
+            chunks: Vec::new(),
+            table: hashbrown::HashTable::new(),
+            seen: vec![0; slots],
+            generation: 0,
+            hash_mask: u32::MAX,
+            charge: RetainedCharge(0),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.table.len()
+    }
+
+    fn bytes_at(&self, loc: u64) -> &[u8] {
+        &self.chunks[(loc >> 32) as usize][(loc & 0xFFFF_FFFF) as usize..]
+    }
+
+    fn header(&self) -> usize {
+        HASH_BYTES + self.state_width + self.width
+    }
+
+    /// Appends one record (`None` when its storage passes the retained-capture ceiling).
+    fn push_record(
+        &mut self,
+        hash: u32,
+        state: usize,
+        ann_index: usize,
+        parent: u64,
+        body: impl FnOnce(&mut Vec<u8>),
+        len: usize,
+    ) -> Option<u64> {
+        let fits = self
+            .chunks
+            .last()
+            .is_some_and(|c| c.capacity() - c.len() >= len);
+        if !fits {
+            let bytes = match self.chunks.last() {
+                None => FIRST_CHUNK_BYTES,
+                Some(c) => (c.capacity() * 2).min(MAX_CHUNK_BYTES),
+            }
+            .max(len);
+            if !self.charge.add(bytes) {
+                return None;
+            }
+            self.chunks.push(Vec::with_capacity(bytes));
+        }
+        let chunk_index = self.chunks.len() - 1;
+        let (state_width, width) = (self.state_width, self.width);
+        // A caller violating the key bounds given to `Visited::new` must fail loudly, not truncate.
+        debug_assert!(
+            state_width >= 8 || (state as u64) >> (8 * state_width) == 0,
+            "state {state} exceeds the {state_width}-byte state width"
+        );
+        debug_assert!(
+            width >= 8 || (ann_index as u64) >> (8 * width) == 0,
+            "ann_index {ann_index} exceeds the {width}-byte width"
+        );
+        let chunk = &mut self.chunks[chunk_index];
+        let offset = chunk.len();
+        chunk.extend_from_slice(&hash.to_le_bytes());
+        chunk.extend_from_slice(&(state as u64).to_le_bytes()[..state_width]);
+        chunk.extend_from_slice(&(ann_index as u64).to_le_bytes()[..width]);
+        chunk.extend_from_slice(&parent.to_le_bytes());
+        body(chunk);
+        debug_assert_eq!(chunk.len() - offset, len);
+        Some(((chunk_index as u64) << 32) | offset as u64)
+    }
+
+    /// Stores `registers` in full outside the set, as the parent record of a seed.
+    #[cfg(test)]
+    fn root(&mut self, registers: &[Packed]) -> Option<VisitedRecord> {
+        let width = self.width;
+        let len = self.header() + PARENT_BYTES + self.slots * width;
+        let loc = self.push_record(
+            0,
+            0,
+            0,
+            FULL,
+            |c| {
+                for r in registers {
+                    c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..width]);
+                }
+            },
+            len,
+        )?;
+        Some(VisitedRecord { loc, hops: 0 })
+    }
+
+    /// Whether the record at `loc` holds exactly this key: compares the header, then walks toward the snapshot, checking each slot at its nearest recorded value.
+    fn matches(
+        &mut self,
+        loc: u64,
+        hash: u32,
+        state: usize,
+        ann_index: usize,
+        registers: &[Packed],
+    ) -> bool {
+        let (sw, w, cw) = (self.state_width, self.width, self.slot_width);
+        let head = self.bytes_at(loc);
+        if read_le(head, 0, HASH_BYTES) != u64::from(hash)
+            || read_le(head, HASH_BYTES, sw) != state as u64
+            || read_le(head, HASH_BYTES + sw, w) != ann_index as u64
+        {
+            return false;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        if self.generation == 0 {
+            self.seen.fill(0);
+            self.generation = 1;
+        }
+        let generation = self.generation;
+        let header = self.header();
+        let mut at = loc;
+        loop {
+            let chunk = &self.chunks[(at >> 32) as usize];
+            let rec = &chunk[(at & 0xFFFF_FFFF) as usize..];
+            let parent = read_le(rec, header, PARENT_BYTES);
+            let body = header + PARENT_BYTES;
+            if parent == FULL {
+                return (0..self.slots).all(|slot| {
+                    self.seen[slot] == generation
+                        || read_le(rec, body + slot * w, w) == u64::from(registers[slot].0)
+                });
+            }
+            let count = read_le(rec, body, cw) as usize;
+            for i in 0..count {
+                let entry = body + cw + i * (cw + w);
+                let slot = read_le(rec, entry, cw) as usize;
+                if self.seen[slot] != generation {
+                    if read_le(rec, entry + cw, w) != u64::from(registers[slot].0) {
+                        return false;
+                    }
+                    self.seen[slot] = generation;
+                }
+            }
+            at = parent;
+        }
+    }
+
+    /// `Some(Some(record))` when the key is new (and is now kept), `Some(None)` when already present, `None` when its storage passes the retained-capture ceiling. `parent` must be the record of the instance whose registers are `parent_registers`.
+    fn insert(
+        &mut self,
+        state: usize,
+        ann_index: usize,
+        registers: &[Packed],
+        parent: Option<(VisitedRecord, &[Packed])>,
+    ) -> Option<Option<VisitedRecord>> {
+        let hash = key_hash(state, ann_index, registers) & self.hash_mask;
+        let mut candidates: smallvec::SmallVec<[u64; 4]> = smallvec::SmallVec::new();
+        for &loc in self.table.iter_hash(table_hash(hash)) {
+            candidates.push(loc);
+        }
+        for loc in candidates {
+            if self.matches(loc, hash, state, ann_index, registers) {
+                return Some(None);
+            }
+        }
+        let (w, cw) = (self.width, self.slot_width);
+        let full_len = self.slots * w;
+        // A key with no kept parent (spawned before the switch to this set) is stored in full.
+        let (parent, parent_registers, changed, diff_len) = match parent {
+            Some((p, pr)) => {
+                let changed = (0..self.slots).filter(|&i| registers[i] != pr[i]).count();
+                (p, pr, changed, cw + changed * (cw + w))
+            }
+            None => (
+                VisitedRecord {
+                    loc: FULL,
+                    hops: SNAPSHOT_HOPS,
+                },
+                registers,
+                0,
+                full_len,
+            ),
+        };
+        let full = parent.hops + 1 >= SNAPSHOT_HOPS || diff_len >= full_len;
+        let len = self.header() + PARENT_BYTES + if full { full_len } else { diff_len };
+        let loc = if full {
+            self.push_record(
+                hash,
+                state,
+                ann_index,
+                FULL,
+                |c| {
+                    for r in registers {
+                        c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..w]);
+                    }
+                },
+                len,
+            )?
+        } else {
+            self.push_record(
+                hash,
+                state,
+                ann_index,
+                parent.loc,
+                |c| {
+                    c.extend_from_slice(&(changed as u64).to_le_bytes()[..cw]);
+                    for (i, (r, p)) in registers.iter().zip(parent_registers).enumerate() {
+                        if r != p {
+                            c.extend_from_slice(&(i as u64).to_le_bytes()[..cw]);
+                            c.extend_from_slice(&u64::from(r.0).to_le_bytes()[..w]);
+                        }
+                    }
+                },
+                len,
+            )?
+        };
+        let chunks = &self.chunks;
+        let rehash = |&l: &u64| {
+            let rec = &chunks[(l >> 32) as usize][(l & 0xFFFF_FFFF) as usize..];
+            table_hash(read_le(rec, 0, HASH_BYTES) as u32)
+        };
+        let before = self.table.capacity();
+        self.table.reserve(1, rehash);
+        let grown = self.table.capacity() - before;
+        self.table.insert_unique(table_hash(hash), loc, rehash);
+        if !self.charge.add(grown * TABLE_BYTES_PER_ENTRY) {
+            return None;
+        }
+        Some(Some(VisitedRecord {
+            loc,
+            hops: if full { 0 } else { parent.hops + 1 },
+        }))
     }
 }
 
 /// The traversal driver.
 pub struct Transduce<'f> {
     fst: &'f Fst,
-    segs: Vec<Segment>,
+    segs: std::borrow::Cow<'f, [Segment]>,
     dir: Direction,
     start_anchor: bool,
     end_anchor: bool,
+    interchange: Option<Interchange>,
+}
+
+/// The caller's tiling-canonicalisation contract; see `Transduce::interchangeable_runs`.
+struct Interchange {
+    /// Exclusive end of each segment's run of interchangeable optional segments, else 0.
+    run_end: Vec<u32>,
+    /// Per arc index: whether the arc may canonicalise a run.
+    arc_ok: Vec<bool>,
 }
 
 impl<'f> Transduce<'f> {
-    pub fn new(fst: &'f Fst, segs: Vec<Segment>) -> Self {
+    /// `segs` may be owned or borrowed from a caller that keeps them: a borrow saves copying every lane vector per traversal.
+    pub fn new(fst: &'f Fst, segs: impl Into<std::borrow::Cow<'f, [Segment]>>) -> Self {
         Transduce {
             fst,
             dir: fst.direction(),
-            segs,
+            segs: segs.into(),
             start_anchor: false,
             end_anchor: false,
+            interchange: None,
         }
     }
 
     /// Convenience constructor from raw lane vectors (no optional segments).
     pub fn from_lanes(fst: &'f Fst, segs: Vec<Vec<u64>>) -> Self {
-        Transduce::new(fst, segs.into_iter().map(Segment::new).collect())
+        Transduce::new(fst, segs.into_iter().map(Segment::new).collect::<Vec<_>>())
     }
 
     pub fn anchored(mut self, start: bool, end: bool) -> Self {
@@ -216,8 +698,35 @@ impl<'f> Transduce<'f> {
         self
     }
 
+    /// Enumerate only canonical tilings of runs of interchangeable optional segments; the proof and the `run_end`/`arc_ok` contract are in `docs/divergences/130-optional-run-canonical-tilings.md`.
+    pub fn interchangeable_runs(mut self, run_end: Vec<u32>, arc_ok: Vec<bool>) -> Self {
+        if self.dir == Direction::LeftToRight && run_end.len() == self.segs.len() {
+            self.interchange = Some(Interchange { run_end, arc_ok });
+        }
+        self
+    }
+
+    /// The end of the run holding `index` when the arc is `ok`, else 0.
+    #[inline]
+    fn run_guard(&self, index: usize, arc_index: usize) -> u32 {
+        match &self.interchange {
+            Some(x) if x.arc_ok[arc_index] => x.run_end[index],
+            _ => 0,
+        }
+    }
+
     fn n(&self) -> usize {
         self.segs.len()
+    }
+
+    /// `counts[i]`: the segments at traversal index `i` or later that cannot be skipped (`counts[n] == 0`).
+    fn required_suffix_counts(&self) -> Vec<u32> {
+        let n = self.n();
+        let mut counts = vec![0u32; n + 1];
+        for i in (0..n).rev() {
+            counts[i] = counts[i + 1] + u32::from(!self.seg(i).optional);
+        }
+        counts
     }
 
     // --- offset helpers (linear model, direction-aware) ---------------------------------------
@@ -276,7 +785,7 @@ impl<'f> Transduce<'f> {
 
     // --- command execution (TraversalMethodBase.ExecuteCommands) -----------------------------
 
-    fn execute_commands(registers: &mut [Register], cmds: &[Cmd], start: Register, end: Register) {
+    fn execute_commands(registers: &mut [Packed], cmds: &[Cmd], start: Packed, end: Packed) {
         for cmd in cmds {
             if !crate::work::consume() {
                 return;
@@ -310,7 +819,7 @@ impl<'f> Transduce<'f> {
     fn check_accepting(
         &self,
         ann_index: usize,
-        registers: &[Register],
+        registers: &[Packed],
         state: usize,
         cur_results: &mut Vec<FstResult>,
     ) {
@@ -325,14 +834,11 @@ impl<'f> Transduce<'f> {
             return;
         }
         let next_ann = self.next_ann_pos(ann_index);
-        let mut match_registers = registers.to_vec();
+        pg_cost::add_registers(registers.len());
+        let mut packed = registers.to_vec();
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
-        Self::execute_commands(
-            &mut match_registers,
-            fin,
-            Register::unset(),
-            Register::unset(),
-        );
+        Self::execute_commands(&mut packed, fin, Packed::UNSET, Packed::UNSET);
+        let match_registers: Vec<Register> = packed.iter().map(|r| r.unpack()).collect();
 
         let infos = &self.fst.accept_infos[meta.accept_lo as usize..meta.accept_hi as usize];
         if infos.is_empty() {
@@ -349,6 +855,7 @@ impl<'f> Transduce<'f> {
                 if !crate::work::consume() {
                     return;
                 }
+                pg_cost::add_registers(match_registers.len());
                 cur_results.push(FstResult {
                     id: info.id.clone(),
                     registers: match_registers.clone(),
@@ -361,16 +868,18 @@ impl<'f> Transduce<'f> {
         }
     }
 
-    /// C# `Advance` (TraversalMethodBase.cs:248-351), linear acceptor path. Returns the produced continuation instances.
+    /// C# `Advance` (TraversalMethodBase.cs:248-351), appending continuations before the caller visits them.
     fn advance(
         &self,
         mut inst: Inst,
         arc: &crate::fst::Arc,
+        guard: u32,
         optional: bool,
         cur_results: &mut Vec<FstResult>,
-    ) -> Vec<Inst> {
+        out: &mut Vec<Inst>,
+    ) {
         if !crate::work::consume() {
-            return Vec::new();
+            return;
         }
         let next_index = inst.ann_index + 1; // GetNextNonoverlappingAnnotationIndex, linear
         let end = self.ann_end(inst.ann_index);
@@ -381,22 +890,29 @@ impl<'f> Transduce<'f> {
         if next_index < self.n() {
             let next_offset = self.ann_start(next_index);
             let next_start = true;
-            let mut out: Vec<Inst> = Vec::new();
 
             // optional next annotation -> also spawn the "skip it" path (registers pre-command).
             if self.seg(next_index).optional {
                 let mut ti = inst.clone(); // O(1): registers shared, deep-copied only on write
                 ti.ann_index = next_index;
-                out.extend(self.advance(ti, arc, true, cur_results));
+                self.advance(ti, arc, guard, true, cur_results, out);
+            }
+
+            // A skip that stops inside the run the consumed node belongs to is a non-canonical tiling.
+            if optional && (next_index as u32) < guard {
+                return;
             }
 
             if !arc_cmds.is_empty() {
-                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                if Rc::strong_count(&inst.registers) > 1 {
+                    pg_cost::add_registers(inst.registers.len());
+                }
+                let regs = writable(&mut inst.registers);
                 Self::execute_commands(
                     regs,
                     arc_cmds,
-                    Register::at(next_offset, next_start),
-                    Register::at(end, false),
+                    Packed::at(next_offset, next_start),
+                    Packed::at(end, false),
                 );
             }
             if !optional || self.end_anchor {
@@ -410,22 +926,24 @@ impl<'f> Transduce<'f> {
             inst.state = arc.target as usize;
             inst.ann_index = next_index;
             out.push(inst);
-            out
         } else {
             let next_offset = self.end_pos();
             if !arc_cmds.is_empty() {
-                let regs: &mut Vec<Register> = Rc::make_mut(&mut inst.registers);
+                if Rc::strong_count(&inst.registers) > 1 {
+                    pg_cost::add_registers(inst.registers.len());
+                }
+                let regs = writable(&mut inst.registers);
                 Self::execute_commands(
                     regs,
                     arc_cmds,
-                    Register::at(next_offset, false),
-                    Register::at(end, false),
+                    Packed::at(next_offset, false),
+                    Packed::at(end, false),
                 );
             }
             self.check_accepting(self.n(), &inst.registers, arc.target as usize, cur_results);
             inst.state = arc.target as usize;
             inst.ann_index = self.n();
-            vec![inst]
+            out.push(inst);
         }
     }
 
@@ -433,9 +951,9 @@ impl<'f> Transduce<'f> {
     fn initialize(
         &self,
         ann_index: &mut usize,
-        registers: &mut [Register],
+        registers: &mut [Packed],
         cmds: &[Cmd],
-        init_anns: &mut HashSet<usize>,
+        init_anns: &mut InitAnns,
     ) -> Vec<Inst> {
         if !crate::work::consume() {
             return Vec::new();
@@ -446,25 +964,23 @@ impl<'f> Transduce<'f> {
         if self.start_anchor && self.seg(*ann_index).optional {
             let next_index = *ann_index + 1;
             if next_index != self.n() {
+                pg_cost::add_registers(registers.len());
                 let mut regs = registers.to_vec();
                 let mut ni = next_index;
                 insts.extend(self.initialize(&mut ni, &mut regs, cmds, init_anns));
             }
         }
 
-        Self::execute_commands(
-            registers,
-            cmds,
-            Register::at(offset, true),
-            Register::unset(),
-        );
+        Self::execute_commands(registers, cmds, Packed::at(offset, true), Packed::UNSET);
 
         // linear: exactly one annotation starts at `offset`.
         if *ann_index < self.n() && !init_anns.contains(ann_index) {
+            pg_cost::add_registers(registers.len());
             insts.push(Inst {
                 state: self.fst.start() as usize,
                 ann_index: *ann_index,
-                registers: Rc::new(registers.to_vec()),
+                registers: Rc::from(&*registers),
+                record: None,
             });
             init_anns.insert(*ann_index);
         }
@@ -474,8 +990,8 @@ impl<'f> Transduce<'f> {
 
     fn check_accepting_start_state(
         &self,
-        init_anns: &HashSet<usize>,
-        registers: &[Register],
+        init_anns: &InitAnns,
+        registers: &[Packed],
         cur_results: &mut Vec<FstResult>,
     ) {
         let start = self.fst.start() as usize;
@@ -492,27 +1008,40 @@ impl<'f> Transduce<'f> {
     fn traverse_from(
         &self,
         ann_index: &mut usize,
-        init_registers: &mut [Register],
+        init_registers: &mut [Packed],
         cmds: &[Cmd],
-        init_anns: &mut HashSet<usize>,
+        init_anns: &mut InitAnns,
     ) -> Vec<FstResult> {
         let deterministic = self.fst.is_deterministic();
         let seeds = self.initialize(ann_index, init_registers, cmds, init_anns);
         let mut stack: Vec<Inst> = seeds;
         let mut cur_results: Vec<FstResult> = Vec::new();
+        // Reuse storage across arcs, draining only after all optional successors have been evaluated.
+        let mut continuations = Vec::new();
 
         if deterministic {
-            let __o2_det_start = Instant::now();
+            let __o2_det_start = profile::start();
             while let Some(inst) = stack.pop() {
                 // `Arc` is `Copy` and `state_arcs` borrows straight from the frozen `Fst`'s CSR pool, so the slice is iterated in place instead of cloned into a fresh `Vec` every pop.
                 let arcs = self.state_arcs(inst.state);
                 let mut advanced = false;
-                for arc in arcs {
+                let arc_base = self.fst.states[inst.state].arc_lo as usize;
+                for (arc_offset, arc) in arcs.iter().enumerate() {
+                    let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
                         return Vec::new();
                     }
                     if self.check_input_match(arc, inst.ann_index) {
-                        for ni in self.advance(inst, arc, false, &mut cur_results) {
+                        let guard = self.run_guard(inst.ann_index, arc_index);
+                        self.advance(
+                            inst,
+                            arc,
+                            guard,
+                            false,
+                            &mut cur_results,
+                            &mut continuations,
+                        );
+                        for ni in continuations.drain(..) {
                             stack.push(ni);
                         }
                         advanced = true;
@@ -521,17 +1050,28 @@ impl<'f> Transduce<'f> {
                 }
                 let _ = advanced;
             }
-            profile::record_det(__o2_det_start.elapsed().as_nanos());
+            if let Some(start) = __o2_det_start {
+                profile::record_det(start.elapsed().as_nanos());
+            }
         } else {
-            let __o2_nondet_start = Instant::now();
-            // Same visited-set key as before: the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
-            let mut traversed: HashSet<(usize, usize, RegKey)> = HashSet::new();
+            let __o2_nondet_start = profile::start();
+            // Keyed on the full (state, ann_index, register contents) triple, since two insts at the same (state, ann_index) with different registers are genuinely different analyses.
             let n = self.n();
+            let fst_states = self.fst.states.len();
+            let slots = self.fst.register_count() as usize * 2;
+            let mut traversed = Seen::new();
             let min_hops = self.fst.min_hops_to_accept();
+            // Under an end anchor every required segment still ahead costs one more arc.
+            let max_hops = self.fst.max_hops_to_accept();
+            let required_after = (self.end_anchor
+                && max_hops[self.fst.start() as usize] != u32::MAX)
+                .then(|| self.required_suffix_counts());
             while let Some(inst) = stack.pop() {
                 // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
                 let arcs = self.state_arcs(inst.state);
-                for arc in arcs {
+                let arc_base = self.fst.states[inst.state].arc_lo as usize;
+                for (arc_offset, arc) in arcs.iter().enumerate() {
+                    let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
                         return Vec::new();
                     }
@@ -543,20 +1083,37 @@ impl<'f> Transduce<'f> {
                         if min_hops[arc.target as usize] > remaining {
                             continue;
                         }
-                        for new_inst in self.advance(inst.clone(), arc, false, &mut cur_results) {
-                            let key = (
-                                new_inst.state,
-                                new_inst.ann_index,
-                                RegKey(Rc::clone(&new_inst.registers)),
-                            );
-                            if traversed.insert(key) {
-                                stack.push(new_inst);
+                        if let Some(required) = &required_after {
+                            if required[inst.ann_index + 1] > max_hops[arc.target as usize] {
+                                continue;
+                            }
+                        }
+                        let guard = self.run_guard(inst.ann_index, arc_index);
+                        self.advance(
+                            inst.clone(),
+                            arc,
+                            guard,
+                            false,
+                            &mut cur_results,
+                            &mut continuations,
+                        );
+                        for mut new_inst in continuations.drain(..) {
+                            let parent = inst.record.map(|r| (r, &*inst.registers));
+                            match traversed.insert(&new_inst, parent, fst_states, n, slots) {
+                                Insert::New(record) => {
+                                    new_inst.record = record;
+                                    stack.push(new_inst);
+                                }
+                                Insert::Present => {}
+                                Insert::Ceiling => return Vec::new(),
                             }
                         }
                     }
                 }
             }
-            profile::record_nondet(__o2_nondet_start.elapsed().as_nanos(), traversed.len());
+            if let Some(start) = __o2_nondet_start {
+                profile::record_nondet(start.elapsed().as_nanos(), traversed.len());
+            }
         }
 
         self.check_accepting_start_state(init_anns, init_registers, &mut cur_results);
@@ -566,9 +1123,11 @@ impl<'f> Transduce<'f> {
     // --- Transduce (Fst.cs:304-414) -----------------------------------------------------------
 
     fn run(&self, all_matches: bool) -> Vec<FstResult> {
-        let __o2_start = Instant::now();
+        let __o2_start = profile::start();
         let __o2_result = self.run_inner(all_matches);
-        profile::record_run(__o2_start.elapsed().as_nanos());
+        if let Some(start) = __o2_start {
+            profile::record_run(start.elapsed().as_nanos());
+        }
         __o2_result
     }
 
@@ -578,20 +1137,21 @@ impl<'f> Transduce<'f> {
         }
         let reg_slots = self.fst.register_count() as usize * 2;
         let mut result_list: Vec<FstResult> = Vec::new();
-        let mut init_anns: HashSet<usize> = HashSet::new();
+        let mut init_anns = InitAnns::default();
         let mut ann_index = 0usize;
 
         while ann_index < self.n() {
             if !crate::work::consume() {
                 return Vec::new();
             }
-            let mut init_registers = vec![Register::unset(); reg_slots];
+            pg_cost::add_registers(reg_slots);
+            let mut init_registers = vec![Packed::UNSET; reg_slots];
             let offset = self.ann_start(ann_index);
             // initializers: dest==0 set directly; others -> cmds (Fst.cs:376-387).
             let mut cmds: Vec<Cmd> = Vec::new();
             for cmd in &self.fst.initializers {
                 if cmd.dest == 0 {
-                    init_registers[0] = Register::at(offset, true);
+                    init_registers[0] = Packed::at(offset, true);
                 } else {
                     cmds.push(*cmd);
                 }
@@ -616,13 +1176,12 @@ impl<'f> Transduce<'f> {
         }
 
         if all_matches {
-            let __o2_distinct_start = Instant::now();
+            let __o2_distinct_start = profile::start();
             let __o2_distinct_input_len = result_list.len();
             let __o2_distinct_result = distinct(result_list);
-            profile::record_distinct(
-                __o2_distinct_start.elapsed().as_nanos(),
-                __o2_distinct_input_len,
-            );
+            if let Some(start) = __o2_distinct_start {
+                profile::record_distinct(start.elapsed().as_nanos(), __o2_distinct_input_len);
+            }
             __o2_distinct_result
         } else {
             result_list
@@ -686,24 +1245,50 @@ fn result_hash<H: std::hash::Hasher>(r: &FstResult, hasher: &mut H) {
 /// See `docs/research/pg-fst-traverse-design-notes.md` for why which duplicate survives matters and how equality semantics stay bit-for-bit identical.
 fn distinct(results: Vec<FstResult>) -> Vec<FstResult> {
     use std::collections::HashMap;
-    use std::hash::{BuildHasher, Hasher};
+    use std::hash::{BuildHasher, BuildHasherDefault};
 
-    let state = std::collections::hash_map::RandomState::new();
-    let mut buckets: HashMap<u64, Vec<usize>> = HashMap::with_capacity(results.len());
+    // Keyed by the already-computed `result_hash`, so the map's own hasher is the identity.
+    let mut buckets: HashMap<u64, Vec<usize>, BuildHasherDefault<PassThroughHasher>> =
+        HashMap::with_capacity_and_hasher(results.len(), BuildHasherDefault::default());
     let mut out: Vec<FstResult> = Vec::new();
     for r in results {
         if !crate::work::consume() {
             return Vec::new();
         }
-        let mut hasher = state.build_hasher();
+        let mut hasher = FxBuildHasher.build_hasher();
         result_hash(&r, &mut hasher);
-        let bucket = buckets.entry(hasher.finish()).or_default();
+        let bucket = buckets
+            .entry(std::hash::Hasher::finish(&hasher))
+            .or_default();
         if bucket.iter().all(|&i| !out[i].result_eq(&r)) {
             bucket.push(out.len());
             out.push(r);
         }
     }
     out
+}
+
+/// A `Hasher` for keys that are already well-mixed `u64` hashes: `finish` returns the last `u64` written.
+#[derive(Default)]
+struct PassThroughHasher(u64);
+
+impl std::hash::Hasher for PassThroughHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = self.0.rotate_left(8) ^ u64::from(b);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, n: u64) {
+        self.0 = n;
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 #[cfg(test)]

@@ -209,7 +209,7 @@ fn build_deriv_chain_u(
         write_bare(out, exit, lines);
         return entry_name;
     }
-    let depth = rules.len().max(2); // DERIV_DEPTH_MIN, emit.rs's own floor.
+    let depth = pg_foma::emit::deriv_chain_depth(g, rules);
     for level in 0..depth {
         let name = format!("{prefix}{level}");
         write_lexicon_header(out, &name);
@@ -564,7 +564,7 @@ fn build_splice_composites(
                 };
                 let mut word = Word::new(shape, root_stratum);
                 word.syn_fs = entry_fs.clone();
-                word.mpr = entry.mpr;
+                word.mpr = entry.mpr.clone();
                 word.root_allomorph = Some(allo.id);
                 word.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
                 let root_tag = tags::root_tag_lexc(entry.morpheme, width);

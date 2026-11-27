@@ -33,9 +33,7 @@ pub fn main(_args: &[String]) {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "<git rev-parse HEAD failed -- read it separately>".to_string());
     println!("commit under measurement: {commit}");
-    println!(
-        "scope: PANGLOSS_CONFORMANCE_SCOPE=all (conformance-staging/** + machine/conformance/**)"
-    );
+    println!("scope: PANGLOSS_CONFORMANCE_SCOPE=all (conformance-staging/** + conformance/**)");
     println!(
         "strategies measured: {:?} -- capability selector BYPASSED (LoweredCandidate constructed \
          directly, evaluate_plans_observed_with_cache never calls select_backends), so a backend \
@@ -86,7 +84,8 @@ pub fn main(_args: &[String]) {
                 expect_fail_count: 0,
                 expect_skip_count: 0,
             },
-            Ok(grammar) => {
+            Ok(mut grammar) => {
+                words_yaml.morpher.apply_to(&mut grammar);
                 let total_words = words_yaml.words.len();
                 let expect_fail_count = words_yaml.words.iter().filter(|w| w.expect_fail).count();
                 let expect_skip_count = words_yaml.words.iter().filter(|w| w.expect_skip).count();

@@ -35,6 +35,117 @@ fn tiny_trie() -> RootAllomorphTrie {
 }
 
 #[test]
+fn built_trie_keeps_original_lanes_and_compacts_its_nodes() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/edge-cases/adjacent-nullable-copies/grammar.xml");
+    let grammar = pg_grammar::load(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert!(!grammar.phon_features.is_empty());
+    let mut checked = 0;
+    for (index, stratum) in grammar.strata.iter().enumerate() {
+        let table = &grammar.char_tables[stratum.table.0 as usize];
+        let width = grammar.phon_features.len();
+        let lanes = construction_lanes(table, width, LANE_CACHE_BUDGET);
+        let cached = lanes.as_ref().unwrap();
+        let bytes = cached.len() * std::mem::size_of::<Box<[u64]>>()
+            + cached
+                .iter()
+                .map(|row| std::mem::size_of_val(row.as_ref()))
+                .sum::<usize>();
+        assert!(bytes <= LANE_CACHE_BUDGET);
+        let trie = RootAllomorphTrie::build(&grammar, StratumId(index as u8));
+        assert_eq!(trie.nodes.capacity(), trie.nodes.len());
+        for node in &trie.nodes {
+            assert_eq!(node.edges.capacity(), node.edges.len());
+            assert_eq!(node.accepts.capacity(), node.accepts.len());
+        }
+        for entry in &stratum.entries {
+            for allo in &grammar.entries[entry.0 as usize].allomorphs {
+                if allo.is_pattern {
+                    continue;
+                }
+                let segments = shape_segments(&allo.shape.shape, table, lanes.as_deref(), width);
+                for (cd, actual, _) in segments {
+                    assert_eq!(actual.as_ref(), char_def_lanes(table, cd, width));
+                    checked += 1;
+                }
+                assert!(trie
+                    .search(&grammar, &allo.shape.shape)
+                    .contains(&(allo.id, *entry)));
+            }
+        }
+    }
+    assert!(checked > 0);
+}
+
+#[test]
+fn oversized_lane_table_falls_back_without_changing_root_lookup() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../conformance-staging/edge-cases/adjacent-nullable-copies/grammar.xml");
+    let xml = std::fs::read_to_string(path).unwrap();
+    let features: String = (0..512).map(|i| format!("<SymbolicFeature id=\"extra{i}\"><Name>extra{i}</Name><Symbols><Symbol id=\"v{i}\">v</Symbol></Symbols></SymbolicFeature>")).collect();
+    let boundaries: String = (0..512).map(|i| format!("<BoundaryDefinition id=\"boundary{i}\"><Representations><Representation>boundary{i}</Representation></Representations></BoundaryDefinition>")).collect();
+    let xml = xml.replace("</PhonologicalFeatureSystem>", &format!("{features}</PhonologicalFeatureSystem>"))
+        .replace("</CharacterDefinitionTable>", &format!("<BoundaryDefinitions>{boundaries}</BoundaryDefinitions></CharacterDefinitionTable>"));
+    let grammar = pg_grammar::load(&xml).unwrap();
+    let stratum = &grammar.strata[0];
+    let table = &grammar.char_tables[stratum.table.0 as usize];
+    let width = grammar.phon_features.len();
+    let needed: usize = table
+        .iter()
+        .map(|(_, cd)| {
+            std::mem::size_of::<Box<[u64]>>()
+                + (cd.feature_lanes().len() + 1) * std::mem::size_of::<u64>()
+        })
+        .sum();
+    assert!(needed > LANE_CACHE_BUDGET);
+    let bounded = construction_lanes(table, width, LANE_CACHE_BUDGET);
+    assert!(bounded.is_none());
+    let bounded_bytes = bounded.as_ref().map_or(0, |rows| {
+        rows.len() * std::mem::size_of::<Box<[u64]>>()
+            + rows
+                .iter()
+                .map(|row| std::mem::size_of_val(row.as_ref()))
+                .sum::<usize>()
+    });
+    assert!(bounded_bytes <= LANE_CACHE_BUDGET);
+    let cached = construction_lanes(table, width, needed).unwrap();
+    let actual_bytes = cached.len() * std::mem::size_of::<Box<[u64]>>()
+        + cached
+            .iter()
+            .map(|row| row.len() * std::mem::size_of::<u64>())
+            .sum::<usize>();
+    assert_eq!(actual_bytes, needed);
+    for (id, _) in table.iter() {
+        assert_eq!(
+            cached[id.0 as usize].as_ref(),
+            char_def_lanes(table, id.0, width)
+        );
+    }
+    let fallback = RootAllomorphTrie::build(&grammar, StratumId(0));
+    let reference = RootAllomorphTrie::build_with_lane_budget(&grammar, StratumId(0), needed);
+    let mut checked = 0;
+    for entry in &stratum.entries {
+        for allo in &grammar.entries[entry.0 as usize].allomorphs {
+            if allo.is_pattern {
+                continue;
+            }
+            let segments = shape_segments(&allo.shape.shape, table, None, width);
+            assert!(segments
+                .iter()
+                .all(|(_, lanes, _)| matches!(lanes, Cow::Owned(_))));
+            for (cd, lanes, _) in segments {
+                assert_eq!(lanes.as_ref(), char_def_lanes(table, cd, width));
+                checked += 1;
+            }
+            let got = fallback.search(&grammar, &allo.shape.shape);
+            assert_eq!(got, reference.search(&grammar, &allo.shape.shape));
+            assert!(got.contains(&(allo.id, *entry)));
+        }
+    }
+    assert!(checked > 0);
+}
+
+#[test]
 fn exact_match_returns_the_root() {
     let t = tiny_trie();
     // Search /p a/ (exact same char_defs + lanes as root A) ⇒ {allo 100}.

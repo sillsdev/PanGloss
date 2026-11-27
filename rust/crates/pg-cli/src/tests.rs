@@ -1,8 +1,12 @@
 //! Tests the CLI parser and batch command integration.
-use super::{load_grammar, run_batch, write_parse_analysis_row, StepCap, DEFAULT_STEP_CAP};
+use super::{
+    load_grammar, run_batch, run_batch_counted, write_parse_analysis_row, WorkCap, DEFAULT_WORK_CAP,
+};
 use std::fs;
 use std::process::Command;
 use std::sync::atomic::{AtomicU32, Ordering};
+
+mod partials;
 
 /// A minimal, self-contained grammar (no phonological/morphological rules): one stratum, one table, one `LexicalEntry` whose surface form is "kat" — root-only lookup is enough to exercise the batch pipeline.
 pub(crate) const MINI_GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -300,7 +304,7 @@ fn analyses_sidecar_keeps_closed_rows_and_duplicate_word_indexes() {
 #[test]
 fn analyses_sidecar_projects_source_guids_from_fwdata() {
     let fixture = fwdata_fixture_with_k();
-    // The literal rewrite makes kad the surface; see docs/divergences/071-strrep-rewrite-unapplication.md.
+    // The literal rewrite makes kad the surface; see retired divergence 071 (docs/divergences/README.md, Retired entries).
     let rows = run_batch_sidecar_path("analyses-fwdata-source-guids", &fixture, "kad\nkat\n", &[]);
     assert_eq!(rows.len(), 2);
     for row in &rows {
@@ -324,13 +328,170 @@ fn analyses_sidecar_projects_source_guids_from_fwdata() {
 }
 
 #[test]
+fn morph_spans_are_opt_in_and_place_each_morph_on_the_surface() {
+    let fixture = fwdata_fixture_with_k();
+    for (tag, threads) in [("spans-seq", "1"), ("spans-par", "2")] {
+        let plain = run_batch_sidecar_path(tag, &fixture, "kad\n", &["--threads", threads]);
+        assert!(plain[0]["analyses"][0].get("morphSpans").is_none());
+        let rows = run_batch_sidecar_path(
+            tag,
+            &fixture,
+            "kad\n",
+            &["--threads", threads, "--morph-spans"],
+        );
+        let spans = &rows[0]["analyses"][0]["morphSpans"];
+        assert_eq!(spans["surface"], "kad");
+        assert_eq!(spans["segmentCount"], 3);
+        assert_eq!(spans["morphemes"][0]["item"], 0);
+        assert_eq!(spans["morphemes"][0]["reason"], serde_json::Value::Null);
+        assert_eq!(
+            spans["morphemes"][0]["spans"],
+            serde_json::json!([{"segments": [0, 3], "offsets": [0, 3], "text": "kad"}])
+        );
+        assert_eq!(spans["unattributed"], serde_json::json!([]));
+        assert_eq!(
+            rows[0]["analyses"][0]["morphs"],
+            plain[0]["analyses"][0]["morphs"]
+        );
+    }
+}
+
+#[test]
+fn morph_spans_are_refused_where_they_cannot_run() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("spans-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let analyses = dir.join("a.jsonl");
+    let base = |extra: &[&str]| -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            dir.join("out.tsv").to_string_lossy().into_owned(),
+            "--morph-spans".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    let analyses_path = analyses.to_string_lossy().into_owned();
+    let with_analyses = ["--analyses", analyses_path.as_str()];
+    let cases: Vec<Vec<&str>> = vec![
+        vec![],
+        [&with_analyses[..], &["--stats"]].concat(),
+        [&with_analyses[..], &["--partials", "1"]].concat(),
+        [&with_analyses[..], &["--trace-rejections"]].concat(),
+        [&with_analyses[..], &["--prefilter", "on"]].concat(),
+        [&with_analyses[..], &["--engine", "fst"]].concat(),
+    ];
+    for extra in cases {
+        let error = run_batch(&base(&extra)).expect_err(&format!("{extra:?} is refused"));
+        assert!(!error.is_empty(), "{extra:?}");
+        // Only the no-sidecar case is the morph-spans check's own message; the others are refused by their flags' checks.
+        if extra.is_empty() {
+            assert!(
+                error.contains("--morph-spans requires --analyses"),
+                "{error}"
+            );
+        }
+    }
+}
+
+/// The raw bytes of a flag-less row, as v0.33 wrote them: the morph keys keep their declared order.
+#[test]
+fn analyses_rows_without_the_flag_keep_their_exact_bytes() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("analyses-bytes");
+    let words = dir.join("words.txt");
+    let analyses = dir.join("a.jsonl");
+    fs::write(&words, "kad\n").unwrap();
+    let args: Vec<String> = vec![
+        fixture.to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--analyses".to_string(),
+        analyses.to_string_lossy().into_owned(),
+    ];
+    run_batch(&args).unwrap();
+    let line = fs::read_to_string(&analyses).unwrap();
+    let (head, tail) = line.split_once("\"elapsedMs\":").expect("elapsedMs");
+    let tail = tail.split_once(',').expect("elapsedMs value").1;
+    assert_eq!(
+        head,
+        "{\"schema\":\"fieldworks-parse-analysis/v1\",\"index\":0,\"word\":\"kad\","
+    );
+    assert_eq!(
+        tail,
+        "\"capped\":false,\"timedOut\":false,\"invalidShape\":false,\"analyses\":[{\"morphs\":[{\"form\":\"00000000-0000-0000-0000-000000000031\",\"msa\":\"00000000-0000-0000-0000-000000000032\",\"inflType\":null,\"guessedString\":null}]}],\"unavailable\":[]}\n"
+    );
+}
+
+/// A FieldWorks circumfix reaches the CLI with each half placed, and the output accounts for the surface.
+#[test]
+fn morph_spans_place_each_circumfix_half_through_the_cli() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-circumfix-pairings",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let rows = run_batch_sidecar_path(
+        "spans-circumfix",
+        &project,
+        "tagaka\ntogaki\n",
+        &["--morph-spans"],
+    );
+    let mut readings = 0;
+    for row in &rows {
+        for reading in row["analyses"].as_array().unwrap() {
+            let spans = &reading["morphSpans"];
+            let surface = spans["surface"].as_str().unwrap();
+            let mut runs: Vec<(u64, u64, String)> = Vec::new();
+            let all = spans["morphemes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|m| {
+                    assert_eq!(m["spans"].is_null(), !m["reason"].is_null(), "{m}");
+                    m["spans"].as_array().cloned().unwrap_or_default()
+                })
+                .chain(spans["unattributed"].as_array().unwrap().iter().cloned());
+            for run in all {
+                runs.push((
+                    run["segments"][0].as_u64().unwrap(),
+                    run["segments"][1].as_u64().unwrap(),
+                    run["text"].as_str().unwrap().to_string(),
+                ));
+            }
+            runs.sort();
+            let mut next = 0;
+            for (start, end, _) in &runs {
+                assert_eq!(*start, next, "{spans}");
+                next = *end;
+            }
+            assert_eq!(next, spans["segmentCount"].as_u64().unwrap());
+            let text: String = runs.iter().map(|(_, _, t)| t.as_str()).collect();
+            assert_eq!(text, surface);
+            let word = row["word"].as_str().unwrap();
+            let halves: Vec<&str> = spans["morphemes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| m["spans"][0]["text"].as_str().unwrap())
+                .collect();
+            assert_eq!(halves, [&word[..2], "ga", &word[4..]]);
+            readings += 1;
+        }
+    }
+    assert!(readings >= 2, "both words parse");
+}
+
+#[test]
 fn analyses_sidecar_preserves_cap_and_timeout_flags() {
     let grammar_xml = homophonous_suffix_grammar_xml(7);
     let capped_rows = run_batch_sidecar_custom(
         "analyses-cap-timeout",
         &grammar_xml,
         &format!("kad{}\n", "d".repeat(7)),
-        &["--step-cap", "500"],
+        &["--work-cap", "50000"],
     );
     assert_eq!(capped_rows.len(), 1);
     assert_eq!(capped_rows[0]["capped"], true);
@@ -350,20 +511,24 @@ fn analyses_sidecar_preserves_cap_and_timeout_flags() {
 
     let grammar = pg_grammar::load(MINI_GRAMMAR_XML).expect("load mini grammar");
     let outcome = pg_parse::ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("partial".into(), "kat".into())],
         structured: Vec::new(),
         capped: true,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 1,
         work_steps: 0,
         timed_out: true,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let mut encoded = Vec::new();
-    write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar)
+    write_parse_analysis_row(&mut encoded, 0, "kat", 12, &outcome, &grammar, None)
         .expect("serialize mixed-bound outcome");
     let row: serde_json::Value = serde_json::from_slice(&encoded).expect("valid row");
+    assert!(row.get("completion").is_none());
     assert_eq!(row["capped"], true);
     assert_eq!(row["timedOut"], true);
 }
@@ -497,19 +662,18 @@ fn no_word_timeout_flag_keeps_ok_row_shape_both_thread_modes() {
     }
 }
 
-/// `--work-columns` appends the word's own `steps` and `work_steps`, identical in both writer paths and after `guessed`; without it the row is unchanged.
+/// `--work-columns` appends the word's own `work_steps`, identical in both writer paths and after `guessed`; without it the row is unchanged.
 #[test]
-fn work_columns_append_the_words_steps_and_work_steps() {
+fn work_columns_append_the_words_work_steps() {
     let grammar_xml = homophonous_suffix_grammar_xml(2);
     let dir = scratch_dir("row-counts-grammar");
     let grammar_path = dir.join("grammar.xml");
     fs::write(&grammar_path, &grammar_xml).unwrap();
     let (grammar, _) = load_grammar(&grammar_path.to_string_lossy()).unwrap();
-    let expected = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP.as_morpher_cap())
-        .with_work_cap(super::resolved_work_cap(DEFAULT_STEP_CAP, None))
-        .parse_word("kadd");
-    assert!(expected.steps > 0 && expected.work_steps > expected.steps);
-    let counts = [expected.steps.to_string(), expected.work_steps.to_string()];
+    let expected =
+        pg_parse::Morpher::new(&grammar, DEFAULT_WORK_CAP.as_morpher_cap()).parse_word("kadd");
+    assert!(expected.work_steps > 0);
+    let counts = [expected.work_steps.to_string()];
     for (tag, args) in [
         ("row-counts-seq", vec!["--threads", "1"]),
         ("row-counts-par", vec!["--threads", "2"]),
@@ -524,10 +688,10 @@ fn work_columns_append_the_words_steps_and_work_steps() {
         let lines = run_batch_tsv_custom(tag, &grammar_xml, "kadd\n", &with_counts);
         let fields: Vec<&str> = lines.last().unwrap().split('\t').collect();
         assert_eq!(fields[3], "ok", "{tag}: {fields:?}");
-        assert_eq!(fields.len(), plain.len() + 2, "{tag}: {fields:?}");
+        assert_eq!(fields.len(), plain.len() + 1, "{tag}: {fields:?}");
         assert_eq!(fields[..2], plain[..2], "{tag}");
         assert_eq!(fields[3..plain.len()], plain[3..], "{tag}");
-        assert_eq!(fields[fields.len() - 2..], counts, "{tag}: {fields:?}");
+        assert_eq!(fields[fields.len() - 1..], counts, "{tag}: {fields:?}");
     }
 }
 
@@ -537,22 +701,14 @@ fn a_cap_row_reports_the_work_spent_up_to_the_cap() {
     for threads in ["1", "2"] {
         let rows = run_batch_tsv(
             "cap-row-counts",
-            &[
-                "--step-cap",
-                "unbounded",
-                "--work-cap",
-                "1",
-                "--threads",
-                threads,
-                "--work-columns",
-            ],
+            &["--work-cap", "1", "--threads", threads, "--work-columns"],
         );
         let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
         assert_eq!(fields[3], "CAP", "{fields:?}");
-        assert_eq!(fields[5..], ["0", "1"], "{fields:?}");
+        assert_eq!(fields[5..], ["1"], "{fields:?}");
     }
 }
-/// `k` homophonous one-shot suffix rules unapplying "d", so the unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--step-cap` firing.
+/// `k` homophonous one-shot suffix rules unapplying "d", so the unwind is genuinely combinatorial; `MINI_GRAMMAR_XML`'s root-only lookup takes zero steps and cannot exercise a real `--work-cap` firing.
 fn homophonous_suffix_grammar_xml(k: usize) -> String {
     let mut mrule_defs = String::new();
     let mut ids = Vec::with_capacity(k);
@@ -573,7 +729,7 @@ fn homophonous_suffix_grammar_xml(k: usize) -> String {
         r#"<?xml version="1.0" encoding="utf-8"?>
 <HermitCrabInput>
   <Language>
-    <Name>StepCapCliTest</Name>
+    <Name>WorkCapCliTest</Name>
     <PartsOfSpeech><PartOfSpeech id="posV"><Name>Verb</Name></PartOfSpeech></PartsOfSpeech>
     <CharacterDefinitionTable id="t1">
       <Name>Main</Name>
@@ -607,9 +763,9 @@ fn homophonous_suffix_grammar_xml(k: usize) -> String {
     )
 }
 
-/// A small `--step-cap` fires on a genuinely combinatorial unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
+/// A small `--work-cap` fires on a genuinely combinatorial unwind, in both thread modes; an incomplete outcome is typed `CAP`, never an `ok` row.
 #[test]
-fn step_cap_small_writes_cap_row_both_thread_modes() {
+fn work_cap_small_writes_cap_row_both_thread_modes() {
     let grammar_xml = homophonous_suffix_grammar_xml(7);
     let word = format!("kad{}\n", "d".repeat(7));
     for (tag, threads) in [("seq-cap", "1"), ("par-cap", "2")] {
@@ -617,7 +773,7 @@ fn step_cap_small_writes_cap_row_both_thread_modes() {
             tag,
             &grammar_xml,
             &word,
-            &["--step-cap", "500", "--threads", threads],
+            &["--work-cap", "50000", "--threads", threads],
         );
         let result_line = lines.last().expect("at least one line");
         let fields: Vec<&str> = result_line.split('\t').collect();
@@ -630,35 +786,299 @@ fn step_cap_small_writes_cap_row_both_thread_modes() {
     }
 }
 
+/// `--step-cap` counted analysis attempts and no longer exists: every subcommand that took it refuses it as an unknown option.
 #[test]
-fn default_step_cap_is_fifty_million() {
+fn the_removed_step_cap_flag_is_refused_like_any_unknown_option() {
+    let to_args = |args: &[&str]| -> Vec<String> { args.iter().map(|a| a.to_string()).collect() };
+    let refusals = [
+        run_batch(&to_args(&["g.xml", "w.txt", "o.tsv", "--step-cap", "5"])),
+        run_batch(&to_args(&["g.xml", "w.txt", "o.tsv", "--step-cap=5"])),
+        super::run_parse(&to_args(&["g.xml", "kat", "--step-cap", "5"])),
+        super::run_parse(&to_args(&["g.xml", "kat", "--step-cap=5"])),
+        super::stats_cmd::run_stats(&to_args(&["g.xml", "--step-cap", "5"]))
+            .map_err(|e| e.to_string()),
+        super::serve::parse_args(&to_args(&["--project", "p.fwdata", "--step-cap", "5"]))
+            .map(|_| ()),
+    ];
+    for refusal in refusals {
+        let err = refusal.expect_err("--step-cap must be refused");
+        assert!(err.contains("unknown option: --step-cap"), "{err}");
+    }
+}
+
+#[test]
+fn capture_cap_is_typed_in_both_batch_writer_paths_and_can_be_disabled() {
+    let grammar = homophonous_suffix_grammar_xml(1);
+    for threads in ["1", "2"] {
+        let capped = run_batch_tsv_custom(
+            "capture-cap",
+            &grammar,
+            "kadd\n",
+            &["--capture-cap-mib", "0", "--threads", threads],
+        );
+        let fields: Vec<_> = capped.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "MEMCAP", "{fields:?}");
+        let complete = run_batch_tsv_custom(
+            "capture-unbounded",
+            &grammar,
+            "kadd\n",
+            &["--capture-cap-mib=unbounded", "--threads", threads],
+        );
+        let fields: Vec<_> = complete.last().unwrap().split('\t').collect();
+        assert_eq!(fields[3], "ok", "{fields:?}");
+        assert_ne!(
+            fields[4], "-",
+            "the word must parse when the cap is disabled"
+        );
+    }
+}
+
+#[test]
+fn word_only_reuse_matches_fresh_cache_after_search_settings_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let grammar = dir.path().join("grammar.xml");
+    let words = dir.path().join("words.txt");
+    let out = dir.path().join("out.tsv");
+    let reused = dir.path().join("reused.sqlite");
+    let fresh = dir.path().join("fresh.sqlite");
+    fs::write(&grammar, homophonous_suffix_grammar_xml(1)).unwrap();
+    fs::write(&words, "kadd\n").unwrap();
+
+    let batch = |cache: &std::path::Path, capture, partials| {
+        let mut args = vec![
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "--threads",
+            "1",
+            "--work-columns",
+            "--stats",
+            "--stats-profile=word-only",
+            "--cache",
+            cache.to_str().unwrap(),
+            capture,
+        ];
+        if let Some(partials) = partials {
+            args.extend([partials, "--prefilter=off"]);
+        }
+        run_batch(&args.into_iter().map(str::to_owned).collect::<Vec<_>>()).unwrap();
+        fs::read_to_string(&out).unwrap()
+    };
+    let cached_word = |cache| {
+        rusqlite::Connection::open(cache)
+            .unwrap()
+            .query_row("SELECT capped, passes, work, run_id FROM word", [], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+    };
+
+    let tsv = batch(&reused, "--capture-cap-mib=0", None);
     assert_eq!(
-        DEFAULT_STEP_CAP,
-        StepCap::Finite(std::num::NonZeroU64::new(50_000_000).unwrap())
+        tsv.lines().last().unwrap().split('\t').nth(3),
+        Some("MEMCAP")
+    );
+    let capped = cached_word(&reused);
+    let tsv = batch(&reused, "--capture-cap-mib=unbounded", None);
+    let fields: Vec<_> = tsv.lines().last().unwrap().split('\t').collect();
+    assert_eq!(fields[3], "ok");
+    batch(&fresh, "--capture-cap-mib=unbounded", None);
+    let fresh_word = cached_word(&fresh);
+    let updated = cached_word(&reused);
+    assert_eq!(
+        (updated.0, updated.1, updated.2),
+        (fresh_word.0, fresh_word.1, fresh_word.2)
+    );
+    assert_eq!((updated.0, updated.2), (0, fields[5].parse().unwrap()));
+    assert_ne!(updated.3, capped.3);
+
+    batch(&reused, "--capture-cap-mib=unbounded", Some("--partials=1"));
+    let partial = cached_word(&reused);
+    assert_ne!(
+        partial.3, updated.3,
+        "the partial limit changes the owning measurement"
+    );
+    batch(&reused, "--capture-cap-mib=unbounded", Some("--partials=1"));
+    assert_eq!(cached_word(&reused), partial);
+}
+
+#[test]
+fn word_memory_cap_is_typed_and_the_batch_continues_in_both_thread_modes() {
+    let grammar = homophonous_suffix_grammar_xml(1);
+    let mut expected = std::collections::BTreeMap::new();
+    for threads in ["1", "2"] {
+        for words in ["kadd\nka\nkadd\nka\n", "ka\nkadd\nka\nkadd\n"] {
+            let rows = run_batch_tsv_custom(
+                "word-memory-cap",
+                &grammar,
+                words,
+                &[
+                    "--word-mem-cap-mib",
+                    "1",
+                    "--threads",
+                    threads,
+                    "--work-columns",
+                ],
+            );
+            let completed: Vec<Vec<&str>> = rows
+                .iter()
+                .map(|line| line.split('\t').collect::<Vec<_>>())
+                .filter(|row| row.len() == 6)
+                .collect();
+            assert_eq!(completed.len(), 4);
+            for row in completed {
+                assert_eq!(row[3], if row[1] == "kadd" { "MEMCAP" } else { "ok" });
+                let normalized: Vec<String> = [row[1], row[3], row[4], row[5]]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect();
+                if let Some(previous) = expected.get(row[1]) {
+                    assert_eq!(&normalized, previous, "threads={threads}, words={words:?}");
+                } else {
+                    expected.insert(row[1].to_owned(), normalized);
+                }
+            }
+        }
+        let complete = run_batch_tsv_custom(
+            "word-memory-unbounded",
+            &grammar,
+            "kadd\n",
+            &["--word-mem-cap-mib=0", "--threads", threads],
+        );
+        assert_eq!(complete.last().unwrap().split('\t').nth(3), Some("ok"));
+    }
+}
+
+#[test]
+fn word_memory_cap_cli_values_are_checked() {
+    assert_eq!(super::parse_word_mem_cap("0"), Ok(None));
+    assert_eq!(super::parse_word_mem_cap("000"), Ok(None));
+    assert_eq!(
+        super::parse_word_mem_cap("100"),
+        Ok(Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES))
+    );
+    for value in ["-1", "abc", &usize::MAX.to_string()] {
+        assert!(super::parse_word_mem_cap(value).is_err());
+    }
+}
+
+#[test]
+fn capture_cap_cli_values_are_checked_before_file_access() {
+    assert_eq!(super::parse_capture_cap("unbounded"), Ok(None));
+    assert_eq!(
+        super::parse_capture_cap("256"),
+        Ok(Some(pg_fst::work::DEFAULT_RETAINED_CAP_BYTES))
+    );
+    for value in ["-1", "abc", &usize::MAX.to_string()] {
+        assert!(super::parse_capture_cap(value).is_err());
+    }
+}
+
+#[test]
+fn default_work_cap_is_five_billion() {
+    assert_eq!(
+        DEFAULT_WORK_CAP,
+        WorkCap::Finite(std::num::NonZeroU64::new(5_000_000_000).unwrap())
     );
 }
 
-/// `--step-cap 0` is rejected before any file is touched, with the same message `StepCap::from_str` gives.
+/// `--work-cap 0` is rejected before any file is touched, with the same message `WorkCap::from_str` gives.
 #[test]
-fn step_cap_zero_is_rejected_with_a_specific_message() {
+fn work_cap_zero_is_rejected_with_a_specific_message() {
     let err = run_batch(&[
         "unused.xml".to_string(),
         "unused.txt".to_string(),
         "unused.tsv".to_string(),
-        "--step-cap".to_string(),
+        "--work-cap".to_string(),
         "0".to_string(),
     ])
-    .expect_err("--step-cap 0 must be rejected");
-    assert!(err.contains("fires before the first step"), "{err}");
+    .expect_err("--work-cap 0 must be rejected");
+    assert!(err.contains("fires before the first work step"), "{err}");
 }
 
-/// `--step-cap unbounded` opts back into no bound at all; "kat" analyzes in far fewer than `DEFAULT_STEP_CAP` steps regardless, so this only proves the flag parses and the run still completes normally.
+/// `--work-cap unbounded` opts back into no bound at all; "kat" analyzes in far fewer than `DEFAULT_WORK_CAP` work steps regardless, so this only proves the flag parses and the run still completes normally.
 #[test]
-fn step_cap_unbounded_parses_and_batch_completes_ok() {
-    let lines = run_batch_tsv("unbounded-ok", &["--step-cap", "unbounded"]);
+fn work_cap_unbounded_parses_and_batch_completes_ok() {
+    let lines = run_batch_tsv("unbounded-ok", &["--work-cap", "unbounded"]);
     let result_line = lines.last().expect("at least one line");
     let fields: Vec<&str> = result_line.split('\t').collect();
     assert_eq!(fields[3], "ok", "{fields:?}");
+}
+
+#[test]
+fn batch_stats_identities_match_full_import_and_legacy_fingerprints() {
+    use super::{stats_manifest, LoadedStatsIdentity, StatsIdentityRequest};
+
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let xml = fs::read_to_string(&fixture).expect("read synthetic fixture");
+    let xml = xml.replace(
+        "guid=\"00000000-0000-0000-0000-0000000000ff\"",
+        "guid=\"00000000-0000-0000-0000-000000000017\"",
+    );
+    let scratch = tempfile::tempdir().expect("stats identity scratch");
+    let path = scratch.path().join("fixture.fwdata");
+    fs::write(&path, &xml).expect("write adjusted synthetic fixture");
+
+    let loaded =
+        super::load_grammar_impl(&path.to_string_lossy(), false, StatsIdentityRequest::Frozen)
+            .unwrap_or_else(|e| panic!("fixture loads: {e}"));
+    let LoadedStatsIdentity::Frozen(identity) = loaded.stats_identity else {
+        panic!("frozen stats identity must be captured");
+    };
+    let (snapshot, _) = pg_fwdata::import_file(&path).expect("full import");
+    let expected =
+        stats_manifest::SourceIdentity::from_imported_snapshot(xml.as_bytes(), &snapshot)
+            .expect("full identity");
+    assert_eq!(identity.model_fingerprint, expected.model_fingerprint);
+    assert_eq!(identity.grammar_hash, expected.grammar_hash);
+
+    let words = scratch.path().join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let tsv = scratch.path().join("out.tsv");
+    let cases = [
+        ("fixture.fwdata", xml.as_str(), snapshot.grammar_hash()),
+        (
+            "raw.FWDATA",
+            xml.as_str(),
+            stats_manifest::sha256_hex(xml.as_bytes()),
+        ),
+        ("fixture.json", &snapshot.to_json(), snapshot.grammar_hash()),
+        (
+            "fixture.xml",
+            MINI_GRAMMAR_XML,
+            stats_manifest::sha256_hex(MINI_GRAMMAR_XML.as_bytes()),
+        ),
+    ];
+    for (name, source, expected_hash) in cases {
+        let grammar = scratch.path().join(name);
+        fs::write(&grammar, source).unwrap();
+        let cache = scratch.path().join(format!("{name}.sqlite"));
+        let args = [
+            grammar.to_str().unwrap(),
+            words.to_str().unwrap(),
+            tsv.to_str().unwrap(),
+            "--threads",
+            "1",
+            "--stats",
+            "--cache",
+            cache.to_str().unwrap(),
+        ]
+        .map(str::to_string);
+        run_batch(&args).unwrap_or_else(|error| panic!("{name} failed: {error}"));
+        let db = rusqlite::Connection::open(&cache).unwrap();
+        let captured_hash: String = db
+            .query_row("SELECT grammar_hash FROM cache_identity", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(captured_hash, expected_hash, "{name}");
+    }
 }
 
 #[test]
@@ -1068,8 +1488,8 @@ fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
     let args = [
         path.to_string_lossy().into_owned(),
         format!("kad{}", "d".repeat(7)),
-        "--step-cap".into(),
-        "500".into(),
+        "--work-cap".into(),
+        "50000".into(),
     ];
     let error = super::run_parse(&args).expect_err("capped search must return an explicit failure");
     assert!(error.contains("capped"), "{error}");
@@ -1079,10 +1499,10 @@ fn plain_parse_reports_capped_search_and_preserves_complete_controls() {
 }
 
 #[test]
-fn work_cap_is_independent_and_binds_both_batch_writer_paths() {
+fn work_cap_binds_both_batch_writer_paths() {
     for threads in ["1", "2"] {
         for flags in [vec!["--work-cap", "1"], vec!["--work-cap=1"]] {
-            let mut args = vec!["--step-cap", "unbounded", "--threads", threads];
+            let mut args = vec!["--threads", threads];
             args.extend(flags);
             let rows = run_batch_tsv("independent-work-cap", &args);
             let fields: Vec<_> = rows.last().unwrap().split('\t').collect();
@@ -1114,21 +1534,7 @@ fn work_cap_flag_binds_plain_parse_and_accepts_unbounded() {
 }
 
 #[test]
-fn work_cap_default_and_override_have_independent_units() {
-    let attempts = "200000".parse::<StepCap>().unwrap();
-    assert_eq!(super::resolved_work_cap(attempts, None), 20_000_000);
-    assert_eq!(
-        super::resolved_work_cap(StepCap::Unbounded, None),
-        usize::MAX
-    );
-    assert_eq!(
-        super::resolved_work_cap(attempts, Some(StepCap::Unbounded)),
-        usize::MAX
-    );
-    assert_eq!(
-        super::resolved_work_cap(StepCap::Unbounded, Some("64".parse().unwrap())),
-        64
-    );
+fn work_cap_flag_rejects_zero_before_file_access() {
     for flags in [vec!["--work-cap", "0"], vec!["--work-cap=0"]] {
         let mut args = vec![
             "unused.xml".into(),
@@ -1139,4 +1545,1263 @@ fn work_cap_default_and_override_have_independent_units() {
         let err = run_batch(&args).expect_err("zero work cap must fail before file access");
         assert!(err.contains("--work-cap 0"), "{err}");
     }
+}
+
+/// The words a conformance `words.yaml` lists, in order.
+fn fixture_words(fixture: &pg_conformance_fixtures::FixtureRef) -> Vec<String> {
+    fs::read_to_string(fixture.words_yaml_path())
+        .expect("read words.yaml")
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("- word:"))
+        .map(|w| w.trim().trim_matches('"').to_string())
+        .collect()
+}
+
+fn retire_report(
+    tag: &str,
+    grammar: &std::path::Path,
+    words: &[String],
+    ids: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let dir = scratch_dir(tag);
+    let words_path = dir.join("words.txt");
+    let out = dir.join("report.jsonl");
+    fs::write(&words_path, words.join("\n")).expect("write words");
+    let args: Vec<String> = [
+        grammar.to_str().unwrap(),
+        words_path.to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--retire",
+        ids,
+        "--retire-out",
+        out.to_str().unwrap(),
+        "--threads",
+        "2",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args)?;
+    Ok(fs::read_to_string(out)
+        .expect("read report")
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("report row"))
+        .collect())
+}
+
+/// The readings of each word, as sorted morph-list strings, from a plain `--analyses` run.
+fn analysed_readings(
+    tag: &str,
+    grammar: &std::path::Path,
+    words: &[String],
+) -> Result<Vec<std::collections::BTreeSet<String>>, String> {
+    let dir = scratch_dir(tag);
+    let words_path = dir.join("words.txt");
+    let analyses = dir.join("analyses.jsonl");
+    fs::write(&words_path, words.join("\n")).expect("write words");
+    let args: Vec<String> = [
+        grammar.to_str().unwrap(),
+        words_path.to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--analyses",
+        analyses.to_str().unwrap(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args)?;
+    Ok(fs::read_to_string(analyses)
+        .expect("read analyses")
+        .lines()
+        .map(|l| {
+            let row: serde_json::Value = serde_json::from_str(l).unwrap();
+            assert_eq!(row["unavailable"], serde_json::json!([]), "{row}");
+            row["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["morphs"].to_string())
+                .collect()
+        })
+        .collect())
+}
+
+/// The snapshot of `grammar` with the named entries or allomorphs deleted by this test's own loop, written as a snapshot `.json`.
+fn grammar_copy_without(grammar: &std::path::Path, ids: &[&str]) -> std::path::PathBuf {
+    let mut snapshot = if grammar.extension().is_some_and(|e| e == "json") {
+        pg_snapshot::Snapshot::from_json(&fs::read_to_string(grammar).unwrap()).unwrap()
+    } else {
+        pg_fwdata::import_file_lean(grammar).unwrap().0
+    };
+    let mut gone: Vec<String> = Vec::new();
+    for entry in snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| ids.contains(&e.guid.as_str()))
+    {
+        gone.push(entry.guid.clone());
+        gone.extend(entry.allomorphs.iter().map(|a| a.guid.clone()));
+        gone.extend(entry.msas.iter().map(|m| m.guid().to_string()));
+    }
+    snapshot
+        .lexicon
+        .entries
+        .retain(|e| !ids.contains(&e.guid.as_str()));
+    for entry in &mut snapshot.lexicon.entries {
+        gone.extend(
+            entry
+                .allomorphs
+                .iter()
+                .filter(|a| ids.contains(&a.guid.as_str()))
+                .map(|a| a.guid.clone()),
+        );
+        entry.allomorphs.retain(|a| !ids.contains(&a.guid.as_str()));
+    }
+    // FieldWorks deleting an item removes it from every ad hoc prohibition, and a prohibition left without a key or other item goes too.
+    snapshot.morphology.adhoc_prohibitions.retain_mut(|rule| {
+        let (primary, others) = match rule {
+            pg_snapshot::AdhocProhibition::Allomorph {
+                primary, others, ..
+            }
+            | pg_snapshot::AdhocProhibition::Morpheme {
+                primary, others, ..
+            } => (primary, others),
+        };
+        others.retain(|o| !gone.contains(o));
+        !gone.contains(primary) && !others.is_empty()
+    });
+    let path = scratch_dir("retire-oracle-copy").join("without.json");
+    fs::write(&path, snapshot.to_json()).unwrap();
+    path
+}
+
+/// `--retire` against a real parse of a grammar copy with the ids deleted: every row must match exactly.
+fn assert_retire_matches_deleted_copy(
+    tag: &str,
+    grammar: &std::path::Path,
+    words: &[String],
+    ids: &[&str],
+) -> Vec<serde_json::Value> {
+    let baseline = analysed_readings(tag, grammar, words).expect("baseline parse");
+    let copy = grammar_copy_without(grammar, ids);
+    let deleted = analysed_readings(tag, &copy, words)
+        .unwrap_or_else(|e| panic!("{tag} {ids:?}: deleted copy failed: {e}"));
+    let report = retire_report(tag, grammar, words, &ids.join(","))
+        .unwrap_or_else(|e| panic!("{tag} {ids:?}: --retire failed: {e}"));
+    assert_eq!(report.len(), words.len());
+    for (i, row) in report.iter().enumerate() {
+        let lost: Vec<_> = baseline[i].difference(&deleted[i]).cloned().collect();
+        let gained: Vec<_> = deleted[i].difference(&baseline[i]).cloned().collect();
+        let expected = match (lost.is_empty(), gained.is_empty()) {
+            (true, true) => "unchanged",
+            (true, false) => "gained",
+            (false, false) => "changed",
+            (false, true) if deleted[i].is_empty() => "lost",
+            (false, true) => "reduced",
+        };
+        let readings = |key: &str| -> std::collections::BTreeSet<String> {
+            row[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["morphs"].to_string())
+                .collect()
+        };
+        let ctx = format!("{tag} retire {ids:?} word {}: {row}", words[i]);
+        assert_eq!(row["status"], expected, "{ctx}");
+        assert_eq!(row["baselineReadings"], baseline[i].len(), "{ctx}");
+        assert_eq!(row["retiredReadings"], deleted[i].len(), "{ctx}");
+        assert_eq!(readings("lost"), lost.into_iter().collect(), "{ctx}");
+        assert_eq!(readings("gained"), gained.into_iter().collect(), "{ctx}");
+    }
+    report
+}
+
+#[test]
+fn retire_matches_a_real_parse_with_each_entry_deleted() {
+    for name in [
+        "adhoc-prohibition-circumfix-pairings",
+        "adhoc-prohibition-variant-msa-copies",
+        "adhoc-prohibition-stem-msa-copies",
+    ] {
+        let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+        let project = fixture.dir.join("fieldworks").join("project.fwdata");
+        let words = fixture_words(&fixture);
+        assert!(!words.is_empty(), "{name}");
+        let entries: Vec<String> = pg_fwdata::import_file_lean(&project)
+            .unwrap()
+            .0
+            .lexicon
+            .entries
+            .iter()
+            .map(|e| e.guid.clone())
+            .collect();
+        let mut changed = 0;
+        for entry in &entries {
+            let report = assert_retire_matches_deleted_copy(name, &project, &words, &[entry]);
+            changed += report.iter().filter(|r| r["status"] != "unchanged").count();
+        }
+        let both: Vec<&str> = entries.iter().take(2).map(String::as_str).collect();
+        assert_retire_matches_deleted_copy(name, &project, &words, &both);
+        assert!(
+            changed > 0,
+            "{name}: retiring entries should change some word"
+        );
+    }
+}
+
+#[test]
+fn retire_reports_lost_words_with_the_retired_entry_as_cause() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = fixture_words(&fixture);
+    let entries = pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries;
+    let mut lost = 0;
+    for entry in &entries {
+        let rows = retire_report("retire-cause", &project, &words, &entry.guid).unwrap();
+        for row in rows.iter().filter(|r| r["status"] == "lost") {
+            lost += 1;
+            assert_eq!(row["cause"]["kind"], "no-alternative-reading", "{row}");
+            assert_eq!(
+                row["cause"]["via"],
+                serde_json::json!([entry.guid]),
+                "{row}"
+            );
+            assert_eq!(row["reparsed"], true);
+        }
+    }
+    assert!(lost > 0, "some retired entry must strand a word");
+}
+
+/// A snapshot whose one two-allomorph stem has an earlier allomorph that blocks the later one at the end of a word.
+fn blocked_allomorph_snapshot() -> std::path::PathBuf {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-fwdata/tests/data/fixture.fwdata");
+    let mut snapshot = pg_fwdata::import_file_lean(&source).unwrap().0;
+    snapshot
+        .phonology
+        .environments
+        .push(pg_snapshot::Environment {
+            guid: "00000000-0000-0000-0000-0000000000e1".into(),
+            name: "wordFinal".into(),
+            representation: "/_#".into(),
+        });
+    let entry = snapshot
+        .lexicon
+        .entries
+        .iter_mut()
+        .find(|e| e.guid.ends_with("0030"))
+        .expect("the bare stem entry");
+    let mut earlier = entry.allomorphs[0].clone();
+    earlier.guid = "00000000-0000-0000-0000-0000000000e2".into();
+    earlier.environments = vec!["00000000-0000-0000-0000-0000000000e1".into()];
+    for ws in &mut earlier.forms {
+        ws.form = "tta".into();
+    }
+    for ws in &mut entry.allomorphs[0].forms {
+        ws.form = "dda".into();
+    }
+    entry.allomorphs.insert(0, earlier);
+    // The import's own findings (a dangling environment, a provisional letter) are not part of this synthetic grammar.
+    snapshot.conversion_provenance = pg_snapshot::ConversionProvenance::synthetic();
+    for entry in &mut snapshot.lexicon.entries {
+        for allomorph in &mut entry.allomorphs {
+            allomorph.environments.retain(|e| !e.ends_with("00ff"));
+        }
+    }
+    let path = scratch_dir("retire-blocked").join("blocked.json");
+    fs::write(&path, snapshot.to_json()).unwrap();
+    path
+}
+
+#[test]
+fn retire_of_an_earlier_allomorph_unblocks_the_later_one() {
+    let grammar = blocked_allomorph_snapshot();
+    let words: Vec<String> = ["tta", "dda"].iter().map(|s| s.to_string()).collect();
+    let baseline = analysed_readings("retire-blocked-base", &grammar, &words).unwrap();
+    assert_eq!(baseline[0].len(), 1, "the earlier allomorph parses tta");
+    assert_eq!(baseline[1].len(), 0, "the earlier allomorph blocks dda");
+    let report = assert_retire_matches_deleted_copy(
+        "retire-blocked",
+        &grammar,
+        &words,
+        &["00000000-0000-0000-0000-0000000000e2"],
+    );
+    assert_eq!(report[0]["status"], "lost");
+    assert_eq!(
+        report[0]["cause"]["via"],
+        serde_json::json!(["00000000-0000-0000-0000-0000000000e2"])
+    );
+    assert_eq!(report[1]["status"], "gained");
+    assert_eq!(report[1]["reparsed"], true);
+}
+
+#[test]
+fn retire_refuses_what_it_cannot_evaluate() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = vec!["da".to_string()];
+    let err = retire_report("retire-unknown", &project, &words, "no-such-guid").unwrap_err();
+    assert!(err.contains("neither an entry nor an allomorph"), "{err}");
+    let err = retire_report("retire-xml", &fixture.grammar_path(), &words, "x").unwrap_err();
+    assert!(err.contains("entry guids"), "{err}");
+}
+
+/// The readings of each word from `batch --without <ids> --analyses`, in the shape `analysed_readings` returns.
+fn without_readings(
+    tag: &str,
+    grammar: &std::path::Path,
+    words: &[String],
+    ids: &str,
+) -> Result<Vec<std::collections::BTreeSet<String>>, String> {
+    let dir = scratch_dir(tag);
+    let words_path = dir.join("words.txt");
+    let analyses = dir.join("analyses.jsonl");
+    fs::write(&words_path, words.join("\n")).expect("write words");
+    let args: Vec<String> = [
+        grammar.to_str().unwrap(),
+        words_path.to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--analyses",
+        analyses.to_str().unwrap(),
+        "--without",
+        ids,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args)?;
+    Ok(fs::read_to_string(analyses)
+        .expect("read analyses")
+        .lines()
+        .map(|l| {
+            let row: serde_json::Value = serde_json::from_str(l).unwrap();
+            row["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a["morphs"].to_string())
+                .collect()
+        })
+        .collect())
+}
+
+#[test]
+fn batch_without_matches_a_real_parse_with_each_entry_deleted() {
+    for name in [
+        "adhoc-prohibition-circumfix-pairings",
+        "adhoc-prohibition-variant-msa-copies",
+        "adhoc-prohibition-stem-msa-copies",
+    ] {
+        let fixture = pg_conformance_fixtures::require_fixture("edge-cases", name);
+        let project = fixture.dir.join("fieldworks").join("project.fwdata");
+        let words = fixture_words(&fixture);
+        assert!(!words.is_empty(), "{name}");
+        let baseline = analysed_readings(name, &project, &words).expect("baseline parse");
+        let entries: Vec<String> = pg_fwdata::import_file_lean(&project)
+            .unwrap()
+            .0
+            .lexicon
+            .entries
+            .iter()
+            .map(|e| e.guid.clone())
+            .collect();
+        let mut changed = 0;
+        let mut sets: Vec<Vec<&str>> = entries.iter().map(|e| vec![e.as_str()]).collect();
+        sets.push(entries.iter().take(2).map(String::as_str).collect());
+        for ids in sets {
+            let copy = grammar_copy_without(&project, &ids);
+            let deleted = analysed_readings(name, &copy, &words)
+                .unwrap_or_else(|e| panic!("{name} {ids:?}: deleted copy failed: {e}"));
+            let without = without_readings(name, &project, &words, &ids.join(","))
+                .unwrap_or_else(|e| panic!("{name} {ids:?}: --without failed: {e}"));
+            assert_eq!(without, deleted, "{name} --without {ids:?}");
+            changed += without
+                .iter()
+                .zip(&baseline)
+                .filter(|(a, b)| a != b)
+                .count();
+        }
+        assert!(
+            changed > 0,
+            "{name}: leaving entries out should change some word"
+        );
+    }
+}
+
+#[test]
+fn batch_without_matches_a_real_parse_with_an_allomorph_deleted() {
+    let grammar = blocked_allomorph_snapshot();
+    let words: Vec<String> = ["tta", "dda"].iter().map(|s| s.to_string()).collect();
+    let id = "00000000-0000-0000-0000-0000000000e2";
+    let copy = grammar_copy_without(&grammar, &[id]);
+    let deleted = analysed_readings("without-blocked-copy", &copy, &words).unwrap();
+    let without = without_readings("without-blocked", &grammar, &words, id).unwrap();
+    assert_eq!(without, deleted);
+    assert_eq!(without[0].len(), 0, "tta is lost");
+    assert_eq!(without[1].len(), 1, "dda is unblocked");
+}
+
+#[test]
+fn repeated_without_and_retire_flags_merge_their_ids() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = fixture_words(&fixture);
+    let entries: Vec<String> = pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries
+        .iter()
+        .map(|e| e.guid.clone())
+        .collect();
+    assert!(entries.len() >= 2);
+    let (a, b) = (&entries[0], &entries[1]);
+    let once = without_readings("merge-once", &project, &words, &format!("{a},{b}")).unwrap();
+    let dir = scratch_dir("merge-twice");
+    fs::write(dir.join("words.txt"), words.join("\n")).unwrap();
+    let analyses = dir.join("analyses.jsonl");
+    let args: Vec<String> = [
+        project.to_str().unwrap(),
+        dir.join("words.txt").to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--analyses",
+        analyses.to_str().unwrap(),
+        "--without",
+        a,
+        "--without",
+        b,
+        "--without",
+        a,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args).unwrap();
+    let twice: Vec<std::collections::BTreeSet<String>> = fs::read_to_string(&analyses)
+        .unwrap()
+        .lines()
+        .map(|l| {
+            let row: serde_json::Value = serde_json::from_str(l).unwrap();
+            row["analyses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["morphs"].to_string())
+                .collect()
+        })
+        .collect();
+    assert_eq!(twice, once);
+    let both = retire_report("merge-retire-once", &project, &words, &format!("{a},{b}")).unwrap();
+    let out = dir.join("retire.jsonl");
+    let args: Vec<String> = [
+        project.to_str().unwrap(),
+        dir.join("words.txt").to_str().unwrap(),
+        dir.join("out.tsv").to_str().unwrap(),
+        "--retire",
+        a,
+        "--retire",
+        b,
+        "--retire-out",
+        out.to_str().unwrap(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    run_batch(&args).unwrap();
+    let repeated: Vec<serde_json::Value> = fs::read_to_string(out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(repeated, both);
+}
+
+#[test]
+fn batch_without_refuses_unknown_unsupported_and_incompatible_requests() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = vec!["da".to_string()];
+    let err = without_readings("without-unknown", &project, &words, "no-such-guid").unwrap_err();
+    assert!(err.contains("--without: no-such-guid is neither"), "{err}");
+    let entry = &pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries[0];
+    let msa = entry.msas[0].guid().to_string();
+    let err = without_readings("without-msa", &project, &words, &msa).unwrap_err();
+    assert!(
+        err.contains("--without") && err.contains("morphosyntactic analysis"),
+        "{err}"
+    );
+    // One bad id among good ones still refuses the whole request.
+    let mixed = format!("{},{msa}", entry.guid);
+    assert!(without_readings("without-mixed", &project, &words, &mixed).is_err());
+    let err = without_readings("without-xml", &fixture.grammar_path(), &words, "x").unwrap_err();
+    assert!(err.contains("entry guids"), "{err}");
+    let err = without_readings("without-empty", &project, &words, ",").unwrap_err();
+    assert!(err.contains("at least one guid"), "{err}");
+    let dir = scratch_dir("without-combos");
+    fs::write(dir.join("words.txt"), "da").unwrap();
+    for extra in [
+        vec!["--retire", "x", "--retire-out", "r.jsonl"],
+        vec!["--stats"],
+        vec!["--partials", "1"],
+        vec!["--engine", "hc"],
+        vec!["--prefilter", "on"],
+    ] {
+        let mut args = vec![
+            project.to_str().unwrap().to_string(),
+            dir.join("words.txt").to_str().unwrap().to_string(),
+            dir.join("out.tsv").to_str().unwrap().to_string(),
+            "--without".to_string(),
+            entry.guid.clone(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let err = run_batch(&args).unwrap_err();
+        assert!(
+            err.contains("--without cannot be combined"),
+            "{extra:?}: {err}"
+        );
+    }
+}
+
+#[test]
+fn retire_of_entries_named_by_ad_hoc_prohibitions_drops_the_reference_and_parses() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let words = fixture_words(&fixture);
+    let snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let named: std::collections::BTreeSet<String> = snapshot
+        .morphology
+        .adhoc_prohibitions
+        .iter()
+        .flat_map(|rule| match rule {
+            pg_snapshot::AdhocProhibition::Allomorph {
+                primary, others, ..
+            }
+            | pg_snapshot::AdhocProhibition::Morpheme {
+                primary, others, ..
+            } => std::iter::once(primary)
+                .chain(others.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        })
+        .collect();
+    let owners: Vec<String> = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .filter(|e| {
+            e.allomorphs.iter().any(|a| named.contains(&a.guid))
+                || e.msas.iter().any(|m| named.contains(m.guid()))
+        })
+        .map(|e| e.guid.clone())
+        .collect();
+    assert!(
+        !owners.is_empty(),
+        "the fixture names entries in prohibitions"
+    );
+    for owner in &owners {
+        assert_retire_matches_deleted_copy("retire-adhoc", &project, &words, &[owner]);
+    }
+    let allomorph = snapshot
+        .lexicon
+        .entries
+        .iter()
+        .flat_map(|e| e.allomorphs.iter())
+        .find(|a| named.contains(&a.guid))
+        .map(|a| a.guid.clone());
+    if let Some(allomorph) = allomorph {
+        assert_retire_matches_deleted_copy("retire-adhoc-allo", &project, &words, &[&allomorph]);
+    }
+}
+
+#[test]
+fn retire_out_refuses_the_grammar_the_word_list_and_the_tsv() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let guid = pg_fwdata::import_file_lean(&project)
+        .unwrap()
+        .0
+        .lexicon
+        .entries[0]
+        .guid
+        .clone();
+    let dir = scratch_dir("retire-collide");
+    let grammar_copy = dir.join("grammar.fwdata");
+    fs::copy(&project, &grammar_copy).unwrap();
+    let words = dir.join("words.txt");
+    fs::write(&words, "da\n").unwrap();
+    let tsv = dir.join("out.tsv");
+    let before = fs::read(&grammar_copy).unwrap();
+    for (label, target) in [
+        ("grammar", grammar_copy.clone()),
+        ("word list", words.clone()),
+        ("TSV output", tsv.clone()),
+        ("grammar", dir.join("sub/../grammar.fwdata")),
+    ] {
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let args: Vec<String> = [
+            grammar_copy.to_str().unwrap(),
+            words.to_str().unwrap(),
+            tsv.to_str().unwrap(),
+            "--retire",
+            &guid,
+            "--retire-out",
+            target.to_str().unwrap(),
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let err = run_batch(&args).unwrap_err();
+        assert!(err.contains(&format!("cannot overwrite {label}")), "{err}");
+    }
+    assert_eq!(fs::read(&grammar_copy).unwrap(), before);
+    assert_eq!(fs::read_to_string(&words).unwrap(), "da\n");
+}
+
+#[test]
+fn retire_cannot_compare_a_word_with_an_unprojectable_reading() {
+    let parsed = |unprojected| crate::retire::Parsed {
+        readings: Vec::new(),
+        incomplete: false,
+        unprojected,
+    };
+    let (_, lost, gained, reason) = crate::retire::compare(&parsed(0), Some(&parsed(1)));
+    assert!(lost.is_empty() && gained.is_empty());
+    assert!(reason.is_some_and(|r| r.contains("cannot be projected")));
+    let (_, _, _, reason) = crate::retire::compare(&parsed(1), Some(&parsed(0)));
+    assert!(reason.is_some());
+    let (_, _, _, reason) = crate::retire::compare(&parsed(0), Some(&parsed(0)));
+    assert!(reason.is_none());
+}
+
+/// The stem-msa-copies grammar with its prohibitions replaced by one that keeps `ta` away from the co-occurrence of `da` and `ba`.
+fn multi_member_prohibition_snapshot(morpheme_level: bool) -> (std::path::PathBuf, String, String) {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "adhoc-prohibition-stem-msa-copies");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let mut snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let find = |form: &str| {
+        snapshot
+            .lexicon
+            .entries
+            .iter()
+            .find(|e| e.allomorphs[0].forms.iter().any(|f| f.form == form))
+            .unwrap_or_else(|| panic!("entry {form}"))
+            .clone()
+    };
+    let (ta, da, ba) = (find("ta"), find("da"), find("ba"));
+    let pick = |e: &pg_snapshot::LexEntry| {
+        if morpheme_level {
+            e.msas[0].guid().to_string()
+        } else {
+            e.allomorphs[0].guid.clone()
+        }
+    };
+    let (primary, others) = (pick(&ta), vec![pick(&da), pick(&ba)]);
+    let guid = "00000000-0000-0000-0000-0000000000a1".to_string();
+    snapshot.morphology.adhoc_prohibitions = vec![if morpheme_level {
+        pg_snapshot::AdhocProhibition::Morpheme {
+            guid,
+            disabled: false,
+            primary,
+            others,
+            adjacency: pg_snapshot::Adjacency::Anywhere,
+        }
+    } else {
+        pg_snapshot::AdhocProhibition::Allomorph {
+            guid,
+            disabled: false,
+            primary,
+            others,
+            adjacency: pg_snapshot::Adjacency::Anywhere,
+        }
+    }];
+    snapshot.morphology.adhoc_prohibition_groups = None;
+    let path = scratch_dir("retire-multi").join(format!("multi-{morpheme_level}.json"));
+    fs::write(&path, snapshot.to_json()).unwrap();
+    (path, da.guid.clone(), da.allomorphs[0].guid.clone())
+}
+
+#[test]
+fn retire_that_shrinks_a_surviving_prohibition_reparses_words_that_never_used_the_item() {
+    let words: Vec<String> = ["taba", "tada", "ta", "da", "ba", "tadaba", "tabada"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    for morpheme_level in [false, true] {
+        let (grammar, da_entry, da_allomorph) = multi_member_prohibition_snapshot(morpheme_level);
+        let baseline = analysed_readings("retire-multi-base", &grammar, &words).unwrap();
+        assert!(!baseline[0].is_empty(), "taba parses before the retire");
+        // An allomorph retire leaves a morpheme-level prohibition's MSA reference intact.
+        let ids = if morpheme_level {
+            vec![da_entry]
+        } else {
+            vec![da_entry, da_allomorph]
+        };
+        for id in ids {
+            let tag = format!("retire-multi-{morpheme_level}");
+            let report = assert_retire_matches_deleted_copy(&tag, &grammar, &words, &[&id]);
+            // The shrunk prohibition fires on ta+ba alone, so taba is lost though it never used da.
+            assert_eq!(report[0]["status"], "lost", "{}", report[0]);
+            assert_eq!(report[0]["reparsed"], true);
+        }
+    }
+}
+
+#[test]
+fn retire_of_the_only_affix_in_an_obligatory_slot_reparses_the_bare_stems() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "empty-required-template-slot");
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let mut snapshot = pg_fwdata::import_file_lean(&project).unwrap().0;
+    let slot = "469a6957-8f7a-4ecc-bbf4-434978045a96";
+    let mut flipped = false;
+    for pos in &mut snapshot.morphology.parts_of_speech {
+        for s in pos.affix_slots.iter_mut().filter(|s| s.guid == slot) {
+            s.optional = false;
+            flipped = true;
+        }
+    }
+    assert!(flipped, "the suffix slot exists");
+    let grammar = scratch_dir("retire-slot").join("slot.json");
+    fs::write(&grammar, snapshot.to_json()).unwrap();
+    let words: Vec<String> = ["monu", "monua", "amonu"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let baseline = analysed_readings("retire-slot-base", &grammar, &words).unwrap();
+    assert!(
+        baseline[0].is_empty(),
+        "the required slot blocks the bare stem"
+    );
+    assert!(!baseline[1].is_empty());
+    // The retired affix was the slot's only filler, so the compiler drops the slot and the bare stem parses.
+    let report = assert_retire_matches_deleted_copy(
+        "retire-slot",
+        &grammar,
+        &words,
+        &["08d86318-7f90-43bf-8629-b859e36bd67d"],
+    );
+    assert_eq!(report[0]["status"], "gained", "{}", report[0]);
+    assert_eq!(report[0]["reparsed"], true);
+}
+
+fn without_timing(rows: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    rows.iter()
+        .cloned()
+        .map(|mut row| {
+            row.as_object_mut().unwrap().remove("elapsedMs");
+            row
+        })
+        .collect()
+}
+
+#[test]
+fn query_fields_are_opt_in_and_name_entry_signature_and_failure() {
+    let fixture = fwdata_fixture_with_k();
+    let plain = run_batch_sidecar_path("qf-plain", &fixture, "kad\nkat\n", &[]);
+    assert!(plain[0].get("readingCount").is_none() && plain[0].get("failure").is_none());
+    assert!(plain[0]["analyses"][0]["morphs"][0]
+        .get("signature")
+        .is_none());
+    let rows = run_batch_sidecar_path("qf", &fixture, "kad\nkat\n", &["--query-fields"]);
+    let morph = &rows[0]["analyses"][0]["morphs"][0];
+    assert_eq!(rows[0]["readingCount"], 1);
+    assert_eq!(rows[0]["failure"], serde_json::Value::Null);
+    assert_eq!(morph["form"], plain[0]["analyses"][0]["morphs"][0]["form"]);
+    assert_eq!(morph["entry"], "00000000-0000-0000-0000-000000000030");
+    let signature = format!(
+        "{}:{}",
+        morph["entry"].as_str().unwrap(),
+        morph["msa"].as_str().unwrap()
+    );
+    assert_eq!(morph["signature"], signature.as_str());
+    assert_eq!(rows[0]["analyses"][0]["signature"], signature.as_str());
+    assert_eq!(rows[1]["readingCount"], 0);
+    assert_eq!(
+        rows[1]["failure"],
+        serde_json::json!({"status": "noParse", "workSteps": rows[1]["failure"]["workSteps"], "workCap": 5_000_000_000u64})
+    );
+    let capped = run_batch_sidecar_path(
+        "qf-cap",
+        &fixture,
+        "kad\n",
+        &["--query-fields", "--work-cap", "1"],
+    );
+    assert_eq!(capped[0]["capped"], true);
+    assert_eq!(capped[0]["failure"]["status"], "workCap");
+    assert_eq!(capped[0]["failure"]["workCap"], 1);
+}
+
+#[test]
+fn query_fields_are_refused_without_a_sidecar() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("qf-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let error = run_batch(&[
+        fixture.to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--query-fields".to_string(),
+    ])
+    .expect_err("refused");
+    assert!(
+        error.contains("--query-fields requires --analyses"),
+        "{error}"
+    );
+}
+
+/// Signatures come from source guids only, so they repeat across thread counts and give a circumfix's halves one signature.
+#[test]
+fn query_fields_are_deterministic_across_threads_and_share_a_circumfix_signature() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-circumfix-pairings",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let args = ["--query-fields", "--morph-spans"];
+    let one = run_batch_sidecar_path(
+        "qf-t1",
+        &project,
+        "tagaka\ntogaki\nzzz\n",
+        &[&args[..], &["--threads", "1"]].concat(),
+    );
+    let four = run_batch_sidecar_path(
+        "qf-t4",
+        &project,
+        "tagaka\ntogaki\nzzz\n",
+        &[&args[..], &["--threads", "4"]].concat(),
+    );
+    assert_eq!(without_timing(&one), without_timing(&four));
+    let readings: Vec<&serde_json::Value> = one
+        .iter()
+        .flat_map(|r| r["analyses"].as_array().unwrap())
+        .collect();
+    assert!(!readings.is_empty());
+    let mut halves = 0;
+    for reading in readings {
+        let morphs = reading["morphs"].as_array().unwrap();
+        for (i, a) in morphs.iter().enumerate() {
+            for b in &morphs[i + 1..] {
+                if a["entry"].is_string() && a["entry"] == b["entry"] && a["form"] != b["form"] {
+                    assert_eq!(a["signature"], b["signature"]);
+                    halves += 1;
+                }
+            }
+        }
+    }
+    assert!(halves > 0, "the fixture should give a circumfix reading");
+}
+
+/// The staged `do-not-use-for-parsing-flag-ignored` project: `la` and `li` each parse as two MSAs of one entry.
+fn two_msa_project() -> std::path::PathBuf {
+    pg_conformance_fixtures::require_fixture("edge-cases", "do-not-use-for-parsing-flag-ignored")
+        .dir
+        .join("fieldworks")
+        .join("project.fwdata")
+}
+
+/// `two_msa_project` with its prefix slot made obligatory and the first irregular-inflection type bound to that slot, so a null affix (`^0`, a zero morph FieldWorks omits from `morphs`) fills the slot.
+fn two_msa_project_with_null_affix(tag: &str) -> std::path::PathBuf {
+    let xml = fs::read_to_string(two_msa_project()).expect("read staged project");
+    let slot = "96fb962c-d72c-448c-8706-d991ce75a16a";
+    let name = "<AUni ws=\"en\">prefixSlot</AUni>";
+    let at = xml.find(name).expect("prefix slot name");
+    let (head, tail) = xml.split_at(at);
+    let optional = "<Optional val=\"True\" />";
+    assert!(tail.contains(optional), "slot optional flag moved");
+    let tail = tail.replacen(optional, "<Optional val=\"False\" />", 1);
+    let xml = format!("{head}{tail}");
+    let sort_spec = "<SortSpec val=\"0\" />";
+    assert!(xml.contains(sort_spec), "infl type shape moved");
+    let slots = format!("<Slots><objsur guid=\"{slot}\" t=\"r\" /></Slots>");
+    let xml = xml.replacen(sort_spec, &format!("{slots}{sort_spec}"), 1);
+    let path = scratch_dir(tag).join("project.fwdata");
+    fs::write(&path, xml).expect("write null-affix project");
+    path
+}
+
+/// The morph signatures of every reading of a sidecar row, in reading order.
+fn reading_signatures(row: &serde_json::Value) -> Vec<String> {
+    row["analyses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|reading| reading["signature"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// Every reading's morph spans must name each morph in order and tile the surface with the unattributed runs.
+fn assert_spans_tile_the_surface(reading: &serde_json::Value) {
+    let spans = &reading["morphSpans"];
+    let morphs = reading["morphs"].as_array().unwrap().len();
+    let morphemes = spans["morphemes"].as_array().unwrap();
+    assert_eq!(morphemes.len(), morphs, "{spans}");
+    let mut runs: Vec<(u64, u64)> = Vec::new();
+    for (i, morpheme) in morphemes.iter().enumerate() {
+        assert_eq!(morpheme["item"], i);
+        for run in morpheme["spans"].as_array().expect("every morph is placed") {
+            runs.push((
+                run["segments"][0].as_u64().unwrap(),
+                run["segments"][1].as_u64().unwrap(),
+            ));
+        }
+    }
+    for run in spans["unattributed"].as_array().unwrap() {
+        runs.push((
+            run["segments"][0].as_u64().unwrap(),
+            run["segments"][1].as_u64().unwrap(),
+        ));
+    }
+    runs.sort();
+    let mut next = 0;
+    for (start, end) in runs {
+        assert_eq!(start, next, "{spans}");
+        next = end;
+    }
+    assert_eq!(next, spans["segmentCount"].as_u64().unwrap(), "{spans}");
+}
+
+#[test]
+fn query_fields_count_and_tell_apart_several_readings_of_one_word() {
+    let project = two_msa_project();
+    let args = ["--query-fields", "--morph-spans"];
+    let rows = run_batch_sidecar_path("qf-multi", &project, "la\nli\ntala\n", &args);
+    for (row, word) in rows.iter().zip(["la", "li", "tala"]) {
+        assert_eq!(row["word"], word);
+        assert_eq!(row["failure"], serde_json::Value::Null);
+    }
+    // `la` is the Noun and the Verb MSA of one entry: two readings, one entry, two distinct signatures.
+    assert_eq!(rows[0]["readingCount"], 2);
+    assert_eq!(rows[0]["analyses"].as_array().unwrap().len(), 2);
+    let la = reading_signatures(&rows[0]);
+    assert_ne!(la[0], la[1], "two MSAs are two signatures: {la:?}");
+    let entry = |sig: &str| sig.split(':').next().unwrap().to_string();
+    assert_eq!(entry(&la[0]), entry(&la[1]));
+    let msa = |sig: &str| sig.split(':').nth(1).unwrap().to_string();
+    assert_ne!(msa(&la[0]), msa(&la[1]));
+    // The variant `li` is its own entry whose MSAs are the main entry's, as documented.
+    assert_eq!(rows[1]["readingCount"], 2);
+    let li = reading_signatures(&rows[1]);
+    assert_ne!(entry(&li[0]), entry(&la[0]));
+    assert_eq!(
+        [msa(&li[0]), msa(&li[1])],
+        [msa(&la[0]), msa(&la[1])],
+        "a variant reads the main entry's MSAs"
+    );
+    // Every reading places its morphs, and a stable order puts the prefix before the stem.
+    for row in &rows {
+        for reading in row["analyses"].as_array().unwrap() {
+            assert_spans_tile_the_surface(reading);
+        }
+    }
+    assert_eq!(rows[2]["readingCount"], 1);
+    let tala = &rows[2]["analyses"][0];
+    assert_eq!(tala["morphs"].as_array().unwrap().len(), 2);
+    let texts: Vec<&str> = tala["morphSpans"]["morphemes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["spans"][0]["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["ta", "la"]);
+    assert!(tala["signature"].as_str().unwrap().contains('+'));
+    // The same words twice give the same signatures in the same order.
+    let again = run_batch_sidecar_path("qf-multi-2", &project, "la\nli\ntala\n", &args);
+    assert_eq!(without_timing(&rows), without_timing(&again));
+}
+
+#[test]
+fn query_fields_keep_a_zero_morph_out_of_the_ordered_morphs() {
+    let args = ["--query-fields", "--morph-spans"];
+    let plain = run_batch_sidecar_path("qf-nonull", &two_msa_project(), "la\n", &args);
+    let project = two_msa_project_with_null_affix("qf-zero");
+    let rows = run_batch_sidecar_path("qf-zero", &project, "la\nli\n", &args);
+    // The obligatory slot leaves only the Verb reading, which reaches it through the null affix.
+    assert_eq!(plain[0]["readingCount"], 2);
+    assert_eq!(rows[0]["readingCount"], 1);
+    assert_eq!(rows[1]["readingCount"], 1);
+    let verb = reading_signatures(&plain[0])
+        .into_iter()
+        .find(|sig| sig == &reading_signatures(&rows[0])[0])
+        .expect("the surviving reading is one of the plain readings");
+    // FieldWorks omits the null affix: one morph, one signature, and the stem owns the whole surface.
+    let reading = &rows[0]["analyses"][0];
+    assert_eq!(reading["signature"], verb.as_str());
+    assert_eq!(reading["morphs"].as_array().unwrap().len(), 1);
+    assert!(!verb.contains('+'));
+    assert_eq!(reading["morphSpans"]["segmentCount"], 2);
+    assert_eq!(
+        reading["morphSpans"]["morphemes"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        reading["morphSpans"]["morphemes"][0]["spans"][0]["text"],
+        "la"
+    );
+    assert_eq!(reading["morphSpans"]["unattributed"], serde_json::json!([]));
+    assert_spans_tile_the_surface(reading);
+    assert_spans_tile_the_surface(&rows[1]["analyses"][0]);
+}
+
+#[test]
+fn query_fields_name_a_non_parse_and_give_it_no_spans() {
+    let project = two_msa_project();
+    let args = ["--query-fields", "--morph-spans"];
+    let rows = run_batch_sidecar_path("qf-nonparse", &project, "lala\nzzz\nla\n", &args);
+    for (row, status) in rows.iter().zip(["noParse", "invalidShape"]) {
+        assert_eq!(row["readingCount"], 0, "{row}");
+        assert_eq!(row["analyses"], serde_json::json!([]));
+        assert_eq!(row["unavailable"], serde_json::json!([]));
+        assert_eq!(row["failure"]["status"], status, "{row}");
+        assert!(row.get("morphSpans").is_none());
+    }
+    assert_eq!(rows[0]["capped"], false);
+    assert_eq!(rows[1]["invalidShape"], true);
+    // A parsed word beside them keeps its readings and spans, and no failure.
+    assert_eq!(rows[2]["readingCount"], 2);
+    assert_eq!(rows[2]["failure"], serde_json::Value::Null);
+    assert_spans_tile_the_surface(&rows[2]["analyses"][0]);
+}
+
+struct CacheRun {
+    parsed: usize,
+    tsv: String,
+    sidecar: String,
+}
+
+fn cached_run(
+    dir: &std::path::Path,
+    grammar: &std::path::Path,
+    words: &str,
+    extra: &[&str],
+) -> CacheRun {
+    let words_path = dir.join("words.txt");
+    fs::write(&words_path, words).unwrap();
+    let mut args: Vec<String> = vec![
+        grammar.to_string_lossy().into_owned(),
+        words_path.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--analyses".to_string(),
+        dir.join("a.jsonl").to_string_lossy().into_owned(),
+        "--result-cache".to_string(),
+        dir.join("cache").to_string_lossy().into_owned(),
+    ];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    let parsed = run_batch_counted(&args).unwrap_or_else(|e| panic!("run_batch failed: {e}"));
+    CacheRun {
+        parsed,
+        tsv: fs::read_to_string(dir.join("out.tsv")).unwrap(),
+        sidecar: fs::read_to_string(dir.join("a.jsonl")).unwrap(),
+    }
+}
+
+#[test]
+fn result_cache_replays_unchanged_rows_and_misses_when_anything_that_changes_output_does() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache");
+    let cold = cached_run(
+        &dir,
+        &fixture,
+        "kad\nkat\nkad\n",
+        &["--query-fields", "--threads", "1"],
+    );
+    assert_eq!(cold.parsed, 2, "a repeated word is parsed once");
+    let plain = run_batch_sidecar_path(
+        "cache-plain",
+        &fixture,
+        "kad\nkat\nkad\n",
+        &["--query-fields"],
+    );
+    let cached_rows: Vec<serde_json::Value> = cold
+        .sidecar
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(without_timing(&cached_rows), without_timing(&plain));
+    assert_eq!(cold.tsv.lines().count(), 3);
+    // Same bytes, no parse, whatever the thread count.
+    for threads in ["1", "4"] {
+        let warm = cached_run(
+            &dir,
+            &fixture,
+            "kad\nkat\nkad\n",
+            &["--query-fields", "--threads", threads],
+        );
+        assert_eq!(warm.parsed, 0);
+        assert_eq!((&warm.tsv, &warm.sidecar), (&cold.tsv, &cold.sidecar));
+    }
+    // A new word parses only itself, and a reordered list reindexes.
+    let more = cached_run(&dir, &fixture, "kat\nkats\nkad\n", &["--query-fields"]);
+    assert_eq!(more.parsed, 1);
+    assert!(more.tsv.starts_with("0\tkat\t"));
+    let back = cached_run(&dir, &fixture, "kats\n", &["--query-fields"]);
+    assert_eq!(back.parsed, 0);
+    // Each option that changes the output is a miss.
+    for changed in [
+        vec![],
+        vec!["--query-fields", "--work-cap", "7"],
+        vec!["--query-fields", "--word-mem-cap-mib", "50"],
+        vec!["--query-fields", "--morph-spans"],
+        vec!["--query-fields", "--guess=false"],
+        vec!["--query-fields", "--work-columns"],
+        vec!["--query-fields", "--always-enforce-final-templates=true"],
+    ] {
+        let run = cached_run(&dir, &fixture, "kad\n", &changed);
+        assert_eq!(run.parsed, 1, "{changed:?} must miss");
+        let again = cached_run(&dir, &fixture, "kad\n", &changed);
+        assert_eq!(again.parsed, 0, "{changed:?} must then hit");
+    }
+    // The grammar's content, not its path or time, is the key.
+    let edited = dir.join("edited.fwdata");
+    fs::write(
+        &edited,
+        format!("{}\n", fs::read_to_string(&fixture).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        cached_run(&dir, &edited, "kad\n", &["--query-fields"]).parsed,
+        1
+    );
+    let copy = dir.join("copy.fwdata");
+    fs::copy(&fixture, &copy).unwrap();
+    assert_eq!(
+        cached_run(&dir, &copy, "kad\n", &["--query-fields"]).parsed,
+        0
+    );
+}
+
+#[test]
+fn result_cache_is_refused_where_rows_cannot_be_replayed_and_is_size_bounded() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-refused");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let base = |extra: &[&str]| -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            dir.join("out.tsv").to_string_lossy().into_owned(),
+            "--analyses".to_string(),
+            dir.join("a.jsonl").to_string_lossy().into_owned(),
+            "--result-cache".to_string(),
+            dir.join("cache").to_string_lossy().into_owned(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    for extra in [
+        ["--stats"],
+        ["--partials=1"],
+        ["--cost-column"],
+        ["--prefilter=on"],
+    ] {
+        assert!(run_batch(&base(&extra)).is_err(), "{extra:?}");
+    }
+    // A least recently used grammar's directory goes once the bound is passed.
+    let old = dir.join("cache").join("old-key");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(old.join("seg-1.jsonl"), vec![b'x'; 2 << 20]).unwrap();
+    run_batch(&base(&["--result-cache-max-mib", "1"])).unwrap();
+    assert!(!old.exists());
+    let kept = fs::read_dir(dir.join("cache")).unwrap().count();
+    assert_eq!(kept, 1);
+}
+
+/// A variant's morph names the variant's own entry, while its `msa` is the main entry's.
+#[test]
+fn query_fields_entry_of_a_variant_is_the_variant_and_its_msa_is_the_main_entrys() {
+    let fixture = pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "adhoc-prohibition-variant-msa-copies",
+    );
+    let project = fixture.dir.join("fieldworks").join("project.fwdata");
+    let rows = run_batch_sidecar_path("qf-variant", &project, "da\ndi\n", &["--query-fields"]);
+    let first_morph = |row: &serde_json::Value| -> Vec<(String, String)> {
+        row["analyses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                let m = &r["morphs"][0];
+                (
+                    m["entry"].as_str().expect("entry").to_string(),
+                    m["msa"].as_str().expect("msa").to_string(),
+                )
+            })
+            .collect()
+    };
+    let (main, variant) = (first_morph(&rows[0]), first_morph(&rows[1]));
+    assert!(!main.is_empty() && !variant.is_empty());
+    for (entry, msa) in &variant {
+        assert!(
+            main.iter().all(|(main_entry, _)| main_entry != entry),
+            "the variant has its own entry"
+        );
+        assert!(
+            main.iter().any(|(_, main_msa)| main_msa == msa),
+            "the variant's msa is the main entry's"
+        );
+    }
+}
+
+/// A cached run refuses to overwrite the grammar or the word list, like an uncached one.
+#[test]
+fn result_cache_refuses_outputs_that_would_overwrite_inputs() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-collide");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let cache = dir.join("cache");
+    let run = |out: &std::path::Path, analyses: &std::path::Path| {
+        run_batch_counted(&[
+            fixture.to_string_lossy().into_owned(),
+            words.to_string_lossy().into_owned(),
+            out.to_string_lossy().into_owned(),
+            "--analyses".into(),
+            analyses.to_string_lossy().into_owned(),
+            "--result-cache".into(),
+            cache.to_string_lossy().into_owned(),
+        ])
+    };
+    let before = fs::read(&fixture).unwrap();
+    for (out, analyses) in [
+        (dir.join("o.tsv"), fixture.clone()),
+        (dir.join("o.tsv"), words.clone()),
+        (fixture.clone(), dir.join("a.jsonl")),
+        (words.clone(), dir.join("a.jsonl")),
+        (dir.join("same"), dir.join("same")),
+    ] {
+        let error = run(&out, &analyses).expect_err("must refuse");
+        assert!(error.contains("cannot overwrite"), "{error}");
+    }
+    assert_eq!(fs::read(&fixture).unwrap(), before);
+    assert_eq!(fs::read_to_string(&words).unwrap(), "kat\n");
+}
+
+/// The key follows the executable's and the grammar's bytes and every option.
+#[test]
+fn result_cache_key_changes_with_the_executable_the_grammar_and_the_options() {
+    let key = crate::batch_result_cache::cache_key;
+    let base = key("g1", "exe1", &["--morph-spans".to_string()]);
+    assert_eq!(base, key("g1", "exe1", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g1", "exe2", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g2", "exe1", &["--morph-spans".to_string()]));
+    assert_ne!(base, key("g1", "exe1", &[]));
 }

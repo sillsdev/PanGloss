@@ -111,7 +111,7 @@ fn cached_synthesis_resolves_natural_classes_against_the_rules_own_table_not_tab
         rule,
         &input,
         &FeatureStruct::EMPTY,
-        MprSet::EMPTY,
+        &MprSet::EMPTY,
         &cache,
     );
     assert_eq!(

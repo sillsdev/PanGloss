@@ -37,7 +37,7 @@
         "entryGuid": { "$ref": "#/$defs/guid" },
         "msaGuid": { "$ref": "#/$defs/guid" },
         "msaClass": { "const": "MoStemMsa" },
-        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID is refused by version 1; an MSA selection does not select a form." }
+        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID on the root or a stem (compounding non-head) morpheme runs only the seeds that use a form with that MoForm GUID; an unknown form is unknown_form. On an affix it is refused as unsupported_form_selection: an affix is a rule with no allomorph choice." }
       }
     },
     "affix": {
@@ -50,7 +50,7 @@
         "msaClass": {
           "enum": ["MoStemMsa", "MoInflAffMsa", "MoDerivAffMsa", "MoUnclassifiedAffixMsa"]
         },
-        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID is refused by version 1; an MSA selection does not select a form." }
+        "formGuid": { "oneOf": [{ "$ref": "#/$defs/guid" }, { "type": "null" }], "description": "A non-null GUID on the root or a stem (compounding non-head) morpheme runs only the seeds that use a form with that MoForm GUID; an unknown form is unknown_form. On an affix it is refused as unsupported_form_selection: an affix is a rule with no allomorph choice." }
       }
     }
   }

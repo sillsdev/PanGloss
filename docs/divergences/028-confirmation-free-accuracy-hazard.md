@@ -6,7 +6,7 @@ because its soundness argument rests on an assumption about `pg-rules`' own dedu
 catalogue's other entries also touch).
 
 ## Status
-Open — measured sound on current fixtures, not proven sound in general.
+Permanent Rust-only harness hazard: measured sound on current fixtures, not proven sound in general.
 
 ## C# site
 Not applicable — this concerns only a Rust-only evaluation/measurement harness
