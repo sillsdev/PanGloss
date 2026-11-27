@@ -56,7 +56,7 @@ pub(crate) fn check(mode: PrefilterMode, options: &SearchDependent) -> Result<()
     let refused = [
         (options.stats, "--stats", "it records the rules the full search attempts, and a restricted search attempts fewer"),
         (options.word_timeout, "--word-timeout-ms", "a wall-clock deadline makes the plain reference the gate compares against depend on the machine's load"),
-        (options.per_word_diagnostics, "the HC_STEP_STATS, HC_FST_PROFILE, HC_FRONTIER_STATS, HC_WORD_STATS, HC_ALT_YIELD and HC_BRANCH_CENSUS diagnostics", "they profile the full search of each word, and a restricted search is a different search"),
+        (options.per_word_diagnostics, "the HC_STEP_STATS, HC_FST_PROFILE, HC_FRONTIER_STATS, HC_WORD_STATS, HC_ALT_YIELD, HC_BRANCH_CENSUS and HC_STATE_REPEAT_CENSUS diagnostics", "they profile the full search of each word, and a restricted search is a different search"),
     ];
     for (given, name, why) in refused {
         if given {

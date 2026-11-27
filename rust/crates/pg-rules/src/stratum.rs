@@ -110,6 +110,9 @@ impl WordSink<'_> {
 
     fn push(&mut self, w: Word) {
         if !self.done() {
+            if crate::state_repeat_census::enabled() {
+                crate::state_repeat_census::note_push();
+            }
             (self.push)(w);
         }
     }
@@ -931,6 +934,30 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         crate::analysis_state_key::key_of(w, &|id| self.max_apps(id))
     }
 
+    /// Census hook: register `w` as a node about to be expanded by `hook`.
+    fn census_enter(
+        &self,
+        hook: crate::state_repeat_census::Hook,
+        w: &Word,
+    ) -> crate::state_repeat_census::Token {
+        pg_cost::unmetered(|| {
+            let key = crate::state_repeat_census::hash_of(&self.state_key(w));
+            crate::state_repeat_census::enter(
+                hook,
+                key,
+                &w.trail.rules(),
+                &w.trail.allomorphs(),
+                self.budget.work_steps() as u64,
+            )
+        })
+    }
+
+    /// Census hook: close a node's expansion, noting whether a cap or stop cut it short.
+    fn census_exit(&self, token: crate::state_repeat_census::Token, sink: &WordSink<'_>) {
+        let truncated = sink.done() || self.budget.search_stopped();
+        crate::state_repeat_census::exit(token, self.budget.work_steps() as u64, truncated);
+    }
+
     fn max_apps(&self, id: MRuleId) -> u32 {
         u32::from(self.g.mrules[id.0 as usize].max_apps())
     }
@@ -1181,6 +1208,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             crate::stats::Direction::Analysis,
         );
         let n = self.reversed_mrules.len();
+        let census_work0 = crate::state_repeat_census::enabled().then(|| self.budget.work_steps());
         let out = match self.order {
             MorphRuleOrder::Linear => {
                 casc.permutation_prepared(n, input.clone(), &prepare, &apply_rule, &key)
@@ -1189,6 +1217,21 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 casc.combination_prepared(n, input.clone(), &prepare, &apply_rule, &key)
             }
         };
+        if let Some(work0) = census_work0 {
+            let work = (self.budget.work_steps() - work0) as u64;
+            pg_cost::unmetered(|| {
+                let distinct: rustc_hash::FxHashSet<u64> = out
+                    .words
+                    .iter()
+                    .map(|w| crate::state_repeat_census::hash_of(&self.state_key(w)))
+                    .collect();
+                crate::state_repeat_census::cascade(
+                    out.words.len() as u64,
+                    distinct.len() as u64,
+                    work,
+                );
+            });
+        }
         if frontier_profile::enabled() {
             frontier_profile::record_raw_cascade(
                 out.words.len(),
@@ -1204,6 +1247,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
+        let census = crate::state_repeat_census::enabled()
+            .then(|| self.census_enter(crate::state_repeat_census::Hook::Mrules, input));
         // `.Distinct(...)` in C# is redundant here — the cascade already deduped by key.
         let cascade = self.run_mrule_cascade(input);
         let _memory = cascade.memory;
@@ -1221,6 +1266,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     sink.push(w);
                 }
             }
+        }
+        if let Some(token) = census {
+            self.census_exit(token, sink);
         }
     }
 
@@ -1243,6 +1291,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             }
             return;
         }
+        let census = crate::state_repeat_census::enabled()
+            .then(|| self.census_enter(crate::state_repeat_census::Hook::Templates, input));
         let in_key = input.dedup_key();
         // The battery's buffer is given back as this loop empties it.
         let (batch, _memory) = self.run_template_batch(input);
@@ -1269,6 +1319,9 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     }
                 }
             }
+        }
+        if let Some(token) = census {
+            self.census_exit(token, sink);
         }
     }
 
@@ -1691,10 +1744,28 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         out
     }
 
+    /// `analyze_call`, with the state-repeat census recording the call when it is on.
+    fn analyze(&self, input: Word, root_gate: Option<RootGate>) -> StoredStratumAnalysis {
+        if !crate::state_repeat_census::enabled() {
+            return self.analyze_call(input, root_gate);
+        }
+        crate::state_repeat_census::begin_call(
+            u32::from(self.stratum_id.0),
+            matches!(self.order, MorphRuleOrder::Linear),
+            self.budget.work_steps() as u64,
+        );
+        let out = self.analyze_call(input, root_gate);
+        crate::state_repeat_census::end_call(
+            self.budget.work_steps() as u64,
+            self.budget.search_stopped(),
+        );
+        out
+    }
+
     /// Port of `AnalysisStratumRule.Apply`.
     // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
     #[allow(clippy::map_entry)]
-    fn analyze(&self, mut input: Word, root_gate: Option<RootGate>) -> StoredStratumAnalysis {
+    fn analyze_call(&self, mut input: Word, root_gate: Option<RootGate>) -> StoredStratumAnalysis {
         let census = crate::branch_census::enabled();
         let received = census.then(|| crate::branch_census::node(&input));
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.

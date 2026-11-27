@@ -28,6 +28,7 @@ pub mod shadow;
 pub mod shape_feat;
 pub mod shape_graph;
 pub mod shared_values;
+pub mod state_repeat_census;
 pub mod stats;
 pub mod stratum;
 pub mod surface_probe;

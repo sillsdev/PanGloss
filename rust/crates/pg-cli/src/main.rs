@@ -1673,6 +1673,7 @@ fn per_word_diagnostics_requested() -> bool {
         "HC_WORD_STATS",
         "HC_ALT_YIELD",
         "HC_BRANCH_CENSUS",
+        "HC_STATE_REPEAT_CENSUS",
     ]
     .iter()
     .any(|name| std::env::var_os(name).is_some())
@@ -1680,7 +1681,8 @@ fn per_word_diagnostics_requested() -> bool {
 }
 
 /// Reset per-word thread-local diagnostic counters before the next parse.
-fn reset_per_word_diagnostics() {
+fn reset_per_word_diagnostics(word: &str) {
+    pg_rules::state_repeat_census::set_word(word);
     pg_fst::profile::reset();
     pg_fst::profile::enable();
     pg_rules::morph::dedup_profile::reset();
@@ -2388,7 +2390,7 @@ fn run_batch_impl(
                 if let Some((cache, _)) = &mut stats_cache {
                     if !cache.contains(word) {
                         if per_word_diagnostics {
-                            reset_per_word_diagnostics();
+                            reset_per_word_diagnostics(word);
                         }
                         let (_, stats) = stats_collector
                             .as_ref()
@@ -2405,7 +2407,7 @@ fn run_batch_impl(
                 w.flush().map_err(|e| e.to_string())?;
             }
             if per_word_diagnostics {
-                reset_per_word_diagnostics();
+                reset_per_word_diagnostics(word);
             }
             let mut row_spans: Vec<Option<pg_parse::morpher::ParseSpans>> = Vec::new();
             let (result, stats) = if let Some(collector) = &stats_collector {
