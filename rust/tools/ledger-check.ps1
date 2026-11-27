@@ -118,10 +118,20 @@ function Test-LedgerStatus {
 function Test-LedgerKillingNumber {
     # A numeric value with a unit or a ratio, and a source (issue, PR, divergence, command or file).
     param([string]$Text)
-    $number = '(?i)([+-]?\d+(\.\d+)?\s*(%|x\b|×)|\b\d+(\.\d+)?\s+(steps?|instructions?|work|words?|analyses|allocations?|bytes|ms|s|of \d+)\b|\b\d+(\.\d+)?\s*(MiB|KiB|GiB)\b|\b\d{1,3}(,\d{3})+\b|\bzero\s+\w+)'
-    $source = '(?i)(#\d+|\bPR\s*\d+|divergence\s+\d+|`[^`]*(pg\.ps1|cargo|pangloss|stile|\.rs|\.md|\.ps1)[^`]*`|docs/\S+)'
+    $number = '(?i)([+-]?\d+(\.\d+)?\s*(%|x\b|×)|\b\d[\d,.]*\s+[a-z]{2,}|\b\d{1,3}(,\d{3})+\b|\bzero\s+\w+)'
+    $source = '(?i)(#\d+|\bPR\s*\d+|divergence\s+\d+|`[^`]+`|\b[\w-]+\.(md|rs|ps1|json)\b|docs/\S+|\(\s*[^\s)][^)]*\))'
     return ($Text -match $number) -and ($Text -match $source)
 }
+
+# The one accepted exception to the killing-number rule: `rejected: no isolated measurement (<reason>)`.
+# The reason must be non-empty. A row or bullet in this form may be re-proposed once someone measures it;
+# the measurement then replaces the exception. The lint counts them so they stay visible.
+function Test-LedgerNoMeasurementException {
+    param([string]$Text)
+    return $Text -match '(?i)\brejected:\s*no isolated measurement\s*\(\s*[^\s)]'
+}
+
+$script:LedgerExceptionCount = 0
 
 function Test-LedgerFile {
     param([Parameter(Mandatory)][string]$Path)
@@ -170,11 +180,23 @@ function Test-LedgerFile {
             }
         }
 
-        if ($status -eq 'rejected') {
+        if ($status -eq 'rejected' -and (Test-LedgerNoMeasurementException $cells[1])) {
+            $script:LedgerExceptionCount++
+        } elseif ($status -eq 'rejected') {
             $text = ($cells -join ' ') + "`n" + $entryText
             if (-not (Test-LedgerKillingNumber $text)) {
                 $errors += "$where : a rejected idea needs its killing number: a value with a unit or a ratio (for example '+7.7% work', '1.1x', '0 steps') and a source (issue, PR or command) in the row or its entry. Fix: add both to the Status cell or the entry."
             }
+        }
+    }
+    # Dead-end bullets ('- **<name>:** rejected ...') carry their own number or the exception.
+    $bulletNo = 0
+    foreach ($line in $ledger.Lines) {
+        $bulletNo++
+        if ($line -notmatch '^- \*\*(?!Status)[^\n]*?\*\*\s*rejected\b') { continue }
+        if (Test-LedgerNoMeasurementException $line) { $script:LedgerExceptionCount++; continue }
+        if (-not (Test-LedgerKillingNumber $line)) {
+            $errors += "ledger bullet at line $bulletNo : a rejected dead end needs its killing number (a value with a unit or a ratio, plus an issue, PR or command), or the exact form 'rejected: no isolated measurement (<reason>)'. Fix: add one of them."
         }
     }
     return $errors
@@ -216,10 +238,11 @@ if ($MyInvocation.InvocationName -ne '.') {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
     if (-not $LedgerPath) { $LedgerPath = Join-Path $repoRoot 'docs/research/optimization/README.md' }
     if ($Mode -eq 'Lint') {
+        $script:LedgerExceptionCount = 0
         $errs = @(Test-LedgerFile -Path $LedgerPath)
         foreach ($e in $errs) { Write-Host "ledger-lint: $e" }
         if ($errs.Count) { Write-Host "ledger-lint: $($errs.Count) problem(s); format: .claude/skills/optimization-research/references/ledger-format.md"; exit 1 }
-        Write-Host 'ledger-lint: ok'
+        Write-Host "ledger-lint: ok ($script:LedgerExceptionCount rejected rows or bullets rely on 'no isolated measurement'; measure one to replace its exception)"
         exit 0
     }
     $files = @($ChangedFile)

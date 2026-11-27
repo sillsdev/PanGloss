@@ -22,3 +22,7 @@ Statuses (a qualifier may follow in parentheses or after a comma; `open` is also
 
 Rules: synthetic examples only; primary sources; mark speculation; counts in work steps or instructions, not wall time (unless no step count exists, and say so).
 An entry that changes status keeps its history in one line (`2026-11-27 measured; 2026-12-01 rejected: ...`).
+
+Exception: a rejection with no measurement (rejected on reasoning from the code) is written exactly `rejected: no isolated measurement (<reason>)`, reason non-empty,
+in the row, entry or dead-end bullet. The lint accepts it and prints how many rely on it. Such an idea may be re-proposed once someone measures it, and the
+measurement then replaces the exception with `rejected: <number> <unit> (<source>)` or moves the idea on. Any other `rejected` text without a number and a source fails.

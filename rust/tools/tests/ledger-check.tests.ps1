@@ -68,6 +68,23 @@ Test-Case 'duplicate idea names are reported, ignoring the parenthetical and cas
     Assert-True ($e.Count -eq 1 -and $e[0] -match 'duplicate') ($e -join ';')
 }
 
+Test-Case 'rejected: no isolated measurement (<reason>) is accepted and counted; an empty reason or other text is not' {
+    $script:LedgerExceptionCount = 0
+    $p = New-Ledger -Rows @('| alpha | rejected: no isolated measurement (reason here) | b | none | [entry](#alpha) |')
+    Assert-Equal 0 @(Test-LedgerFile -Path $p).Count
+    Assert-Equal 1 $script:LedgerExceptionCount
+    foreach ($bad in @('rejected: no isolated measurement ()', 'rejected: no isolated measurement', 'rejected: not measured (reason)', 'rejected: it is slow')) {
+        $p = New-Ledger -Rows @("| alpha | $bad | b | none | [entry](#alpha) |")
+        Assert-Equal 1 @(Test-LedgerFile -Path $p).Count "should fail: $bad"
+    }
+}
+
+Test-Case 'dead-end bullets need a number or the exception' {
+    $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **One:** rejected: 2.3x more instances (machine#596).`n- **Two:** rejected: no isolated measurement (out of scope).`n- **Three:** rejected: boring.`n"
+    $e = @(Test-LedgerFile -Path $p)
+    Assert-True ($e.Count -eq 1 -and $e[0] -match 'bullet') ($e -join ';')
+}
+
 $names = @('shape-table', 'work-cap')
 $parser = @('rust/crates/pg-rules/src/cascade.rs')
 
