@@ -176,3 +176,25 @@ fn signature_id_parser_rejects_malformed_values() {
     assert!(SignatureId::parse("sig_short").is_err());
     assert!(SignatureId::parse(&format!("sig_{}", "G".repeat(64))).is_err());
 }
+
+#[test]
+fn authored_mpr_signatures_survive_wide_numeric_reindexing() {
+    let entries = [
+        entry("a", "a", r#"ruleFeatures="mprA""#, "", ""),
+        entry("b", "b", r#"ruleFeatures="mprB""#, "", ""),
+    ]
+    .concat();
+    let low = load(entries.clone());
+    let padding = (0..256).map(|id| format!(r#"<MorphologicalPhonologicalRuleFeature id="padding{id}">padding</MorphologicalPhonologicalRuleFeature>"#)).collect::<String>();
+    let wide_xml = format!("{PREFIX}{entries}{SUFFIX}").replace(
+        "<MorphologicalPhonologicalRuleFeatures>",
+        &format!("<MorphologicalPhonologicalRuleFeatures>{padding}"),
+    );
+    let wide = pg_grammar::load(&wide_xml).unwrap();
+    assert!(wide.entries[0].mpr.contains(pg_grammar::model::MprId(256)));
+    assert!(!wide.entries[0].mpr.contains(pg_grammar::model::MprId(0)));
+    let before = ClassCatalog::from_grammar(&low).unwrap();
+    let after = ClassCatalog::from_grammar(&wide).unwrap();
+    assert_eq!(before.signatures(), after.signatures());
+    assert_eq!(after.len(), 2);
+}

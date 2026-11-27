@@ -71,10 +71,10 @@ pub use lexicon::{
     AffixProcess, Allomorph, EntryRef, EqualMsas, LexEntry, Lexicon, Msa, RuleMapping, Sense,
 };
 pub use morphology::{
-    ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixSlot, AffixTemplate,
-    CompoundConstituentRequirement, CompoundOutcome, CompoundRule, CompoundRuleMaxApplications,
-    ExceptionFeature, InflectionClass, LexEntryInflType, MorphType, Morphology, ParserParameters,
-    PartOfSpeech, StemName, XAmpleParameters,
+    ActiveParser, AdhocProhibition, AdhocProhibitionGroup, Adjacency, AffixRuleMaxApplications,
+    AffixSlot, AffixTemplate, CompoundConstituentRequirement, CompoundOutcome, CompoundRule,
+    CompoundRuleMaxApplications, ExceptionFeature, InflectionClass, LexEntryInflType, MorphType,
+    Morphology, ParserParameters, PartOfSpeech, StemName, XAmpleParameters,
 };
 pub use phonology::{
     BoundaryMarker, Environment, FeatureConstraint, MetathesisRule, NaturalClass, PhonContext,
@@ -188,10 +188,13 @@ impl Snapshot {
     /// `feature_systems`, `phonology`, `morphology`, or `lexicon` does.
     pub fn grammar_hash(&self) -> String {
         use sha2::{Digest, Sha256};
-        let json = serde_json::to_string_pretty(&GrammarHashInput::from(self))
-            .expect("GrammarHashInput serialization is infallible");
+        use std::io::Write;
         let mut hasher = Sha256::new();
-        hasher.update(json.as_bytes());
+        let mut writer = std::io::BufWriter::new(&mut hasher);
+        serde_json::to_writer_pretty(&mut writer, &GrammarHashInput::from(self))
+            .expect("GrammarHashInput serialization is infallible");
+        writer.flush().expect("hash writer is infallible");
+        drop(writer);
         hasher
             .finalize()
             .iter()

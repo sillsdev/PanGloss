@@ -420,3 +420,125 @@ fn malformed_hc_max_roots_is_fatal_and_names_the_field_and_value() {
         assert!(message.contains(&format!("{bad:?}")), "{message}");
     }
 }
+
+const G1: &str = "11111111-1111-1111-1111-111111111111";
+const G2: &str = "22222222-2222-2222-2222-222222222222";
+
+fn affix_counts(rules: &str) -> (Vec<(String, u32)>, usize) {
+    let xml =
+        format!("<ParserParameters><HC><AffixRules>{rules}</AffixRules></HC></ParserParameters>");
+    let (p, issues, _) = parse_with_issues(Some(&xml)).unwrap();
+    (
+        p.affix_rule_max_applications
+            .into_iter()
+            .map(|e| (e.msa, e.max_applications))
+            .collect(),
+        issues.len(),
+    )
+}
+
+fn one_count(value: &str) -> (Option<u32>, usize) {
+    let (counts, warnings) =
+        affix_counts(&format!("<AffixRule guid=\"{G1}\" maxApps=\"{value}\"/>"));
+    (counts.first().map(|c| c.1), warnings)
+}
+
+#[test]
+fn affix_rule_max_apps_loads_counts_above_one_and_ignores_one() {
+    let (counts, warnings) = affix_counts(&format!(
+        "<AffixRule guid=\"{G1}\" maxApps=\"2\"/><AffixRule guid=\"{G2}\" maxApps=\"1\"/>"
+    ));
+    assert_eq!(counts, vec![(G1.to_string(), 2)]);
+    assert_eq!(warnings, 0);
+}
+
+/// HCLoader clamps with `Math.Max(1, Math.Min(10, maxApps))` after `int.TryParse`.
+#[test]
+fn affix_rule_max_apps_is_clamped_to_one_through_ten_like_hcloader() {
+    assert_eq!(one_count("1"), (None, 0));
+    assert_eq!(one_count("2"), (Some(2), 0));
+    assert_eq!(one_count("10"), (Some(10), 0));
+    assert_eq!(one_count("11"), (Some(10), 1));
+    assert_eq!(one_count("1000"), (Some(10), 1));
+    assert_eq!(one_count("70000"), (Some(10), 1));
+    assert_eq!(one_count("2147483647"), (Some(10), 1));
+    assert_eq!(one_count("0"), (None, 0));
+    assert_eq!(one_count("-3"), (None, 0));
+    assert_eq!(one_count("-2147483648"), (None, 0));
+}
+
+/// A value `int.TryParse` rejects leaves the affix at one application.
+#[test]
+fn affix_rule_max_apps_unparsable_values_are_skipped_with_a_warning() {
+    for bad in ["abc", "", "1.5", "2147483648", "1e1", "0x2", "--2", "2 3"] {
+        assert_eq!(one_count(bad), (None, 1), "{bad:?}");
+    }
+}
+
+#[test]
+fn affix_rule_max_apps_accepts_whitespace_and_a_plus_sign_like_int_try_parse() {
+    assert_eq!(one_count(" 2 "), (Some(2), 0));
+    assert_eq!(one_count("+3"), (Some(3), 0));
+    assert_eq!(one_count("\t4\n"), (Some(4), 0));
+}
+
+#[test]
+fn affix_rule_max_apps_guid_is_parsed_like_guid_try_parse() {
+    let count = |guid: &str| affix_counts(&format!("<AffixRule guid=\"{guid}\" maxApps=\"3\"/>"));
+    assert_eq!(count(G1), (vec![(G1.to_string(), 3)], 0));
+    assert_eq!(count(&G1.to_uppercase()), (vec![(G1.to_string(), 3)], 0));
+    assert_eq!(
+        count(&format!(" {{{G1}}} ")),
+        (vec![(G1.to_string(), 3)], 0)
+    );
+    assert_eq!(count(&G1.replace('-', "")), (vec![(G1.to_string(), 3)], 0));
+    for bad in ["", "not-a-guid", "a1", &G1[1..]] {
+        assert_eq!(count(bad), (vec![], 1), "{bad:?}");
+    }
+}
+
+#[test]
+fn affix_rule_max_apps_missing_attribute_is_skipped_with_a_warning() {
+    let (counts, warnings) = affix_counts(&format!(
+        "<AffixRule maxApps=\"2\"/><AffixRule guid=\"{G1}\"/>"
+    ));
+    assert!(counts.is_empty());
+    assert_eq!(warnings, 2);
+}
+
+/// HCLoader assigns into a dictionary, so the last valid entry for a guid wins, and an invalid later entry does not cancel an earlier one.
+#[test]
+fn affix_rule_max_apps_repeated_guid_takes_the_last_valid_entry() {
+    let rule = |v: &str| format!("<AffixRule guid=\"{G1}\" maxApps=\"{v}\"/>");
+    assert_eq!(
+        affix_counts(&format!("{}{}", rule("2"), rule("5"))).0,
+        vec![(G1.to_string(), 5)]
+    );
+    assert_eq!(
+        affix_counts(&format!("{}{}", rule("5"), rule("1"))).0,
+        vec![]
+    );
+    assert_eq!(
+        affix_counts(&format!("{}{}", rule("5"), rule("x"))).0,
+        vec![(G1.to_string(), 5)]
+    );
+}
+
+#[test]
+fn absent_affix_rules_means_no_counts() {
+    let (p, issues, _) =
+        parse_with_issues(Some("<ParserParameters><HC/></ParserParameters>")).unwrap();
+    assert!(p.affix_rule_max_applications.is_empty() && issues.is_empty());
+}
+
+/// `<CompoundRules>` stays on its own path: an `AffixRules` block does not touch it.
+#[test]
+fn affix_rules_do_not_touch_compound_rule_counts() {
+    let (p, _, _) = parse_with_issues(Some(&format!(
+        "<ParserParameters><HC><AffixRules><AffixRule guid=\"{G1}\" maxApps=\"3\"/></AffixRules></HC>\
+         <CompoundRules><CompoundRule guid=\"{G2}\" maxApps=\"70000\"/></CompoundRules></ParserParameters>"
+    )))
+    .unwrap();
+    assert_eq!(p.affix_rule_max_applications.len(), 1);
+    assert_eq!(p.compound_rule_max_applications[0].max_applications, 70000);
+}
