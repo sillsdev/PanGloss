@@ -1,0 +1,246 @@
+{
+  "version": 1,
+  "name": "root-cache-off",
+  "title": "Root-search cache on against off, experimental switch",
+  "note": "Binary at 0bb22999 plus the HC_NO_ROOT_CACHE switch from ba5be3dd; after forbids cache insertion.",
+  "measuredOn": "2026-11-14",
+  "gate": false,
+  "gateNote": "The synthetic words show no measurable cache effect at 0.01% precision; this pair cannot discriminate weights. An exercised cache workload is needed.",
+  "conformance": {
+    "repo": "sillsdev/fieldworks-parser-conformance",
+    "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f"
+  },
+  "before": {
+    "label": "cache-on",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "ede68d430dbcb34f9e75375be3fb3bf375be3f0ae0c893dfba4cba9ab70cdbcf",
+    "env": {}
+  },
+  "after": {
+    "label": "cache-off",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "ede68d430dbcb34f9e75375be3fb3bf375be3f0ae0c893dfba4cba9ab70cdbcf",
+    "env": {
+      "HC_NO_ROOT_CACHE": "1"
+    }
+  },
+  "collect": "cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text",
+  "families": [
+    {
+      "family": "cal-allomorph-explosion",
+      "words": 20,
+      "before": {
+        "work": 827958,
+        "bytes": 102563084,
+        "registers": 276780,
+        "allocations": 432243,
+        "instructions": 372016350
+      },
+      "after": {
+        "work": 827958,
+        "bytes": 102563085,
+        "registers": 276780,
+        "allocations": 432244,
+        "instructions": 372014509
+      }
+    },
+    {
+      "family": "cal-clitic-chain",
+      "words": 5,
+      "before": {
+        "work": 1079545,
+        "bytes": 294894504,
+        "registers": 2368064,
+        "allocations": 1907539,
+        "instructions": 1134911819
+      },
+      "after": {
+        "work": 1079545,
+        "bytes": 294894504,
+        "registers": 2368064,
+        "allocations": 1907539,
+        "instructions": 1134911864
+      }
+    },
+    {
+      "family": "cal-compounding-large",
+      "words": 15,
+      "before": {
+        "work": 265377,
+        "bytes": 57544003,
+        "registers": 919668,
+        "allocations": 323432,
+        "instructions": 190105407
+      },
+      "after": {
+        "work": 265377,
+        "bytes": 57544003,
+        "registers": 919668,
+        "allocations": 323432,
+        "instructions": 190105407
+      }
+    },
+    {
+      "family": "cal-deep-template-16",
+      "words": 6,
+      "before": {
+        "work": 743843,
+        "bytes": 248889540,
+        "registers": 1543186,
+        "allocations": 1511439,
+        "instructions": 799241002
+      },
+      "after": {
+        "work": 743843,
+        "bytes": 248889541,
+        "registers": 1543186,
+        "allocations": 1511440,
+        "instructions": 799241148
+      }
+    },
+    {
+      "family": "cal-homophone-ambiguity",
+      "words": 20,
+      "before": {
+        "work": 719940,
+        "bytes": 160201712,
+        "registers": 669480,
+        "allocations": 1279302,
+        "instructions": 667935728
+      },
+      "after": {
+        "work": 719940,
+        "bytes": 160201712,
+        "registers": 669480,
+        "allocations": 1279302,
+        "instructions": 667935728
+      }
+    },
+    {
+      "family": "cal-infix-simulfix",
+      "words": 6,
+      "before": {
+        "work": 1052927,
+        "bytes": 227908370,
+        "registers": 2640332,
+        "allocations": 991260,
+        "instructions": 725776751
+      },
+      "after": {
+        "work": 1052927,
+        "bytes": 227908371,
+        "registers": 2640332,
+        "allocations": 991261,
+        "instructions": 725776897
+      }
+    },
+    {
+      "family": "cal-large-lexicon",
+      "words": 15,
+      "before": {
+        "work": 289605,
+        "bytes": 50443236,
+        "registers": 453300,
+        "allocations": 376563,
+        "instructions": 204803595
+      },
+      "after": {
+        "work": 289605,
+        "bytes": 50443236,
+        "registers": 453300,
+        "allocations": 376563,
+        "instructions": 204803595
+      }
+    },
+    {
+      "family": "cal-lexsize",
+      "words": 28,
+      "before": {
+        "work": 44376,
+        "bytes": 8155764,
+        "registers": 66960,
+        "allocations": 69297,
+        "instructions": 33752604
+      },
+      "after": {
+        "work": 44376,
+        "bytes": 8155768,
+        "registers": 66960,
+        "allocations": 69301,
+        "instructions": 33753098
+      }
+    },
+    {
+      "family": "cal-redup-long-roots",
+      "words": 6,
+      "before": {
+        "work": 673543,
+        "bytes": 136591590,
+        "registers": 3569350,
+        "allocations": 816969,
+        "instructions": 505124890
+      },
+      "after": {
+        "work": 673543,
+        "bytes": 136591591,
+        "registers": 3569350,
+        "allocations": 816970,
+        "instructions": 505125036
+      }
+    },
+    {
+      "family": "cal-rule-cascade-32",
+      "words": 6,
+      "before": {
+        "work": 1824192,
+        "bytes": 291758664,
+        "registers": 6868306,
+        "allocations": 1613606,
+        "instructions": 1026931054
+      },
+      "after": {
+        "work": 1824192,
+        "bytes": 291758665,
+        "registers": 6868306,
+        "allocations": 1613607,
+        "instructions": 1026931146
+      }
+    },
+    {
+      "family": "cal-templatic-nonconcat",
+      "words": 6,
+      "before": {
+        "work": 46630,
+        "bytes": 21638886,
+        "registers": 197200,
+        "allocations": 144939,
+        "instructions": 68020280
+      },
+      "after": {
+        "work": 46630,
+        "bytes": 21638887,
+        "registers": 197200,
+        "allocations": 144940,
+        "instructions": 68020372
+      }
+    },
+    {
+      "family": "cal-work-cap",
+      "words": 8,
+      "before": {
+        "work": 633161,
+        "bytes": 122078289,
+        "registers": 1188678,
+        "allocations": 1165251,
+        "instructions": 592643866
+      },
+      "after": {
+        "work": 633161,
+        "bytes": 122078291,
+        "registers": 1188678,
+        "allocations": 1165253,
+        "instructions": 592644068
+      }
+    }
+  ]
+}

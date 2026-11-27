@@ -2,7 +2,6 @@
 //! correcting docs/conformance/representative-typology-basis.md S1.2.2's assumption that grouped it as excluded.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
 use pg_foma_backend::backend_selection::best_case_for_grammar;
@@ -10,9 +9,11 @@ use pg_grammar::model::{Dir, Grammar, PhonRuleDef};
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../conformance-staging/edge-cases/right-to-left-bounded-quantifier-rewrite/grammar.xml",
+    pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "right-to-left-bounded-quantifier-rewrite",
     )
+    .grammar_path()
 }
 
 fn load() -> Grammar {

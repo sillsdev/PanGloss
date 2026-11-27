@@ -16,9 +16,10 @@ fn load_and_measure(fixture: &pg_conformance_fixtures::FixtureRef) -> Loaded {
     if words_yaml.expect_crash {
         return Loaded::ExcludedByExpectCrash { label };
     }
-    let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
+    let Ok(mut grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
         return Loaded::Scored(scoreboard::unmeasurable(&label, "grammar failed to load"));
     };
+    words_yaml.morpher.apply_to(&mut grammar);
     let all_words: Vec<String> = words_yaml.words.iter().map(|w| w.word.clone()).collect();
     let words: Vec<String> = if all_words.len() > MAX_WORDS_PER_FIXTURE {
         all_words[..MAX_WORDS_PER_FIXTURE].to_vec()
@@ -42,103 +43,108 @@ impl Bucket {
     }
 }
 
-/// Pins measured coverage, keeping missing proposals distinct from typed refusals.
-const EXPECTED: &[(EmissionStrategy, Bucket)] = &[
-    // Measurements: docs/research/backend-scoreboard-extraction-reconciliation.md, parser-settings pin section.
-    (
-        EmissionStrategy::TunedSurfaceProbed,
-        Bucket {
-            oracle_exact: 123,
-            compiles_but_misses: 7,
-            refused: 2,
-            unmeasurable: 0,
-        },
-    ),
-    (
-        EmissionStrategy::TemplatedUnderlyingTokens,
-        Bucket {
-            oracle_exact: 101,
-            compiles_but_misses: 6,
-            refused: 25,
-            unmeasurable: 0,
-        },
-    ),
-    (
-        EmissionStrategy::PlanComposed,
-        Bucket {
-            oracle_exact: 44,
-            compiles_but_misses: 2,
-            refused: 83,
-            unmeasurable: 3,
-        },
-    ),
-];
+// Both divergence directions remain visible; recall and soundness are hard zero-defect invariants.
+
+// oracle_exact 169, refused 170: pin 57929476b adds metathesis-allomorph-env-after-swap (one refused cell: the FST route refuses metathesis grammars); earlier, pin cc7512e adds convergent-stemname-mpr-homophones (one exact cell); the 3 restored prefix-required-environment-after-epenthesis* fixtures return from conformance-staging/ to the suite and score unchanged (2 exact, 1 refused). Pin 0b7db29 adds metathesis-swap-then-gap and metathesis-middle-context-emptied-edges (both refused: a deleting rewrite in a grammar with affix rules): refused 172.
+const EXPECTED: &[(EmissionStrategy, Bucket)] = &[(
+    EmissionStrategy::TunedSurfaceProbed,
+    Bucket {
+        oracle_exact: 169,
+        compiles_but_misses: 0,
+        refused: 172,
+        unmeasurable: 0,
+    },
+)];
 
 /// A ratchet on the NAMED set, not just the count -- a fixture gaining or losing `expect_crash` is reviewable, not just countable.
 const EXPECTED_EXCLUDED: &[&str] = &["machine:edge-cases/simultaneous-epenthesis-cascade"];
 
 /// See docs/research/backend-scoreboard-extraction-reconciliation.md's own section on this fixture for why TSP now measures `OracleExact` here without contradicting `non_first_allomorph_circumfix_recall_parity`'s PRE-confirm containment proof.
 const CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE: &str =
-    "staging:edge-cases/circumfix-non-first-allomorph-selection";
+    "machine:edge-cases/circumfix-non-first-allomorph-selection";
 
 const REALIZATIONAL_UNBOUNDED_FIXTURE: &str = "machine:languages/suffixing-extension-slot-ordering";
 
 const AMBIGUOUS_DISAGREEMENT_FIXTURE: &str = "machine:edge-cases/alpha-variable-name-collision";
 
+const BOUNDARY_NARROWING_FIXTURE: &str = "machine:edge-cases/boundary-narrowing-probe";
+
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
+// Phonology-altered copies require a typed refusal until the proposal relation preserves them.
+const COPY_AGREEMENT_FEATURELESS_REDUP: &str =
+    "machine:edge-cases/copy-agreement-featureless-redup";
+
 const FEATURE_CLASS_BOUNDED_RTL_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
+    "machine:edge-cases/ambiguous-disagree-feature-class-bounded-rtl";
 
 const FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE: &str =
-    "staging:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
+    "machine:edge-cases/ambiguous-disagree-feature-class-unbounded-ltr";
+
+// Symbolic epenthesis must refuse rather than silently omit C#-accepted analyses.
+const REWRITE_DEFAULT_EPENTHESIS: &str = "staging:edge-cases/rewrite-default-epenthesis";
+const REWRITE_DEFAULT_FULL_SET: &str = "staging:edge-cases/rewrite-default-full-set";
+const REWRITE_DEFAULT_FIXTURES: &[&str] = &[
+    "staging:edge-cases/rewrite-default-environment",
+    REWRITE_DEFAULT_EPENTHESIS,
+    REWRITE_DEFAULT_FULL_SET,
+    "staging:edge-cases/rewrite-default-narrow",
+];
+
+const MPR_WIDE_FIXTURE: &str = "machine:edge-cases/mpr-wide-inflection-classes";
+
+const PER_SITE_ALPHA_FIXTURE: &str = "staging:edge-cases/per-site-alpha-rewrite";
+const PROPOSING_REVIEW_FIXTURES: &[&str] = &[
+    "staging:edge-cases/bounded-iterative-epenthesis",
+    "staging:edge-cases/permissive-multisegment-output",
+    "staging:edge-cases/rtl-expansion-context",
+    "staging:edge-cases/rtl-expansion-final-anchor",
+    "staging:edge-cases/unattested-intermediate-bundle",
+    "staging:edge-cases/unattested-intermediate-environments",
+];
 
 /// Expected `outcome_label` per `(fixture, strategy)`, checked as a table so each pin states what changed rather than a uniform `refused`.
 fn expected_pinned_outcome(fixture: &str, strategy: EmissionStrategy) -> &'static str {
-    use EmissionStrategy::{PlanComposed, TemplatedUnderlyingTokens, TunedSurfaceProbed};
+    use EmissionStrategy::TunedSurfaceProbed;
     match (fixture, strategy) {
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, PlanComposed) if f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE => "oracle_exact",
-        (f, TunedSurfaceProbed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => "oracle_exact",
-        (f, TemplatedUnderlyingTokens | PlanComposed) if f == REALIZATIONAL_UNBOUNDED_FIXTURE => {
-            "refused"
-        }
-        // Divergence 067 requires HC-confirmed oracle equality for the admitted ambiguous-disagree shape.
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if f == AMBIGUOUS_DISAGREEMENT_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, PlanComposed) if f == AMBIGUOUS_DISAGREEMENT_FIXTURE => "refused",
+        (PER_SITE_ALPHA_FIXTURE, TunedSurfaceProbed) => "refused",
+        (
+            "staging:edge-cases/unattested-intermediate-bundle"
+            | "staging:edge-cases/rewrite-default-narrow",
+            TunedSurfaceProbed,
+        ) => "refused",
+        (
+            FEATURE_CLASS_BOUNDED_RTL_FIXTURE | FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE,
+            TunedSurfaceProbed,
+        ) => "refused",
+        (MPR_WIDE_FIXTURE, TunedSurfaceProbed) => "oracle_exact",
+        (f, TunedSurfaceProbed) if PROPOSING_REVIEW_FIXTURES.contains(&f) => "oracle_exact",
         (f, TunedSurfaceProbed)
-            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
-                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
-        {
-            "oracle_exact"
-        }
-        (f, TemplatedUnderlyingTokens | PlanComposed)
-            if f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
-                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
+            if f == REWRITE_DEFAULT_EPENTHESIS
+                || f == REWRITE_DEFAULT_FULL_SET
+                || f == COPY_AGREEMENT_FEATURELESS_REDUP
+                || f == REALIZATIONAL_UNBOUNDED_FIXTURE
+                || f == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                || PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
         {
             "refused"
         }
-        (f, TunedSurfaceProbed | TemplatedUnderlyingTokens)
-            if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) =>
+        (f, TunedSurfaceProbed)
+            if f == BOUNDARY_NARROWING_FIXTURE
+                || REWRITE_DEFAULT_FIXTURES.contains(&f)
+                || f == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                || f == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
+                || f == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE =>
         {
             "oracle_exact"
         }
-        (f, PlanComposed) if PARTIAL_CLASS_DISAGREEMENT_FIXTURES.contains(&f) => "refused",
         (f, s) => panic!("no pinned expectation for ({f}, {s:?})"),
     }
 }
@@ -169,9 +175,11 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
     let mut excluded: Vec<String> = Vec::new();
     let mut scored_fixtures = 0usize;
     let mut soundness_violations: Vec<String> = Vec::new();
+    let mut recall_violations: Vec<String> = Vec::new();
     let mut pinned_outcomes: Vec<(&'static str, EmissionStrategy, &'static str)> = Vec::new();
     // Named, not only counted, so a moved ratchet says WHICH fixture moved.
     let mut not_exact: Vec<String> = Vec::new();
+    let mut admission_outcomes = Vec::new();
 
     for fixture in &fixtures {
         match load_and_measure(fixture) {
@@ -184,10 +192,15 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         .find(|(s, _)| *s == cell.strategy)
                         .expect("every EmissionStrategy has a bucket entry");
                     let label = outcome_label(&cell.outcome);
+                    admission_outcomes
+                        .push(format!("{}\t{:?}\t{}", row.label, cell.strategy, label));
                     eprintln!(
                         "SCOREBOARD_CELL\t{}\t{:?}\t{}",
                         row.label, cell.strategy, label
                     );
+                    if let CellOutcome::Refused { reason, .. } = &cell.outcome {
+                        eprintln!("SCOREBOARD_REFUSAL\t{}\t{reason}", row.label);
+                    }
                     if label != "oracle_exact" {
                         not_exact.push(format!("{} [{:?}]: {label}", row.label, cell.strategy));
                     }
@@ -198,6 +211,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                         "unmeasurable" => bucket.unmeasurable += 1,
                         other => panic!("unhandled CellOutcome label {other}"),
                     }
+                    if let CellOutcome::CompilesButMisses { recall_deficit } = &cell.outcome {
+                        recall_violations.push(format!(
+                            "{} [{:?}]: {recall_deficit} missing identities",
+                            row.label, cell.strategy
+                        ));
+                    }
                     if let Some(divergence) = cell.divergence {
                         if divergence.candidate_only_identities > 0 {
                             soundness_violations.push(format!(
@@ -207,25 +226,51 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
                             ));
                         }
                     }
-                    if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
+                    if row.label == MPR_WIDE_FIXTURE
+                        || row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         || row.label == REALIZATIONAL_UNBOUNDED_FIXTURE
                         || row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        || row.label == BOUNDARY_NARROWING_FIXTURE
                         || row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         || row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        || row.label == PER_SITE_ALPHA_FIXTURE
+                        || PROPOSING_REVIEW_FIXTURES.contains(&row.label.as_str())
+                        || row.label == COPY_AGREEMENT_FEATURELESS_REDUP
+                        || REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str())
                         || PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                             .iter()
                             .any(|fixture| row.label == *fixture)
                     {
-                        let f = if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
+                        let f = if row.label == MPR_WIDE_FIXTURE {
+                            MPR_WIDE_FIXTURE
+                        } else if row.label == PER_SITE_ALPHA_FIXTURE {
+                            PER_SITE_ALPHA_FIXTURE
+                        } else if PROPOSING_REVIEW_FIXTURES.contains(&row.label.as_str()) {
+                            PROPOSING_REVIEW_FIXTURES
+                                .iter()
+                                .copied()
+                                .find(|f| row.label == *f)
+                                .expect("review fixture checked above")
+                        } else if row.label == CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE {
                             CIRCUMFIX_NON_FIRST_ALLOMORPH_FIXTURE
                         } else if row.label == REALIZATIONAL_UNBOUNDED_FIXTURE {
                             REALIZATIONAL_UNBOUNDED_FIXTURE
                         } else if row.label == AMBIGUOUS_DISAGREEMENT_FIXTURE {
                             AMBIGUOUS_DISAGREEMENT_FIXTURE
+                        } else if row.label == BOUNDARY_NARROWING_FIXTURE {
+                            BOUNDARY_NARROWING_FIXTURE
                         } else if row.label == FEATURE_CLASS_BOUNDED_RTL_FIXTURE {
                             FEATURE_CLASS_BOUNDED_RTL_FIXTURE
                         } else if row.label == FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE {
                             FEATURE_CLASS_UNBOUNDED_LTR_FIXTURE
+                        } else if row.label == COPY_AGREEMENT_FEATURELESS_REDUP {
+                            COPY_AGREEMENT_FEATURELESS_REDUP
+                        } else if REWRITE_DEFAULT_FIXTURES.contains(&row.label.as_str()) {
+                            REWRITE_DEFAULT_FIXTURES
+                                .iter()
+                                .copied()
+                                .find(|fixture| row.label == *fixture)
+                                .expect("rewrite-default label was checked above")
                         } else {
                             PARTIAL_CLASS_DISAGREEMENT_FIXTURES
                                 .iter()
@@ -246,6 +291,10 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
         "soundness violation(s) found (ADR-0001's propose-and-confirm invariant is one-directional \
          -- overgeneration must never survive confirm): {soundness_violations:?}"
     );
+    assert!(
+        recall_violations.is_empty(),
+        "admitted grammars must never lose analyses: {recall_violations:#?}"
+    );
 
     excluded.sort();
     let mut expected_excluded: Vec<&str> = EXPECTED_EXCLUDED.to_vec();
@@ -256,6 +305,12 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
          gaining or losing expect_crash is a real, reviewable event, not just a count)"
     );
 
+    admission_outcomes.sort();
+    assert_eq!(
+        admission_outcomes.join("\n") + "\n",
+        include_str!("admission-outcomes.txt"),
+        "fixture admission/artifact outcomes changed; inspect both transition directions"
+    );
     not_exact.sort();
     eprintln!("backend_scoreboard_gate: cells that are not oracle_exact:");
     for line in &not_exact {
@@ -288,7 +343,10 @@ fn backend_scoreboard_matches_the_ratchet_in_both_directions() {
 
     assert_eq!(
         pinned_outcomes.len(),
-        (5 + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()) * ALL_STRATEGIES.len(),
+        (9 + PROPOSING_REVIEW_FIXTURES.len()
+            + PARTIAL_CLASS_DISAGREEMENT_FIXTURES.len()
+            + REWRITE_DEFAULT_FIXTURES.len())
+            * ALL_STRATEGIES.len(),
         "one of the pinned fixtures was not measured on every strategy -- has it been renamed, \
          removed, or excluded?"
     );

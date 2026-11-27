@@ -245,11 +245,11 @@ fn a_valid_shadow_rejection_leaves_the_analyses_untouched_and_counts_the_death()
         1,
         "every would-die candidate lands in exactly one attribution class"
     );
-    assert!(attribution.removable_steps <= profiled.diagnostics.confirmation_steps);
+    assert!(attribution.removable_work <= profiled.diagnostics.confirmation_work);
     assert!(attribution.exact_steps_max >= attribution.exact_steps_median);
     eprintln!(
         "candidate_filter_shadow_gate: word={OVERGENERATED_ONLY:?} hc_steps={} {attribution:?}",
-        profiled.diagnostics.confirmation_steps
+        profiled.diagnostics.confirmation_work
     );
 }
 

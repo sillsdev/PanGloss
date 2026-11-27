@@ -19,6 +19,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         allomorph_owners: allomorph_owners_a,
         allomorph_sources: allomorph_sources_a,
         prules: prules_a,
+        skipped_prules: skipped_prules_a,
         mrules: mrules_a,
         templates: templates_a,
         entries: entries_a,
@@ -46,6 +47,7 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         allomorph_owners: allomorph_owners_b,
         allomorph_sources: allomorph_sources_b,
         prules: prules_b,
+        skipped_prules: skipped_prules_b,
         mrules: mrules_b,
         templates: templates_b,
         entries: entries_b,
@@ -119,8 +121,8 @@ pub fn assert_grammars_equal(a: &crate::model::Grammar, b: &crate::model::Gramma
         "allomorph_sources"
     );
     assert_eq!(
-        format!("{:?}", prules_a),
-        format!("{:?}", prules_b),
+        format!("{:?}{:?}", prules_a, skipped_prules_a),
+        format!("{:?}{:?}", prules_b, skipped_prules_b),
         "prules"
     );
     assert_eq!(

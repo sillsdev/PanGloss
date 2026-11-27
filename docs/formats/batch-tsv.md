@@ -5,18 +5,24 @@
 By default a row has 5 columns, or 6 with `--guess`. External adapters, such as the conformance
 suite's driver, depend on exactly that layout. Only the command line decides it: a FieldWorks
 project that guesses roots by default (`<HC><GuessRoots>`, see below) still writes 5 columns unless
-`--guess` is passed. The two parser-work columns appear only when
-`--work-columns` is passed.
+`--guess` is passed. The parser-work column appears only when `--work-columns` is passed.
 
 A host can find out whether the flag exists. `pangloss --describe` reports
-`"interfaces": {"batchTsv": 2}` and lists `--work-columns` under `batch`. The describe
-`schema_version` stays 1, because the default output did not change. Pass `--work-columns` only
-when `interfaces.batchTsv` is at least 2. An older binary refuses the unknown flag.
+`"interfaces": {"batchTsv": 5}` and lists `--work-columns` and `--cost-column` under `batch`. Version 5
+removes the `steps` column: `--work-columns` now writes only `work_steps`, `--cost-column` writes `work_steps` before `cost`, and `--step-cap` is refused
+like any unknown option (use `--work-cap`). The default 5- and 6-column layout is unchanged, so a
+reader that never passes `--work-columns` need not change. Version 4 added `--cost-column` and changed
+nothing without it. Version 3 keeps version 2's layout and shares the result-status decision with
+`serve`; version 2 already supports `--work-columns`. The describe `schema_version` stays 1 because the
+default output did not change. Pass `--work-columns` only when `interfaces.batchTsv` is at least 2,
+and read it as one column only when it is at least 5 (versions 2 to 4 wrote `steps` before
+`work_steps`). Pass `--cost-column` only when it is at least 4. A host pinned to an older version must
+refuse a binary that reports 5, and an older binary refuses a flag it does not have.
 
 ## Result rows
 
 ```
-idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
+idx  word  elapsed_ms  status  signature  [guessed]  [partials]  [completion]  [work_steps]  [cost]
 ```
 
 | column | meaning |
@@ -24,27 +30,80 @@ idx  word  elapsed_ms  status  signature  [guessed]  [steps  work_steps]
 | `idx` | 0-based position of the word in `words.txt` (blank lines are skipped and not counted) |
 | `word` | the word, trimmed |
 | `elapsed_ms` | wall-clock milliseconds for this word: time on this computer, which varies with load and thread count |
-| `status` | `ok`, `CAP` (stopped at the analysis-attempt cap `--step-cap` or the work cap `--work-cap`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
+| `status` | `ok`, `CAP` (stopped at the work cap `--work-cap`), `MEMCAP` (stopped at a memory ceiling; the signature is partial, like `CAP`), `TIMEOUT` (stopped by `--word-timeout-ms`), or `SKIPPED` (the word did not segment) |
 | `signature` | the sorted, `;`-joined analyses, or `-` when there are none |
 | `guessed` | `true` when the analyses were guessed from a lexical pattern, else `false`; present **only** when `--guess` or `--guess=true` was passed |
-| `steps` | present only with `--work-columns`. Analysis attempts: the quantity `--step-cap` bounds |
-| `work_steps` | present only with `--work-columns`. Parser work: every work unit the word reserved, across analysis, the inner matchers and confirmation. This is the quantity `--work-cap` bounds |
+| `partials` | JSON array of up to K rejection summaries; present only with `--partials=K` (1..3). See below |
+| `completion` | JSON object present only with `--engine=hc\|fst`: `engine`, `capped`, `timedOut`, `captureCapped`, `wordMemCapped`, `invalidShape`. Every flag is a boolean. Follows partials and precedes work/cost columns |
+| `work_steps` | present only with `--work-columns`. The word's work: the total of work steps it reserved, across analysis, the inner matchers and confirmation. `--work-cap` bounds the analysis; confirmation may spend one sixteenth of the cap more (none under a cap of 16), so `work_steps` never exceeds the cap plus one sixteenth |
+| `cost` | present only with `--cost-column`, which also writes `work_steps` before it. The word's fixed-weight parse cost, or `-` with `--trace-rejections` because diagnostic capture changes the measured allocation. See `docs/design/parse-cost.md`. Refused together with `--stats` |
 
-When present, the two count columns are always the last two fields, and every other column keeps
-its default index, including `guessed` at index 5. With `--work-columns` a row has 7 fields, or 8
-with `--guess`. Read `steps` and `work_steps` from the end of the row.
+When present, `cost` is always the last field, `work_steps` comes just before it, and every
+other column keeps its default index, including `guessed` at index 5. With `--work-columns` alone a row
+has 6 fields, or 7 with `--guess`; with `--cost-column` (with or without `--work-columns`) it has 7, or 8
+with `--guess`. The extra field count therefore tells a cost run from a work-columns run. Read `cost` from
+the end of the row, then `work_steps` from the end of what remains.
+
+The per-word parser-state ceiling is 100 MiB by default; `--word-mem-cap-mib N` sets it and
+`--word-mem-cap-mib 0` disables it. It counts retained search structures with fixed byte weights,
+not process RSS or the loaded grammar. The separate `--capture-cap-mib` ceiling defaults to
+256 MiB and covers affix-matching capture state. Either produces `MEMCAP`.
+
+### Readings per word
+
+`pangloss readings-histogram <batch.tsv> [--json]` counts the words of a finished run by how many Readings each has (#396). A Reading is one `;`-separated entry of `signature`, repeats included, so `-` is 0; only `ok` words are binned, and every other status is listed apart with its word count because its signature is partial or absent. Text is a `readings<TAB>words` table then one `status<TAB>count` line per other status; `--json` gives `words`, `readings` (`[{"readings": n, "words": c}]`) and `notOk`. It reads the default columns of any `batch` run, so existing output is unchanged. It counts parsed Readings only: it does not compare them with approved analyses, so it makes no claim about which Readings are "extra" (see `grammar-health` for that), and it does not report the kinds of object a Reading uses.
 
 ### Determinism
 
-`steps` and `work_steps` depend only on the grammar, the word, the cap settings and the PanGloss
-version. They do not depend on thread count, machine or load. Use `work_steps` to compare parse
-cost, for example "these words took 8% less work to parse"; `elapsed_ms` is a secondary figure.
+`work_steps` depends only on the grammar, the word, the cap setting and the PanGloss
+version. It does not depend on thread count, machine or load. `cost` repeats exactly for one word list only with `--threads 1`. Under more threads the first words on each thread carry one-time allocation, and a word's cost has been seen to differ by 0.07% across thread counts, so per-word equality is not promised. The run's total moved at most 0.0001% when measured, so compare totals: use `pangloss cost-compare before.tsv after.tsv`, which totals only words that are `ok` in both runs. `elapsed_ms` is a secondary figure.
 
 - A `CAP` row is deterministic: the same inputs stop at the same point with the same counts. On a
-  work-cap stop, `work_steps` equals the work cap.
-- A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its `steps`,
+  work-cap stop, `work_steps` is at least the work cap and at most the cap plus one sixteenth of it. A word whose `work_steps` is within the cap never stops.
+- **Analysis shape graph.** Within one word, an affix or realizational rule's analysis match on a shape is computed once and stored as a row of a per-word graph keyed by shape and rule id (#481; compounding is not covered). The first application of a rule to a shape pays the match; every later arrival reads the row, charged one work unit plus one per output shape and never more than the match that made the row, so `--work-cap` still bounds the word and every read still moves it. The charge is the same with or without a trace or stats collector. Nothing is evicted; the graph's real heap bytes count against `--word-mem-cap-mib` as optional state (at most an eighth of it, yielding to the search, so `MEMCAP` outcomes do not change) and a refused charge drops the graph for the rest of the word. `work_steps` and `cost` are therefore lower than before for words that repeat matches, and a word that used to stop at `CAP` can now finish; a word that completed without the graph never stops with it. Parses that finish are unchanged. The counts are deterministic and still repeat exactly.
+- A `TIMEOUT` row is **not** deterministic: the deadline is wall-clock time, so its
   `work_steps` and partial result depend on how fast this computer ran. Never compare a TIMEOUT
-  row's counts across runs.
+  row's count across runs.
+
+## Engine selection
+
+**FST mode has no per-word deadline or process RSS bound. Use an external watchdog with a
+deadline and process memory ceiling.** Proposal caps do not contain HC confirmation; a word
+can stall the batch or exhaust memory. Supervise each word in a child process when per-word
+containment is required, and report killed words as incomplete.
+
+`--engine=hc|fst` (also `--engine hc|fst`) selects the engine and adds one `completion` column.
+Omitting the flag keeps HC and the existing layout and bytes for the same row values; elapsed time
+still varies. `--engine=hc` keeps all HC options and adds the completion object. Discover this
+extension through the batch `--engine` flag in `--describe`; `batchTsv` stays 5. A `STARTED`
+sentinel keeps its three fields. A `--analyses` JSONL sidecar also includes `completion` only when
+the engine flag was supplied.
+
+FST selection requires a `foma-tools` build and explicit opt-out of the HC controls the FST runtime
+cannot honour:
+
+```text
+pangloss batch grammar.xml words.txt out.tsv --engine=fst --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false
+```
+
+The FST compiles once through its own admission gate. A typed construction or representability
+refusal exits non-zero before opening the output; no HC fallback runs. Whole-word HC work, memory,
+and timeout controls are unavailable for this path. FST proposal path and candidate caps still use
+the backend runtime's finite defaults. A proposal or peel cap produces `CAP`, `capped: true`, and no
+analyses; it never appears as a complete rejection. These proposal caps do not bound confirmation
+work or process RSS. Use an external process watchdog for containment of untrusted or large inputs.
+
+FST currently requires `--threads 1`, so it writes and flushes each `STARTED`/result pair and
+honours `--start N` by appending results for indices N onward. `--no-flush` buffers these rows until
+exit, and `--phase-marks` retains its measurement meaning. As with HC, `--start` cannot accompany
+`--analyses`. Keep the engine and column flags consistent when resuming; the writer does not verify
+the provenance of existing rows. An FST start beyond the word count is an error.
+
+FST refuses `--stats`, cache options, `--partials`, `--work-columns`, `--cost-column`,
+`--word-timeout-ms`, `--always-enforce-final-templates`, per-word HC profiling diagnostics,
+`--prefilter auto|on`, and enabled root guessing (including a project's `GuessRoots` unless
+overridden with `--guess=false`). It honours the grammar's template setting through the confirming
+HC morpher. `--prefilter off` is accepted. Parse and serve continue to use HC.
 
 ## Root guessing
 
@@ -65,6 +124,47 @@ the matched text there, with the lexical pattern's MoForm and MSA as `form` and 
 records a guess. A project without a lexical-pattern root never guesses, so its rows are the same
 whatever the setting.
 
+## Partial analyses
+
+`--partials=K` (or `--partials K`), with K between 1 and 3, adds a JSON array column after
+`guessed` when present, before work/cost columns. Discover support through the `batch` flags
+in `--describe`; the default batch TSV version and layout remain unchanged. Without this flag,
+the writer emits exactly the existing bytes for the same row values. `elapsed_ms` still varies
+between runs. `serve` has its own JSON writer and does not share this batch extension.
+
+For a word with any accepted analysis, including a guessed analysis, the array is `[]`.
+Otherwise each element has:
+
+| key | meaning |
+|---|---|
+| `morpheme_ids` | Authored morpheme XML keys for the affixes stripped along this candidate's analysis trail, in reverse unapplication order. Repeated applications retain repeated ids. Compounding rules have no morpheme id and are omitted |
+| `residue` | The candidate's root residue at lexical lookup, rendered with the first matching spelling per segment and without boundaries. Underspecified segments use that spelling rather than regex notation |
+| `failure_kind` | `no-root`, `root-gate`, `affix-gate`, or `surface-mismatch` |
+| `rejecting_object_id` | Typed, zero-based dense id in this loaded grammar: `entry:N`, `allomorph:N`, `rule:N`, or `stratum:N`. Lookup misses and final surface comparisons identify the stratum, since no lexical object rejected them. A word-level obligatory-feature gate or an anonymous pending compounding rule also identifies its stratum |
+| `work_steps` | Cumulative search work at the observed rejection, used for ranking; collection does not consume search work |
+
+Summaries rank by the number of Unicode scalar values in `residue`, then by ascending
+`work_steps`. Equal ties retain encounter order. A repeated rejection of the same object for
+the same lookup candidate occupies one slot. Different analysis candidates may yield identical
+summaries. These are observed rejected candidates, not accepted analyses or an exhaustive trace.
+The existing batch status still identifies incomplete or invalid input; such a row may have no
+summaries or only the rejections observed before it stopped.
+
+`--guess` already produces unknown-root analyses when a lexical pattern can synthesize them.
+Those successes suppress partials. `no-root` covers lookup misses that remain unanalysed,
+including grammars without lexical patterns and unsuccessful or disabled guessing. Root/affix
+summaries come from the existing feature, stem-name, MPR, template, allomorph-validity and replay
+gates; `surface-mismatch` comes from the final surface comparison. Search decisions and work
+steps are unchanged. No second parse pass or trace sink runs.
+
+The collector prepares one compact seed per lookup candidate, shares it at rejection sites,
+and retains at most K summaries, up to K deferred evictions, plus the current seed. Preparation scales with the residue and
+trail length; each rejection compares at most three fixed-size keys and shares a reference.
+Evicted payloads are reclaimed at the next candidate boundary or parse completion, outside rejection
+hooks. It retains neither rejected `Word` objects nor their source/alternative graphs.
+`--partials` requires `--prefilter off`: prefilter refusals bypass the parser gates that supply
+these summaries. Optional parser-work and cost columns remain at the end of each result row.
+
 ## Other lines a reader must accept
 
 - `idx  word  STARTED` (3 fields): written by the single-threaded writer (`--threads 1`) just
@@ -77,31 +177,62 @@ whatever the setting.
 
 ## Relation to `batch --stats`
 
-The statistics cache's `word` table records the same two counts whether or not `--work-columns` is passed: `word.attempts` is `steps` and
-`word.work` is `work_steps`. The cache schema version is 9 (`run.schema_version` and
+The statistics cache's `word` table records the same count whether or not `--work-columns` is passed: `word.work` is
+`work_steps`. The cache schema version is 13 (14 with `--stats-compact`) (`run.schema_version` and
 `cache_identity.schema_version`); a cache with another version is wiped and recreated, never
 migrated.
 
+`fact.work_steps` is the number of successful work-budget reservations assigned to the row's
+object, stratum, allomorph and direction. The innermost instrumented object scope receives a
+reservation, including inner matcher reservations; nested scopes never double-count. The
+synthetic object with `key = 'unattributed'` and `kind = 'unattributed'` has one row per word,
+with `direction = 'unattributed'` and sentinel stratum/allomorph IDs. It accounts for work outside
+instrumented object scopes, including segmentation, template and search orchestration, and
+matching or confirmation outside such a scope. Summing `fact.work_steps` across every row for a
+word, including that row, exactly equals `word.work`. The `facts` export's existing object-counter
+projection excludes the remainder because it is not a grammar object.
+
+The batch TSV's optional columns stay at the word level: they describe the whole word and do not contain
+object rows. Cache counter semantics version 8 attributes cascade reservations to the
+attempted morphological rule, lookup reservations to the root index, lexical entry, or overlay,
+and validation to the rule or allomorph being checked. Synthetic `parser` objects named
+`parser:candidate_expansion`, `parser:stratum_transition`, and `parser:surface_match` account for
+the corresponding work steps. The remaining `unattributed` row includes setup and other
+orchestration outside these scopes. Version 8 changes attribution, not per-word work totals.
+The `facts` export excludes parser rows because it projects grammar-object counters and has no
+work-step column. Its `lex_entry` facts can have no allomorph, and its `morph_rule` facts can
+have zero attempts while carrying work or self time. In the stats cache, the new object kind is
+`parser`; detailed trace JSON reports its work steps in `categories.parser.workStepsByPhase`,
+with keys `candidate_expansion`, `stratum_transition`, and `surface_match`. Version 7 attributed
+final allomorph-environment matching to its owner.
+
+`pangloss stats --group object` reports `work_steps` per object: the sum of `fact.work_steps` over the
+object's rows under the report's filters, as a `work_steps` field on each `--format jsonl` row and a
+`work_steps` column with `--wide`. It is the same unit as `word.work`. The `unattributed` remainder is
+not a grammar object, so it has no row: with no filter, the object rows' `work_steps` plus the
+remainder equal the sum of `word.work`. A cache whose engine records no work reservations
+(`foma`) leaves the field out and lists it under `unmeasured`. No other `--group` reports it. The
+cache schema version is unchanged and `--describe` has no interface version for `stats` output, so
+a reader tells a binary that reports it by the field's presence.
+
 `fact.work` (per grammar object, and the trace-details `categories` that report it) is a
 **different unit**. It counts shape segments examined each time the object was tried. It does not
-count work reservations, so a word's fact rows never add up to its `work_steps`, and the two do not
+count work reservations, so a word's fact rows do not generally add up to its `work_steps`, and the two do not
 bound each other. To get a word's total work, read `work_steps` (or `word.work`). Do not sum
 `fact.work`.
 
-What the two have in common: every analysis attempt reserves exactly one work unit, so
-`steps <= work_steps`. The `work_steps` remainder comes from work that no fact row records: the
-matchers' inner steps, segmentation, and confirmation reservations. Measured on the conformance
-fixtures `languages/metathesis-phase-isolation` and `edge-cases/truncate-morphotactic`, with no
-cap:
+`work_steps` includes reservations for matchers' inner steps, segmentation, and confirmation; it is
+not the sum of fact work. Measured on the conformance fixtures `languages/metathesis-phase-isolation`
+and `edge-cases/truncate-morphotactic`, with no cap:
 
-| word | steps | work_steps | sum of `fact.work` |
-|---|---|---|---|
-| sumulat | 28 | 935 | 401 |
-| keadilan | 132 | 2601 | 1558 |
-| katibɯd | 28 | 1055 | 369 |
-| katibɯt | 19 | 779 | 273 |
-| pur | 19 | 445 | 169 |
-| gas | 14 | 727 | 123 |
+| word | work_steps | sum of `fact.work` |
+|---|---|---|
+| sumulat | 799 | 359 |
+| keadilan | 2475 | 1525 |
+| katibɯd | 922 | 336 |
+| katibɯt | 657 | 238 |
+| pur | 363 | 148 |
+| gas | 683 | 95 |
 
 The `fact_work_is_segments_examined_not_the_word_work_steps_total` test in
 `rust/crates/pg-parse/tests/stats_collector_gate.rs` pins these numbers.

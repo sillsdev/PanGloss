@@ -60,20 +60,15 @@ grammar ──emit lexc──► foma compile ──► proposing FST          (
 word ──FST propose──► candidate morpheme sequences ──HC confirm──► analyses
 ```
 
-Two engines exist and produce identical output, but the `pangloss` CLI does not expose a flag
-to choose between them:
+Two analysis engines exist:
 
 - The propose-and-confirm FST path (`pg_foma::composite::FomaAnalyzer`) described above is the
-  performance path and the target of ongoing optimization. From the CLI it is reached only
-  through `fst-health` (grammar-only characterization) and `make-report` (a readiness report
-  over an already-built artifact); running a word batch or a single parse through it requires
-  the Rust API shown below — there is no `--engine` flag.
-- `pangloss batch`, `pangloss parse`, and `pangloss generate` always run the full HermitCrab
-  search engine, ported line-for-line from C#. It serves as the oracle the FST path is verified
-  against, and as the trace-capable engine (`--trace` works only here).
-
-Both engines pass the same conformance suite (14 fixtures, plus one documented known
-divergence shared by both).
+  performance path and the target of ongoing optimization. `batch --engine=fst` selects it
+  explicitly in a `foma-tools` build. The compiler owns admission; refused grammars exit without
+  fallback. `fst-health` and `make-report` provide grammar characterization and readiness reports.
+- `pangloss batch` defaults to the full HermitCrab search engine, ported line-for-line from C#.
+  `pangloss parse`, `serve`, and `generate` also use HC. It serves as the reference the FST path
+  is verified against, and as the trace-capable engine (`--trace` works only here).
 
 ## Ingesting a grammar
 
@@ -108,37 +103,73 @@ To materialize the intermediate snapshot for inspection or faster reloads:
 pangloss import <project.fwdata> <out.json>
 ```
 
+`pangloss grammar-health <project.fwdata> <report.json> --snapshot-out <out.json>` (optionally with
+`--facts-out`/`--facts-context`) writes that same snapshot, and the `facts` database, from the one
+import that also yields the health report.
+
 See [`docs/fwdata-import-plan.md`](docs/fwdata-import-plan.md) for the architecture and the
 conformance gate that checks the fwdata pipeline's parses against the legacy XML oracle, and
 [`docs/snapshot-format.md`](docs/snapshot-format.md) for the snapshot format.
 
 ## Building and running the FST
 
-The proposing FST is **compiled automatically at grammar load** when `FomaAnalyzer::new` is
+The proposing FST is **compiled at grammar load** when `compile_analyzer` is
 called from Rust — the emitter turns the grammar's lexicon, morphotactics, and (pre-expanded)
 phonology into foma lexc source and compiles it in-process with a pure-Rust foma
 (no external binaries, no artifacts to manage). Compile time is interactive-scale:
-milliseconds to a few seconds on the reference grammars. The `pangloss` CLI has no flag to
-route a word batch or a single parse through this path; see the Rust API below for that, and
-`fst-health`/`make-report` for the grammar-level characterization and readiness-report uses.
+milliseconds to a few seconds on the reference grammars. A `foma-tools` build can route a batch
+through the FST with explicit engine selection:
+
+**FST mode has no per-word deadline or process RSS bound. Use an external watchdog with a
+deadline and process memory ceiling.** Proposal caps do not contain confirmation; a word can
+stall the batch or exhaust memory. Supervise each word in a child process when per-word
+containment is required, and report killed words as incomplete.
+
+```text
+pangloss batch grammar.xml words.txt out.tsv --engine=fst --threads 1 --work-cap unbounded --word-mem-cap-mib 0 --capture-cap-mib unbounded --guess=false
+```
+
+This path refuses unadmitted grammars without fallback and appends engine/completion metadata.
+The HC controls above must be explicitly disabled because the FST cannot report their stops.
+FST proposal limits remain active. See [the batch contract](docs/formats/batch-tsv.md#engine-selection)
+for supported options and containment limits. Binaries built without `foma-tools` give
+an explicit feature error. Release builds already enable `foma-tools`.
+`fst-health`/`make-report` provide grammar characterization and readiness reports.
+
+Compare complete FST analysis sets with plain HC-Rust search on every word
+(build with `foma-tools`):
+
+```
+pangloss fst-verify <grammar> <words.txt> --out parity.tsv --json parity.json --word-timeout-ms 10000
+```
+
+The report records `equal`, `missing`, `extra`, or `incomparable` per occurrence,
+both difference directions by stable analysis identity, input hashes, engine
+build identity and effective options. Mismatches and FST construction refusals
+exit nonzero after writing evidence. Caps and timeouts are incomparable;
+inspect the totals before claiming full parity. This compares the two Rust
+pipelines; C# oracle replay remains separate. See
+[the FST verification format](docs/formats/fst-verify.md) for bounds and schemas.
 
 Parse one word (the only engine `parse` runs is the default HermitCrab one):
 
 ```
-pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--step-cap N|unbounded] [--word-timeout-ms N]
+pangloss parse <grammar> <word> [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--without <guid>[,<guid>...]] [--work-cap N|unbounded] [--word-timeout-ms N]
 ```
+
+`--without` parses as if the named lexical entries, allomorphs, phonological rules, compound rules, affix templates or ad hoc co-occurrence rules were deleted, and `batch` takes it too (see `docs/retire-format.md`).
 
 Plain parsing and ordinary tracing exit with failure when the HC engine reports `capped`,
 `timed_out`, or `invalid_shape`. The applicable flags appear on stderr; any printed signature is
 then diagnostic partial output. Complete hits and complete rejections keep the existing
-`word\tsignature` stdout format and successful exit. The default step cap remains 50,000,000;
+`word\tsignature` stdout format and successful exit. The default work cap is 5,000,000,000 work steps;
 `--word-timeout-ms 0` requests an immediate deadline.
 
 When snapshot or FieldWorks loading auto-creates phonology, stderr records each inferred segment
 or boundary and its compiler-owned evidence, plus unresolved or ambiguous source uses. This
 report is independent of warnings and leaves parse stdout unchanged.
 
-For one-word diagnostics as a single JSON document, including the trace, result, attempt counters,
+For one-word diagnostics as a single JSON document, including the trace, result, work total,
 and existing timing statistics:
 
 ```
@@ -151,13 +182,15 @@ This mode is explicit and remains one word per invocation. Its JSON search envel
 Batch a word list to TSV (the only engine `batch` runs is the default HermitCrab one):
 
 ```
-pangloss batch <grammar> <words.txt> <out.tsv> [--step-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses analyses.jsonl]
+pangloss batch <grammar> <words.txt> <out.tsv> [--work-cap N|unbounded] [--word-timeout-ms N] [--threads N] [--analyses analyses.jsonl]
 ```
 
-`--step-cap` defaults to 50,000,000 unmemoized analysis steps per word, a runaway guard (not a
-performance tuning knob) that makes every batch terminate deterministically; pass `--step-cap N` to
-tighten it or `--step-cap unbounded` to lift it entirely. A word that hits the cap writes a typed
-`CAP` row -- an incomplete outcome kept for inspection, never presented as a result.
+`--work-cap` defaults to 5,000,000,000 work steps per word, a runaway guard (not a performance
+tuning knob) that makes every batch terminate deterministically. A work step is one charged unit of
+search, and a word's work is the total of its work steps; pass `--work-cap N` to tighten the limit
+or `--work-cap unbounded` to lift it entirely. A word that hits the cap writes a typed `CAP` row --
+an incomplete outcome kept for inspection, never presented as a result. `--step-cap`, which counted
+analysis attempts, was removed and is refused like any unknown option.
 
 Generate a surface form from morpheme ids (default engine):
 
@@ -171,13 +204,14 @@ FieldWorks `entryGuid`/`msaGuid` pairs in an imported snapshot; request schema v
 MSAs only and explicitly refuses non-null `formGuid` constraints. The request's `morphemes`
 array is generation order, which is not surface order. In one Swahili analysis, surface
 `SM + stem + FV + RELSUF` is requested as `SM, RELSUF, FV`.
+`--requests <file.jsonl|->` answers one request per line, in the `serve` `generate` row shape, and an error row for a bad line.
 See [`docs/generation.md`](docs/generation.md) for the request schema and limits.
 
 From Rust, the same path is `pg_foma::composite::FomaAnalyzer`:
 
 ```rust
 let grammar = pg_grammar::load(&xml)?;                  // or compile_project(&snapshot)
-let mut analyzer = FomaAnalyzer::new(&grammar)?;        // emits lexc + compiles the FST
+let mut analyzer = pg_foma::composite::compile_analyzer(&grammar)?;
 let outcome = analyzer.analyze_word("kufuna");          // propose + confirm
 let outcomes = analyzer.analyze_words(&words);          // parallel confirm across words
 ```
@@ -227,8 +261,10 @@ for pinning an external test double to the real CLI surface rather than to prose
   [divvun/foma-rs](https://github.com/divvun/foma-rs)) directly — the wasm32
   `SystemTime::now()` abort this repo used to work around with an in-tree vendored copy is
   fixed upstream as of 0.4.0.
-- `machine/` — the `sillsdev/machine` conformance oracle (submodule); the binding correctness
-  gate as HermitCrab evolves upstream.
+- `conformance/` — the pinned clone of `sillsdev/fieldworks-parser-conformance` (the conformance
+  suite), fetched at the commit in `conformance.commit` by `rust/tools/conformance.ps1`; gitignored.
+- `machine/` — the `sillsdev/machine` submodule, pinned for the C# `hc.dll` founding oracle that
+  replays the suite; it no longer holds the fixtures.
 - `samples/data/` — reference grammars (Amharic, Indonesian, Sena). **Local-only and
   gitignored** (real language data is never committed); the test suite skips corpus tests
   when they're absent.

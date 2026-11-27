@@ -134,12 +134,13 @@ A number without those is not a smaller claim than one with them. It is an unfal
 **Recommendation:** re-measure once, record the method alongside the number, and supersede the others.
 Conclusions drawn from a figure that exists in three versions are unanchored.
 
-## Q8 — A promised fallback tier may not exist
+## Q8 — A promised fallback tier may not exist — ANSWERED, closed
 
-One module's documentation promises a fallback path; another says that path does not exist. Both are in
-the shipped compiler, not the prototype.
-
-**Recommendation:** determine which is true and correct the loser. Cheap.
+No fallback tier exists in the shipped compiler. A rule the rewrite compiler cannot render comes back as
+skipped and the emitter reports it uncovered; a grammar that cannot be emitted is refused with
+`FomaError`/`FomaTier::Unsupported`. Nothing in `pg-foma` or `pg-foma-runtime` calls another engine; whether
+to use the full parser is the caller's decision, made from the readiness verdict. The three doc comments that
+promised a fallback (`replace.rs` module doc, `FomaError`, `FomaTier::Unsupported`) now say so.
 
 ## Q9 — Which of the six unbuilt switches goes first?
 
@@ -167,16 +168,18 @@ so the uncapped class is one a tool will confirm. See
 Reading every long comment in the tree turned up things the length rules were never looking for.
 Recorded here rather than fixed, because each is outside the sweep's scope.
 
-**D1 — a synthesized root can render its surface against the wrong character table.**
-`Morpher::parse_word_opts("y", ..).signature()` renders the surface half empty (`ROOT1|` where
-`ROOT1|y` is expected) for a cross-stratum-synthesized analysis, while the morpheme-level analysis is
-correct. Suspected mechanism: `Morpher::surface_of` (`pg-parse/src/morpher.rs:691`) resolves the
-table as `g.strata[w.stratum.0].table`, but `pg_rules::stratum::synthesize_stratum_traced` never
-updates a candidate `Word`'s `.stratum` the way the un-apply direction does — there is exactly one
-`.stratum` assignment in `stratum.rs`, and it is not on the synthesize path. So a root synthesized
-past its own entry stratum keeps a stale stratum and looks up a table that need not contain its
-segments. Found while moving a fixture's module doc out; the original comment recorded it as a known
-oddity and it was never filed.
+**D1 — a synthesized root can render its surface against the wrong character table.** Closed: not a
+defect; PanGloss matches the founding oracle. C# renders a word's surface through `Word.Stratum`'s
+table (`Word.cs:576`, `Shape.ToRegexString(Stratum.CharacterDefinitionTable, true)`), and a synthesized
+word takes its stratum from its root entry (`Word.cs:145`) and is never reassigned during synthesis.
+`Morpher::surface_of` does the same, so an inner-stratum root is rendered with the inner table. The
+upstream fixture `conformance/edge-cases/cross-table-root-respelling` records exactly this from
+the oracle: for `tu`, the ROOT1 analysis is `ROOT1+SUF|m` with the suffix's segment absent, because the
+inner table has no matching segment, and the fixture's note states that `Word.Stratum` "tracks where the
+analysis bottomed out". The default `conformance_fixtures_gate` replays that fixture and passes
+(33 of 33 tests in the target). The `ROOT1|y` expectation was never oracle-derived, and rendering against
+the final table would diverge from C#; changing it needs a Machine proposal, not a PanGloss edit. No
+reproduction of a PanGloss-only misrendering was found, so no code changed.
 
 **D2 — a comment asserted a bound the code did not enforce.** `phase_c_circumfix.rs` documented a
 "sub-10ms trip-wire" directly above `assert!(p99 < Duration::from_millis(50))`. Fixed in passing (the

@@ -1,0 +1,8 @@
+
+\lx 88
+\g PAT
+\c W
+\wc root
+\mp RootPOS85
+\a pat {47}
+ 

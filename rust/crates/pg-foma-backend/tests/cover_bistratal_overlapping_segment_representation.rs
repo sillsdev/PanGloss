@@ -1,7 +1,6 @@
 //! Pins the current behavior for a two-table grammar whose tables share a literal representation ("s") denoting a different segment identity in each: the capability gate's `ConfirmOnly` verdict (a shared representation is a false-negative risk, not false-positive, so `Refuse` would be over-conservative), and the oracle's own unaffected analysis of every reachable word. This fixture has no rule threading material between the two tables — `tests/two_table_shared_representation_recall.rs` is the one that exercises cross-table aliasing firing.
 
 use std::fs;
-use std::path::Path;
 
 use pg_foma::capability::CompileDecision;
 use pg_foma_backend::backend_selection::best_case_for_grammar;
@@ -9,9 +8,11 @@ use pg_grammar::model::Grammar;
 use pg_parse::{Morpher, ParseOptions};
 
 fn fixture_path() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../machine/conformance/edge-cases/bistratal-overlapping-segment-representation/grammar.xml",
+    pg_conformance_fixtures::require_fixture(
+        "edge-cases",
+        "bistratal-overlapping-segment-representation",
     )
+    .grammar_path()
 }
 
 fn load() -> Grammar {
@@ -70,4 +71,31 @@ fn inner_stratum_roots_are_unreachable_at_the_surface() {
              updating this assertion"
         );
     }
+}
+
+/// Regression pin, tuned-surface-probed's production entry point: on the two-table recall fixture it must propose ROOT1 for "y", the root the outer table devoices.
+#[test]
+fn tuned_surface_probed_proposes_the_devoiced_root_via_the_production_entry_point() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "../../../conformance-staging/edge-cases/two-table-shared-representation-recall/grammar.xml",
+    );
+    let xml = fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let g = pg_grammar::load(&xml).unwrap_or_else(|e| panic!("fixture failed to load: {e}"));
+    let morpheme_root1 = g
+        .entries
+        .iter()
+        .find(|e| g.morphemes[e.morpheme.0 as usize].xml_key == "eRoot1")
+        .expect("no entry with xml id \"eRoot1\"")
+        .morpheme
+        .0;
+
+    let mut proposer = pg_foma::analyzer::compile_proposer(&g)
+        .expect("tuned-surface-probed compile must not fail");
+    let candidates = proposer.propose("y");
+    assert!(
+        candidates
+            .iter()
+            .any(|c| c.morphemes.iter().any(|m| m.0 == morpheme_root1)),
+        "tuned-surface-probed must propose ROOT1 for \"y\": {candidates:?}"
+    );
 }

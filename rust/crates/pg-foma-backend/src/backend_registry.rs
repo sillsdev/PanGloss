@@ -7,12 +7,8 @@ use std::fmt;
 use pg_grammar::model::Grammar;
 use serde::{Deserialize, Serialize};
 
-use crate::backend::backend_for;
 use crate::enumerate::{CandidateRole, EmissionStrategy, LoweredCandidate};
 use crate::grammar_semantics::GrammarSemantics;
-use crate::oracle::{
-    permute_gate_groups, permute_union_children, refine_gate_partition, PartitionGranularity,
-};
 use crate::plan::{NodeId, Plan};
 
 pub const REGISTRY_SCHEMA_VERSION: u16 = 1;
@@ -41,29 +37,10 @@ pub enum Applicability {
     /// At least two lexical entries, i.e. a `Gate` partition that a refinement transform could
     /// actually split. See `matches`'s own arm for why this is an over-approximation on purpose.
     HasSplittableGateGroup,
-    /// At least one phonological rule. Required by
-    /// `EmissionStrategy::TemplatedUnderlyingTokens`, whose whole premise is that a compiled rewrite
-    /// cascade does the phonological work the surface probe would otherwise bake into the lexc: with
-    /// no rules, `compile_templated_morphotactics` has no cascade to compose and fails with
-    /// `NoCompiledRules`. Gating here turns that from a guaranteed build failure in the report into
-    /// an honest "this family does not apply to this grammar".
-    ///
-    /// Kept as its own variant (rather than folded into `HasPhonologyOrTemplates` below) because it
-    /// still names a real, narrower structural fact on its own.
+    /// At least one phonological rule.
     HasPhonology,
     /// `HasPhonology` OR `HasTemplates`, evaluated structurally over the same two Grammar fields
-    /// those variants already read. `token-cascade-morphology`'s compiler
-    /// (`compile_templated_morphotactics`) has two independent reasons to be worth offering: a real
-    /// rewrite cascade to compose (the `HasPhonology` case), or template-aware morphotactic
-    /// structure -- slot ordering and bounded slot occupancy -- that the plan-composed baseline's
-    /// self-looping `uflexc` emitter does not generalize to (`uflexc`'s own module doc). A grammar
-    /// can have either without the other: the measured Sena shape has templates and zero
-    /// phonological rules, so gating on `HasPhonology` alone left it with `uflexc` as its only
-    /// underlying model, never comparing it against the template-aware candidate at all. Fixed as a
-    /// single widened predicate rather than a second seeded family with the same strategy label,
-    /// because `materialize_distinct` dedups on `(plan root, strategy label)` and a whole-grammar
-    /// strategy carries the baseline plan verbatim -- two families here would just be two
-    /// applicability checks racing to be first, collapsing to the same one candidate either way.
+    /// those variants already read.
     HasPhonologyOrTemplates,
 }
 
@@ -627,26 +604,12 @@ fn expand_family(family: &BackendFamily) -> Vec<BackendInstance> {
         .collect()
 }
 
-/// A seeded family's plan rewrite; every variant must be semantics-preserving (may change the Plan's shape/content-address, never the accepted relation).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SafeTransform {
-    Identity,
-    /// Reorders a `Gate` node's partition groups; safe because `build_controllable` folds groups commutatively via `fsm_union`.
-    GatePermutation,
-    /// Reorders a root `Union`'s children. Same commutativity argument, different node kind.
-    UnionPermutation,
-    /// Splits each eligible `Gate` group into up to 2 contiguous sub-groups over its own unchanged `Replace` node; safe because composition distributes over union.
-    PartitionBisect,
-    /// `PartitionBisect` taken to its limit: one singleton sub-group per entry, stressing the many-small-unions shape instead of few-large-unions.
-    PartitionFanOut,
-}
-
+/// One seeded family: a compiler offered by name over the grammar's baseline plan.
 #[derive(Debug, Clone, Copy)]
 struct SeededFamily {
     id: &'static str,
     applicability: Applicability,
-    transform: SafeTransform,
-    /// Which compiler realizes this family: `EmissionStrategy::PlanComposed` for plan-rewrite families (`transform` varies), or a whole-grammar strategy whose `transform` is always `Identity`.
+    /// Which compiler realizes this family.
     adapter: EmissionStrategy,
     ordering: &'static [(&'static str, &'static str)],
 }
@@ -658,32 +621,12 @@ impl SeededFamily {
             version: REGISTRY_SCHEMA_VERSION,
             parameters: vec![Parameter {
                 name: "topology".to_owned(),
-                // For a whole-grammar strategy the varying axis is the compiler, not the plan rewrite, so name that instead of reporting a relabelled `topology=baseline`.
-                domain: vec![if !backend_for(self.adapter).interprets_plan() {
-                    self.adapter.label().to_owned()
-                } else {
-                    match self.transform {
-                        SafeTransform::Identity => "baseline",
-                        SafeTransform::GatePermutation => "gate-permutation",
-                        SafeTransform::UnionPermutation => "union-permutation",
-                        SafeTransform::PartitionBisect => "partition-bisect",
-                        SafeTransform::PartitionFanOut => "partition-fan-out",
-                    }
-                    .to_owned()
-                }],
+                // The varying axis is the compiler, so name that instead of reporting a relabelled `topology=baseline`.
+                domain: vec![self.adapter.label().to_owned()],
                 depends_on: Vec::new(),
             }],
             applicability: self.applicability,
-            // Proven relation-preserving by registry minimization evidence, so the gate is structural and never builds a candidate just to discover a tie.
-            search_policy: match self.transform {
-                SafeTransform::Identity => FamilySearchPolicy::AlwaysSearch,
-                SafeTransform::GatePermutation
-                | SafeTransform::UnionPermutation
-                | SafeTransform::PartitionBisect
-                | SafeTransform::PartitionFanOut => {
-                    FamilySearchPolicy::SkipOnCompositionalTopology
-                }
-            },
+            search_policy: FamilySearchPolicy::AlwaysSearch,
             ordering: self
                 .ordering
                 .iter()
@@ -707,126 +650,26 @@ impl Materializer for SeededFamily {
         _instance: &BackendInstance,
         context: &MaterializerContext<'_>,
     ) -> Result<LoweredCandidate, MaterializeError> {
-        let plan = match self.transform {
-            SafeTransform::Identity => context.baseline.clone(),
-            SafeTransform::GatePermutation => permute_gate_groups(context.baseline),
-            SafeTransform::UnionPermutation => permute_union_children(context.baseline),
-            SafeTransform::PartitionBisect => {
-                refine_gate_partition(context.baseline, PartitionGranularity::Bisect)
-            }
-            SafeTransform::PartitionFanOut => {
-                refine_gate_partition(context.baseline, PartitionGranularity::FanOut)
-            }
-        };
         Ok(LoweredCandidate {
             label: self.id,
-            plan,
+            plan: context.baseline.clone(),
             adapter: self.adapter,
-            // Derived, never declared: `Identity` under a plan-interpreting adapter hands back the baseline plan verbatim, so it alone is this grammar's default compilation.
-            role: if self.transform == SafeTransform::Identity
-                && backend_for(self.adapter).interprets_plan()
-            {
-                CandidateRole::Baseline
-            } else {
-                CandidateRole::Alternative
-            },
+            role: CandidateRole::Baseline,
         })
     }
 }
 
 // Family ids are defined once here and used by `SEEDS` below (not duplicated as literals), so a rename fails the build at every decision site instead of silently changing behavior.
-pub const FAMILY_ORDERED_MORPHOPHONOLOGY: &str = "ordered-morphophonology";
-pub const FAMILY_CLASS_EXCEPTION_CASCADE: &str = "class-exception-cascade";
-pub const FAMILY_COMPLETE_TEMPLATE: &str = "complete-template";
-pub const FAMILY_SPECIALIZED_BRANCH: &str = "specialized-branch";
-pub const FAMILY_COPY_BRANCH: &str = "copy-branch";
-pub const FAMILY_BOUNDED_METATHESIS: &str = "bounded-metathesis";
-pub const FAMILY_LAYERED_MORPHOLOGY: &str = "layered-morphology";
 pub const FAMILY_SURFACE_PROBE_MORPHOLOGY: &str = "surface-probe-morphology";
-pub const FAMILY_TOKEN_CASCADE_MORPHOLOGY: &str = "token-cascade-morphology";
 
-const SEEDS: &[SeededFamily] = &[
-    SeededFamily {
-        id: FAMILY_ORDERED_MORPHOPHONOLOGY,
-        applicability: Applicability::Always,
-        transform: SafeTransform::Identity,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("morphology", "phonology")],
-    },
-    SeededFamily {
-        id: FAMILY_CLASS_EXCEPTION_CASCADE,
-        applicability: Applicability::HasGatedExceptions,
-        transform: SafeTransform::GatePermutation,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("class-partition", "exception-cascade")],
-    },
-    SeededFamily {
-        id: FAMILY_COMPLETE_TEMPLATE,
-        applicability: Applicability::HasTemplates,
-        transform: SafeTransform::UnionPermutation,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("template-selection", "phonology")],
-    },
-    SeededFamily {
-        id: FAMILY_SPECIALIZED_BRANCH,
-        // A "specialized branch" is a narrower partition of the same entries over the same cascade, which is exactly what bisection names.
-        applicability: Applicability::HasSplittableGateGroup,
-        transform: SafeTransform::PartitionBisect,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("branch-selection", "shared-cascade")],
-    },
-    SeededFamily {
-        id: FAMILY_COPY_BRANCH,
-        applicability: Applicability::HasReduplication,
-        transform: SafeTransform::UnionPermutation,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("copy", "repair")],
-    },
-    SeededFamily {
-        id: FAMILY_BOUNDED_METATHESIS,
-        applicability: Applicability::HasMetathesis,
-        transform: SafeTransform::Identity,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("match", "switch")],
-    },
-    SeededFamily {
-        id: FAMILY_LAYERED_MORPHOLOGY,
-        // Maximal refinement (one sub-group per entry); gated on `HasSplittableGateGroup` because that is the property this transform actually needs, not `HasMultipleStrata`.
-        applicability: Applicability::HasSplittableGateGroup,
-        transform: SafeTransform::PartitionFanOut,
-        adapter: EmissionStrategy::PlanComposed,
-        ordering: &[("lower-stratum", "upper-stratum")],
-    },
-    SeededFamily {
-        // The other whole-grammar compiler, offered explicitly rather than only reachable as the baseline's post-failure rescue.
-        id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
-        applicability: Applicability::Always,
-        transform: SafeTransform::Identity,
-        adapter: EmissionStrategy::TunedSurfaceProbed,
-        ordering: &[("morphology", "phonology")],
-    },
-    SeededFamily {
-        // The first family that varies the compiler rather than the plan shape: it compiles to a different lexc (plain char-def tokens plus a real rewrite cascade) instead of surface-probe-baked phonology.
-        id: FAMILY_TOKEN_CASCADE_MORPHOLOGY,
-        // Widened from `HasPhonology`: a phonology-free, template-bearing grammar has morphotactics this compiler represents faithfully with no rewrite cascade to justify (see `Applicability::HasPhonologyOrTemplates`).
-        applicability: Applicability::HasPhonologyOrTemplates,
-        transform: SafeTransform::Identity,
-        adapter: EmissionStrategy::TemplatedUnderlyingTokens,
-        ordering: &[("morphotactics", "phonology")],
-    },
-];
+const SEEDS: &[SeededFamily] = &[SeededFamily {
+    id: FAMILY_SURFACE_PROBE_MORPHOLOGY,
+    applicability: Applicability::Always,
+    adapter: EmissionStrategy::TunedSurfaceProbed,
+    ordering: &[("morphology", "phonology")],
+}];
 
-pub const SEEDED_FAMILIES: &[&str] = &[
-    FAMILY_ORDERED_MORPHOPHONOLOGY,
-    FAMILY_CLASS_EXCEPTION_CASCADE,
-    FAMILY_COMPLETE_TEMPLATE,
-    FAMILY_SPECIALIZED_BRANCH,
-    FAMILY_COPY_BRANCH,
-    FAMILY_BOUNDED_METATHESIS,
-    FAMILY_LAYERED_MORPHOLOGY,
-    FAMILY_TOKEN_CASCADE_MORPHOLOGY,
-    FAMILY_SURFACE_PROBE_MORPHOLOGY,
-];
+pub const SEEDED_FAMILIES: &[&str] = &[FAMILY_SURFACE_PROBE_MORPHOLOGY];
 
 #[cfg(test)]
 mod tests;

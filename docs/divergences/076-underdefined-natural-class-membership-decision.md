@@ -1,7 +1,7 @@
 # 076: Natural-class membership in underdefined projects
 
 Kind: behavioural.
-Status: deliberate divergence — upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
+Status: permanent, deliberate divergence — upstream discussion open: [sillsdev/machine#537](https://github.com/sillsdev/machine/issues/537).
 Evidence: owner decision of 2026-10-08, ADR 0008 amended in PanGloss `342e6957`
 on `feat/underdefined-base`; separate-lane C# measurements and synthetic Rust regressions.
 
@@ -19,10 +19,10 @@ phoneme receives one finding, regardless of class count. A wildcard-only or segm
 grammar does not produce that finding; the membership owner supplies the triggering fact.
 
 This entry records the combined membership decision in addition to the individual
-provisional-letter and featureless-phoneme entries [073](073-provisional-letter-no-natural-class.md)
-and [074](074-featureless-phoneme-no-feature-class.md). Letter-unit and always-on behavior
-remain separate decisions, [072](072-provisional-letter-unit.md) and
-[075](075-provisional-definitions-always-on.md).
+provisional-letter and featureless-phoneme entries [073](README.md#retired-entries)
+and [074](README.md#retired-entries). Letter-unit and always-on behavior
+remain separate decisions, [072](README.md#retired-entries) and
+[075](README.md#retired-entries).
 
 ## Measured C# behavior and remaining divergence
 
@@ -61,7 +61,7 @@ Machine source revision inspected locally is
 `pg-rules/src/bridge.rs`, `morph.rs`, and `rewrite.rs` share that decision. Foma's
 `lower.rs::class_members` and `structural_allomorph.rs::context_members` call the model owner.
 
-The literal rewrite identity encoding from [071](071-strrep-rewrite-unapplication.md) follows
+The literal rewrite identity encoding from [071](README.md#retired-entries) follows
 the shared matching lanes, including eligibility. Synthesis takes the replacement definition's
 `CharDef::membership_bits`; inverse widening retains the input definition's bits as well.
 The integration regressions `strrep_rewrite_preserves_provisional_named_class_exclusion` and

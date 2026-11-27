@@ -7,8 +7,8 @@ use pg_featstruct::{FeatureStruct, FeatureStructBuilder, FeatureValue, SymbolBit
 use pg_grammar_model::model::{Grammar, MorphRuleDef};
 use pg_parse::identity::AnalysisIdentity;
 use pg_parse::{GenMorpheme, Morpher, ParseOptions};
-use pg_rules::stratum::{AnalyzerConfig, StepBudget};
-use pg_rules::trace::TreeTraceSink;
+use pg_rules::stratum::{AnalyzerConfig, WordBudget};
+use pg_rules::trace::{TraceHandle, TraceSource, TraceType, TreeTraceSink};
 use pg_rules::word::MorphRecord;
 use pg_rules::Word;
 
@@ -50,11 +50,11 @@ fn analyze_copy_shape(
         stratum,
         Word::new(shape, stratum),
         &config,
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     )
     .words
     .into_iter()
-    .filter(|word| !word.mrule_apps.is_empty())
+    .filter(|word| !word.trail.is_empty())
     .collect()
 }
 
@@ -121,9 +121,9 @@ fn unifiable_distinct_segments_survive_copy_agreement_pruning() {
     assert_eq!(analyze_copy_shape(&g, shape, true).len(), 1);
 }
 
-/// A copy with an optional node, including a leading one at the word start, is never pruned.
+/// A copy with an optional node, including a leading one at the word start, is aligned (an optional node may be passed over or stand for a node of the other copy): the true split `p?a|pa` stays, and so does the split whose first copy is only the optional node (C# may read it as an empty capture); the other empty-copy split goes (divergence 049).
 #[test]
-fn optional_left_prefix_keeps_copy_agreement_undecidable() {
+fn optional_left_prefix_keeps_the_aligned_split() {
     let g = copy_rule_grammar();
     let shape = pg_rules::shape_feat::segment_with_features(&g, &g.char_tables[0], "papa")
         .expect("copy-agreement input should segment");
@@ -143,7 +143,12 @@ fn optional_left_prefix_keeps_copy_agreement_undecidable() {
 
     let outputs_off = analyze_copy_shape(&g, shape.clone(), false);
     let outputs_on = analyze_copy_shape(&g, shape, true);
-    assert_eq!(outputs_on.len(), outputs_off.len());
+    assert_eq!(outputs_off.len(), 3);
+    assert_eq!(
+        outputs_on.len(),
+        2,
+        "the aligned split, and the split whose first copy is only the optional node, which C# keeps"
+    );
 }
 
 /// Asserts `outcome`'s identity multiset equals `expected`, order-insensitive but duplicate-sensitive.
@@ -424,6 +429,119 @@ fn suffix_rules() {
         ),
         vec!["sazd".to_string()]
     );
+}
+
+const RECORDED_ALLOMORPH_RULES: &str = r#"
+      <MorphologicalRule id="mrS" requiredPartsOfSpeech="posV"><Name>s_suffix</Name><MorphemeId>3SG</MorphemeId>
+        <MorphologicalSubrules>
+          <MorphologicalSubrule id="subS1">
+            <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+            <RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments>
+          </MorphologicalSubrule>
+          <MorphologicalSubrule id="subS2">
+            <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>z</PhoneticShape></InsertSegments></MorphologicalOutput>
+            <RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments>
+          </MorphologicalSubrule>
+          <MorphologicalSubrule id="subS3">
+            <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+            <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>z</PhoneticShape></InsertSegments></MorphologicalOutput>
+            <RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass="ncV" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments>
+          </MorphologicalSubrule>
+        </MorphologicalSubrules>
+      </MorphologicalRule>
+      <MorphologicalRule id="mrEd" requiredPartsOfSpeech="posV"><Name>ed_suffix</Name><MorphemeId>PAST</MorphemeId>
+        <MorphologicalSubrules><MorphologicalSubrule id="subEd">
+          <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+          <MorphologicalOutput><CopyFromInput index="1" /><InsertSegments><PhoneticShape>+ɯd</PhoneticShape></InsertSegments></MorphologicalOutput>
+        </MorphologicalSubrule></MorphologicalSubrules>
+      </MorphologicalRule>
+    "#;
+
+/// Machine #560: confirmation need not try allomorphs after the one analysis unapplied.
+#[test]
+fn synthesis_stops_after_the_analysis_allomorph() {
+    let g = build_grammar("", "", RECORDED_ALLOMORPH_RULES, "mrS mrEd", "");
+    let m = Morpher::new(&g, usize::MAX);
+    let sink = TreeTraceSink::new();
+    let outcome = m.parse_word_traced("sagsɯd", &ParseOptions::default(), &sink);
+    assert_morphs_eq(&outcome, &["32 3SG PAST"]);
+    fn collect(
+        sink: &TreeTraceSink,
+        h: TraceHandle,
+        rule: pg_grammar_model::model::MRuleId,
+        indices: &mut Vec<i32>,
+    ) {
+        let node = sink.node(h);
+        if node.type_ == TraceType::MorphologicalRuleSynthesis
+            && node.source == TraceSource::MorphRule(rule)
+        {
+            if let Some(i) = node.subrule_index.filter(|i| *i >= 0) {
+                indices.push(i);
+            }
+        }
+        for child in node.children {
+            collect(sink, child, rule, indices);
+        }
+    }
+    let mut indices = Vec::new();
+    collect(
+        &sink,
+        sink.root().unwrap(),
+        mrule_id(&g, "3SG"),
+        &mut indices,
+    );
+    assert!(
+        indices.contains(&0),
+        "the recorded allomorph must be reached: {indices:?}"
+    );
+    assert!(
+        indices.iter().all(|&i| i == 0),
+        "later allomorphs must not be tried: {indices:?}"
+    );
+}
+
+/// Machine #548: earlier matches are checked for blocking but cannot themselves be output.
+#[test]
+fn earlier_allomorph_is_checked_but_not_emitted() {
+    use pg_rules::trace::FailureReason;
+    let g = build_grammar("", "", RECORDED_ALLOMORPH_RULES, "mrS mrEd", "");
+    let m = Morpher::new(&g, usize::MAX);
+    let sink = TreeTraceSink::new();
+    let outcome = m.parse_word_traced("sagzɯd", &ParseOptions::default(), &sink);
+    assert_morphs_eq(&outcome, &["32 3SG PAST"]);
+    fn find_rejection(
+        sink: &TreeTraceSink,
+        h: TraceHandle,
+        rule: pg_grammar_model::model::MRuleId,
+    ) -> bool {
+        let node = sink.node(h);
+        (node.type_ == TraceType::MorphologicalRuleSynthesis
+            && node.source == TraceSource::MorphRule(rule)
+            && node.subrule_index == Some(0)
+            && node.failure_reason == Some(FailureReason::AllomorphNotApplicable))
+            || node
+                .children
+                .into_iter()
+                .any(|child| find_rejection(sink, child, rule))
+    }
+    assert!(find_rejection(
+        &sink,
+        sink.root().unwrap(),
+        mrule_id(&g, "3SG")
+    ));
+}
+
+/// An earlier unconstrained match still prevents a recorded later allomorph from applying.
+#[test]
+fn earlier_unconstrained_allomorph_blocks_the_recorded_allomorph() {
+    let env = "<RequiredEnvironments><Environment><RightEnvironment><PhoneticTemplate><PhoneticSequence><SimpleContext naturalClass=\"ncV\" /></PhoneticSequence></PhoneticTemplate></RightEnvironment></Environment></RequiredEnvironments>";
+    let rules = RECORDED_ALLOMORPH_RULES.replacen(env, "", 1);
+    let g = build_grammar("", "", &rules, "mrS mrEd", "");
+    let m = Morpher::new(&g, usize::MAX);
+    assert_empty(&m.parse_word("sagzɯd"));
+    assert_morphs_eq(&m.parse_word("sagsɯd"), &["32 3SG PAST"]);
 }
 
 /// Ports `AffixProcessRuleTests.PrefixRules` (cs:469-692): the phonologically-disjunctive prefix-allomorph scenario for `s_prefix`/`ed_prefix`, plus an aspiration-neutralization rule.

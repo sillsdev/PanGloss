@@ -1,4 +1,4 @@
-//! `Morpher::parse_word_with_stats` invariants: attempts-vs-steps, stats-off parity, determinism.
+//! `Morpher::parse_word_with_stats` invariants: stats-off parity, determinism.
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
@@ -7,8 +7,98 @@ use pg_conformance_fixtures::require_fixture;
 use pg_grammar_model::model::PhonRuleDef;
 use pg_parse::morpher::ParseOptions;
 use pg_parse::Morpher;
-use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, StatsRow};
+use pg_rules::stats::{Direction, ObjectKind, OverlayPhase, ParserWork, StatsCollector, StatsRow};
 use pg_rules::trace::{TraceHandle, TreeTraceSink};
+
+#[test]
+fn alpha_environment_work_is_attributed_to_its_lexical_entry() {
+    use pg_grammar_model::model::EnvironmentDef;
+    let mut g = pg_grammar::load(include_str!("data/alpha-optional-environment.xml")).unwrap();
+    let PhonRuleDef::Rewrite(rule) = &g.prules[0] else {
+        panic!("expected the alpha rewrite rule");
+    };
+    let pattern = rule.subrules[0].right_env.clone().unwrap();
+    g.entries[0].allomorphs[0]
+        .environments
+        .push(EnvironmentDef::new(false, None, Some(pattern)));
+    let morpher = Morpher::new(&g, usize::MAX);
+    let (outcome, rows) = morpher.parse_word_with_stats("bg", &ParseOptions::default());
+    assert!(!outcome.analyses.is_empty());
+    assert!(
+        rows.iter().any(|row| {
+            row.kind == ObjectKind::LexEntry
+                && row.object_index == 0
+                && row.allomorph == 1
+                && row.direction == Direction::Synthesis
+                && row.counters.work_steps > 1
+        }),
+        "the alpha environment's work must belong to its lexical entry"
+    );
+    let attributed: u64 = rows.iter().map(|row| row.counters.work_steps).sum();
+    assert!(attributed <= outcome.work_steps as u64);
+}
+
+#[test]
+fn parser_work_categories_cover_real_reservations_without_changing_totals() {
+    let mut seen = [false; 3];
+    for (g, cases) in fixture_cases() {
+        let morpher = Morpher::new(&g, usize::MAX);
+        for case in cases {
+            let opts = ParseOptions::default();
+            let off = morpher.parse_word_opts(case.word, &opts);
+            let (on, rows) = morpher.parse_word_with_stats(case.word, &opts);
+            assert_eq!(off.work_steps, on.work_steps, "{}", case.label);
+            assert_eq!(off.analyses, on.analyses, "{}", case.label);
+            assert!(
+                rows.iter().map(|r| r.counters.work_steps).sum::<u64>() <= on.work_steps as u64
+            );
+            for row in rows
+                .iter()
+                .filter(|r| r.kind == ObjectKind::Parser && r.counters.work_steps > 0)
+            {
+                seen[row.object_index as usize] = true;
+            }
+        }
+    }
+    for category in ParserWork::ALL {
+        assert!(seen[category.index() as usize], "missing {:?}", category);
+    }
+}
+
+#[test]
+fn cascade_reservations_follow_the_rule_and_only_successful_work_is_counted() {
+    let (g, _) = fixture_cases()
+        .into_iter()
+        .find(|(g, _)| g.mrules.len() >= 2)
+        .unwrap();
+    let stats = StatsCollector::new(&g);
+    let budget = pg_fst::work::WorkBudget::new(1);
+    let _budget = budget.enter();
+    let rules = [
+        pg_grammar_model::model::MRuleId(1),
+        pg_grammar_model::model::MRuleId(0),
+    ];
+    let cascade = pg_rules::cascade::Cascade::new(false, usize::MAX).with_rule_work_owner(
+        Some(&stats),
+        pg_grammar_model::model::StratumId(0),
+        &rules,
+        Direction::Analysis,
+    );
+    let result = cascade.permutation(2, 0, &|_, _: &i32| Vec::new(), &|n: &i32| *n);
+    assert!(result.capped);
+    let rows = stats.rows();
+    assert_eq!(budget.used(), 1);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.kind == ObjectKind::MorphRule && row.object_index == 1)
+            .map(|row| row.counters.work_steps)
+            .sum::<u64>(),
+        1
+    );
+    assert!(rows.iter().all(|row| row.kind != ObjectKind::MorphRule
+        || row.object_index != 0
+        || row.counters.work_steps == 0));
+}
 
 /// One fixture-provided word to replay, paired with the grammar it belongs to.
 struct Case {
@@ -55,34 +145,6 @@ fn fixture_cases() -> Vec<(pg_grammar_model::model::Grammar, Vec<Case>)> {
             }],
         ),
     ]
-}
-
-/// `SUM(morph_rule attempts)` filtered to `direction = analysis` must equal the word's `steps` -- `StepBudget::tick()` fires solely on the analysis side, so summing both directions would overcount.
-#[test]
-fn sum_of_morph_rule_attempts_equals_steps() {
-    let mut checked = 0usize;
-    for (g, cases) in fixture_cases() {
-        let morpher = Morpher::new(&g, usize::MAX);
-        for case in &cases {
-            let (outcome, rows) =
-                morpher.parse_word_with_stats(case.word, &ParseOptions::default());
-            let sum_attempts: u64 = rows
-                .iter()
-                .filter(|r| r.kind == ObjectKind::MorphRule && r.direction == Direction::Analysis)
-                .map(|r| r.counters.attempts)
-                .sum();
-            assert_eq!(
-                sum_attempts, outcome.steps as u64,
-                "{}: SUM(morph_rule attempts) filtered to analysis must equal the word's steps",
-                case.label
-            );
-            checked += 1;
-        }
-    }
-    assert!(
-        checked >= 5,
-        "must have replayed several words across two fixtures"
-    );
 }
 
 /// The confirm pass must leave nonzero synthesis-direction rows across words that parse; checked in aggregate, not per-word, since a bare-root word legitimately involves no rule at all.
@@ -279,7 +341,6 @@ fn stats_collection_does_not_change_the_parse_outcome() {
                 "{}: invalid_shape must match",
                 case.label
             );
-            assert_eq!(off.steps, on.steps, "{}: steps must match", case.label);
             assert_eq!(
                 off.work_steps, on.work_steps,
                 "{}: work_steps must match",
@@ -401,7 +462,7 @@ fn traced_stats_run_matches_separate_trace_and_stats_runs() {
     assert_eq!(combined.structured, traced.structured);
     assert_eq!(combined.capped, traced.capped);
     assert_eq!(combined.invalid_shape, traced.invalid_shape);
-    assert_eq!(combined.steps, traced.steps);
+    assert_eq!(combined.work_steps, traced.work_steps);
     assert_eq!(combined.timed_out, traced.timed_out);
     assert_eq!(combined.guessed, traced.guessed);
     assert_eq!(combined.candidates_generated, traced.candidates_generated);
@@ -473,9 +534,9 @@ fn no_root_fires_only_when_lexical_lookup_finds_nothing() {
     );
 }
 
-/// Two differently-spelled allomorphs of one root: `surface_mismatch` must fire for the one that does not match.
+/// Two differently-spelled allomorphs of one root: only the matched one is proposed (machine#627), so the sibling is never rebuilt and `surface_mismatch` stays zero.
 #[test]
-fn surface_mismatch_fires_for_a_root_that_is_tried_and_rebuilt_but_does_not_match() {
+fn surface_mismatch_stays_zero_for_a_sibling_allomorph_the_search_did_not_match() {
     let extra_lexicon = r#"
       <LexicalEntry id="eSm" partOfSpeech="posV">
         <Allomorphs>
@@ -498,9 +559,9 @@ fn surface_mismatch_fires_for_a_root_that_is_tried_and_rebuilt_but_does_not_matc
         .filter(|r| r.kind == ObjectKind::LexEntry)
         .map(|r| r.counters.surface_mismatch)
         .sum();
-    assert!(
-        mismatch_sum >= 1,
-        "allomorph aSm2 (bo) is tried and rebuilt but does not match the surface word 'bu'"
+    assert_eq!(
+        mismatch_sum, 0,
+        "allomorph aSm2 (bo) is a sibling of the matched aSm1 and is not proposed for synthesis"
     );
 }
 
@@ -773,29 +834,24 @@ fn fact_work_is_segments_examined_not_the_word_work_steps_total() {
             let (outcome, rows) =
                 morpher.parse_word_with_stats(case.word, &ParseOptions::default());
             let fact_work: u64 = rows.iter().map(|r| r.counters.work).sum();
-            assert!(
-                outcome.steps <= outcome.work_steps,
-                "{}: every analysis attempt reserves one work unit",
-                case.label
-            );
             assert_ne!(
                 fact_work, outcome.work_steps as u64,
                 "{}: fact work and work_steps are different units",
                 case.label
             );
-            measured.push((case.label, outcome.steps, outcome.work_steps, fact_work));
+            measured.push((case.label, outcome.work_steps, fact_work));
         }
     }
     assert_eq!(
         measured,
         vec![
-            ("sumulat", 28, 901, 394),
-            ("keadilan", 132, 2567, 1552),
-            ("katibɯd", 28, 1021, 364),
-            ("katibɯt", 19, 779, 273),
-            ("pur", 19, 411, 163),
-            ("gas", 14, 692, 109),
+            ("sumulat", 757, 359),
+            ("keadilan", 1114, 429),
+            ("katibɯd", 876, 336),
+            ("katibɯt", 647, 238),
+            ("pur", 327, 148),
+            ("gas", 587, 95),
         ],
-        "(word, steps, work_steps, SUM(fact.work))"
+        "(word, work_steps, SUM(fact.work))"
     );
 }

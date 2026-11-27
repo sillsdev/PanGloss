@@ -73,88 +73,12 @@ const TUNED_ENVELOPES: &[Envelope] = &[Envelope {
     source_refs: TUNED_SOURCES,
 }];
 
-const TEMPLATED_CONTRIBUTORS: &[&str] = &[
-    "E = emitted lexical entries",
-    "P = ordered rewrite rules and their environment composition",
-    "T = template obligations and token lanes",
-    "F = feature/unification cost and fan-out",
-    "Rule ordering affects cascade depth and intermediate alphabets",
-    "Null and deletion rules add epsilon/truncation branches to the relation",
-];
-const TEMPLATED_REMEDIES: &[&str] = &["regularize-phonology", "order-rules"];
-const TEMPLATED_SOURCES: &[&str] = &["src/emit.rs", "src/replace.rs", "src/enumerate.rs"];
-const TEMPLATED_ENVELOPES: &[Envelope] = &[Envelope {
-    id: "templated-underlying-rewrite",
-    name: "Underlying-token rewrite cascade",
-    control: EnvelopeControl::Inherent,
-    big_o: BigO {
-        time: "O(E x P x T x F)",
-        space: "O(E + P x T x F)",
-        variables: &[
-            "E: emitted entries",
-            "P: ordered rewrite rules",
-            "T: template/token lanes",
-            "F: feature/unification cost",
-        ],
-    },
-    contributors: TEMPLATED_CONTRIBUTORS,
-    remedy_ids: TEMPLATED_REMEDIES,
-    source_refs: TEMPLATED_SOURCES,
+const CARDS: &[BackendCard] = &[BackendCard {
+    backend_id: "tuned-surface-probed",
+    display_name: "Tuned Surface Probed",
+    summary: "Pre-probes surface and deletion junctions, then emits a whole-grammar relation.",
+    envelopes: TUNED_ENVELOPES,
 }];
-
-const PLAN_CONTRIBUTORS: &[&str] = &[
-    "G = reachable gate groups",
-    "R = rewrite rules in authored order",
-    "Q = required plan subtrees",
-    "F = feature/unification cost and fan-out",
-    "Rule ordering changes the content-addressed replacement cascade",
-    "Null, deletion, and structural marker leaves can require unsupported subtrees",
-    "Branching multiplies gate-group and replacement combinations",
-];
-const PLAN_REMEDIES: &[&str] = &[
-    "implement-required-plan-subtrees",
-    "use-obligation-templates",
-];
-const PLAN_SOURCES: &[&str] = &["src/enumerate.rs", "src/plan.rs", "src/build.rs"];
-const PLAN_ENVELOPES: &[Envelope] = &[Envelope {
-    id: "plan-composed-materialization",
-    name: "Controllable plan materialization",
-    control: EnvelopeControl::Inherent,
-    big_o: BigO {
-        time: "O(G x R x F + Q)",
-        space: "O(G + R x F + Q)",
-        variables: &[
-            "G: gate groups",
-            "R: rewrite rules",
-            "Q: required plan subtrees",
-            "F: feature/unification cost",
-        ],
-    },
-    contributors: PLAN_CONTRIBUTORS,
-    remedy_ids: PLAN_REMEDIES,
-    source_refs: PLAN_SOURCES,
-}];
-
-const CARDS: &[BackendCard] = &[
-    BackendCard {
-        backend_id: "plan-composed",
-        display_name: "Plan Composed",
-        summary: "Materializes the controllable, content-addressed portion of the enumerated plan.",
-        envelopes: PLAN_ENVELOPES,
-    },
-    BackendCard {
-        backend_id: "templated-underlying-tokens",
-        display_name: "Templated Underlying Tokens",
-        summary: "Emits underlying token lanes and applies the whole rewrite cascade.",
-        envelopes: TEMPLATED_ENVELOPES,
-    },
-    BackendCard {
-        backend_id: "tuned-surface-probed",
-        display_name: "Tuned Surface Probed",
-        summary: "Pre-probes surface and deletion junctions, then emits a whole-grammar relation.",
-        envelopes: TUNED_ENVELOPES,
-    },
-];
 
 pub fn catalog() -> &'static [BackendCard] {
     CARDS

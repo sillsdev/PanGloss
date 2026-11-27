@@ -110,6 +110,25 @@ pub enum ApplyDimension {
     DecodedPaths,
     /// `ApplyBudget::candidate_cap`: distinct `(morphemes, root_index)` candidate count.
     Candidates,
+    /// `ApplyBudget::normalization_cap`: cumulative alternatives the repeat-ambiguity relation
+    /// (`crate::tags::visit_candidate_superset`) offered beyond the legacy candidate of each path,
+    /// counted before deduplication so that many raw paths revisiting the same alternatives are
+    /// bounded too.
+    NormalizedCandidates,
+    /// Not a magnitude cap: the confirming parser accepts more stems per word than the compound construction was built to propose (`value` is its effective cap, `limit` the stem bound), so no word can be called complete.
+    StemBound,
+    /// Not a magnitude cap: the confirming parser stopped on a work, time, memory, capture or shape limit, so its analyses are a prefix and none are returned (`value` is the confirmation work steps consumed, `limit` is 0); the payload names which limits fired.
+    Confirmation(pg_parse::StopReasons),
+    /// Cascade backend: the lazy product's state count reached its cap.
+    ProductStates,
+    /// Cascade backend: the lazy product's arc count reached its cap.
+    ProductArcs,
+    /// Cascade backend: the lazy product's expansion steps reached their cap.
+    ProductSteps,
+    /// Cascade backend: the lazy product's bytes reached their cap.
+    ProductBytes,
+    /// Cascade backend: the number of pin groups read out reached its cap.
+    PinGroups,
 }
 
 impl ApplyDimension {
@@ -117,6 +136,14 @@ impl ApplyDimension {
         match self {
             ApplyDimension::DecodedPaths => "decoded apply_up paths",
             ApplyDimension::Candidates => "distinct candidates",
+            ApplyDimension::NormalizedCandidates => "repeat-normalization alternatives",
+            ApplyDimension::StemBound => "stem cap above the proposer's stem bound",
+            ApplyDimension::Confirmation(_) => "confirmation",
+            ApplyDimension::ProductStates => "product states",
+            ApplyDimension::ProductArcs => "product arcs",
+            ApplyDimension::ProductSteps => "product steps",
+            ApplyDimension::ProductBytes => "product bytes",
+            ApplyDimension::PinGroups => "pin groups",
         }
     }
 }
@@ -148,6 +175,7 @@ pub enum ApplyOutcome<T> {
 pub struct ApplyBudget {
     path_cap: Option<usize>,
     candidate_cap: Option<usize>,
+    normalization_cap: Option<usize>,
 }
 
 impl ApplyBudget {
@@ -158,6 +186,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap: apply_path_budget_from_env(),
             candidate_cap: apply_candidate_budget_from_env(),
+            normalization_cap: apply_candidate_budget_from_env(),
         }
     }
 
@@ -169,6 +198,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap,
             candidate_cap,
+            normalization_cap: candidate_cap,
         }
     }
 
@@ -178,6 +208,7 @@ impl ApplyBudget {
         ApplyBudget {
             path_cap: None,
             candidate_cap: None,
+            normalization_cap: None,
         }
     }
 
@@ -194,11 +225,39 @@ impl ApplyBudget {
     pub fn candidate_cap(&self) -> Option<usize> {
         self.candidate_cap
     }
+
+    /// The effective repeat-normalization allowance, or `None` for unbounded. It is the existing
+    /// distinct-candidate allowance applied to a second count, never a separate or larger limit:
+    /// every constructor derives it from `candidate_cap`.
+    pub fn normalization_cap(&self) -> Option<usize> {
+        self.normalization_cap
+    }
+
+    /// This budget less what one cumulative word has already spent, so that direct proposal and
+    /// every peeled proposal draw on a single allowance for each dimension.
+    pub fn remaining(
+        &self,
+        used_paths: usize,
+        used_candidates: usize,
+        used_normalized: usize,
+    ) -> Self {
+        ApplyBudget {
+            path_cap: self.path_cap.map(|limit| limit.saturating_sub(used_paths)),
+            candidate_cap: self
+                .candidate_cap
+                .map(|limit| limit.saturating_sub(used_candidates)),
+            normalization_cap: self
+                .normalization_cap
+                .map(|limit| limit.saturating_sub(used_normalized)),
+        }
+    }
 }
 
 /// Every way a `ComposeBudget`-checked call can fail.
 #[derive(Debug, Clone)]
 pub enum ComposeError {
+    /// This grammar cannot be represented faithfully by the compiler.
+    CannotRepresent { reason: &'static str },
     /// `check_chain_depth` found a cumulative derivation/unapplication step count exceeding `chain_depth_cap`.
     ChainDepthExceeded {
         depth: usize,
@@ -210,6 +269,7 @@ pub enum ComposeError {
 impl fmt::Display for ComposeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            ComposeError::CannotRepresent { reason } => write!(f, "cannot represent grammar: {reason}"),
             ComposeError::ChainDepthExceeded { depth, limit, site } => write!(
                 f,
                 "chain-depth budget exceeded at {site:?}: {depth} nested derivation/unapplication \

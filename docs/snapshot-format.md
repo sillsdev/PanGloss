@@ -339,7 +339,7 @@ side's `MoStemMsa`; HCLoader.cs:1848-1941 only ever reads these two properties o
 
 `stem | boundStem | root | boundRoot | prefix | suffix | infix | circumfix | proclitic | enclitic
 | clitic | particle | phrase | discontigPhrase | prefixingInterfix | infixingInterfix |
-suffixingInterfix`
+suffixingInterfix | simulfix | suprafix`
 
 ← FieldWorks' well-known `MoMorphType` possibilities. `pg-fwdata` (T2) owns the guid→variant
 mapping table (the `MoMorphTypeTags.kguidMorph*` constants referenced throughout `HCLoader.cs`,
@@ -410,6 +410,7 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 | `guessRoots` | boolean | `<HC><GuessRoots>`, default **`true`**, omitted when `true` (an older snapshot without the field reads as `true`); the `guessRoot` argument FieldWorks `HCParser` passes to `Morpher.ParseWord`: guess roots from lexical patterns when the lexicon finds nothing |
 | `strata` | string, optional | The raw, unparsed `<Strata>` string (e.g. `"Morphology,(Clitics,Templates),Phonology"`). `HCLoader.ParseStrataString`'s comma/parenthesis tokenizer (HCLoader.cs:120-151) is compiler policy over this string; T3 re-parses it the same way. `None`/absent means the default stratum layout (`Morphology`, `Clitics`, `Surface`) applies. |
 | `compoundRuleMaxApplications` | `{compoundRule: guid, maxApplications: integer}[]` | `<CompoundRules>`'s per-rule `maxApps` attribute, keyed by `MoCompoundRule` guid (HCLoader.cs:103-112). A compound rule with no entry here defaults to `maxApplications = 1` (HCLoader.cs:1894). |
+| `affixRuleMaxApplications` | `{msa: guid, maxApplications: integer}[]` | `<HC><AffixRules><AffixRule guid maxApps>`, keyed by the representative affix MSA guid (lowercase hyphenated) and omitted when empty; loaded as the rule's HC `multipleApplication` (C# `AffixProcessRule.MaxApplicationCount`, default 1 at AffixProcessRule.cs:28). Read like FieldWorks PR #1263 (LT-22699): `guid` by `Guid.TryParse`, `maxApps` by `int.TryParse` (32-bit signed, whitespace and a sign allowed), then clamped to 1..10, so only counts 2..10 are stored. An unparsable guid or count (including 32-bit overflow) is skipped and the affix applies once; a repeated guid takes the last valid entry; an unknown or non-affix guid is ignored. PanGloss also warns (`INVALID_PARSER_PARAMETER`) for a skipped entry or a count above 10, which never changes a parse. A template-slot rule is visited once per slot, so a count there does not repeat it. Search cost grows with the count; see the CHANGELOG entry. FieldWorks released builds do not read this key yet: divergence [135](divergences/135-affix-max-applications-honoured.md). |
 
 ## 6. `lexicon`
 
@@ -417,6 +418,10 @@ affix (e.g. English "went" as the past-tense type of "go"). ← `LexEntryInflTyp
 |---|---|---|
 | `entries` | `LexEntry[]` | `LangProject.LexDbOA.Entries` |
 | `msaEquality` | `{msa: guid, equalTo: guid[]}[]`, optional | liblcm `EqualsMsa` between the MSAs of one entry, computed by `pg-fwdata` from the raw records (it compares feature-structure detail `FeatureStructure` does not carry: `FsFeatStruc.Type`, feature disjunctions, `RefNumber`/`ValueState`, negated/disjunctive/open/shared values). `equalTo` lists, in `msas` order, every other MSA of the same class `c` for which `c.EqualsMsa(msa)` holds; an MSA it does not list equals no other. Absent means the snapshot was written before this extraction: the compiler then refuses a project with `mergeMsas` on and an entry with two same-class MSAs, since which of them FieldWorks merges is unknown (re-import). |
+
+The `.fwdata` importer ignores `DoNotUseForParsing`, as FieldWorks' parsers do (divergence entry 121):
+flagged entries keep all their forms, senses and MSAs. Snapshots written by 0.11.0 to 0.14.0 may carry
+`doNotUseForParsing` load decisions and lack the flagged entries; re-import them.
 
 ### `LexEntry`
 
@@ -496,7 +501,7 @@ treatment of the two as mutually exclusive in practice).
 | Variant | Fields | LCM origin |
 |---|---|---|
 | `variant` | `guid`, `componentLexemes: guid[]`, `variantEntryTypes: guid[]` | `LexEntryRef` with `VariantEntryTypesRS` populated. `componentLexemes` ← `ComponentLexemesRS` (the main entry/sense this is a variant of — each guid may be a `LexEntry` **or** a `LexSense`, LCM's `CmObject` union; resolvers must check both `lexicon.entries` and each entry's `senses`). `variantEntryTypes` ← `VariantEntryTypesRS` — each guid may be a plain `LexEntryType` or a `morphology.lexEntryInflTypes` guid (`HCLoader.GetInflTypes`'s `as ILexEntryInflType` downcast, HCLoader.cs:657-679); `HCLoader.LoadLexEntries`/`LoadMorphologicalRules` walk exactly this shape when `entry.SensesOS.Count == 0` (HCLoader.cs:628-651, 852-871) to attach the variant's allomorphs to the *main* entry's MSAs. |
-| `complexForm` | `guid`, `componentLexemes: guid[]`, `complexEntryTypes: guid[]` | `LexEntryRef` with `ComplexEntryTypesRS` populated. Not walked by `HCLoader` today; carried for completeness/forward-compatibility. |
+| `complexForm` | `guid`, `componentLexemes: guid[]`, `complexEntryTypes: guid[]` | `LexEntryRef` with `ComplexEntryTypesRS` populated and `VariantEntryTypesRS` empty. `HCLoader` walks every entry ref of a sense-less entry as a variant source (HCLoader.cs:639-668), so the compiler builds a variant from it exactly as from a `variant` ref with no types. |
 
 ## 7. `conversionProvenance`
 

@@ -468,7 +468,9 @@ fn reduplication_allomorph_is_peelable(g: &Grammar, allomorph: &AffixAllomorphDe
 /// peeler cannot prove that it can invert the authored action shape.
 pub fn reduplication_requires_structural(g: &Grammar, allomorph: &AffixAllomorphDef) -> bool {
     classify_affix(&allomorph.rhs) == Role::Reduplication
-        && !reduplication_allomorph_is_peelable(g, allomorph)
+        && (!reduplication_allomorph_is_peelable(g, allomorph)
+            || (g.strata.iter().all(|s| s.prules.is_empty())
+                && !referenced_tables_have_single_segment_spellings(g)))
 }
 
 /// Whether the generic surface peeler owns this whole rule.
@@ -491,4 +493,24 @@ pub fn reduplication_rule_is_peelable(g: &Grammar, mid: MRuleId) -> bool {
         }
     }
     saw_reduplication
+}
+
+/// Whether every material-bearing referenced table has singleton resolver closures.
+pub fn referenced_tables_have_single_segment_spellings(g: &Grammar) -> bool {
+    let emits_material = g.strata.iter().any(|stratum| {
+        !stratum.entries.is_empty() || !stratum.mrules.is_empty() || !stratum.templates.is_empty()
+    });
+    !emits_material
+        || g.strata.iter().all(|stratum| {
+            let table = &g.char_tables[stratum.table.0 as usize];
+            table.iter().all(|(cd, definition)| {
+                definition.kind() != pg_grammar::chardef::CharDefKind::Segment
+                    || pg_rules::surface_probe::has_single_spelling(
+                        table,
+                        cd.0,
+                        &pg_shape::CdSet::Unrestricted,
+                        &definition.matching_lanes(),
+                    )
+            })
+        })
 }

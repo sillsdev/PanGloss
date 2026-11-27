@@ -33,25 +33,20 @@ prose.**
 > complete/accurate stress evidence but is production-unready; `Critical` is a correctness gap.
 > The legacy `--no-enforce-capability` escape is removed and rejected in every build.
 
-## The one orientation fact
+## Current construction route and historical research
 
-There are **two non-interoperating FST-construction pipelines**, and only one of them runs when you
-type `pangloss parse|batch --engine=foma`:
+The shipped backend is **Tuned surface probed**. PR #175 removed Templated underlying tokens
+and Plan composed; [the removal record](../fst-plan/removed-backends.md) explains the retained
+research and restoration boundary. The two-pipeline and prototype descriptions in older rows
+below are historical evidence, not a list of currently selectable backends.
 
-- **Mainline** — `emit.rs` / `preexpand.rs` / `junctions.rs` / `peel.rs` / `morphotactics.rs`. Lexc
-  continuation classes plus enumeration, with the real synthesis engine invoked at build time to bake
-  phonology into literal strings. Reached unconditionally:
-  `pg-cli/src/main.rs:685` (`parse`), `:987` (`batch`) → `FomaAnalyzer::new` (`pg-foma/src/composite.rs:414`) →
-  `FomaProposer::new` (`pg-foma/src/analyzer.rs:161`) → `emit::emit_with_budget_profiled`
-  (`pg-foma/src/emit.rs:2571`). There is no per-grammar routing decision anywhere on that line.
-- **Prototype** — `replace.rs` / `gate.rs` / `uflexc.rs` / `templated_compile.rs`. A genuine Kaplan-Kay
-  rewrite-rule compiler. Reachable only from `pangloss recipe-optimize`, tests, and examples.
-
-Roughly half the research corpus describes the prototype. Every technique row in
-`technique-index.md` is tagged **A** (mainline) or **B** (prototype) so this is never ambiguous.
-
-Note also that `--engine=foma` is not the CLI default; `--engine=default` runs the HermitCrab oracle
-and builds no FST at all (`pg-cli-main-design-notes.md`).
+Batch now selects `--engine hc|fst` (default `hc`, #343). The FST path compiles through
+`pg_foma::analyzer::compile_proposer` and confirms through `FomaAnalyzer` in
+`rust/crates/pg-foma-runtime/src/composite.rs`; it refuses instead of silently falling back.
+See [the gotchas catalogue](fst-propose-confirm-gotchas.md#current-runtime-and-evidence) for
+current controls, #339 proposal-recall admission, and the distinction between recall and precision.
+[`fst-verify`](../formats/fst-verify.md) (#334, #346) compares the two Rust pipelines and reports
+completion, both identity-difference directions, and typed refusal evidence; it is not a C# replay.
 
 ---
 
@@ -59,6 +54,7 @@ and builds no FST at all (`pg-cli-main-design-notes.md`).
 
 | Document | Answers | Evidence |
 |---|---|---|
+| [`fst-propose-confirm-gotchas.md`](fst-propose-confirm-gotchas.md) | "Which grammar shapes cause excess candidates or construction blowup?" Eleven mechanisms, historical measurements, and current runtime/admission corrections. | MIXED, history explicitly marked |
 | [`per-language-fst-synthesis.md`](per-language-fst-synthesis.md) | "What is the overall shape of this problem, and what has been decided?" Three compilers, two switches; every choice must be explainable and falsifiable. | MIXED |
 | [`handspun-technique-audit.md`](handspun-technique-audit.md) | "What did we actually build by hand, for which grammar, and what did it buy?" The 37-technique catalogue, with per-technique measurement provenance. | MIXED (mostly MEASURED) |
 | [`mainline-selection-audit.md`](mainline-selection-audit.md) | "Does the shipped compiler already choose anything per grammar?" Yes — ~7 genuine strategy choices, ~80 bookkeeping branches, all hardcoded. | VERIFIED |

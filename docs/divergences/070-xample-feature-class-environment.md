@@ -1,7 +1,7 @@
 # 070: Feature-defined classes in allomorph environments bind, where XAMPLE loses them
 
 Kind: behavioural (XAMPLE).
-Status: deliberate — PanGloss follows C# HermitCrab; the XAMPLE loss is a FieldWorks export defect,
+Status: permanent, deliberate — PanGloss follows C# HermitCrab; the XAMPLE loss is a FieldWorks export defect,
 reported as [LT-22825](https://jira.sil.org/browse/LT-22825).
 Evidence: real-engine measurements on `feat/xample-measure`, staged cases
 `conformance-staging/underdefined/06-feature-class` and `11-distinct-feature-class`.

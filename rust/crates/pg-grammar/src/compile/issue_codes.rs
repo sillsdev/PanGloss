@@ -58,8 +58,8 @@ pub(crate) const ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM: ImportWarningCod
     ImportWarningCode::AllomorphMorphTypeUnsupportedAsRuleForm;
 pub(crate) const ALLOMORPH_NOT_RULE_FORM: ImportWarningCode =
     ImportWarningCode::AllomorphNotRuleForm;
-pub(crate) const ALLOMORPH_REDUPLICATION_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::AllomorphReduplicationUnsupported;
+pub(crate) const ALLOMORPH_REDUPLICATION_INVALID: ImportWarningCode =
+    ImportWarningCode::AllomorphReduplicationInvalid;
 pub(crate) const ALLOMORPH_PROCESS_BUILD_FAILED: ImportWarningCode =
     ImportWarningCode::AllomorphProcessBuildFailed;
 pub(crate) const ALLOMORPH_INFLECTION_CLASS_UNRESOLVED: ImportWarningCode =
@@ -89,8 +89,6 @@ pub(crate) const NULL_AFFIX_SYN_FS_FAILED: ImportWarningCode =
 pub(crate) const NULL_AFFIX_SEGMENT_FAILED: ImportWarningCode =
     ImportWarningCode::NullAffixSegmentFailed;
 
-pub(crate) const RULE_METATHESIS_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::RuleMetathesisUnsupported;
 pub(crate) const RULE_BUILD_FAILED: ImportWarningCode = ImportWarningCode::RuleBuildFailed;
 pub(crate) const FEATURE_CONSTRAINT_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::FeatureConstraintUnresolved;
@@ -99,8 +97,7 @@ pub(crate) const FEATURE_CONSTRAINT_PHON_FEATURE_UNRESOLVED: ImportWarningCode =
 pub(crate) const RULE_FEATURE_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::RuleFeatureUnresolved;
 
-pub(crate) const STRATA_CUSTOM_UNSUPPORTED: ImportWarningCode =
-    ImportWarningCode::StrataCustomUnsupported;
+pub(crate) const STRATA_UNKNOWN_RULE: ImportWarningCode = ImportWarningCode::StrataUnknownRule;
 
 pub(crate) const ADHOC_PROHIBITION_UNRESOLVED: ImportWarningCode =
     ImportWarningCode::AdhocProhibitionUnresolved;

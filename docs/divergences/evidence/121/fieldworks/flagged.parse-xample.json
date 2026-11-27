@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "mode": "parse",
+  "database": "DoNotUseForParsing",
+  "sourceSha256": "edb5edd6a75575be77038952e0e566c4193d713555baeeb7de660f725d9293d9",
+  "loadedEnginePinsVerified": true,
+  "engineVersion": "3.12.23.21",
+  "parameters": {
+    "runtime": {
+      "maxAnalysesToReturn": 1000
+    },
+    "adctl": {
+      "maxNulls": 0,
+      "maxPrefixes": 5,
+      "maxInfixes": 0,
+      "maxSuffixes": 5,
+      "maxRoots": 1,
+      "maxInterfixes": 0
+    },
+    "adctlPatched": false,
+    "adctlSource": "DoNotUseForParsingadctl.txt"
+  },
+  "words": [
+    {
+      "word": "pat",
+      "rawXml": " <Wordform DbRef=DB_REF_HERE Form=\"pat\">\r\n  <WfiAnalysis>\r\n   <Morphs>\r\n    <Morph>\r\n      <MoForm DbRef='47' Label=\"pat\" wordType=\"root\"/>\r\n      <MSI DbRef='88'/>\r\n    </Morph>\r\n   </Morphs>\r\n  </WfiAnalysis>\r\n </Wordform>\r\n",
+      "analyses": [
+        {
+          "morphemes": [
+            {
+              "form": "pat",
+              "allomorphGuid": "8528cc4a-74fc-4eae-9020-0e14e64da0ae",
+              "inflectionTypeGuid": null,
+              "msaGuid": "f3c5a310-b796-4eb8-8800-008ae7d02545",
+              "storedMsaGuid": "f3c5a310-b796-4eb8-8800-008ae7d02545",
+              "storedKeyComplete": true,
+              "morphnameOrGloss": "PAT",
+              "type": "MoStemAllomorph"
+            }
+          ],
+          "categoryId": null,
+          "surfaceNfd": "pat"
+        }
+      ],
+      "reachedMaxAnalyses": false,
+      "engineError": null
+    }
+  ],
+  "nativeLog": "parse-xample.json.xample.log"
+}

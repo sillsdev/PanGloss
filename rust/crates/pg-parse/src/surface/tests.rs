@@ -114,6 +114,7 @@ fn literal_surface_matching_preserves_provisional_and_featureless_wildcards() {
             let class = NaturalClass {
                 xml_id: "class".into(),
                 name: None,
+                full_name: None,
                 kind: NaturalClassKind::Feature(pairs.clone()),
             };
             let mut lanes =

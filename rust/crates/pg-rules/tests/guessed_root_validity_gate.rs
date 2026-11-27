@@ -127,7 +127,7 @@ fn guessed_word(g: &Grammar, text: &str) -> Word {
         pattern_entry,
         text: text.to_string(),
     });
-    w.root_runtime_id = Some(text.to_string());
+    w.set_root_runtime_id(Some(text.to_string()));
     w.morphs = vec![
         MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0).with_runtime_root(runtime),
     ];

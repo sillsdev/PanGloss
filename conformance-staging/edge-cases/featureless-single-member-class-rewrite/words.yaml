@@ -1,0 +1,44 @@
+# oracle-provenance: founding-oracle
+# Signatures transcribed from the C# founding oracle (hc-conformance self-check, in-process Morpher)
+# built from sillsdev/machine aab4c598, 2026-11-03.
+#
+# prLen: [k] -> [s] / [a i] _ [a i], in a grammar with NO phonological feature system. Single-member
+# classes: the rule rewrites the StrRep of the matched node through a one-segment class, so the
+# result is the same as the literal rule k -> s.
+language: FeaturelessSingleMemberClassRewrite
+inspired_by: ["synthetic intervocalic lenition written with one-segment classes (not modeling any real language)"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: asa
+    note: >-
+      aka with its k lenited between vowels; the class on the right has one member, s.
+    parses:
+      - signature: "AKA|asa"
+        rules: [prLen]
+  - word: aka
+    note: >-
+      The rule is obligatory: aka never surfaces with its k between vowels.
+    expect_fail: true
+  - word: ita
+    note: >-
+      The t is not in the left-hand class, so ita surfaces unchanged.
+    parses:
+      - signature: "ITA|ita"
+        rules: []
+  - word: isa
+    note: >-
+      No root isa, and s is only ever the product of k.
+    expect_fail: true
+  - word: aska
+    note: >-
+      s is not a vowel, so the rule's environment is not met.
+    expect_fail: true
+  - word: kaa
+    note: >-
+      No root kaa.
+    expect_fail: true
+  - word: aki
+    note: >-
+      No root aki; k between vowels is rewritten, not kept.
+    expect_fail: true

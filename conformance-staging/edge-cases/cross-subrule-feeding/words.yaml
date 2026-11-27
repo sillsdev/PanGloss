@@ -1,0 +1,13 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: PerSiteAlphaRewrite
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: uyi
+    note: "Per-site later-subrule feeding into an earlier subrule."
+    parses:
+      - signature: "SUBRULE|uyi"
+        rules: [prSubruleFeed]
+  - word: uyu
+    note: "Whole-subrule processing fails to revisit the earlier subrule at the third site."
+    expect_fail: true

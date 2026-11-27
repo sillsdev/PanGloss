@@ -32,7 +32,8 @@ fn partial_parse_is_reported_when_an_unapplied_rule_never_confirms() {
     let m = Morpher::new(&g, usize::MAX);
     let mut word = w();
     // A leftover unapplied rule never re-confirmed by synthesis (C#'s `mruleAppIndex != -1`).
-    word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
+    word.trail =
+        pg_rules::trail::Trail::from_slots([(Some(pg_grammar_model::model::MRuleId(0)), None)]);
     word.mrule_app_index = 0;
 
     let sink = TreeTraceSink::new();
@@ -56,6 +57,19 @@ fn partial_parse_is_reported_when_an_unapplied_rule_never_confirms() {
     let root = rich.analyze_word(&word);
     assert!(!m.is_word_valid_traced(&word, &rich, root));
     assert!(!m.is_word_valid(&word));
+
+    struct PendingRule(std::cell::Cell<Option<(StratumId, usize)>>);
+    impl Recorder for PendingRule {
+        fn record(&self, decision: Decision<'_>) {
+            if let Decision::RemainingAnalyzedRules { stratum, remaining } = decision {
+                self.0.set(Some((stratum, remaining)));
+            }
+        }
+    }
+    let observer = PendingRule(std::cell::Cell::new(None));
+    assert!(!m.is_word_valid_traced(&word, &ObservationTrace(&observer), TraceHandle::DUMMY));
+    assert_eq!(observer.0.get(), Some((StratumId(0), 1)));
+
     let child = rich.node(root).children[0];
     assert_eq!(
         rich.node(child).failure_reason,
@@ -89,7 +103,8 @@ fn noop_sink_path_is_unaffected_by_is_word_valid_traced() {
     let g = minimal_grammar();
     let m = Morpher::new(&g, usize::MAX);
     let mut word = w();
-    word.mrule_apps = vec![Some(pg_grammar_model::model::MRuleId(0))];
+    word.trail =
+        pg_rules::trail::Trail::from_slots([(Some(pg_grammar_model::model::MRuleId(0)), None)]);
     word.mrule_app_index = 0;
     assert!(!m.is_word_valid(&word));
 }

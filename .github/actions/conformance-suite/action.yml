@@ -1,0 +1,26 @@
+name: Fetch the conformance suite
+description: >-
+  Clones sillsdev/fieldworks-parser-conformance into conformance/ at the commit conformance.commit
+  names (the same fetch rust/tools/conformance.ps1 does for a developer), then fails unless that
+  commit is an ancestor of the suite's origin/main, so a pin on an abandoned branch cannot pass CI.
+runs:
+  using: composite
+  steps:
+    - name: Clone the suite at the pinned commit
+      shell: pwsh
+      working-directory: ${{ github.workspace }}
+      run: |
+        pwsh -NoProfile -File rust/tools/conformance.ps1
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    - name: The pinned commit must be on the suite's main
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        pin=$(tr -d '[:space:]' < conformance.commit)
+        git -C conformance fetch --quiet --no-tags origin main
+        if ! git -C conformance merge-base --is-ancestor "$pin" origin/main; then
+          echo "::error file=conformance.commit::$pin is not an ancestor of origin/main in sillsdev/fieldworks-parser-conformance. Pin a commit that is on the suite's main."
+          exit 1
+        fi
+        echo "conformance.commit $pin is on the suite's main"

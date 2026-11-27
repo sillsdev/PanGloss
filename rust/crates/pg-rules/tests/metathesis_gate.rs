@@ -88,7 +88,7 @@ fn metathesis_reversed_switch_tag_order_round_trips() {
     }
 }
 
-// Bug 2: a middle context node strictly between the two switches must not be dropped from the rebuilt analysis pattern, which would wrongly require the switches strictly adjacent.
+// Bug 2: a middle context node strictly between the two switches must not be dropped from the rebuilt analysis pattern, which would wrongly require the switches strictly adjacent. hc.dll does drop it (sillsdev/machine#619, a C# defect); PanGloss keeps the correct behaviour on purpose (divergence 127), so this test must keep passing when the oracle is fixed.
 
 fn middle_context_rule(g: &pg_grammar_model::model::Grammar) -> MetathesisRuleDef {
     MetathesisRuleDef {

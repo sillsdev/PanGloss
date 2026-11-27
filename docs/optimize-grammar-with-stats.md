@@ -26,6 +26,75 @@ pangloss batch <grammar> <words.txt> out.tsv --stats --threads 1 --word-timeout-
 off unless `--stats` is present. The normal batch TSV remains unchanged; measurements go into the
 SQLite cache.
 
+Statistics are collected one word at a time with `--threads 1`. With more threads, the full profile
+uses ordered groups of up to 15 words and the word-only profile uses groups of up to 500.
+A background writer accepts up to 500 queued words and batches
+inserts of ordinary and gate facts. After 16 MiB of queued raw records, new records use one
+temporary spill file beside the cache. The writer drains and resets the spill after it reaches
+64 MiB, plus at most one record. For a fresh cache the writer creates a private SQLite database
+beside the cache and attaches it for publication. A separate cleanup process owns that file and
+removes it when the batch exits, including on Ctrl-C. If both processes are killed (power loss,
+`docker stop`, a cancelled CI job or a job-object kill), a file named `pangloss-stats-XXXXXX` stays
+in the cache's directory, up to the size of the staged data. It is private to the dead batch, so
+deleting it is safe once no `batch --stats` is running against that cache.
+
+For a populated cache the writer holds the destination write lock and writes to its WAL in one
+transaction while parsing continues. Readers can see the prior commit during that transaction.
+Another `batch --stats` reports on stderr when it has to wait for the lock. `stats-cache pack`
+reports that the cache is busy if it cannot acquire the lock within five seconds.
+
+A fresh reusable batch also keeps a compressed binary record of the observations, spilling
+to a temporary file beyond 2 MiB. If another writer populates the cache first, the batch replays
+its observations against the current IDs and first-seen labels. Publication waits for other
+writers and rechecks parser policy under the destination write lock. Fresh publication can
+temporarily hold the private database, destination database and destination WAL, roughly three
+cache copies, plus the compressed record. Word lists, parse results and frozen completion
+summaries still scale with the number of words.
+
+A run killed or failed before the cache commit keeps none of its newly measured words. Earlier
+committed observations survive. Reusable caches still record one run row per 500 measured words
+and one for the final partial chunk, with all rows committed together. A frozen cache records
+one run after completion validation.
+
+For callers that retain word timing and correctness measurements in SQLite, use the word-only profile.
+Motif's `ParseTime, Correctness` Trial scope already uses the TSV and analyses sidecar directly.
+
+```text
+pangloss batch <grammar> <words.txt> out.tsv --stats --stats-profile word-only --cache <words.sqlite3> --analyses analyses.jsonl
+pangloss stats <grammar> --cache <words.sqlite3> --group word
+```
+
+The TSV and analyses sidecar carry the parse results. Schema 15 stores elapsed time,
+work, analysis count and completion flags for each word. Choose a separate cache path
+for object timing or feature gates. Those measurements require the default full profile.
+The compact and packed storage options apply to caches with object facts.
+Word-only reuse includes the effective `--capture-cap-mib` and `--partials` settings.
+Full reuse keeps its legacy options hash. Use a fresh full cache if either setting changes.
+When no path is specified, the writer uses `word-only.sqlite3` for the scoped profile.
+Read that default path with `stats --stats-profile word-only --group word`.
+
+For a smaller cache when only object costs are needed, opt in with `--stats-compact`:
+
+```text
+pangloss batch <grammar> <words.txt> out.tsv --stats --stats-compact --cache <compact.sqlite3>
+```
+
+Compact caches use schema version **14**; the default full cache keeps version **13** and its
+existing output. Compact facts have one row per `(word_id, object_id, direction)`, with
+`stratum_id` and `allomorph_id` constrained to zero. All retained counters are summed, except
+`not_applied`, which keeps only the rule-level counts used by object/kind reports. Named-allomorph
+failure counts are discarded. Rows whose retained counters are all zero are omitted; word outcomes
+and work totals remain present, including words with no nonzero facts. Missing facts mean zero
+cost, so consumers comparing dense full-cache results must treat absent compact rows as zeros.
+
+`pangloss stats` can still replay word, object, morpheme, kind, and never-fires reports, including
+direction and word filters. Allomorph breakdowns and stratum filters are unavailable and return an
+explicit error. Replay announces these limitations on stderr; JSONL metadata additionally includes
+`cache_mode: "compact"` and `unavailable_views: ["allomorph", "stratum"]`. A full/compact mode change
+on the same cache path recreates the cache, just like another schema mismatch; use separate paths
+to retain both measurements. No compression wrapper is added: the cache remains directly queryable
+SQLite for Motif.
+
 The cache accumulates new words. A word already present is not parsed again. PanGloss rejects a
 cache written by a different engine and recreates it when the grammar identity changes. Delete the
 cache or choose a new `--cache` path when you intentionally need a fresh measurement of unchanged
@@ -33,7 +102,7 @@ grammar data.
 
 Use `--threads 1` for a first run against an unfamiliar grammar. It limits concurrent memory demand
 and makes timing easier to interpret. A wall-clock timeout bounds pathological words, but it is
-machine- and load-dependent. Add `--step-cap N` when comparing runs and keep both caps identical
+machine- and load-dependent. Add `--work-cap N` when comparing runs and keep both caps identical
 across the comparison.
 
 ## 2. Start with three reports
@@ -121,13 +190,27 @@ pangloss stats <grammar> --cache <cache.sqlite3> --group object --stratum <key>
 pangloss stats <grammar> --cache <cache.sqlite3> --group object --kind morph_rule --wide
 ```
 
+`--wide` on `--group object` also shows `work_steps`, the work steps each object's rows account for
+(the unit `--work-cap` bounds and `word.work` records). Unlike the `work` column, which counts shape
+segments examined, `work_steps` adds up: with no filter, the object rows plus the unattributed
+remainder equal the words' total work.
+
+`--group object` and `--group allomorph` end with a `words` column (and a `words` field in `--format jsonl`):
+the number of distinct input words in which the object, or the object's allomorph, has at least one use.
+`uses` counts appearances, so a word with two readings that both use an object adds 2 to `uses` and 1 to
+`words`. It is `-` wherever `uses` is (named allomorphs of a morphological rule, kinds that record no uses)
+and is absent from the other orientations. It counts words this Rust parse used the object in; it says
+nothing about what hc.dll does with the same word. `--word`, `--direction` and `--exclude-censored` narrow it
+like every other column. It reads the cache's per-word facts, so the stratum-narrowed or per-allomorph
+views of a compact cache still refuse as before.
+
 Stratum and direction are filters, not report orientations. Aggregating attempts across unrelated
 object kinds would mix different units, so attempt shares and comparisons remain within compatible
 kinds. For example, a morphological-rule attempt and a lexical-entry lookup are both useful counts,
 but they are not interchangeable units.
 
 `--top N` limits displayed rows within each kind without changing totals or percentages. Use
-`--exclude-censored` to omit words stopped by a step cap or timeout. Without it, their counters are
+`--exclude-censored` to omit words stopped by a work cap or timeout. Without it, their counters are
 real work observed before the cutoff, but they are lower bounds rather than complete totals.
 
 Run `pangloss stats` without arguments for the complete current option list.
@@ -157,7 +240,7 @@ coerce them to zero. A single output file cannot contain the multi-orientation d
 - **Statistics do not establish correctness.** They identify where work occurred, not whether a
   grammar change preserves intended analyses.
 - **Wall-clock time is noisy.** Compare on the same machine under similar load, using the same word
-  list, thread count, timeout, and step cap. Prefer deterministic attempts when the timing difference
+  list, thread count, timeout, and work cap. Prefer deterministic attempts when the timing difference
   is small.
 
 ## 6. Optimize without losing correctness
@@ -172,3 +255,48 @@ coerce them to zero. A single output file cannot contain the multi-orientation d
 
 For storage schema, counter attribution, identities, and exact aggregation rules, see
 [Stats attribution semantics and aggregation format](research/pangloss-stats-attribution-and-aggregation-spec.md).
+
+### Packed caches for retention
+
+`batch --stats --cache <path> --cache-pack` keeps a SQLite cache with small,
+uncompressed word, run and identity tables. A vacuumed snapshot of the
+complete cache is stored in independently zstd-compressed 1 MiB chunks in that
+same file; the live fact and dimension tables are removed. Add `--stats-compact` when object
+cost totals are sufficient and allomorph/stratum views are unnecessary. Packing
+is opt-in. Plain caches keep the existing schema and write path.
+
+`pangloss stats` and frozen facts export expand the snapshot into a temporary
+SQLite file, validate its SHA-256, byte length and visible metadata, and remove
+it when the report connection closes. No expanded sidecar persists. Replay needs
+temporary disk space approximately equal to the vacuumed plain cache. A writer
+opening a packed cache unpacks it before resuming or changing full/compact mode;
+use `--cache-pack` on that batch to pack it again when finished. Existing stale
+writer handles refuse writes while a cache is packed.
+
+Explicit transitions are available as `pangloss stats-cache pack --cache <path>`
+and `pangloss stats-cache unpack --cache <path>`. They change exact file digests.
+For immutable evidence, use `--cache-pack` on the original batch: packing finishes
+before its frozen manifest and digest are published. To query facts directly
+without changing that evidence, use
+`pangloss stats-cache unpack --cache <path> --out <temporary-path>` and delete
+the temporary copy after use. An existing output is refused. Unsupported storage
+versions, corrupt/truncated chunks, and changed identity or visible metadata are
+errors; no numeric report is emitted for them.
+
+Direct word readers can query `word`, `run` and `cache_identity` without expanding
+facts. Packing leaves the word table's schema and values identical to the plain
+cache. Motif's `ReadWords` uses
+`SELECT form, elapsed_ns, passes, work FROM word ORDER BY word_id` and can read
+packed caches directly once its cache-version validator accepts schema 13 for full caches
+and 14 for `--stats-compact`; counter
+semantics 8 and manifest version 2 remain unchanged. Compact caches do not provide
+allomorph breakdowns or stratum filters.
+
+Motif's object-timing queries join `fact`, `word` and `object`, including its
+bounded reader's canonical-object CTE. Packed caches archive `fact` and `object`,
+so direct fact readers must use an unpacked copy. This applies to Assess and the
+generic `Read` method even with `maxObjectTimingRows: 0`; Motif's stopped-word
+retry should use its existing `ReadWords` method instead. Trial already uses
+`ReadWords`. Statistics replay through `pangloss stats` expands transparently.
+
+See [feature-gate counters](formats/stats-cache.md) for identities, measurement state, packed replay, and SQL.

@@ -1,0 +1,1 @@
+- Removed the `pangloss serve` ops `health` and `shadowedAllomorphs` (they now answer `unknown_op`) and their `--describe` entries; use `pangloss grammar-health <project> [--shadowed [--include-selectable]]` instead (#544).

@@ -19,8 +19,17 @@ is a **port under test**.
 **HC-Rust must never produce a different parse than C#.** It may be faster or leaner; every such
 efficiency needs an argument for why it cannot change a parse. If you believe the algorithm itself
 should change, open or reuse a Machine issue with the evidence, then propose a fix PR when ready —
-never keep a behavioural improvement unreported in Rust alone. Every divergence and every optimization gets an entry under
-`docs/divergences/`.
+never keep a behavioural improvement unreported in Rust alone. A difference planned to stay gets an entry under
+`docs/divergences/`; a fix or speedup still to be done is a GitHub issue, not an entry.
+
+**Landing an optimization** (a memo, cache, prefilter, search reorganisation or any change that makes analysis or synthesis cheaper
+without meaning to change results) takes four steps beyond identity on samples; put all four in the brief and load
+`.claude/skills/land-an-optimization/SKILL.md`: (1) open a `sillsdev/machine` issue labelled `Hermit Crab` + `performance` and port the fix
+after validation, with the `conformance` lead; (2) write the breakage analysis and add edge-case fixtures where conformance lacks coverage;
+(3) run every grammar we have plus conformance, checking for lost, gained or reordered analyses and words newly capped or newly finishing;
+(4) run instruction-compare (on Windows via `herdr-x run win` when you are in WSL), then `retune-parser-work`. A memo or cache beyond the root-trie exception needs owner approval first.
+
+Scope: the hierarchy governs only constructs a real FieldWorks project can create (`HCLoader.cs` emits them from FLEx data, or `HCParser.cs` reads them from FieldWorks' parser settings); hand-written-XML-only constructs are out of scope (`docs/adr/0014-fieldworks-producible-scope.md`).
 
 The one escape hatch: an independently justified divergence documented in the ledger, pinned by a
 fixture, and reported upstream. An issue is not a fix PR and neither alone proves correctness.
@@ -30,6 +39,13 @@ that C# lacks, by design (`docs/adr/0008-provisional-definitions.md`). That is n
 but each behaviour it introduces is still its own ledger entry and gated fixture. A fully defined
 project gets exact parity.
 
+The owner-approved memoization exception is limited to root-trie searches: a per-word cache keyed
+by exact stratum and shape, capped at 1 MiB of conservatively accounted allocations, may retain
+only immutable index results. Overlay suppression, filtering, deduplication and materialization
+still run on every lookup. The cache is discarded at the end of each word.
+
+A second memoisation covers analysis-side matching of affix and realizational rules only (compounding is excluded: its match also reads the non-head root filter): the per-word **shape graph**, a bounded per-word table keyed by shape. A node is an interned `Shape`; a row, keyed by rule id, node and `prune_disagreeing_copies`, holds the ordered `(allomorph, output node)` edges one rule's patterns give on that shape, an empty row meaning no match. The first application of a rule to a shape matches and stores its row, and every later arrival reads it; nothing is admitted on a heuristic and nothing is evicted. Its bound is rows <= distinct shapes x rules, and, under a word memory cap, it is charged in real heap bytes (`Shape::heap_bytes` per interned shape, hash tables by capacity with the resize transient, edge arrays by their chunk) to the word memory meter as optional state: at most an eighth of `--word-mem-cap-mib`, and at most what the search's own retained state leaves free, so it never changes whether a word is `MEMCAP`; without a word memory cap (`--word-mem-cap-mib unbounded`) there is no byte charge and the graph is bounded only by rows <= distinct shapes x rules and the work cap. When a charge is refused the whole graph is dropped and the word carries on without it. The gates, rule counts, trail, template state and cascade recursion around the match still run on every arrival. A row read is charged `1 + edges` work units, never more than the search that computed the row cost, so `--work-cap` still bounds work, and the charge is the same under a trace recorder or stats collector (an observed application pays the row, then re-runs the match with its own reservations suspended). A row is never stored from a search the work cap stopped. The graph is discarded at the end of each word. The accounting model (glibc's 8-byte header and 16-byte steps) is checked against the allocator on glibc only and assumed elsewhere, such as Windows x64 with its 16-byte header. Owner-approved 2026-11-25 (#481); it replaces #480's capped, evicting match memo.
+
 A fixture authored against HC-Rust instead of the oracle records HC-Rust's behaviour, not
 correctness, and must say so in its `words.yaml` (`# oracle-provenance:`) — silence reads as
 "verified against hc.dll" and is the bug. *Scar: HC-Rust once accepted `xpitz`/`muat`, which the
@@ -37,6 +53,26 @@ oracle rejects; only an oracle-diffed fixture caught it.*
 
 Before changing analysis/synthesis semantics, porting optimizations, auditing the ledger, or reporting
 shared correctness issues, load `.claude/skills/oracle-alignment/SKILL.md`.
+
+### Every bug gets a C# verdict and a conformance case
+
+This always happens, for every parse bug or suspected bug, whoever finds it:
+
+1. **Confirm the behaviour on C# HermitCrab** (`hc.dll` at the `machine` pin) whenever possible.
+   Replay a grammar and word on it; reading the C# source is not a confirmation.
+2. **Name the source of the bug** and record it: a misunderstanding (of the grammar, of HC
+   semantics, or of the test), the HC algorithm itself (C# is wrong or limited — also file a
+   `sillsdev/machine` issue), the Rust port (PanGloss differs from C#), or the fixture or data.
+3. **Add a conformance case** to `sillsdev/fieldworks-parser-conformance`, the suite checked out at
+   `conformance/`: a new grammar, or a word plus the smallest part of a grammar that shows the
+   behaviour. A behaviour fix is not READY or landable until an upstream PR for that fixture exists
+   and is linked in the fix PR. Its expected rows come from a fresh pinned-C# replay, and it has been
+   replayed on PanGloss. `conformance-staging/` is the waiting room for the upstream review, never
+   the destination. The one exception is a shape FieldWorks cannot produce: it stays staged, with the
+   reason in its STAGING.md `upstream:` line.
+4. **Write the C# verdict, the source, the upstream fixture PR link and the two-engine result** in
+   the issue and in the PR that fixes it. See `.claude/skills/conformance-grammars/SKILL.md`,
+   "Test a fix on both engines, and arbitrate".
 
 ## Rules with teeth
 
@@ -47,6 +83,7 @@ Each is enforced. The enforcement explains itself when it fires, so this is a ta
 | Bare `cargo build`, `cargo test`, `cargo check`, `cargo clippy`, `cargo run` and `cargo nextest run` are PROHIBITED — use `rust/tools/pg.ps1` | `.claude/hooks/block-bare-cargo.py` |
 | Every compile mode refuses a tree CI would refuse, before tests or a build start: rustfmt is applied, comment hygiene is fatal, clippy runs with `-D warnings` | `pg.ps1`: exit 41 (hygiene), exit 40 (clippy); `rust/tools/tests/lint-gate.tests.ps1` |
 | No release from a commit whose `Rust CI` run is not green | `release preflight` waits for the exact tagged source commit in `.github/workflows/rust-gates.yml` |
+| Heavy modes wait for host admission (`stile admit`) before any slot or cargo; stile absent or `PANGLOSS_SKIP_ADMIT=1` skips visibly | `pg.ps1` `Wait-StileAdmission`: exit 29 (stile failed), exit 30 (wait timed out); `rust/tools/tests/admit-gate.tests.ps1` |
 | A managed build runs in the foreground, never `run_in_background` | `.claude/hooks/block-backgrounded-build.py` |
 | Never scan from a filesystem root | `.claude/hooks/block-root-find.py` |
 | `-Mode conformance-test` must claim `-Scope local\|all`; no default | exit 20, and `pg_conformance_fixtures::discover` panics on an unset `PANGLOSS_CONFORMANCE_SCOPE` |
@@ -79,6 +116,17 @@ Nothing enforces these. They are here because they change what a careful agent d
 - **A long command that is NOT a managed build should be a background job**, so the harness notifies
   on completion. *Scar: a 7,121-word corpus batch run in the foreground truncated silently at ~1,663
   words and was read as "the corpus".*
+- **Every algorithm improvement gets a before/after instruction comparison** (step 4 of
+  `.claude/skills/land-an-optimization/SKILL.md`), per grammar:
+  `pwsh -NoProfile -File rust/tools/instruction-compare.ps1`. Its verdict comes from a 95% interval
+  and a 0.5% minimum effect; INCONCLUSIVE (exit 11) means rerun with more `-Repeats`, not GO. Run the
+  instrument check, a binary against itself that must read neither GO nor regression, once per
+  machine session and whenever a verdict looks odd; it is not a threshold. Wall time and
+  `work_steps` do not decide it. A new Windows machine needs `rust/tools/pmc-setup.ps1` first
+  (`docs/design/parse-cost.md`). Terms: `GLOSSARY.md`.
+- **Release notes are fragments, never `CHANGELOG.md`.** A user-visible change adds one
+  `changes/unreleased/<issue>-<slug>.md` bullet (`changes/unreleased/README.md`); `release.ps1 -Prepare`
+  folds them. Editing `CHANGELOG.md` directly brings back the conflict on every open pull request.
 - **Conformance grammars use synthetic data only** — invented lexemes, never real-language data, and
   no language named outside a comment.
 
@@ -105,14 +153,25 @@ only thing enforcing `broken_intra_doc_links`), `doctor`, `gc`, `run`, `new-work
 **`-Mode preland` is required before landing on main.** It runs `check`, every
 `rust/tools/tests/*.tests.ps1` in parallel, and, gated on the diff from `origin/main`, the C#
 conformance driver over a fresh `pangloss` (`pg-cli`, `docs/formats/`, the `machine` pin) and the
-backend scoreboard ratchet (pg-foma-backend's crate closure, `conformance-staging/`, the pin). Each
+backend scoreboard ratchet (pg-foma-backend's crate closure, `conformance-staging/`, the suite pin). Each
 gated check prints SKIPPED with its reason; `-All` runs everything. Measured warm runs took 28.7s
 for a common change and 64.4s for `-All`; a prior load-affected `-All` run took 163s. These are
 observations, not a universal bound; wall time varies with slot queue and system load. Run it in the
-worktree being landed: it fails when `machine` is not at
+worktree being landed: it fails when `conformance` is not at
 the staged pin. Details: `rust/tools/preland.ps1`. *Scar: in one day CI caught three breaks every
 local managed run missed: a scoreboard ratchet moved by a fixture change, a test source missing
 from the reviewed inventory, and `pangloss batch` output the conformance driver could not read.*
+
+Preland discovers the C# driver in a pin-keyed cache outside worktree `bin/obj`:
+`$XDG_CACHE_HOME/pangloss/hc-conformance/<pin>` (default `~/.cache/pangloss/hc-conformance/<pin>`)
+or `%LOCALAPPDATA%/PanGloss/hc-conformance/<pin>` on Windows. Override the root with
+`PANGLOSS_CONFORMANCE_DRIVER_CACHE`. Cache metadata must match the Machine pin, Git source-tree
+hash, and host runtime. Legacy clean, pin-matched worktree binaries remain accepted, including
+the local `machine` submodule. On a miss, a clean Machine repository containing the pin supplies
+a temporary `git archive` export; `dotnet publish` builds there under a shared build slot and
+publishes the complete driver into the cache. No registered Machine checkout is written.
+The .NET SDK and restored package access are required on a cold miss. `-Jobs` flows through
+preland to its child checks and the driver publish (four jobs by default for the driver).
 
 `-Package`/`-TestTarget` narrow compilation; `-Filter` narrows execution only and still links
 everything. `--no-fail-fast` is the default. *Scar: one trailing-newline mismatch once stopped 838
@@ -122,51 +181,38 @@ tests from running, and a ledger recorded that run's failure count as fact — w
 touching a `developer-tools`-gated flag must be verified twice: rerun with
 `$env:PANGLOSS_EXTRA_ARGS = '--features developer-tools'` and read the printed cargo line back.
 
-Never run `git submodule update` by hand; `pg.ps1` initializes `machine/conformance` sparsely on its
-own.
+`conformance/` is the suite (`sillsdev/fieldworks-parser-conformance`), a gitignored filtered clone at the
+commit `conformance.commit` names; it is not a submodule. `pg.ps1` fetches it and moves it to the pin
+itself, so do not clone, fetch or check out in `conformance/` by hand, and do not edit files in it (one
+with local changes is never moved, and the run stops). `pwsh rust/tools/conformance.ps1` does the same
+fetch on its own. `HC_CONFORMANCE_SUITE=<path>` points every consumer at a local copy and skips the pin
+check. `pg.ps1` never initializes `machine`; only `rust/tools/run-conformance.sh` needs it (CI checks it
+out). Move the suite pin by editing `conformance.commit` to a full SHA that is on the suite's `main`,
+then running `pwsh rust/tools/conformance.ps1`.
 
-## Releases start with a pushed version tag
+## Releases
 
-Author the `CHANGELOG.md` section, then run `pwsh -NoProfile -File rust/tools/release.ps1
--Version x.y.z` from a clean, up-to-date `main`. The script stamps `[workspace.package].version`,
-refreshes `Cargo.lock` through managed `pg.ps1 -Mode check`, commits `release: vX.Y.Z`, creates an
-annotated `vX.Y.Z` tag, and prints `git push --atomic origin main vX.Y.Z`. It never pushes. `-DryRun` checks
-the branch, tree, version, tag, and changelog without changing files.
+Follow `docs/development/releasing.md` (procedure, CI gates, rehearsal); nothing commits to local `main`.
 
-Pushing main and the tag starts Rust CI and `.github/workflows/release.yml`. The tag must be
-annotated, match the workspace version and changelog, and point to a commit reachable from
-`origin/main`; the workflow verifies `Cargo.lock` with locked metadata and waits for Rust CI on that
-commit. It then runs the shared Rust and release gates, builds and smoke-checks Windows x64, Linux
-x64, macOS arm64, and macOS x64, verifies all ten assets and checksums, and publishes a GitHub
-release on the existing tag. CI never commits to main or creates or moves tags.
+1. `pwsh -NoProfile -File rust/tools/release.ps1 -Prepare -Version x.y.z` opens the release PR.
+2. Squash-merge the PR once Rust CI is green.
+3. `pwsh -NoProfile -File rust/tools/release.ps1 -Tag -Version x.y.z -Push` tags the merged release commit and starts the Release workflow.
 
-`workflow_dispatch` takes a version and an explicit source ref and runs the same preflight, gates,
-and builds without publishing. Prerelease tags are not supported. Coverage and the real-language
-corpus exclusion are recorded in the GitHub release notes body.
-
-For the pending 0.7.0 cut, `main` currently has workspace version 0.6.2. After this change merges,
-run `pwsh -NoProfile -File rust/tools/release.ps1 -Version 0.7.0` on `main`, then run the exact
-`git push --atomic origin main v0.7.0` command it prints. The tag workflow waits for Rust CI before building
-and publishing. See `docs/development/releasing.md` for the complete procedure and rehearsal path.
-
-**The contract gate is `machine/conformance`** -- engine-agnostic, all-synthetic, diffed against
-committed ground truth, and available to CI through the submodule. The real-language corpora (Sena,
+**The contract gate is `conformance`** -- engine-agnostic, all-synthetic, diffed against
+committed ground truth, and available to CI through the `conformance` clone at the pinned commit. The real-language corpora (Sena,
 Amharic, Aweti, Indonesian) are gitignored local files: they exist for speed work and for harvesting
 issues that then become conformance fixtures. They are the sampling tool, not the contract, and
 their absence from a release gate is deliberate rather than a gap.
 
-*Historical note: the former release process was tied to one workstation. One attempt refused six
-roots of unrelated local scratch, and another found a drifted FieldWorks checkout. The tag flow now
-checks this worktree's clean, current `main` and validates the pushed source commit in CI.*
-
 ## Merging into main
 
-Keep history linear. Rebase the branch onto current `main`, then `git merge --ff-only`. If it is not
-a fast-forward, the rebase did not happen against the current tip; redo it. Never `--no-ff`. If a
-rebase turns out to involve real conflicts rather than staleness, prefer re-running the change fresh
-against `main`.
+Land every change as one squash commit on `main`: merge the PR with `gh pr merge <n> --squash`
+(the repository allows only squash merges). Never create merge commits on `main`, and never merge
+`main` into a branch to update it; rebase the branch onto current `main` instead. Write the PR
+title as the commit subject, because the squash commit takes it. If a rebase turns out to involve
+real conflicts rather than staleness, prefer re-running the change fresh against `main`.
 
-After the rebase and before the merge, run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode preland`
+After the rebase and before the squash merge, run `pwsh -NoProfile -File rust/tools/pg.ps1 -Mode preland`
 in the branch's worktree and land only on a zero exit. A failing check is a CI failure found early;
 fix it on the branch.
 
@@ -187,18 +233,22 @@ to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` a
 `fix-a-grammar` — a slow, refused, oversized or incomplete grammar.
 `dead-end-census` — the standing first lever for "language X is too slow".
 `code-comments` — comment and doc-comment policy.
+`land-an-optimization` — a memo, cache, speedup or work reduction: Machine issue, breakage analysis, every grammar, recalibrate.
+`pangloss-api-design` — adding or changing a command, flag, serve op, output field, format version, env var or error code, or reviewing such a PR: principles, placement, versioning, "Surface" checklist, Motif contract.
+`optimization-research` — finding and researching a speedup (blowup, smoking gun, why is this word slow): ledger in `docs/research/optimization/`, prior work, issues, hand-off.
+`retune-parser-work` — after a parser change gets a GO from `instruction-compare`: do the parser-work weights still fit.
 
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
 `build-resource-governance.md` — thread/memory budgets, direct process launches, slot pools, what is
 scoped per-machine versus per-worktree.
-`conformance-submodule.md` — why the submodule auto-initializes sparsely, and the exact git recipe.
+`conformance-suite.md` — how `conformance/` (a pinned clone) and `machine` (a submodule) arrive, what `pg.ps1` does with them, and the oracle pin's field-name hazard.
 `controls-that-cannot-act.md` — four incidents behind the one rule below.
 `agent-doc-gates.md` — what the three gates on this file and the skills check, and why they skip
 what they skip.
 `fixture-pins.md` — when a test may name a conformance fixture rather than let `discover()` sweep
 it, and why a named pin fails instead of skipping when its fixture is gone.
 
-**`docs/divergences/`** — every known C#/Rust difference, its kind, status, and pinning test.
+**`docs/divergences/`** — the C#/Rust differences planned to stay, with kind, status and pinning test. Planned fixes are GitHub issues; retired entries are in the README's table and git history.
 
 ## The one rule behind most of the scars here
 

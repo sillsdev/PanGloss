@@ -11,7 +11,7 @@ description: >-
 Keep HC-Rust aligned with Machine's C# founding oracle while making known oracle defects explicit.
 Read CLAUDE.md's oracle hierarchy, then `docs/divergences/README.md` for the authoritative ledger.
 For fixture authoring or graduation, also read `.claude/skills/conformance-grammars/SKILL.md` and
-the full `machine/conformance/PROTOCOL.md`.
+the full `conformance/PROTOCOL.md`.
 
 ## 1. Establish current evidence
 
@@ -26,7 +26,8 @@ relevant branch tree before claiming a fixture or fix does not exist.
 
 ## 2. Separate correctness from efficiency
 
-HC-Rust may be faster or leaner without changing observable parses. Every optimization needs an
+HC-Rust may be faster or leaner without changing observable parses. A speedup also takes the full checklist in
+`.claude/skills/land-an-optimization/SKILL.md` (Machine issue, breakage analysis, every grammar, recalibrate). Every optimization needs an
 argument covering both lost valid parses and admitted invalid parses, plus discriminating evidence.
 Fewer rule attempts, confirmation of surviving candidates, or matching finite samples alone cannot
 prove complete recall. Per-feature widening must account for correlations between alternatives.
@@ -94,7 +95,7 @@ Check branch and PR state before building: a reused path is not an immutable rev
 
 ## 5. Reconcile the ledger
 
-Every divergence and every optimization gets an entry under `docs/divergences/`; reference extra
+A difference planned to stay gets an entry under `docs/divergences/`; a fix or speedup still to be done is a GitHub issue. Reference extra
 conformance grammars by name. Keep entry numbers stable and update `by-module.md`.
 For each entry record independently:
 - Current Rust implementation and commit.

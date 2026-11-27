@@ -1,0 +1,157 @@
+<?xml version='1.0' encoding='utf-8'?>
+<HermitCrabInput>
+  <Language>
+    <Name>PerSiteAlphaRewrite</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN">
+        <Name>n</Name>
+      </PartOfSpeech>
+      <PartOfSpeech id="posFeed">
+        <Name>feed</Name>
+      </PartOfSpeech>
+      <PartOfSpeech id="posSubrule">
+        <Name>subrule-feed</Name>
+      </PartOfSpeech>
+      <PartOfSpeech id="posBoundary">
+        <Name>boundary</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featBack">
+        <Name>back</Name>
+        <Symbols>
+          <Symbol id="bkPlus">+bk</Symbol>
+          <Symbol id="bkMinus">-bk</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featRound">
+        <Name>round</Name>
+        <Symbols>
+          <Symbol id="rdMinus">-rd</Symbol>
+          <Symbol id="rdPlus">+rd</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cI">
+          <Representations>
+            <Representation>i</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cY">
+          <Representations>
+            <Representation>y</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cU">
+          <Representations>
+            <Representation>u</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions>
+        <BoundaryDefinition id="bPlus">
+          <Representations>
+            <Representation>+</Representation>
+          </Representations>
+        </BoundaryDefinition>
+      </BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncVowel">
+        <Name>vowels</Name>
+        <Segment segment="cI" />
+        <Segment segment="cY" />
+        <Segment segment="cA" />
+        <Segment segment="cU" />
+      </SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prSubruleFeed" multipleApplicationOrder="rightToLeftIterative">
+        <Name>prSubruleFeed</Name>
+        <PhoneticInput>
+          <PhoneticSequence />
+        </PhoneticInput>
+        <PhonologicalSubrules>
+          <PhonologicalSubrule requiredPartsOfSpeech="posSubrule">
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <Segment segment="cI" />
+              </PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <LeftEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="cY" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </LeftEnvironment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="cU" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+          <PhonologicalSubrule requiredPartsOfSpeech="posSubrule">
+            <PhoneticOutput>
+              <PhoneticSequence>
+                <Segment segment="cY" />
+              </PhoneticSequence>
+            </PhoneticOutput>
+            <Environment>
+              <LeftEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="cU" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </LeftEnvironment>
+              <RightEnvironment>
+                <PhoneticTemplate>
+                  <PhoneticSequence>
+                    <Segment segment="cU" />
+                  </PhoneticSequence>
+                </PhoneticTemplate>
+              </RightEnvironment>
+            </Environment>
+          </PhonologicalSubrule>
+        </PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="prSubruleFeed">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eSubrule" partOfSpeech="posSubrule">
+            <Allomorphs>
+              <Allomorph id="aeSubrule">
+                <PhoneticShape>uu</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>SUBRULE</MorphemeId>
+            <Gloss>invented-root</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

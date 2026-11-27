@@ -36,11 +36,22 @@ use pg_grammar_model::model::{
 use pg_shape::{CdSet, EffectiveCdSet, NodeKind, Shape, ShapeBuilder, NO_CHAR_DEF};
 
 use crate::bridge::{BridgeError, PatternBridge, StrRepMatcher};
+use crate::observations::{Decision, MprGateOwner, Recorder};
+use crate::shape_graph::{consult, Consult, ShapeGraph};
 use crate::stats::{MRuleStatsCtx, ObjectKind, OverlayPhase};
 use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvocationRole};
-use crate::trace::{FailureReason, TraceHandle, TraceSink};
-use crate::word::{MorphRecord, MorphStatus, Word};
+use crate::trace::{FailureReason, TraceHandle, TraceMode, TraceSink};
+use crate::word::{MorphGroup, MorphLayout, MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+
+pub(crate) mod edge_index;
+mod edge_prefilter;
+#[cfg(test)]
+mod gate_tests;
+mod merge_captures;
+mod optional_runs;
+#[cfg(test)]
+mod shape_mark_tests;
 
 // Analysis-side allomorph/subrule stats attribution; see `crate::stats::MRuleStatsCtx`.
 
@@ -67,6 +78,16 @@ fn record_mrule_reach(
         segments,
         outputs,
     );
+}
+
+/// Keep rule-attempt statistics aligned with the already-consumed tick when the work cap stops the first allomorph.
+fn record_interrupted_mrule_attempt(mstats: Option<MRuleStatsCtx>, reached: u32) {
+    if reached == 0 {
+        if let Some(ctx) = mstats {
+            ctx.stats
+                .record_mrule_reach_attempt(ctx.stratum, ctx.id, ctx.direction);
+        }
+    }
 }
 
 /// `record_mrule_reach` for an analysis allomorph or subrule, whose match ran one FST traversal.
@@ -118,6 +139,17 @@ fn record_mrule_invocation_end(
 // Table is resolved once per rule application and threaded down explicitly; a word's shape may carry frozen material from an earlier different-table stratum, but nothing here re-derives an identity for it.
 
 // Public API.
+
+// Select the collector policy before entering a rule's allomorph loops.
+macro_rules! with_mrule_stats {
+    ($stats:expr, $apply:ident($($arg:expr),* $(,)?)) => {{
+        if $stats.is_some() {
+            $apply::<true>($($arg),*)
+        } else {
+            $apply::<false>($($arg),*)
+        }
+    }};
+}
 
 /// Apply `rule` forward to `word` (synthesis). Empty if the rule does not apply — gating failed, or
 /// no allomorph matched.
@@ -196,9 +228,15 @@ fn synthesize_stats_with_policy_and_role(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix(g, word, def, mstats, policy, role),
-        MorphRuleDef::Compounding(def) => synth_compound(g, word, def, mstats, policy, role),
-        MorphRuleDef::Realizational(def) => synth_realizational(g, word, def, mstats),
+        MorphRuleDef::AffixProcess(def) => {
+            with_mrule_stats!(mstats, synth_affix(g, word, def, mstats, policy, role))
+        }
+        MorphRuleDef::Compounding(def) => {
+            with_mrule_stats!(mstats, synth_compound(g, word, def, mstats, policy, role))
+        }
+        MorphRuleDef::Realizational(def) => {
+            with_mrule_stats!(mstats, synth_realizational(g, word, def, mstats))
+        }
     };
     apply_blocking(g, out, rule.blockable())
 }
@@ -263,14 +301,19 @@ pub(crate) fn synthesize_cached_traced_with_policy_and_role(
     role: RuleInvocationRole,
 ) -> Vec<Word> {
     let out = match rule {
-        MorphRuleDef::AffixProcess(def) => synth_affix_cached(
-            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
+            mstats,
+            synth_affix_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role,)
         ),
-        MorphRuleDef::Compounding(def) => synth_compound_cached(
-            g, word, def, mrid, cache, mstats, trace, parent, policy, role,
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
+            mstats,
+            synth_compound_cached(g, word, def, mrid, cache, mstats, trace, parent, policy, role,)
         ),
         MorphRuleDef::Realizational(def) => {
-            synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            with_mrule_stats!(
+                mstats,
+                synth_realizational_cached(g, word, def, mrid, cache, mstats, trace, parent)
+            )
         }
     };
     apply_blocking_traced(g, out, rule.blockable(), mrid, trace, parent)
@@ -301,26 +344,51 @@ pub fn synthesize_cached(
 /// Reports which of `g.mpr_group_ok`'s required/excluded MPR gates actually failed, checked required-then-excluded.
 fn mpr_gate_reason(
     g: &Grammar,
-    required: pg_grammar_model::model::MprSet,
-    excluded: pg_grammar_model::model::MprSet,
-    have: pg_grammar_model::model::MprSet,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    have: &pg_grammar_model::model::MprSet,
+    mstats: Option<MRuleStatsCtx>,
 ) -> Option<FailureReason> {
-    if !pg_grammar_model::model::mpr_required_ok(&g.mpr_groups, required, have) {
-        return Some(FailureReason::RequiredMprFeatures);
+    crate::gates::mpr_reason(
+        g,
+        required,
+        excluded,
+        have,
+        mstats.map(|c| (c.stats, ObjectKind::MorphRule, c.id.0)),
+    )
+}
+
+fn mpr_gate_reason_traced(
+    g: &Grammar,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+    mode: TraceMode<'_>,
+    owner: MprGateOwner,
+) -> Option<FailureReason> {
+    if let Some(recorder) = mode.recorder() {
+        crate::gates::mpr_reason_recorded(
+            g,
+            required,
+            excluded,
+            word,
+            mstats.map(|c| (c.stats, ObjectKind::MorphRule, c.id.0)),
+            recorder,
+            owner,
+        )
+    } else {
+        mpr_gate_reason(g, required, excluded, &word.mpr, mstats)
     }
-    if !pg_grammar_model::model::mpr_excluded_ok(&g.mpr_groups, excluded, have) {
-        return Some(FailureReason::ExcludedMprFeatures);
-    }
-    None
 }
 
 fn capture_mpr_failure(
     trace: &dyn TraceSink,
     event: TraceHandle,
     object: crate::trace::TraceObject,
-    required: pg_grammar_model::model::MprSet,
-    excluded: pg_grammar_model::model::MprSet,
-    actual: pg_grammar_model::model::MprSet,
+    required: &pg_grammar_model::model::MprSet,
+    excluded: &pg_grammar_model::model::MprSet,
+    actual: &pg_grammar_model::model::MprSet,
 ) {
     if trace.captures_failure_context() {
         trace.set_failure_context(
@@ -330,9 +398,9 @@ fn capture_mpr_failure(
                 actual: Some(format!("{actual:?}")),
                 evidence: Some(crate::trace::RejectionEvidence::MprFeatures {
                     object,
-                    required,
-                    excluded,
-                    actual,
+                    required: required.clone(),
+                    excluded: excluded.clone(),
+                    actual: actual.clone(),
                 }),
                 ..Default::default()
             },
@@ -356,17 +424,26 @@ pub(crate) fn analyze_stats(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, None, mstats),
+        MorphRuleDef::Compounding(def) => {
+            with_mrule_stats!(mstats, ana_compound(g, word, def, None, mstats))
+        }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
 
 /// The `crate::cache::RuleCache`-aware sibling of `analyze`. See `synthesize_cached`'s doc
 /// for the `mrid`/`rule` correspondence contract.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn analyze_cached(
     g: &Grammar,
     mrid: MRuleId,
@@ -375,16 +452,45 @@ pub(crate) fn analyze_cached(
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix_cached(
+                    g,
+                    mrid,
+                    word,
+                    def,
+                    cache,
+                    mstats,
+                    prune_disagreeing_copies,
+                    None,
+                    graph
+                )
+            )
         }
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached(g, word, def, mrid, cache, None, mstats)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached(g, word, def, mrid, cache, None, mstats)
+            )
         }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational_cached(
+                    g,
+                    mrid,
+                    word,
+                    def,
+                    cache,
+                    mstats,
+                    prune_disagreeing_copies,
+                    graph
+                )
+            )
         }
     }
 }
@@ -403,16 +509,45 @@ pub(crate) fn analyze_cached_with_root_filter(
     root_filter: NonHeadRootFilter,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix_cached(
+                    g,
+                    mrid,
+                    word,
+                    def,
+                    cache,
+                    mstats,
+                    prune_disagreeing_copies,
+                    None,
+                    graph
+                )
+            )
         }
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached(g, word, def, mrid, cache, Some(root_filter), mstats)
+            )
         }
         MorphRuleDef::Realizational(def) => {
-            ana_realizational_cached(g, word, def, cache, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational_cached(
+                    g,
+                    mrid,
+                    word,
+                    def,
+                    cache,
+                    mstats,
+                    prune_disagreeing_copies,
+                    graph
+                )
+            )
         }
     }
 }
@@ -439,11 +574,20 @@ pub(crate) fn analyze_with_root_filter_stats(
 ) -> Vec<Word> {
     match rule {
         MorphRuleDef::AffixProcess(def) => {
-            ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_affix(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
-        MorphRuleDef::Compounding(def) => ana_compound(g, word, def, Some(root_filter), mstats),
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
+            mstats,
+            ana_compound(g, word, def, Some(root_filter), mstats)
+        ),
         MorphRuleDef::Realizational(def) => {
-            ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            with_mrule_stats!(
+                mstats,
+                ana_realizational(g, word, def, mstats, prune_disagreeing_copies)
+            )
         }
     }
 }
@@ -463,35 +607,73 @@ pub(crate) fn analyze_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
-    if !trace.is_tracing() {
-        return analyze_cached(g, mrid, word, rule, cache, mstats, prune_disagreeing_copies);
+    let mode = trace.mode();
+    if let (Some(recorder), MorphRuleDef::AffixProcess(def)) = (mode.recorder(), rule) {
+        return with_mrule_stats!(
+            mstats,
+            ana_affix_cached(
+                g,
+                mrid,
+                word,
+                def,
+                cache,
+                mstats,
+                prune_disagreeing_copies,
+                Some(recorder),
+                graph
+            )
+        );
+    }
+    if !mode.is_tree() {
+        return analyze_cached(
+            g,
+            mrid,
+            word,
+            rule,
+            cache,
+            mstats,
+            prune_disagreeing_copies,
+            graph,
+        );
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_affix_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+                graph,
+            )
         ),
         MorphRuleDef::Compounding(def) => {
-            ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
+            with_mrule_stats!(
+                mstats,
+                ana_compound_cached_traced(g, word, def, mrid, cache, None, mstats, trace, parent)
+            )
         }
-        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::Realizational(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_realizational_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+                graph,
+            )
         ),
     }
 }
@@ -509,6 +691,7 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
     if !trace.is_tracing() {
         return analyze_cached_with_root_filter(
@@ -520,47 +703,59 @@ pub(crate) fn analyze_cached_with_root_filter_traced(
             root_filter,
             mstats,
             prune_disagreeing_copies,
+            graph,
         );
     }
     match rule {
-        MorphRuleDef::AffixProcess(def) => ana_affix_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::AffixProcess(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_affix_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+                graph,
+            )
         ),
-        MorphRuleDef::Compounding(def) => ana_compound_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
-            Some(root_filter),
+        MorphRuleDef::Compounding(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
+            ana_compound_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                Some(root_filter),
+                mstats,
+                trace,
+                parent,
+            )
         ),
-        MorphRuleDef::Realizational(def) => ana_realizational_cached_traced(
-            g,
-            word,
-            def,
-            mrid,
-            cache,
+        MorphRuleDef::Realizational(def) => with_mrule_stats!(
             mstats,
-            trace,
-            parent,
-            prune_disagreeing_copies,
+            ana_realizational_cached_traced(
+                g,
+                word,
+                def,
+                mrid,
+                cache,
+                mstats,
+                trace,
+                parent,
+                prune_disagreeing_copies,
+                graph,
+            )
         ),
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_affix_cached_traced(
+fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -570,8 +765,11 @@ fn ana_affix_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         trace.morphological_rule_not_unapplied(
             parent,
             mrid,
@@ -582,6 +780,15 @@ fn ana_affix_cached_traced(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    // A trace reads every allomorph's events, so a stored row only sets the charge here.
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, true) {
+        Consult::Run(run) => run,
+        Consult::Stopped => {
+            record_interrupted_mrule_attempt(mstats, 0);
+            return Vec::new();
+        }
+        Consult::Replay(_) => unreachable!("an observed application re-runs the match"),
+    };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
@@ -589,11 +796,23 @@ fn ana_affix_cached_traced(
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !pg_fst::work::consume() {
+            record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
+        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
+            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            trace.morphological_rule_not_unapplied(
+                parent,
+                mrid,
+                i as i32,
+                word,
+                FailureReason::Pattern,
+            );
+            continue;
+        }
         let before = output.len();
         let matches = {
             let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -608,6 +827,7 @@ fn ana_affix_cached_traced(
                 &node_of,
                 &new_syn,
                 prune_disagreeing_copies,
+                None,
             )
         };
         for mut w in matches {
@@ -627,11 +847,12 @@ fn ana_affix_cached_traced(
         }
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_realizational_cached_traced(
+fn ana_realizational_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
@@ -641,8 +862,10 @@ fn ana_realizational_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         trace.morphological_rule_not_unapplied(
             parent,
             mrid,
@@ -653,6 +876,11 @@ fn ana_realizational_cached_traced(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, true) {
+        Consult::Run(run) => run,
+        Consult::Stopped => return Vec::new(),
+        Consult::Replay(_) => unreachable!("an observed application re-runs the match"),
+    };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
@@ -662,7 +890,7 @@ fn ana_realizational_cached_traced(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         let before = output.len();
@@ -698,11 +926,12 @@ fn ana_realizational_cached_traced(
         }
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_compound_cached_traced(
+fn ana_compound_cached_traced<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -713,7 +942,9 @@ fn ana_compound_cached_traced(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         trace.compounding_rule_not_unapplied(
             parent,
             mrid,
@@ -817,7 +1048,9 @@ pub(crate) fn check_blocking(g: &Grammar, w: &Word) -> Option<(LexEntryId, Word)
             continue;
         }
         if pg_featstruct::subsumes(&w.syn_fs, g.fs_interner.get(entry.syn_fs)) {
-            return Some((other, seed_from_entry(g, other, w.real_fs.clone())));
+            let mut seed = seed_from_entry(g, other, w.real_fs.clone());
+            seed.set_collect_partials(w.collect_partials());
+            return Some((other, seed));
         }
     }
     None
@@ -851,7 +1084,8 @@ fn apply_blocking_traced(
         .map(|w| match check_blocking(g, &w) {
             Some((entry, mut new_word)) => {
                 if trace.is_tracing() {
-                    trace.blocked(parent, mrid, &new_word, entry);
+                    let event = trace.blocked(parent, mrid, &new_word, entry);
+                    trace.blocked_original(event, &w);
                 }
                 new_word.trace = w.trace;
                 new_word
@@ -874,8 +1108,8 @@ pub(crate) fn seed_from_entry(g: &Grammar, le: LexEntryId, real_fs: FeatureStruc
         .unwrap_or_else(|_| allo.shape.shape.clone());
     let mut w = Word::new(shape, stratum);
     w.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-    w.mpr = entry.mpr;
-    w.flags.is_partial = entry.is_partial();
+    w.mpr = entry.mpr.clone();
+    w.flags.set_is_partial(entry.is_partial());
     w.root_allomorph = Some(allo.id);
     w.real_fs = real_fs;
     w.morphs = vec![MorphRecord::new(allo.id, entry.morpheme, 0)];
@@ -899,14 +1133,17 @@ fn full_lanes(g: &Grammar) -> Vec<u64> {
 
 /// Fit a lane row to width `W`: truncate extra, pad missing with `full_mask` (unconstrained).
 fn fit(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
-    let w = feat_width(g);
-    let mut out = full_lanes(g);
-    for (i, slot) in out.iter_mut().enumerate().take(w) {
-        if let Some(&l) = lanes.get(i) {
-            *slot = l;
-        }
-    }
+    let mut out = Vec::new();
+    fit_into(g, lanes, &mut out);
     out
+}
+
+/// `fit` written over `out`, so a caller fitting one row after another keeps one buffer.
+fn fit_into(g: &Grammar, lanes: &[u64], out: &mut Vec<u64>) {
+    out.clear();
+    out.extend(
+        (0..feat_width(g)).map(|f| lanes.get(f).copied().unwrap_or_else(|| full_mask(g, f))),
+    );
 }
 
 /// Driver lanes for a char-def, `full_mask` for unmentioned/boundary lanes; `table` is the rule's own owning table, never an implicit default.
@@ -919,7 +1156,7 @@ fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
 }
 
 /// The `(feature, symbol-bits)` a `SimpleContext` pins; alpha-variable features are left unconstrained.
-fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
+pub fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
     let w = feat_width(g);
     let t = &g.char_tables[table.0 as usize];
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
@@ -1016,6 +1253,18 @@ pub(crate) fn segs_of(
     let wide_strrep = id_width
         .is_none()
         .then(|| StrRepMatcher::identity(g, &g.char_tables[table.0 as usize]));
+    // The lane row's final length, so the identity lanes appended below never regrow the vector.
+    let row_capacity = match (id_width, wide_strrep) {
+        (Some(w), _) => w + 1,
+        (None, Some(strrep)) => strrep.lane_count(),
+        (None, None) => 0,
+    }
+    .max(shape.feat_width() as usize);
+    let row = |i: usize| -> Vec<u64> {
+        let mut lanes = Vec::with_capacity(row_capacity);
+        lanes.extend_from_slice(shape.node_lanes(i));
+        lanes
+    };
     let with_id = |i: usize, mut lanes: Vec<u64>| -> Vec<u64> {
         if let Some(w) = id_width {
             // Only reached on ≤64-def tables, so a `Singleton` shift can never overflow.
@@ -1046,7 +1295,7 @@ pub(crate) fn segs_of(
     for i in 0..shape.len() {
         match shape.kind(i) {
             NodeKind::Segment => {
-                let lanes = with_id(i, shape.node_lanes(i).to_vec());
+                let lanes = with_id(i, row(i));
                 segs.push(if shape.flags(i).is_optional() {
                     Segment::optional(lanes)
                 } else {
@@ -1055,7 +1304,7 @@ pub(crate) fn segs_of(
                 node_of.push(i);
             }
             NodeKind::Boundary if include_boundaries => {
-                segs.push(Segment::optional(with_id(i, shape.node_lanes(i).to_vec())));
+                segs.push(Segment::optional(with_id(i, row(i))));
                 node_of.push(i);
             }
             _ => {}
@@ -1086,14 +1335,18 @@ struct OutNode {
     origin: Origin,
     /// Char-def-set identity, consulted only when `char_def == NO_CHAR_DEF`; a real `char_def` leaves this `Unrestricted` and unread.
     cd_set: CdSet,
+    generated_full: Vec<u32>,
+    unresolved_variables: Vec<u32>,
 }
 
 /// Freezes interior `OutNode`s into a bracketed `Shape`; optional segments use a delete-then-reinsert workaround since `ShapeBuilder` has no set-flags-in-place.
 fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, nodes.len());
-    for n in nodes {
-        let lanes = fit(g, &n.lanes);
+    // One row buffer for every node: a row is copied into the shape, never kept.
+    let mut lanes = Vec::new();
+    for (i, n) in nodes.iter().enumerate() {
+        fit_into(g, &n.lanes, &mut lanes);
         match n.kind {
             // Class insertions carry their real cd_set; a concrete segment's own char_def is already the identity, so `n.cd_set` goes unread there.
             NodeKind::Segment if n.char_def == NO_CHAR_DEF => {
@@ -1103,6 +1356,8 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
             NodeKind::Boundary => b.push_boundary_with_lanes(n.char_def, &lanes),
             _ => {}
         }
+        b.set_generated_full(i + 1, &n.generated_full);
+        b.set_unresolved_variables(i + 1, &n.unresolved_variables);
     }
     let mut shape = b.finish();
     let optional_positions: Vec<usize> = nodes
@@ -1115,7 +1370,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
         let mut m = ShapeBuilder::from_shape(&shape);
         for idx in optional_positions {
             let n = &nodes[idx - 1];
-            let lanes = fit(g, &n.lanes);
+            fit_into(g, &n.lanes, &mut lanes);
             m.delete(idx);
             if n.char_def == NO_CHAR_DEF {
                 m.insert_with_set(
@@ -1133,6 +1388,8 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
                     &lanes,
                 );
             }
+            m.set_generated_full(idx, &n.generated_full);
+            m.set_unresolved_variables(idx, &n.unresolved_variables);
         }
         shape = m.freeze();
     }
@@ -1188,24 +1445,153 @@ fn part_ranges(fst: &Fst, names: &[String], result: &FstResult) -> Vec<Option<(u
 
 // Morph attribution.
 
-/// Which input morph owns source node `idx`: only `Real` records own nodes (others are non-owning markers), and `Real` orders never tie, so `max_by_key` is unambiguous.
-fn owning_morph(word: &Word, idx: usize) -> Option<usize> {
-    word.morphs
-        .iter()
+#[derive(Clone)]
+struct PendingMorphGroup {
+    record: MorphRecord,
+    children: Vec<MorphRecord>,
+    range: (u32, u32),
+    slot: usize,
+    claims_singleton: bool,
+}
+
+fn add_pending_group(
+    groups: &mut Vec<PendingMorphGroup>,
+    record: MorphRecord,
+    range: (u32, u32),
+    children: Vec<MorphRecord>,
+    claims_singleton: bool,
+) -> usize {
+    let id = groups.len();
+    groups.push(PendingMorphGroup {
+        record,
+        children,
+        range,
+        slot: id,
+        claims_singleton,
+    });
+    id
+}
+
+fn morph_runs(positions: &[u32]) -> Vec<(u32, u32)> {
+    let mut runs = Vec::new();
+    let mut start = 0;
+    for index in 0..positions.len() {
+        if index + 1 == positions.len() || positions[index + 1] != positions[index] + 1 {
+            runs.push((positions[start], (index - start + 1) as u32));
+            start = index + 1;
+        }
+    }
+    runs
+}
+
+fn copied_group_positions(
+    out: &[OutNode],
+    layout: &MorphLayout,
+    group_index: usize,
+    head_source: bool,
+) -> Vec<u32> {
+    out.iter()
         .enumerate()
-        .filter(|(_, m)| m.status == MorphStatus::Real && (m.order as usize) <= idx)
-        .max_by_key(|(_, m)| m.order)
-        .map(|(i, _)| i)
+        .filter_map(|(position, node)| {
+            let source = match (head_source, node.origin) {
+                (true, Origin::Head(source)) | (false, Origin::NonHead(source)) => source,
+                _ => return None,
+            };
+            (layout.node_owners.get(source).copied().flatten() == Some(group_index))
+                .then_some(position as u32)
+        })
+        .collect()
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-enum MorphKey {
-    Head(usize),
-    NonHead(usize),
-    Affix,
+fn transfer_children(source: &Word, group: &MorphGroup, host_order: u32) -> Vec<MorphRecord> {
+    source.morphs[group.children.clone()]
+        .iter()
+        .cloned()
+        .map(|mut child| {
+            child.order = host_order;
+            child.status = MorphStatus::SubsumedChild;
+            child
+        })
+        .collect()
 }
 
-/// Builds the output word's `MorphRecord`s, one per **contiguous run** of a morph's output positions (mirrors C# `MarkMorphs`), so a discontinuous morph's two pieces get separate records checked at their own spans.
+struct SourceMorphs<'a> {
+    word: &'a Word,
+    layout: &'a MorphLayout,
+    head_source: bool,
+    first_fallback: bool,
+    transfer_descendants: bool,
+    occurrence_offset: u16,
+}
+
+fn append_source_groups(
+    out: &[OutNode],
+    source: SourceMorphs<'_>,
+    new_host: Option<usize>,
+    pending: &mut Vec<PendingMorphGroup>,
+    output_owners: &mut [Option<usize>],
+) {
+    let mut marked_allomorphs: HashSet<pg_grammar_model::model::AllomorphId> = HashSet::default();
+    for (group_index, group) in source.layout.groups.iter().enumerate() {
+        marked_allomorphs.extend(
+            source.word.morphs[group.children.clone()]
+                .iter()
+                .map(|child| child.allomorph),
+        );
+        let input = &source.word.morphs[group.host];
+        let positions = copied_group_positions(out, source.layout, group_index, source.head_source);
+        let runs = morph_runs(&positions);
+        if !runs.is_empty() {
+            let mut primary = 0;
+            for index in 1..runs.len() {
+                if runs[index].1 > runs[primary].1 {
+                    primary = index;
+                }
+            }
+            for (run_index, &(start, len)) in runs.iter().enumerate() {
+                let mut record = input.clone();
+                record.order = start;
+                record.observation_occurrence = record
+                    .observation_occurrence
+                    .saturating_add(source.occurrence_offset);
+                record.status = MorphStatus::Real;
+                let children = if run_index == primary && source.transfer_descendants {
+                    transfer_children(source.word, group, start)
+                } else {
+                    Vec::new()
+                };
+                let id =
+                    add_pending_group(pending, record, (start, start + len - 1), children, false);
+                for position in start..start + len {
+                    output_owners[position as usize] = Some(id);
+                }
+            }
+        } else if source.head_source && !marked_allomorphs.contains(&input.allomorph) {
+            if let Some(host) = new_host {
+                let host_order = pending[host].range.0;
+                let mut children = if source.transfer_descendants {
+                    transfer_children(source.word, group, host_order)
+                } else {
+                    Vec::new()
+                };
+                let mut record = input.clone();
+                record.order = host_order;
+                record.status = MorphStatus::SubsumedChild;
+                children.push(record);
+                pending[host].children.extend(children);
+            } else if source.first_fallback && !out.is_empty() {
+                let mut record = input.clone();
+                record.order = 0;
+                record.status = MorphStatus::SubsumedFirst;
+                let id = add_pending_group(pending, record, (0, 0), Vec::new(), true);
+                output_owners[0] = Some(id);
+            }
+        }
+        marked_allomorphs.insert(input.allomorph);
+    }
+}
+
+/// Replays MarkMorph claims and transfers groups, then serializes range/slot order in postorder.
 fn attribute_morphs(
     out: &[OutNode],
     head: &Word,
@@ -1216,202 +1602,142 @@ fn attribute_morphs(
         &[u16],
     )>,
 ) -> Vec<MorphRecord> {
-    // Pass 1: output positions per input morph / affix (Real records only, via `owning_morph`).
-    let mut by_morph: HashMap<MorphKey, Vec<u32>> = HashMap::default();
-    for (pos, n) in out.iter().enumerate() {
-        let key = match n.origin {
-            Origin::Head(idx) => match owning_morph(head, idx) {
-                Some(mi) => MorphKey::Head(mi),
-                None => continue,
-            },
-            Origin::NonHead(idx) => {
-                let Some(nh) = non_head else { continue };
-                match owning_morph(nh, idx) {
-                    Some(mi) => MorphKey::NonHead(mi),
-                    None => continue,
-                }
-            }
-            Origin::Affix => {
-                if affix.is_none() {
-                    continue;
-                }
-                MorphKey::Affix
-            }
-            Origin::Insert => continue,
-        };
-        by_morph.entry(key).or_default().push(pos as u32);
-    }
+    let head_layout = MorphLayout::decode(&head.morphs, head.shape.len(), &head.extras);
+    let non_head_layout =
+        non_head.map(|word| MorphLayout::decode(&word.morphs, word.shape.len(), &word.extras));
+    let mut pending = Vec::new();
+    let mut output_owners = vec![None; out.len()];
 
-    // Contiguous runs per key, as `(order, len)` pairs — see this function's doc.
-    fn runs_of(positions: &[u32]) -> Vec<(u32, u32)> {
-        let mut runs = Vec::new();
-        let mut run_start = 0usize;
-        for i in 0..positions.len() {
-            if i + 1 == positions.len() || positions[i + 1] != positions[i] + 1 {
-                runs.push((positions[run_start], (i - run_start + 1) as u32));
-                run_start = i + 1;
-            }
-        }
-        runs
-    }
-    let key_runs: HashMap<MorphKey, Vec<(u32, u32)>> =
-        by_morph.iter().map(|(k, ps)| (*k, runs_of(ps))).collect();
-    // First-longest run wins at ties, matching C# `MarkMorphs`' strict `>`.
-    let longest_run_order = |key: &MorphKey| -> Option<u32> {
-        key_runs.get(key).map(|rs| {
-            let mut best = rs[0];
-            for &r in &rs[1..] {
-                if r.1 > best.1 {
-                    best = r;
-                }
-            }
-            best.0
-        })
-    };
-    // The affix's "primary" annotation — the attachment point for subsumption.
-    let affix_host_order: Option<u32> = longest_run_order(&MorphKey::Affix);
-
-    // Pass 2: walks each input word's morphs in order; an unpositioned record subsumes onto the affix's new material or order 0, a dropped marker re-anchors to its host, and pure truncation drops a `SubsumedChild` but not a `SubsumedFirst` (bug-compatible with C#'s non-recursing truncation branch); compounding has no fallbacks at all.
-    let mut records: Vec<MorphRecord> = Vec::new();
-    let mut marked: Vec<pg_grammar_model::model::AllomorphId> = Vec::new();
-
-    let push_runs = |records: &mut Vec<MorphRecord>, key: &MorphKey, m: &MorphRecord| {
-        for &(order, _) in &key_runs[key] {
-            records.push(MorphRecord {
-                allomorph: m.allomorph,
-                morpheme: m.morpheme,
-                order,
-                passed_over: m.passed_over.clone(),
-                status: MorphStatus::Real,
-                runtime_root: m.runtime_root.clone(),
-            });
-        }
-    };
-
-    // Head-word records (in stored order). Non-head records handled after (compounding only).
-    for (mi, m) in head.morphs.iter().enumerate() {
-        let key = MorphKey::Head(mi);
-        if key_runs.contains_key(&key) {
-            push_runs(&mut records, &key, m);
-            marked.push(m.allomorph);
-            continue;
-        }
-        if affix.is_none() {
-            continue; // compounding: untouched input morphs are dropped (no fallback in C#)
-        }
-        match m.status {
-            MorphStatus::Floating => continue, // handled by the floater block below
-            MorphStatus::Real => {
-                if marked.contains(&m.allomorph) {
-                    continue;
-                }
-                if let Some(host_order) = affix_host_order {
-                    records.push(MorphRecord {
-                        order: host_order,
-                        status: MorphStatus::SubsumedChild,
-                        ..m.clone()
-                    });
-                } else if !out.is_empty() {
-                    records.push(MorphRecord {
-                        order: 0,
-                        status: MorphStatus::SubsumedFirst,
-                        ..m.clone()
-                    });
-                }
-                marked.push(m.allomorph);
-            }
-            MorphStatus::SubsumedChild | MorphStatus::SubsumedFirst => {
-                if marked.contains(&m.allomorph) {
-                    continue;
-                }
-                // Host = the unique Real input record sharing this order.
-                let host = head
-                    .morphs
-                    .iter()
-                    .position(|h| h.status == MorphStatus::Real && h.order == m.order);
-                let host_runs = host.and_then(|hi| longest_run_order(&MorphKey::Head(hi)));
-                let new_anchor = match (host_runs, affix_host_order) {
-                    // Host still has material: follow it (keep the variant's placement semantics).
-                    (Some(o), _) => Some((o, m.status)),
-                    // Host dropped too, rule has new material: both subsume onto the new morph.
-                    (None, Some(o)) => Some((o, MorphStatus::SubsumedChild)),
-                    // Host dropped, pure truncation: C#'s Shape.First branch doesn't recurse into children (SubsumedChild lost, bug-compatible); SubsumedFirst re-anchors at the new first node.
-                    (None, None) => match m.status {
-                        MorphStatus::SubsumedFirst if !out.is_empty() => {
-                            Some((0, MorphStatus::SubsumedFirst))
-                        }
-                        _ => None,
-                    },
-                };
-                if let Some((order, status)) = new_anchor {
-                    records.push(MorphRecord {
-                        order,
-                        status,
-                        ..m.clone()
-                    });
-                    marked.push(m.allomorph);
-                }
-            }
-        }
-    }
-    if let Some(nh) = non_head {
-        for (mi, m) in nh.morphs.iter().enumerate() {
-            let key = MorphKey::NonHead(mi);
-            if key_runs.contains_key(&key) {
-                push_runs(&mut records, &key, m);
-            }
-        }
-    }
-
-    // Floating markers ride, resolve onto this hop's new material, or mint a new one; pushed after subsumed-input records and before affix runs, approximating C#'s input-morph-order attachment.
-    if let Some((a, mo, p)) = affix {
-        let floaters = head
-            .morphs
+    let next_occurrence = if head.trace.is_some_and(TraceHandle::is_observation) {
+        head.morphs
             .iter()
-            .filter(|m| m.status == MorphStatus::Floating);
-        if let Some(host_order) = affix_host_order {
-            for f in floaters {
-                records.push(MorphRecord {
-                    order: host_order,
-                    status: MorphStatus::SubsumedChild,
-                    ..f.clone()
-                });
-            }
-        } else {
-            records.extend(floaters.cloned());
-            // Pure truncation mints this rule's own floating marker, guarded since an entirely empty `out` has no last node for C# either.
-            if !out.is_empty() {
-                records.push(MorphRecord {
-                    allomorph: a,
-                    morpheme: mo,
-                    order: FLOATING_ORDER,
-                    passed_over: Some(p.into()),
-                    status: MorphStatus::Floating,
-                    runtime_root: None,
-                });
+            .map(|record| record.observation_occurrence)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+    } else {
+        0
+    };
+    let affix_positions: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter_map(|(position, node)| (node.origin == Origin::Affix).then_some(position as u32))
+        .collect();
+    let affix_runs = morph_runs(&affix_positions);
+    let mut affix_primary = None;
+    if let Some((allomorph, morpheme, passed)) = affix {
+        let mut primary = 0;
+        for index in 1..affix_runs.len() {
+            if affix_runs[index].1 > affix_runs[primary].1 {
+                primary = index;
             }
         }
-        // The affix's own runs go last, so same-order subsumed/resolved records above render before their host (stable sort at ties).
-        if key_runs.contains_key(&MorphKey::Affix) {
-            for &(order, _) in &key_runs[&MorphKey::Affix] {
-                records.push(MorphRecord {
-                    allomorph: a,
-                    morpheme: mo,
-                    order,
-                    passed_over: Some(p.into()),
+        for (run_index, &(start, len)) in affix_runs.iter().enumerate() {
+            let id = add_pending_group(
+                &mut pending,
+                MorphRecord {
+                    allomorph,
+                    morpheme,
+                    order: start,
+                    observation_occurrence: next_occurrence,
+                    passed_over: Some(passed.into()),
                     status: MorphStatus::Real,
                     runtime_root: None,
-                });
+                },
+                (start, start + len - 1),
+                Vec::new(),
+                false,
+            );
+            if run_index == primary {
+                affix_primary = Some(id);
+            }
+            for position in start..start + len {
+                output_owners[position as usize] = Some(id);
             }
         }
     }
 
-    records.sort_by_key(|m| m.order);
+    append_source_groups(
+        out,
+        SourceMorphs {
+            word: head,
+            layout: &head_layout,
+            head_source: true,
+            first_fallback: affix.is_some() && affix_primary.is_none(),
+            transfer_descendants: affix.is_some(),
+            occurrence_offset: 0,
+        },
+        affix_primary,
+        &mut pending,
+        &mut output_owners,
+    );
+    if let (Some(non_head), Some(layout)) = (non_head, non_head_layout.as_ref()) {
+        append_source_groups(
+            out,
+            SourceMorphs {
+                word: non_head,
+                layout,
+                head_source: false,
+                first_fallback: false,
+                transfer_descendants: false,
+                occurrence_offset: next_occurrence,
+            },
+            None,
+            &mut pending,
+            &mut output_owners,
+        );
+    }
+
+    // C# ApplyRhs adds the no-new-morph last-node mark after input morph transfers (#500).
+    if let Some((allomorph, morpheme, passed)) = affix {
+        if affix_runs.is_empty() && !out.is_empty() {
+            let order = (out.len() - 1) as u32;
+            let id = add_pending_group(
+                &mut pending,
+                MorphRecord {
+                    allomorph,
+                    morpheme,
+                    order,
+                    observation_occurrence: next_occurrence,
+                    passed_over: Some(passed.into()),
+                    status: MorphStatus::Floating,
+                    runtime_root: None,
+                },
+                (order, order),
+                Vec::new(),
+                true,
+            );
+            output_owners[order as usize] = Some(id);
+        }
+    }
+
+    for (index, group) in pending.iter_mut().enumerate() {
+        if group.claims_singleton {
+            group.record.status = if output_owners
+                .get(group.range.0 as usize)
+                .is_some_and(|owner| *owner == Some(index))
+            {
+                MorphStatus::SubsumedFirst
+            } else {
+                MorphStatus::Floating
+            };
+        }
+    }
+    pending.sort_by(|left, right| {
+        left.range
+            .0
+            .cmp(&right.range.0)
+            .then_with(|| right.range.1.cmp(&left.range.1))
+            .then_with(|| left.slot.cmp(&right.slot))
+    });
+
+    let mut records = Vec::new();
+    for group in pending {
+        records.extend(group.children);
+        records.push(group.record);
+    }
     records
 }
-
-/// Sentinel `order` for an unresolved floating marker: larger than any real position, so it never matches `owning_morph`'s filter and always sorts last.
-const FLOATING_ORDER: u32 = u32::MAX;
 
 // RHS execution (synthesis) — shared by affix and compounding.
 
@@ -1421,6 +1747,8 @@ struct PartSource<'a> {
     shape: &'a Shape,
     range: Option<(usize, usize)>,
     head: bool, // true = Origin::Head, false = Origin::NonHead
+    /// The source word's `Extras::deleted_gaps`.
+    deleted_gaps: &'a [u32],
 }
 
 /// Copies `src`'s captured nodes into `out`, tagging origin; `force_origin` overrides the default Copy/Modify-based choice, which is how `classify_redup` marks a repeated copy as new rather than existing.
@@ -1440,12 +1768,17 @@ fn copy_part(
         let first_node = src.node_of[s];
         let skippable =
             |i: usize| src.shape.kind(i) == NodeKind::Boundary || src.shape.flags(i).is_optional();
+        // C# CopyFromInput.cs:28-48 and MorphologicalOutputAction.cs:45-58 walk over a deleted node only if it was Optional, so a deleted node left of the capture stops the fold.
+        let blocked = src
+            .deleted_gaps
+            .iter()
+            .any(|&gap| (gap as usize) < first_node);
         let mut i = first_node;
         while i > 0 && skippable(i - 1) {
             i -= 1;
         }
         // The walk must stop AT the left anchor for the fold to apply; stopping at any non-optional interior node folds nothing.
-        if i == 1 {
+        if i == 1 && !blocked {
             positions.extend(1..first_node);
         }
     }
@@ -1487,6 +1820,16 @@ fn copy_part(
             optional: src.shape.flags(p).is_optional(),
             origin,
             cd_set,
+            unresolved_variables: src
+                .shape
+                .unresolved_variable_features(p)
+                .filter(|f| !pins.iter().any(|(pinned, _)| *pinned == *f as usize))
+                .collect(),
+            generated_full: src
+                .shape
+                .generated_full_features(p)
+                .filter(|f| !pins.iter().any(|(pinned, _)| *pinned == *f as usize))
+                .collect(),
         });
     }
 }
@@ -1508,6 +1851,8 @@ fn insert_segments(
             optional: false,
             origin,
             cd_set: CdSet::Unrestricted,
+            unresolved_variables: Vec::new(),
+            generated_full: Vec::new(),
         });
     }
 }
@@ -1530,16 +1875,84 @@ fn synth_syn_fs(
 }
 
 /// C# "Exact" analysis mode (`AnalysisSyntacticFeatureMerge.CanUnapply`/`MergeRequired`): the true inverse of `synth_syn_fs`, shared by affix-process and compounding analysis.
-fn ana_syn_fs(
+#[inline]
+pub(crate) fn ana_syn_fs(
     g: &Grammar,
     req: pg_featstruct::FsId,
     out: pg_featstruct::FsId,
     word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> Option<FeatureStruct> {
+    if let Some(ctx) = mstats {
+        ana_syn_fs_observed(g, req, out, word, |passed| {
+            record_inverse_syn_gate(g, req, out, ctx, passed);
+        })
+    } else {
+        ana_syn_fs_observed(g, req, out, word, |_| {})
+    }
+}
+
+/// The edge precheck needs admission, without constructing and discarding the inverse result.
+#[inline]
+pub(crate) fn ana_syn_gate(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> bool {
+    let req_fs = g.fs_interner.get(req);
+    let out_fs = g.fs_interner.get(out);
+    if let Some(ctx) = mstats {
+        ana_syn_gate_observed(req_fs, out_fs, word, |passed| {
+            record_inverse_syn_gate(g, req, out, ctx, passed);
+        })
+    } else {
+        ana_syn_gate_observed(req_fs, out_fs, word, |_| {})
+    }
+}
+
+#[inline]
+fn ana_syn_gate_observed(
+    req: &FeatureStruct,
+    out: &FeatureStruct,
+    word: &Word,
+    observe: impl FnOnce(bool),
+) -> bool {
+    let passed = pg_featstruct::is_unifiable_with_priority_union(req, out, &word.syn_fs);
+    observe(passed);
+    passed
+}
+
+fn record_inverse_syn_gate(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    ctx: MRuleStatsCtx,
+    passed: bool,
+) {
+    if !g.fs_interner.get(req).is_empty() || !g.fs_interner.get(out).is_empty() {
+        ctx.stats.record_gate(
+            ObjectKind::MorphRule,
+            ctx.id.0,
+            crate::stats::GateFeature::InverseSyntactic(req.0, out.0),
+            passed,
+        );
+    }
+}
+
+// Keep the no-op specialization free of collector branches after inlining its caller.
+#[inline(never)]
+fn ana_syn_fs_observed(
+    g: &Grammar,
+    req: pg_featstruct::FsId,
+    out: pg_featstruct::FsId,
+    word: &Word,
+    observe: impl FnOnce(bool),
 ) -> Option<FeatureStruct> {
     let req_fs = g.fs_interner.get(req);
     let out_fs = g.fs_interner.get(out);
-    let check = priority_union(req_fs, out_fs);
-    if !is_unifiable(&check, &word.syn_fs) {
+    if !ana_syn_gate_observed(req_fs, out_fs, word, observe) {
         return None;
     }
     let stem = pg_featstruct::remove_paths(&word.syn_fs, out_fs);
@@ -1605,7 +2018,7 @@ fn final_template_prohibits(
 ) -> bool {
     template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(true))
-        && (policy.always_enforce || (!word.flags.is_partial && !rule_partial))
+        && (policy.always_enforce || (!word.flags.is_partial() && !rule_partial))
 }
 
 // Affix process — synthesis.
@@ -1622,7 +2035,7 @@ fn root_stem_name(g: &Grammar, word: &Word) -> Option<pg_grammar_model::model::S
     g.entries[le.0 as usize].allomorphs[idx as usize].stem_name
 }
 
-fn synth_affix(
+fn synth_affix<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -1630,6 +2043,7 @@ fn synth_affix(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     // Gate order matches C#: template prohibitions, then `RequiredStemName`, then the syn-FS unify; independent gates, so order only picks which `FailureReason` is reported first. Both template checks are guarded on `!is_template_rule`, since a template's own slot rules are never subject to them.
 
     // PORT-CORRESPONDENCE: both gates carry `!IsTemplateRule && !GetIsCliticRule()` in `SynthesisAffixProcessRule`.
@@ -1644,7 +2058,7 @@ fn synth_affix(
     // (b) After a *non-final* template, prohibit a partial rule unless the input is itself partial.
     if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
-        && !word.flags.is_partial
+        && !word.flags.is_partial()
         && rule.is_partial()
     {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -1652,12 +2066,22 @@ fn synth_affix(
     }
 
     // `requiredStemName` is a reference-equality gate on the WORD's root stem name, not the rule's allomorphs'; `None` on both sides passes.
-    if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
+    if rule.required_stem_name.is_some_and(|sn| {
+        !crate::gates::observe(
+            mstats.map(|c| c.stats),
+            ObjectKind::MorphRule,
+            mstats.map_or(0, |c| c.id.0),
+            crate::stats::GateFeature::StemName(sn.0, false),
+            Some(sn) == root_stem_name(g, word),
+        )
+    }) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
 
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -1669,11 +2093,16 @@ fn synth_affix(
     // Indices already applied in this loop, recorded on each output morph before the producing index is added.
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
+    let recorded = word.current_recorded_allomorph();
+    let last = recorded.and_then(|id| rule.allomorphs.iter().position(|a| a.id == id));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if last.is_some_and(|last| i > last) {
+            break;
+        }
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call, deliberately: see `synthesize`'s doc.
@@ -1705,7 +2134,9 @@ fn synth_affix(
             &mut reached,
         );
         if let Some(w) = matched {
-            output.push(w);
+            if recorded.is_none_or(|id| id == allo.id) {
+                output.push(w);
+            }
             applied.push(i as u16);
             // Disjunctive-allomorph break: stop after the first match unless this allomorph is environment/syn-constrained or free-fluctuates with the next one.
             let next_free_fluctuates = rule
@@ -1726,7 +2157,7 @@ fn synth_affix(
 
 /// `RuleCache`-aware sibling of `synth_affix`: every early return reports its own `FailureReason` at index `-1`, matching C#'s rule-level gates.
 #[allow(clippy::too_many_arguments)]
-fn synth_affix_cached(
+fn synth_affix_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
@@ -1738,10 +2169,38 @@ fn synth_affix_cached(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mode = trace.mode();
+    let mstats = if COLLECT_STATS { mstats } else { None };
     macro_rules! not_applied {
         ($reason:expr) => {{
-            if trace.is_tracing() {
-                trace.morphological_rule_not_applied(parent, mrid, -1, word, $reason);
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
+            let reason = $reason;
+            match mode {
+                TraceMode::Tree => {
+                    trace.morphological_rule_not_applied(parent, mrid, -1, word, reason);
+                }
+                TraceMode::Observe(recorder) => {
+                    let after_final = match reason {
+                        FailureReason::NonPartialRuleProhibitedAfterFinalTemplate => Some(true),
+                        FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate => Some(false),
+                        _ => None,
+                    };
+                    if let Some(after_final) = after_final {
+                        recorder.record_at(
+                            word,
+                            Decision::FinalTemplatePolicy {
+                                rule: mrid,
+                                after_final,
+                            },
+                        );
+                    }
+                }
+                TraceMode::Off => {}
             }
             record_mrule_none_residual(mstats, word.shape.len() as u64);
             return Vec::new();
@@ -1759,17 +2218,27 @@ fn synth_affix_cached(
     // (b) Non-final-template prohibition.
     if template_gated
         && matches!(word.flags.is_last_applied_rule_final, Some(false))
-        && !word.flags.is_partial
+        && !word.flags.is_partial()
         && rule.is_partial()
     {
         not_applied!(FailureReason::NonPartialRuleRequiredAfterNonFinalTemplate);
     }
 
-    if rule.required_stem_name.is_some() && rule.required_stem_name != root_stem_name(g, word) {
+    if rule.required_stem_name.is_some_and(|sn| {
+        !crate::gates::observe(
+            mstats.map(|c| c.stats),
+            ObjectKind::MorphRule,
+            mstats.map_or(0, |c| c.id.0),
+            crate::stats::GateFeature::StemName(sn.0, false),
+            Some(sn) == root_stem_name(g, word),
+        )
+    }) {
         not_applied!(FailureReason::RequiredStemName);
     }
 
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         not_applied!(FailureReason::RequiredSyntacticFeatureStruct);
     };
 
@@ -1778,26 +2247,45 @@ fn synth_affix_cached(
     let mut output = Vec::new();
     let mut applied: Vec<u16> = Vec::new();
     let mut reached: u32 = 0;
+    let recorded = word.current_recorded_allomorph();
+    let last = recorded.and_then(|id| rule.allomorphs.iter().position(|a| a.id == id));
     for (i, allo) in rule.allomorphs.iter().enumerate() {
+        if last.is_some_and(|last| i > last) {
+            break;
+        }
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
-            if trace.is_tracing() {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &allo.required_mpr,
+            &allo.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::Allomorph(allo.id),
+        ) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Allomorph(allo.id),
+                );
+            }
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
                     trace,
                     event,
                     crate::trace::TraceObject::Allomorph(allo.id),
-                    allo.required_mpr,
-                    allo.excluded_mpr,
-                    word.mpr,
+                    &allo.required_mpr,
+                    &allo.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_deref() else {
             continue;
         };
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -1827,10 +2315,21 @@ fn synth_affix_cached(
         );
         match matched {
             Some(mut w) => {
-                if trace.is_tracing() {
-                    w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
+                if recorded.is_none_or(|id| id == allo.id) {
+                    if mode.is_tree() {
+                        w.trace =
+                            Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
+                    }
+                    output.push(w);
+                } else if mode.is_tree() {
+                    trace.morphological_rule_not_applied(
+                        parent,
+                        mrid,
+                        i as i32,
+                        word,
+                        FailureReason::AllomorphNotApplicable,
+                    );
                 }
-                output.push(w);
                 applied.push(i as u16);
                 // Disjunctive-allomorph break — see `synth_affix`'s twin site.
                 let next_free_fluctuates = rule
@@ -1841,11 +2340,14 @@ fn synth_affix_cached(
                     && allo.environments.is_empty()
                     && g.fs_interner.get(allo.required_syn_fs).is_empty()
                 {
+                    if let Some(blocked) = recorded.filter(|_| last.is_some_and(|k| k > i)) {
+                        record_synthesis_allomorph_blocked(trace, parent, word, blocked, allo.id);
+                    }
                     break;
                 }
             }
             None => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(
                         parent,
                         mrid,
@@ -1853,12 +2355,60 @@ fn synth_affix_cached(
                         word,
                         FailureReason::Pattern,
                     );
+                } else if let Some(recorder) = mode.recorder() {
+                    if pg_fst::work::active_budget()
+                        .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+                    {
+                        recorder.record_at(
+                            word,
+                            Decision::MorphPatternNoMatch {
+                                allomorph: allo.id,
+                                table,
+                                analysis: false,
+                            },
+                        );
+                    }
                 }
             }
         }
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
     output
+}
+
+/// Name the stop where the disjunctive break skipped the analysed allomorph `blocked` in favour of the earlier `blocker`.
+fn record_synthesis_allomorph_blocked(
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    word: &Word,
+    blocked: AllomorphId,
+    blocker: AllomorphId,
+) {
+    match trace.mode() {
+        TraceMode::Tree => {
+            let event = trace.failed(parent, word, FailureReason::DisjunctiveAllomorph);
+            if trace.captures_failure_context() {
+                trace.set_failed_allomorph(event, blocked);
+                trace.set_failure_context(
+                    event,
+                    crate::trace::FailureContext {
+                        required: None,
+                        actual: None,
+                        environment: None,
+                        evidence: Some(crate::trace::RejectionEvidence::AllomorphBlocked {
+                            blocked,
+                            blocker,
+                        }),
+                    },
+                );
+            }
+        }
+        TraceMode::Observe(recorder) => recorder.record_at(
+            word,
+            Decision::AllomorphBlockedAtSynthesis { blocked, blocker },
+        ),
+        TraceMode::Off => {}
+    }
 }
 
 // Realizational affix process — synthesis.
@@ -1882,15 +2432,22 @@ fn realizational_is_blocked(real_fs: &FeatureStruct, syn_fs: &FeatureStruct) -> 
     true
 }
 
-/// C# `Apply`: gates in order are `real_fs` subsumption, `IsBlocked` (when `real_fs` non-empty), then the required-syn-FS unify via `synth_syn_fs`; unlike `synth_affix` this class has no partial/final/obligatory/max-application gates.
-fn synth_realizational(
+/// C# `Apply`: cap this rule at one application, then check realizational features, blocking and required syntactic features.
+fn synth_realizational<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    if word.applied_realizational_rules().contains(&rule.morpheme) {
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
+        return Vec::new();
+    }
     let real_fs = g.fs_interner.get(rule.real_fs);
-    if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+    let realizational_ok = pg_featstruct::subsumes(real_fs, &word.real_fs);
+    record_real_subsumption_gate(g, mstats, rule.real_fs, realizational_ok);
+    if !realizational_ok {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -1898,7 +2455,9 @@ fn synth_realizational(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -1913,7 +2472,7 @@ fn synth_realizational(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(allo.required_mpr, allo.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, &allo.required_mpr, &allo.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         let Ok((fst, names)) = compile_parts(g, table, &allo.lhs, "p", true) else {
@@ -1942,7 +2501,8 @@ fn synth_realizational(
             u64::from(matched.is_some()),
             &mut reached,
         );
-        if let Some(w) = matched {
+        if let Some(mut w) = matched {
+            w.applied_realizational_rules_mut().push(rule.morpheme);
             output.push(w);
             applied.push(i as u16);
             let next_free_fluctuates = rule
@@ -1961,9 +2521,9 @@ fn synth_realizational(
     output
 }
 
-/// `RuleCache`-aware sibling of `synth_realizational`: the first two gates stay untraced, since C# fires no trace event at either site.
+/// `RuleCache`-aware sibling of `synth_realizational`.
 #[allow(clippy::too_many_arguments)]
-fn synth_realizational_cached(
+fn synth_realizational_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
@@ -1973,23 +2533,66 @@ fn synth_realizational_cached(
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> Vec<Word> {
+    let mode = trace.mode();
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    if word.applied_realizational_rules().contains(&rule.morpheme) {
+        if mode.is_tree() {
+            trace.morphological_rule_not_applied(
+                parent,
+                mrid,
+                -1,
+                word,
+                FailureReason::MaxApplicationCount,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
+        record_mrule_none_residual(mstats, word.shape.len() as u64);
+        return Vec::new();
+    }
     let real_fs = g.fs_interner.get(rule.real_fs);
-    if !pg_featstruct::subsumes(real_fs, &word.real_fs) {
+    let realizational_ok = pg_featstruct::subsumes(real_fs, &word.real_fs);
+    record_real_subsumption_gate(g, mstats, rule.real_fs, realizational_ok);
+    if !realizational_ok {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
     if !real_fs.is_empty() && realizational_is_blocked(real_fs, &word.syn_fs) {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word) else {
-        if trace.is_tracing() {
+    let new_syn = synth_syn_fs(g, rule.required_syn_fs, rule.real_fs, word);
+    record_syn_gate(g, mstats, rule.required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
                 -1,
                 word,
                 FailureReason::RequiredSyntacticFeatureStruct,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -2005,22 +2608,36 @@ fn synth_realizational_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, allo.required_mpr, allo.excluded_mpr, word.mpr) {
-            if trace.is_tracing() {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &allo.required_mpr,
+            &allo.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::Allomorph(allo.id),
+        ) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
                     trace,
                     event,
                     crate::trace::TraceObject::Allomorph(allo.id),
-                    allo.required_mpr,
-                    allo.excluded_mpr,
-                    word.mpr,
+                    &allo.required_mpr,
+                    &allo.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
         }
-        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_ref() else {
+        let Some((fst, names)) = cache.allomorph(allo.id).synth_lhs.as_deref() else {
             continue;
         };
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -2050,7 +2667,8 @@ fn synth_realizational_cached(
         );
         match matched {
             Some(mut w) => {
-                if trace.is_tracing() {
+                w.applied_realizational_rules_mut().push(rule.morpheme);
+                if mode.is_tree() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
                 output.push(w);
@@ -2067,7 +2685,7 @@ fn synth_realizational_cached(
                 }
             }
             None => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(
                         parent,
                         mrid,
@@ -2075,6 +2693,19 @@ fn synth_realizational_cached(
                         word,
                         FailureReason::Pattern,
                     );
+                } else if let Some(recorder) = mode.recorder() {
+                    if pg_fst::work::active_budget()
+                        .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+                    {
+                        recorder.record_at(
+                            word,
+                            Decision::MorphPatternNoMatch {
+                                allomorph: allo.id,
+                                table,
+                                analysis: false,
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -2114,6 +2745,24 @@ fn has_repeated_part_action_group(rhs: &[OutputAction]) -> bool {
             .iter()
             .any(|previous| redup_part_ref(previous) == Some(part))
     })
+}
+
+/// Whether an `Implicit` reduplication gives the engine no way to tell which copy is the base: no single whole-input echo run.
+fn redup_copy_is_ambiguous(lhs_len: u16, rhs: &[OutputAction], hint: ReduplicationHint) -> bool {
+    if hint != ReduplicationHint::Implicit || !has_repeated_part_action_group(rhs) {
+        return false;
+    }
+    let width = lhs_len as usize;
+    let echoes = rhs
+        .windows(width.max(1))
+        .filter(|window| {
+            window
+                .iter()
+                .enumerate()
+                .all(|(part, action)| redup_part_ref(action) == Some(part as u16))
+        })
+        .count();
+    echoes != 1
 }
 
 /// For every RHS index inside a reduplication group (an `Input` part referenced 2+ times), reports whether that occurrence is the existing echo or new affix material; indices outside any group are absent, keeping default attribution.
@@ -2213,7 +2862,7 @@ fn synth_process_allomorph(
     names: &[String],
     passed: &[u16],
 ) -> Option<Word> {
-    let result = Transduce::new(fst, segs.to_vec())
+    let result = Transduce::new(fst, segs)
         .anchored(true, true)
         .first_match()?;
     let ranges = part_ranges(fst, names, &result);
@@ -2230,6 +2879,7 @@ fn synth_process_allomorph(
                     shape: &word.shape,
                     range: ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, redup.get(&rhs_idx).copied());
             }
@@ -2239,6 +2889,7 @@ fn synth_process_allomorph(
                     shape: &word.shape,
                     range: ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(
                     g,
@@ -2260,6 +2911,8 @@ fn synth_process_allomorph(
                     optional: false,
                     origin: Origin::Affix,
                     cd_set: ctx_cd_set(g, table, ctx),
+                    unresolved_variables: Vec::new(),
+                    generated_full: Vec::new(),
                 });
             }
             // Cross-list part refs never appear on an affix rule (loader invariant).
@@ -2272,7 +2925,52 @@ fn synth_process_allomorph(
     w.shape = freeze_out(g, &out);
     w.syn_fs = new_syn.clone();
     if apply_out_mpr {
-        w.mpr = g.mpr_add_output(word.mpr, allo.out_mpr);
+        w.mpr = g.mpr_add_output(&word.mpr, &allo.out_mpr);
+    }
+    // A copied node that was bare stays outside every morph, as C# keeps its annotation off every morph's range.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| {
+            matches!(node.origin, Origin::Head(old) if word.extras.bare_nodes().contains(&(old as u32)))
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
+    w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
+    if w.track_spans() {
+        let origins: Vec<Option<u32>> = out
+            .iter()
+            .map(|node| match node.origin {
+                Origin::Head(old) => Some(old as u32),
+                _ => None,
+            })
+            .collect();
+        w.extras.span_marks_mut().follow(&origins);
+        if redup_copy_is_ambiguous(allo.lhs.len() as u16, &allo.rhs, allo.redup_hint) {
+            let latest = morphs
+                .iter()
+                .filter(|r| r.allomorph == allo.id)
+                .map(|r| r.observation_occurrence)
+                .max();
+            if let Some(occurrence) = latest {
+                let marks = w.extras.span_marks_mut();
+                if !marks.ambiguous_copy.contains(&(allo.id, occurrence)) {
+                    marks.ambiguous_copy.push((allo.id, occurrence));
+                }
+            }
+        }
+        // A singleton claim is a position, not a span, so the morph is remembered by identity.
+        for record in morphs
+            .iter()
+            .filter(|r| r.status == MorphStatus::SubsumedFirst)
+        {
+            let key = (record.allomorph, record.observation_occurrence);
+            let marks = w.extras.span_marks_mut();
+            if !marks.positional.contains(&key) {
+                marks.positional.push(key);
+            }
+        }
     }
     w.morphs = morphs;
     w.obligatory.extend_from_slice(obligatory);
@@ -2280,7 +2978,7 @@ fn synth_process_allomorph(
         if !is_partial_rule {
             w.flags.is_last_applied_rule_final = None;
         } else {
-            w.flags.is_partial = true;
+            w.flags.set_is_partial(true);
         }
     }
     Some(w)
@@ -2296,6 +2994,67 @@ pub(crate) struct AnalysisLhs {
     captured: HashMap<String, usize>,
     /// part name -> (capture-group index, ctx) for a `ModifyFromInput`, underspecified on `GenerateShape`.
     modify: HashMap<String, (usize, SimpleContext)>,
+    /// Runs of adjacent plain copies folded into one capture group, keyed by their first part's name; see `merge_captures`.
+    merged: HashMap<String, MergedRun>,
+}
+
+/// Consecutive input parts captured by one group: `generate_shape` emits the group's nodes where the first part would go and nothing for the others.
+pub(crate) struct MergedRun {
+    group: String,
+    parts: Vec<String>,
+}
+
+/// The material an affix inserts, as the analysis LHS requires it, with its position among the copied parts.
+pub(crate) struct InsertedMaterial {
+    /// One constraint's lanes per inserted segment, in right-hand-side order.
+    pub(crate) sequence: Vec<Vec<u64>>,
+    /// How many of them come before the first copied part, and how many after the last.
+    pub(crate) pre: usize,
+    pub(crate) post: usize,
+    /// Some insertion lies between copied parts, or there is no copied part at all.
+    pub(crate) infix: bool,
+}
+
+impl AnalysisLhs {
+    /// The inserted segments' constraints: the only top-level constraints, since copied and modified parts are capture groups.
+    pub(crate) fn inserted_material(&self) -> InsertedMaterial {
+        let is_part = |n: &CompileNode| !matches!(n, CompileNode::Constraint(_));
+        let first = self.nodes.iter().position(is_part);
+        let last = self.nodes.iter().rposition(is_part);
+        let mut material = InsertedMaterial {
+            sequence: Vec::new(),
+            pre: 0,
+            post: 0,
+            infix: false,
+        };
+        for (i, node) in self.nodes.iter().enumerate() {
+            let CompileNode::Constraint(lanes) = node else {
+                continue;
+            };
+            material.sequence.push(lanes.clone());
+            match (first, last) {
+                (Some(f), _) if i < f => material.pre += 1,
+                (_, Some(l)) if i > l => material.post += 1,
+                _ => material.infix = true,
+            }
+        }
+        material
+    }
+}
+
+/// The analysis LHS of one affix allomorph without compiling its FST (the required-slot look-ahead reads only the inserted constraints).
+pub(crate) fn build_analysis_lhs_for(
+    g: &Grammar,
+    table: TableId,
+    allo: &AffixAllomorphDef,
+) -> Result<AnalysisLhs, BridgeError> {
+    let parts: Vec<(String, &Pattern)> = allo
+        .lhs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| (format!("p{i}"), p))
+        .collect();
+    build_analysis_lhs(g, table, &parts, &allo.rhs, false)
 }
 
 /// Strips boundary char-defs from a pattern (C# `DeepCloneExceptBoundaries`); a quantifier whose children all vanish is dropped too.
@@ -2341,7 +3100,9 @@ fn apply_ctx_to_nodes(nodes: &mut [CompileNode], pins: &[(usize, u64)]) {
                     }
                 }
             }
-            CompileNode::Group { children, .. } => apply_ctx_to_nodes(children, pins),
+            CompileNode::Group { children, .. } | CompileNode::UnnamedGroup { children } => {
+                apply_ctx_to_nodes(children, pins)
+            }
             CompileNode::Quantifier { children, .. } => apply_ctx_to_nodes(children, pins),
             CompileNode::Alternation(alts) => {
                 for alt in alts {
@@ -2357,6 +3118,7 @@ fn build_analysis_lhs(
     table: TableId,
     lhs_parts: &[(String, &Pattern)],
     rhs: &[OutputAction],
+    merge_adjacent_copies: bool,
 ) -> Result<AnalysisLhs, BridgeError> {
     // Same `StrRep` identity lane as `compile_parts`; inputs come from `segs_of` either way.
     let bridge = PatternBridge::new(g)
@@ -2374,8 +3136,40 @@ fn build_analysis_lhs(
         nodes: Vec::new(),
         captured: HashMap::default(),
         modify: HashMap::default(),
+        merged: HashMap::default(),
     };
-    for action in rhs {
+    let runs = if merge_adjacent_copies {
+        merge_captures::runs(g, table, lhs_parts, rhs)
+    } else {
+        Vec::new()
+    };
+    let mut action_index = 0;
+    while action_index < rhs.len() {
+        let action = &rhs[action_index];
+        if let Some(run) = runs.iter().find(|r| r.start == action_index) {
+            let mut children = Vec::new();
+            let mut parts = Vec::new();
+            for action in &rhs[run.start..run.start + run.len] {
+                let OutputAction::Copy(pr) = action else {
+                    unreachable!("a merged run holds only plain copies")
+                };
+                let name = part_name(pr);
+                let part = strip_boundaries(g, table, lookup[name.as_str()]);
+                children.extend(bridge.compile_pattern(&part)?.input.nodes);
+                parts.push(name);
+            }
+            let group = group_name(&parts[0], 0);
+            lhs.nodes.push(CompileNode::Group {
+                name: group.clone(),
+                children,
+            });
+            lhs.captured.insert(parts[0].clone(), 1);
+            lhs.merged
+                .insert(parts[0].clone(), MergedRun { group, parts });
+            action_index += run.len;
+            continue;
+        }
+        action_index += 1;
         match action {
             OutputAction::Copy(pr) => {
                 let name = part_name(pr);
@@ -2414,8 +3208,9 @@ fn build_analysis_lhs(
                 for (_, kind, char_def, _) in shape.shape.interior() {
                     if kind == NodeKind::Segment {
                         let mut lanes = to_fst(g, &cd_lanes(g, table, char_def));
-                        // The analysis-side consumer must find and consume this exact inserted segment, matching the full char-def FS rather than any unifiable one, as C# does.
-                        if char_def != NO_CHAR_DEF {
+                        if char_def != NO_CHAR_DEF
+                            && StrRepMatcher::new(g, &g.char_tables[table.0 as usize]).is_some()
+                        {
                             if let Some(w) = id_width {
                                 crate::bridge::push_id_lane(&mut lanes, w, 1u64 << char_def);
                             } else if let Some(strrep) = wide_strrep {
@@ -2478,6 +3273,34 @@ fn generate_shape(
 ) -> Vec<OutNode> {
     let mut out = Vec::new();
     for (name, part) in lhs_parts {
+        if lhs.merged.values().any(|r| r.parts[1..].contains(name)) {
+            continue; // emitted with the first part of its run
+        }
+        if let Some(run) = lhs.merged.get(name) {
+            if let Some((s, e)) = fst.get_offsets(&run.group, &result.registers) {
+                for &p in &node_of[s as usize..e as usize] {
+                    out.push(OutNode {
+                        kind: shape.kind(p),
+                        char_def: shape.char_def(p),
+                        lanes: fit(g, shape.node_lanes(p)),
+                        optional: shape.flags(p).is_optional(),
+                        origin: Origin::Head(p - 1),
+                        cd_set: cd_set_of(shape, p),
+                        unresolved_variables: shape.unresolved_variable_features(p).collect(),
+                        generated_full: shape.generated_full_features(p).collect(),
+                    });
+                }
+            } else {
+                for part in run
+                    .parts
+                    .iter()
+                    .filter_map(|n| lhs_parts.iter().find(|(m, _)| m == n))
+                {
+                    untruncate(g, table, &mut out, part.1);
+                }
+            }
+            continue;
+        }
         let Some(&count) = lhs.captured.get(name) else {
             // Not captured: untruncate the part, materializing its segment constraints as optional beyond a quantifier's min.
             untruncate(g, table, &mut out, part);
@@ -2501,7 +3324,7 @@ fn generate_shape(
                             for &f in feats {
                                 lanes[f] = full_mask(g, f); // underspecify (undo the change)
                             }
-                            // The analysis-side counterpart of `copy_part`'s modify handling: clearing char_def makes lookup fall back to lane unification, since a pre-modification lexical root can't be found while this node still claims to be the post-modification one.
+                            // The analysis-side counterpart of `copy_part`'s modify handling: clearing char_def makes lookup fall back to lane unification, since a pre-modification lexical root can't be found while this node still claims to be the post-modification one. Divergence 128 (partial-feature grammars): in a featureless grammar this recovers every root the lanes admit, where hc.dll keeps the node's own StrRep united with the class's.
                             char_def = NO_CHAR_DEF;
                         }
                     }
@@ -2512,6 +3335,22 @@ fn generate_shape(
                         optional: shape.flags(p).is_optional(),
                         origin: Origin::Head(p - 1),
                         cd_set: cd_set_of(shape, p),
+                        unresolved_variables: shape
+                            .unresolved_variable_features(p)
+                            .filter(|f| {
+                                !modify_pins
+                                    .as_ref()
+                                    .is_some_and(|pins| pins.contains(&(*f as usize)))
+                            })
+                            .collect(),
+                        generated_full: shape
+                            .generated_full_features(p)
+                            .filter(|f| {
+                                !modify_pins
+                                    .as_ref()
+                                    .is_some_and(|pins| pins.contains(&(*f as usize)))
+                            })
+                            .collect(),
                     });
                 }
                 emitted = true;
@@ -2546,6 +3385,8 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                     optional,
                     origin: Origin::Affix,
                     cd_set: ctx_cd_set(g, table, sc),
+                    unresolved_variables: Vec::new(),
+                    generated_full: Vec::new(),
                 }),
                 PatternNode::CharDef(cd) => {
                     let t = &g.char_tables[table.0 as usize];
@@ -2559,6 +3400,8 @@ fn untruncate(g: &Grammar, table: TableId, out: &mut Vec<OutNode>, part: &Patter
                             optional,
                             origin: Origin::Affix,
                             cd_set: CdSet::Unrestricted,
+                            unresolved_variables: Vec::new(),
+                            generated_full: Vec::new(),
                         });
                     }
                 }
@@ -2595,21 +3438,23 @@ pub(crate) fn build_ana_affix_lhs(
         .enumerate()
         .map(|(i, p)| (format!("p{i}"), p))
         .collect();
-    let lhs = build_analysis_lhs(g, table, &parts, &allo.rhs)?;
+    let lhs = build_analysis_lhs(g, table, &parts, &allo.rhs, true)?;
     let fst = CompileInput::new(lhs.nodes.clone())
         .deterministic(false)
         .compile_with_direction(Direction::LeftToRight);
     Ok((fst, lhs))
 }
 
-fn ana_affix(
+fn ana_affix<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &AffixProcessRuleDef,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -2638,6 +3483,7 @@ fn ana_affix(
             &node_of,
             &new_syn,
             prune_disagreeing_copies,
+            None,
         ));
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
@@ -2647,17 +3493,37 @@ fn ana_affix(
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_affix`.
-fn ana_affix_cached(
+#[allow(clippy::too_many_arguments)]
+fn ana_affix_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
+    mrid: MRuleId,
     word: &Word,
     rule: &AffixProcessRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    let observed = recorder.is_some() || mstats.is_some();
+    let run = match consult(graph, mrid, prune_disagreeing_copies, &word.shape, observed) {
+        Consult::Replay(row) => {
+            return row.words(word, |w, allomorph| {
+                w.syn_fs = new_syn.clone();
+                w.analysis_allomorph = allomorph;
+            });
+        }
+        Consult::Stopped => {
+            record_interrupted_mrule_attempt(mstats, 0);
+            return Vec::new();
+        }
+        Consult::Run(run) => run,
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -2666,11 +3532,26 @@ fn ana_affix_cached(
     let mut reached: u32 = 0;
     for (i, allo) in rule.allomorphs.iter().enumerate() {
         if !pg_fst::work::consume() {
+            record_interrupted_mrule_attempt(mstats, reached);
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
+        if cache.edge_prefilter() && lhs.edge_rejects(&segs) {
+            record_mrule_reach(mstats, i as u32, 0, 0, &mut reached);
+            if let Some(recorder) = recorder {
+                recorder.record_at(
+                    word,
+                    Decision::MorphPatternNoMatch {
+                        allomorph: allo.id,
+                        table,
+                        analysis: true,
+                    },
+                );
+            }
+            continue;
+        }
         let before = output.len();
         // Tier-1: this allomorph's own self time, keyed apart from the rule's `ALLOMORPH_NONE` row (+1 matches `record_mrule_reach`'s convention).
         let _allo_time = mstats.map(|m| m.time_allomorph(i));
@@ -2685,17 +3566,31 @@ fn ana_affix_cached(
             &node_of,
             &new_syn,
             prune_disagreeing_copies,
+            recorder,
         ));
         drop(_allo_time);
         let n = (output.len() - before) as u64;
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
-/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match.
+/// Can two segment nodes stand for the same character? A concrete node is one character definition; a class-derived node is the set it was born with, or any character when unrestricted. Mirrors `StrRep` unification, which is a non-empty intersection of spelling sets.
+fn identities_may_agree(left: EffectiveCdSet<'_>, right: EffectiveCdSet<'_>) -> bool {
+    match (left, right) {
+        (EffectiveCdSet::Singleton(id), other) | (other, EffectiveCdSet::Singleton(id)) => {
+            other.contains(id)
+        }
+        (EffectiveCdSet::Unrestricted, _) | (_, EffectiveCdSet::Unrestricted) => true,
+        (EffectiveCdSet::Members(a), EffectiveCdSet::Members(b)) => a.intersect(b).count() > 0,
+    }
+}
+
+/// True when two copies of an unmodified part differ in length or fail to unify; unsure cases keep the match. `compare_characters` is true only for a grammar with no phonological features: C# then keeps the segment spelling (`StrRep`) on every segment node, so `FeatureStruct.IsUnifiable` in `CanAlign` compares characters, while with features only feature lanes are compared. C# decides per segment (HCLoader.cs:2723-2742 gives `StrRep` to featureless phonemes even when features are declared) and PanGloss per grammar, so a mixed grammar is not pruned on spelling: wasted work only, never a lost parse.
 fn copy_agreement_refuses_match(
+    compare_characters: bool,
     shape: &Shape,
     node_of: &[usize],
     fst: &Fst,
@@ -2714,65 +3609,170 @@ fn copy_agreement_refuses_match(
         let name = format!("p{part}");
         let mut copies: Vec<Vec<usize>> = Vec::with_capacity(occurrences.len());
         let mut undecidable = false;
+        let mut ranges: Vec<Option<(usize, usize)>> = Vec::with_capacity(occurrences.len());
         for capture_idx in 0..occurrences.len() {
-            let Some((start, end)) =
-                fst.get_offsets(&group_name(&name, capture_idx), &result.registers)
-            else {
-                undecidable = true;
-                break;
-            };
-            if start < 0 || end < 0 || start >= end || end as usize > node_of.len() {
-                undecidable = true;
-                break;
+            match copy_node_range(fst, &name, capture_idx, result, shape, node_of) {
+                Ok(range) => ranges.push(range),
+                Err(()) => {
+                    undecidable = true;
+                    break;
+                }
             }
-            let copied_segments = node_of[start as usize..end as usize].to_vec();
-            let Some(&first) = copied_segments.first() else {
-                undecidable = true;
-                break;
-            };
-            let last = *copied_segments
-                .last()
-                .expect("first segment implies a last segment");
-            if last >= shape.len() {
-                undecidable = true;
-                break;
+        }
+        if !undecidable {
+            // An empty group the matcher left unplaced sits against its neighbour in the output; the same is true of no optional node in the word, where nothing can be absorbed.
+            for k in 0..ranges.len() {
+                if ranges[k].is_some() {
+                    continue;
+                }
+                let after_previous = k > 0 && occurrences[k - 1] + 1 == occurrences[k];
+                let before_next = k + 1 < ranges.len() && occurrences[k] + 1 == occurrences[k + 1];
+                ranges[k] = match (after_previous, before_next) {
+                    (true, _) if ranges[k - 1].is_some() => ranges[k - 1].map(|(_, hi)| (hi, hi)),
+                    (_, true) if ranges[k + 1].is_some() => ranges[k + 1].map(|(lo, _)| (lo, lo)),
+                    _ if (0..shape.len()).all(|n| !shape.flags(n).is_optional()) => Some((0, 0)),
+                    _ => {
+                        undecidable = true;
+                        break;
+                    }
+                };
             }
-
-            // Like `copy_part`, count a leading optional run that reaches the word start as part of the copy.
-            let mut optional_prefix_start = first;
-            while optional_prefix_start > 1 && shape.flags(optional_prefix_start - 1).is_optional()
-            {
-                optional_prefix_start -= 1;
+        }
+        if !undecidable {
+            for range in ranges.iter().flatten() {
+                match copy_with_boundary_optionals(shape, *range) {
+                    Some(nodes) => copies.push(nodes),
+                    None => {
+                        undecidable = true;
+                        break;
+                    }
+                }
             }
-            let capture_start = if optional_prefix_start == 1 {
-                optional_prefix_start
-            } else {
-                first
-            };
-            if (capture_start..=last).any(|node| shape.flags(node).is_optional()) {
-                undecidable = true;
-                break;
-            }
-            copies.push(copied_segments);
         }
         if undecidable {
             continue;
         }
 
+        // C# skips optional nodes at a group's edge, so a copy made only of optional nodes can be an empty capture there, and an empty capture keeps the match (`GroupCapture.Success` is false). Such a part is never refused here.
+        if copies
+            .iter()
+            .any(|nodes| !nodes.is_empty() && nodes.iter().all(|&n| shape.flags(n).is_optional()))
+        {
+            continue;
+        }
+
+        let agree = |a: usize, b: usize| {
+            flat_unifiable(shape.node_lanes(a), shape.node_lanes(b))
+                && (!compare_characters
+                    || identities_may_agree(shape.node_cd_set(a), shape.node_cd_set(b)))
+        };
         for left in 0..copies.len() {
             for right in (left + 1)..copies.len() {
-                if copies[left].len() != copies[right].len() {
+                if !copies_can_align(shape, &copies[left], &copies[right], &agree) {
                     return true;
-                }
-                for (&left_node, &right_node) in copies[left].iter().zip(&copies[right]) {
-                    if !flat_unifiable(shape.node_lanes(left_node), shape.node_lanes(right_node)) {
-                        return true;
-                    }
                 }
             }
         }
     }
     false
+}
+
+/// The shape nodes a capture covers, as the half-open node interval `[lo, hi)`; an empty capture is the empty interval at its position. `Ok(None)` is an empty capture the matcher left no position for; `Err` is a capture that cannot be read.
+fn copy_node_range(
+    fst: &Fst,
+    name: &str,
+    capture_idx: usize,
+    result: &FstResult,
+    shape: &Shape,
+    node_of: &[usize],
+) -> Result<Option<(usize, usize)>, ()> {
+    let group = group_name(name, capture_idx);
+    if let Some((start, end)) = fst.get_offsets(&group, &result.registers) {
+        if start < 0 || end < 0 || end as usize > node_of.len() || start >= end {
+            return Err(());
+        }
+        let first = node_of[start as usize];
+        let last = node_of[end as usize - 1];
+        if last >= shape.len() {
+            return Err(());
+        }
+        return Ok(Some((first, last + 1)));
+    }
+    // An empty capture: both register halves hold the same offset when the group was entered.
+    let Some(at) = fst.empty_capture_offset(&group, &result.registers) else {
+        return Ok(None);
+    };
+    if at < 0 || at as usize > node_of.len() {
+        return Err(());
+    }
+    let at = at as usize;
+    let node = if at == node_of.len() {
+        node_of.last().map_or(shape.len(), |&n| n + 1)
+    } else {
+        node_of[at]
+    };
+    Ok(Some((node, node)))
+}
+
+/// A copy as the segment nodes C# `TryGetSegmentCopies` would see under any partition of the optional nodes next to its boundaries: the nodes of `[lo, hi)` plus the unbroken runs of optional nodes just before `lo` and just after `hi`, since the capture enumeration may have given those to the neighbouring copy (divergence 049). `None` when an optional node that is not a segment lies in that span, which C# never reports as disagreeing.
+fn copy_with_boundary_optionals(shape: &Shape, (lo, hi): (usize, usize)) -> Option<Vec<usize>> {
+    let mut start = lo;
+    while start > 1 && shape.flags(start - 1).is_optional() {
+        start -= 1;
+    }
+    let mut end = hi;
+    while end + 1 < shape.len() && shape.flags(end).is_optional() {
+        end += 1;
+    }
+    let mut nodes = Vec::with_capacity(end - start);
+    for node in start..end {
+        if shape.kind(node) == NodeKind::Segment {
+            nodes.push(node);
+        } else if shape.flags(node).is_optional() {
+            return None;
+        }
+    }
+    Some(nodes)
+}
+
+/// C# `CanAlign`: without optional nodes the copies must have equal length and agree position by position; with them an optional node is passed over, or absorbs a node of the other copy and stays available.
+fn copies_can_align(
+    shape: &Shape,
+    first: &[usize],
+    second: &[usize],
+    agree: &impl Fn(usize, usize) -> bool,
+) -> bool {
+    let optional = |n: usize| shape.flags(n).is_optional();
+    if !first.iter().chain(second).any(|&n| optional(n)) {
+        return first.len() == second.len() && first.iter().zip(second).all(|(&a, &b)| agree(a, b));
+    }
+    let mut reachable = vec![vec![false; second.len() + 1]; first.len() + 1];
+    reachable[0][0] = true;
+    for i in 0..=first.len() {
+        for j in 0..=second.len() {
+            if !reachable[i][j] {
+                continue;
+            }
+            let first_optional = i < first.len() && optional(first[i]);
+            let second_optional = j < second.len() && optional(second[j]);
+            if first_optional {
+                reachable[i + 1][j] = true;
+            }
+            if second_optional {
+                reachable[i][j + 1] = true;
+            }
+            if i < first.len() && j < second.len() && agree(first[i], second[j]) {
+                reachable[i + 1][j + 1] = true;
+                if first_optional {
+                    reachable[i][j + 1] = true;
+                }
+                if second_optional {
+                    reachable[i + 1][j] = true;
+                }
+            }
+        }
+    }
+    reachable[first.len()][second.len()]
 }
 
 /// One allomorph's analysis-side match, `GenerateShape`, and dedup; `carry` writes whichever feature structure the rule kind propagates, and the dedup scope resets per allomorph, never shared across the rule.
@@ -2788,29 +3788,67 @@ fn ana_allomorph_matches(
     node_of: &[usize],
     carry: impl Fn(&mut Word),
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
 ) -> Vec<Word> {
-    let parts: Vec<(String, &Pattern)> = allo
-        .lhs
-        .iter()
-        .enumerate()
-        .map(|(i, p)| (format!("p{i}"), p))
-        .collect();
+    // Named once, and only for an allomorph that matches at all: most never do.
+    let mut parts: Option<Vec<(String, &Pattern)>> = None;
     let mut allo_out: Vec<Word> = Vec::new();
-    let repeated_parts = (prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs))
-        .then(|| repeated_part_action_groups(&allo.rhs));
-    let matches = Transduce::new(fst, segs.to_vec())
-        .anchored(true, true)
-        .all_matches();
+    let check_repeated_parts =
+        prune_disagreeing_copies && has_repeated_part_action_group(&allo.rhs);
+    // Grouped on the first match only: an allomorph whose FST never matches never needs them.
+    let mut repeated_parts: Option<HashMap<u16, Vec<usize>>> = None;
+    // Featureless grammar: no static unifiability closure (see `CharDefTable::unif_closure`), so character identity decides.
+    let compare_characters = g.char_tables[table.0 as usize]
+        .unif_closure_rows()
+        .is_none();
+    let mut transduce = Transduce::new(fst, segs).anchored(true, true);
+    if let Some(plan) = optional_runs::plan(g, table, (&word.shape, segs, node_of), allo, lhs, fst)
+    {
+        transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
+    }
+    let matches = transduce.all_matches();
+    if let Some(recorder) = recorder {
+        if matches.is_empty()
+            && pg_fst::work::active_budget()
+                .is_none_or(|budget| !budget.capped() && !budget.timed_out())
+        {
+            recorder.record_at(
+                word,
+                Decision::MorphPatternNoMatch {
+                    allomorph: allo.id,
+                    table,
+                    analysis: true,
+                },
+            );
+        }
+    }
     for result in matches {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if repeated_parts.as_ref().is_some_and(|groups| {
-            copy_agreement_refuses_match(&word.shape, node_of, fst, &result, &allo.rhs, groups)
-        }) {
-            continue;
+        if check_repeated_parts {
+            let groups =
+                repeated_parts.get_or_insert_with(|| repeated_part_action_groups(&allo.rhs));
+            if copy_agreement_refuses_match(
+                compare_characters,
+                &word.shape,
+                node_of,
+                fst,
+                &result,
+                &allo.rhs,
+                groups,
+            ) {
+                continue;
+            }
         }
-        let out = generate_shape(g, table, &parts, lhs, fst, &result, node_of, &word.shape);
+        let parts = parts.get_or_insert_with(|| {
+            allo.lhs
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (format!("p{i}"), p))
+                .collect()
+        });
+        let out = generate_shape(g, table, parts, lhs, fst, &result, node_of, &word.shape);
         let mut w = word.clone();
         w.shape = freeze_out(g, &out);
         carry(&mut w);
@@ -2831,6 +3869,7 @@ fn ana_affix_allomorph(
     node_of: &[usize],
     new_syn: &FeatureStruct,
     prune_disagreeing_copies: bool,
+    recorder: Option<&dyn Recorder>,
 ) -> Vec<Word> {
     ana_allomorph_matches(
         g,
@@ -2841,22 +3880,48 @@ fn ana_affix_allomorph(
         fst,
         segs,
         node_of,
-        |w| w.syn_fs = new_syn.clone(),
+        |w| {
+            w.syn_fs = new_syn.clone();
+            w.analysis_allomorph = Some(allo.id);
+        },
         prune_disagreeing_copies,
+        recorder,
     )
 }
 
 // Realizational affix process — analysis.
 
+fn ana_real_fs(
+    g: &Grammar,
+    required: pg_featstruct::FsId,
+    word: &Word,
+    mstats: Option<MRuleStatsCtx>,
+) -> Option<FeatureStruct> {
+    let required_fs = g.fs_interner.get(required);
+    let unified = unify(required_fs, &word.real_fs);
+    if let Some(ctx) = mstats {
+        if !required_fs.is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::RealizationalUnification(required.0),
+                unified.is_some(),
+            );
+        }
+    }
+    unified
+}
+
 /// C# `Apply`: one rule-level gate (the realizational-FS unify), after which every allomorph's matches carry that same unified value; unlike `ana_affix`, no max-application or syn-FS gate exists here.
-fn ana_realizational(
+fn ana_realizational<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &RealizationalRuleDef,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -2894,17 +3959,34 @@ fn ana_realizational(
 }
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_realizational`.
-fn ana_realizational_cached(
+#[allow(clippy::too_many_arguments)]
+fn ana_realizational_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
+    mrid: MRuleId,
     word: &Word,
     rule: &RealizationalRuleDef,
     cache: &crate::cache::RuleCache,
     mstats: Option<MRuleStatsCtx>,
     prune_disagreeing_copies: bool,
+    graph: Option<&ShapeGraph>,
 ) -> Vec<Word> {
-    let Some(real_fs) = unify(g.fs_interner.get(rule.real_fs), &word.real_fs) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let Some(real_fs) = ana_real_fs(g, rule.real_fs, word, mstats) else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
+    };
+    let run = match consult(
+        graph,
+        mrid,
+        prune_disagreeing_copies,
+        &word.shape,
+        mstats.is_some(),
+    ) {
+        Consult::Replay(row) => {
+            return row.words(word, |w, _| w.real_fs = real_fs.clone());
+        }
+        Consult::Stopped => return Vec::new(),
+        Consult::Run(run) => run,
     };
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
@@ -2915,7 +3997,7 @@ fn ana_realizational_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_ref() else {
+        let Some((fst, lhs)) = cache.allomorph(allo.id).ana_lhs.as_deref() else {
             continue;
         };
         let before = output.len();
@@ -2938,6 +4020,7 @@ fn ana_realizational_cached(
         record_analysis_reach(mstats, i as u32, segs.len() as u64, n, &mut reached);
     }
     record_mrule_invocation_end(mstats, reached, output.len() as u64, segs.len() as u64);
+    run.finish(&mut output);
     output
 }
 
@@ -2966,6 +4049,7 @@ fn ana_realizational_allomorph(
         node_of,
         |w| w.real_fs = real_fs.clone(),
         prune_disagreeing_copies,
+        None,
     )
 }
 
@@ -3063,7 +4147,7 @@ fn effective_cd_sets_eq(a: EffectiveCdSet, b: EffectiveCdSet) -> bool {
 
 // Compounding — synthesis.
 
-fn synth_compound(
+fn synth_compound<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -3071,16 +4155,19 @@ fn synth_compound(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(nh) = word.current_non_head().cloned() else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     // Gating.
-    if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
+    if !observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &nh.syn_fs) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.head_required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3088,7 +4175,7 @@ fn synth_compound(
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
+    if !compound_gate(mstats, &rule.head_prod_restrictions_mpr, &word.mpr) {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
@@ -3103,7 +4190,7 @@ fn synth_compound(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if !g.mpr_group_ok(sr.required_mpr, sr.excluded_mpr, word.mpr) {
+        if mpr_gate_reason(g, &sr.required_mpr, &sr.excluded_mpr, &word.mpr, mstats).is_some() {
             continue;
         }
         // Recompiled per call for the same standalone-fixture reason as `synth_affix`.
@@ -3153,7 +4240,7 @@ fn synth_compound(
 
 /// `RuleCache`-aware sibling of `synth_compound`: gate order differs harmlessly from C#'s (independent boolean gates), and only `HeadProdRestrictMprFeatures` routes through `compounding_rule_not_applied`, matching C#'s own one-site split.
 #[allow(clippy::too_many_arguments)]
-fn synth_compound_cached(
+fn synth_compound_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -3165,12 +4252,20 @@ fn synth_compound_cached(
     policy: FinalTemplateSynthesisPolicy,
     role: RuleInvocationRole,
 ) -> Vec<Word> {
+    let mode = trace.mode();
+    let mstats = if COLLECT_STATS { mstats } else { None };
     let Some(nh) = word.current_non_head().cloned() else {
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
-    if !is_unifiable(g.fs_interner.get(rule.non_head_required_syn_fs), &nh.syn_fs) {
-        if trace.is_tracing() {
+    if !observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &nh.syn_fs) {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -3179,11 +4274,19 @@ fn synth_compound_cached(
                 FailureReason::NonHeadRequiredSyntacticFeatureStruct,
             );
         }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    let Some(new_syn) = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
-        if trace.is_tracing() {
+    let new_syn = synth_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word);
+    record_syn_gate(g, mstats, rule.head_required_syn_fs, new_syn.is_some());
+    let Some(new_syn) = new_syn else {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -3192,11 +4295,17 @@ fn synth_compound_cached(
                 FailureReason::HeadRequiredSyntacticFeatureStruct,
             );
         }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
+        }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
     if final_template_prohibits(ordinary_invocation(role), word, false, policy) {
-        if trace.is_tracing() {
+        if mode.is_tree() {
             trace.morphological_rule_not_applied(
                 parent,
                 mrid,
@@ -3204,12 +4313,26 @@ fn synth_compound_cached(
                 word,
                 FailureReason::NonPartialRuleProhibitedAfterFinalTemplate,
             );
+        } else if let Some(recorder) = mode.recorder() {
+            recorder.record_at(
+                word,
+                Decision::FinalTemplatePolicy {
+                    rule: mrid,
+                    after_final: true,
+                },
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
+            );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     }
-    if !rule.head_prod_restrictions_mpr.compound_match(word.mpr) {
-        if trace.is_tracing() {
+    if !compound_gate(mstats, &rule.head_prod_restrictions_mpr, &word.mpr) {
+        if mode.is_tree() {
             let event = trace.compounding_rule_not_applied(
                 parent,
                 mrid,
@@ -3220,9 +4343,15 @@ fn synth_compound_cached(
                 trace,
                 event,
                 crate::trace::TraceObject::MorphRule(mrid),
-                rule.head_prod_restrictions_mpr,
-                pg_grammar_model::model::MprSet::EMPTY,
-                word.mpr,
+                &rule.head_prod_restrictions_mpr,
+                &pg_grammar_model::model::MprSet::EMPTY,
+                &word.mpr,
+            );
+        }
+        if word.collect_partials() {
+            crate::partials::record(
+                crate::partials::FailureKind::AffixGate,
+                crate::partials::RejectingObject::Rule(mrid),
             );
         }
         record_mrule_none_residual(mstats, word.shape.len() as u64);
@@ -3239,17 +4368,34 @@ fn synth_compound_cached(
         if !pg_fst::work::consume() {
             return Vec::new();
         }
-        if let Some(reason) = mpr_gate_reason(g, sr.required_mpr, sr.excluded_mpr, word.mpr) {
-            if trace.is_tracing() {
+        if let Some(reason) = mpr_gate_reason_traced(
+            g,
+            &sr.required_mpr,
+            &sr.excluded_mpr,
+            word,
+            mstats,
+            mode,
+            MprGateOwner::CompoundSubrule {
+                rule: mrid,
+                subrule: i,
+            },
+        ) {
+            if word.collect_partials() {
+                crate::partials::record(
+                    crate::partials::FailureKind::AffixGate,
+                    crate::partials::RejectingObject::Rule(mrid),
+                );
+            }
+            if mode.is_tree() {
                 let event =
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 capture_mpr_failure(
                     trace,
                     event,
                     crate::trace::TraceObject::MorphRule(mrid),
-                    sr.required_mpr,
-                    sr.excluded_mpr,
-                    word.mpr,
+                    &sr.required_mpr,
+                    &sr.excluded_mpr,
+                    &word.mpr,
                 );
             }
             continue;
@@ -3288,14 +4434,14 @@ fn synth_compound_cached(
         );
         match matched {
             Ok(mut w) => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     w.trace = Some(trace.morphological_rule_applied(parent, mrid, i as i32, &w));
                 }
                 output.push(w);
                 break;
             }
             Err(reason) => {
-                if trace.is_tracing() {
+                if mode.is_tree() {
                     trace.morphological_rule_not_applied(parent, mrid, i as i32, word, reason);
                 }
             }
@@ -3329,11 +4475,11 @@ fn synth_compound_subrule(
     nh_fst: &Fst,
     nh_names: &[String],
 ) -> Result<Word, FailureReason> {
-    let head_res = Transduce::new(head_fst, head_segs.to_vec())
+    let head_res = Transduce::new(head_fst, head_segs)
         .anchored(true, true)
         .first_match()
         .ok_or(FailureReason::HeadPattern)?;
-    let nh_res = Transduce::new(nh_fst, nh_segs.to_vec())
+    let nh_res = Transduce::new(nh_fst, nh_segs)
         .anchored(true, true)
         .first_match()
         .ok_or(FailureReason::NonHeadPattern)?;
@@ -3349,6 +4495,7 @@ fn synth_compound_subrule(
                     shape: &word.shape,
                     range: head_ranges[*i as usize],
                     head: true,
+                    deleted_gaps: word.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, None);
             }
@@ -3358,6 +4505,7 @@ fn synth_compound_subrule(
                     shape: &nh.shape,
                     range: nh_ranges[*i as usize],
                     head: false,
+                    deleted_gaps: nh.extras.deleted_gaps(),
                 };
                 copy_part(g, table, &mut out, &src, None, None);
             }
@@ -3371,6 +4519,8 @@ fn synth_compound_subrule(
                 optional: false,
                 origin: Origin::Insert,
                 cd_set: ctx_cd_set(g, table, ctx),
+                unresolved_variables: Vec::new(),
+                generated_full: Vec::new(),
             }),
             // Modify / Input refs are not used by the reference compounding rules.
             _ => {}
@@ -3382,12 +4532,24 @@ fn synth_compound_subrule(
     w.shape = freeze_out(g, &out);
     w.syn_fs = new_syn.clone();
     w.mpr = g.mpr_add_output(
-        g.mpr_add_output(word.mpr, sr.out_mpr),
-        rule.output_prod_restrictions_mpr,
+        &g.mpr_add_output(&word.mpr, &sr.out_mpr),
+        &rule.output_prod_restrictions_mpr,
     );
+    // A copied head node that was bare stays outside every morph; C# folds non-head nodes into one root morph, so a non-head carries no bare node.
+    let bare: Vec<u32> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| match node.origin {
+            Origin::Head(old) => word.extras.bare_nodes().contains(&(old as u32)),
+            _ => false,
+        })
+        .map(|(index, _)| index as u32)
+        .collect();
+    w.extras.clear_shape_marks();
+    w.extras.set_shape_marks(Vec::new(), bare);
     w.morphs = morphs;
     w.obligatory.extend_from_slice(&rule.obligatory_features);
-    // The consumed non-head stays in `w.non_heads` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.
+    // The consumed non-head stays in `w.non_heads()` as history (matching C#) since `WordKey` needs it to distinguish surface-homophone compounds; `current_non_head` is index-based, not `last()` — do not "simplify" it back, since generation seeds can push several non-heads at once.
     w.flags.is_last_applied_rule_final = None;
     Ok(w)
 }
@@ -3413,7 +4575,7 @@ fn build_ana_compound_lhs(
     sr: &CompoundingSubruleDef,
 ) -> Result<(Fst, AnalysisLhs), BridgeError> {
     let parts = ana_compound_parts(sr);
-    let lhs = build_analysis_lhs(g, table, &parts, &sr.rhs)?;
+    let lhs = build_analysis_lhs(g, table, &parts, &sr.rhs, false)?;
     let fst = CompileInput::new(lhs.nodes.clone())
         .deterministic(false)
         .compile_with_direction(Direction::LeftToRight);
@@ -3421,15 +4583,17 @@ fn build_ana_compound_lhs(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ana_compound(
+fn ana_compound<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
+    let mstats = if COLLECT_STATS { mstats } else { None };
     // Same guard and adjust as `ana_affix`; the head-required/out pair plays the affix rule's required/out role exactly.
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3470,7 +4634,7 @@ fn ana_compound(
 
 /// `crate::cache::RuleCache`-aware sibling of `ana_compound`.
 #[allow(clippy::too_many_arguments)]
-fn ana_compound_cached(
+fn ana_compound_cached<const COLLECT_STATS: bool>(
     g: &Grammar,
     word: &Word,
     rule: &CompoundingRuleDef,
@@ -3479,7 +4643,9 @@ fn ana_compound_cached(
     root_filter: Option<NonHeadRootFilter>,
     mstats: Option<MRuleStatsCtx>,
 ) -> Vec<Word> {
-    let Some(new_syn) = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word) else {
+    let mstats = if COLLECT_STATS { mstats } else { None };
+    let new_syn = ana_syn_fs(g, rule.head_required_syn_fs, rule.out_syn_fs, word, mstats);
+    let Some(new_syn) = new_syn else {
         record_mrule_none_residual(mstats, word.shape.len() as u64);
         return Vec::new();
     };
@@ -3551,10 +4717,7 @@ fn ana_compound_subrule(
         .map(|(n, p)| (n.clone(), *p))
         .collect();
     let mut sr_out: Vec<Word> = Vec::new();
-    for result in Transduce::new(fst, segs.to_vec())
-        .anchored(true, true)
-        .all_matches()
-    {
+    for result in Transduce::new(fst, segs).anchored(true, true).all_matches() {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
@@ -3634,7 +4797,6 @@ fn resolve_non_head_roots(
     mstats: Option<MRuleStatsCtx>,
     mut prod_rejected: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
-    let req = g.fs_interner.get(rule.non_head_required_syn_fs);
     let mut out = Vec::new();
     for resolved in filter(stratum, nh_shape, mstats.map(|m| m.stats)) {
         if !pg_fst::work::consume() {
@@ -3650,8 +4812,8 @@ fn resolve_non_head_roots(
                         .record_overlay_attempt(stratum, OverlayPhase::Gate, 0);
                 }
                 let _gate_time = mstats.map(|m| m.stats.time_overlay(stratum, OverlayPhase::Gate));
-                is_unifiable(req, &root.syn_fs)
-                    && rule.non_head_prod_restrictions_mpr.compound_match(root.mpr)
+                observed_syn_unifiable(g, mstats, rule.non_head_required_syn_fs, &root.syn_fs)
+                    && compound_gate(mstats, &rule.non_head_prod_restrictions_mpr, &root.mpr)
             };
             if !admitted {
                 continue;
@@ -3673,9 +4835,9 @@ fn resolve_non_head_roots(
             }
             let mut nh = Word::new(shape, root.stratum);
             nh.syn_fs = root.syn_fs.clone();
-            nh.mpr = root.mpr;
+            nh.mpr = root.mpr.clone();
             nh.root_allomorph = Some(AllomorphId::GUESSED);
-            nh.root_runtime_id = Some(root.realization_id.clone());
+            nh.set_root_runtime_id(Some(root.realization_id.clone()));
             nh.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(crate::word::RuntimeRoot::Supplied(root)),
@@ -3684,13 +4846,15 @@ fn resolve_non_head_roots(
             continue;
         };
         let entry = &g.entries[le_id.0 as usize];
-        if !is_unifiable(req, g.fs_interner.get(entry.syn_fs)) {
+        if !observed_syn_unifiable(
+            g,
+            mstats,
+            rule.non_head_required_syn_fs,
+            g.fs_interner.get(entry.syn_fs),
+        ) {
             continue;
         }
-        if !rule
-            .non_head_prod_restrictions_mpr
-            .compound_match(entry.mpr)
-        {
+        if !compound_gate(mstats, &rule.non_head_prod_restrictions_mpr, &entry.mpr) {
             // C# `AnalysisCompoundingRule` reports each such root allomorph (`NonHeadProdRestrictMprFeatures`); only a traced caller asks to see them.
             if let Some(rejected) = prod_rejected.as_deref_mut() {
                 if let Some(allo) = entry.allomorphs.iter().find(|allo| allo.id == allo_id) {
@@ -3738,8 +4902,8 @@ fn lexicon_non_head_word(
         .unwrap_or_else(|_| allo.shape.shape.clone());
     let mut nh = Word::new(shape, root_stratum);
     nh.syn_fs = g.fs_interner.get(entry.syn_fs).clone();
-    nh.mpr = entry.mpr;
-    nh.flags.is_partial = entry.is_partial();
+    nh.mpr = entry.mpr.clone();
+    nh.flags.set_is_partial(entry.is_partial());
     nh.root_allomorph = Some(allo_id);
     nh.morphs = vec![MorphRecord::new(allo_id, entry.morpheme, 0)];
     nh
@@ -3750,8 +4914,8 @@ fn push_remove_duplicates_compound(out: &mut Vec<Word>, w: Word) {
     push_keep_longer(out, w, |a, b| {
         shape_duplicates(&a.shape, &b.shape)
             && shape_duplicates(
-                &a.non_heads.last().unwrap().shape,
-                &b.non_heads.last().unwrap().shape,
+                &a.non_heads().last().unwrap().shape,
+                &b.non_heads().last().unwrap().shape,
             )
     });
 }
@@ -3820,6 +4984,72 @@ pub(crate) fn build_allomorph_lhs_cache(
         synth_lhs: compile_parts(g, table, &allo.lhs, "p", true).ok(),
         ana_lhs: build_ana_affix_lhs(g, table, allo).ok(),
     }
+}
+
+pub(crate) fn record_syn_gate(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) {
+    if let Some(ctx) = ctx {
+        if !g.fs_interner.get(fs).is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::Syntactic(fs.0),
+                passed,
+            );
+        }
+    }
+}
+
+fn record_real_subsumption_gate(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    passed: bool,
+) {
+    if let Some(ctx) = ctx {
+        if !g.fs_interner.get(fs).is_empty() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::RealizationalSubsumption(fs.0),
+                passed,
+            );
+        }
+    }
+}
+
+fn compound_gate(
+    ctx: Option<MRuleStatsCtx>,
+    test: &pg_grammar_model::model::MprSet,
+    have: &pg_grammar_model::model::MprSet,
+) -> bool {
+    let passed = test.compound_match(have);
+    if let Some(ctx) = ctx {
+        for id in test.iter() {
+            ctx.stats.record_gate(
+                ObjectKind::MorphRule,
+                ctx.id.0,
+                crate::stats::GateFeature::CompoundMpr(id.0),
+                passed,
+            );
+        }
+    }
+    passed
+}
+
+fn observed_syn_unifiable(
+    g: &Grammar,
+    ctx: Option<MRuleStatsCtx>,
+    fs: pg_featstruct::FsId,
+    have: &FeatureStruct,
+) -> bool {
+    let passed = is_unifiable(g.fs_interner.get(fs), have);
+    record_syn_gate(g, ctx, fs, passed);
+    passed
 }
 
 #[cfg(test)]

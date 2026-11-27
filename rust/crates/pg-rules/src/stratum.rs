@@ -5,22 +5,23 @@
 //! then shape-merge dedup), `SynthesisStratumRule`, the affix-template rules, and `RuleBatch` (a
 //! union of rule outputs; disjunctive = early exit).
 //!
-//! A `StepBudget` owns one allowance across analysis, lookup and confirmation. Scoped
+//! A `WordBudget` owns one allowance across analysis, lookup and confirmation. Scoped
 //! matcher calls consume that same allowance inside traversal and candidate expansion.
 //! Exhaustion unwinds the descent and marks the result incomplete.
 
+use crate::observations::{Decision, Recorder};
 use std::cell::Cell;
 use std::rc::Rc;
 use web_time::Duration;
 
-use crate::analysis_state_key::{AnalysisStateKey, MorphHistoryKey};
+use crate::analysis_state_key::AnalysisStateKey;
 use pg_featstruct::{is_unifiable, subsumes, subtract, union};
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, Grammar, MRuleId, MorphRuleDef, MorphRuleOrder, PRuleId, SlotDef,
     StratumId, TemplateId,
 };
 use pg_shape::Shape;
-use rustc_hash::{FxHashMap as HashMap, FxHashSet};
+use rustc_hash::FxHashMap as HashMap;
 
 /// Callback injected so compounding analysis can prune non-heads against the lexicon without
 /// `pg-rules` depending on `pg-parse` (the dependency runs the other way). The signature matches
@@ -77,13 +78,18 @@ pub(crate) enum RuleInvocationRole {
     TemplateSlot,
 }
 
+use crate::battery::{BatterySet, BatteryWord};
 use crate::cache::RuleCache;
+use crate::canonical::Canonicals;
 use crate::cascade::Cascade;
+use crate::required_slots::{RequiredSlotLookahead, RequiredSlotMaterial};
+use crate::shared_values::SharedValues;
 use crate::stats::{PRuleStatsCtx, StatsCollector};
 use crate::trace::{
     FailureReason, TemplateSlotOutcome, TemplateSlotStatus, TraceHandle, TraceSink,
 };
-use crate::word::{estimate_word_bytes, runtime_id, FinalTemplateState, Word, WordKey};
+use crate::word::{estimate_word_bytes, FinalTemplateState, Word, WordKey};
+use crate::word_set::{fold_hash, PositionIndex, Releasing, WordIndex, WordSet};
 use crate::{metathesis, morph, rewrite};
 
 #[cfg(test)]
@@ -306,35 +312,45 @@ pub mod frontier_profile {
     }
 }
 
-/// Default inner-work allowance per configured analysis attempt, using saturating arithmetic.
-/// The multiplier's evidence and scope are in `docs/research/per-word-search-work-cap.md`.
-pub fn default_work_cap(attempt_cap: usize) -> usize {
-    attempt_cap.saturating_mul(100)
-}
-
-/// Independent analysis-attempt and search-work limits with one shared deadline.
-/// Ordinary confirmation consumes only work, so it can confirm earlier candidates
-/// after analysis reaches its attempt limit. `capped()` reports either exhausted limit.
-pub struct StepBudget {
-    steps: Cell<usize>,
-    attempt_cap: usize,
-    attempt_capped: Cell<bool>,
+/// One word's work allowance across analysis, lookup and confirmation, with one shared deadline.
+///
+/// Analysis may spend the whole work cap. Lookup and confirmation may spend up to the cap plus one sixteenth of it
+/// (the reserve; none under 16), so a word whose total work is within the cap never stops, and a word's total never
+/// exceeds `cap + cap / 16`. Once analysis reaches the cap it stops for good and `capped()` reports it.
+pub struct WordBudget {
     work: pg_fst::work::WorkBudget,
-    synthesis_counting: bool,
+    work_cap: usize,
+    analysis_capped: Cell<bool>,
+    /// This word's unapplication graph over shapes; see `crate::shape_graph`.
+    shape_graph: crate::shape_graph::ShapeGraph,
 }
 
-impl StepBudget {
-    pub fn new(attempt_cap: usize) -> Self {
-        Self::with_limits(attempt_cap, default_work_cap(attempt_cap))
+/// The reserve is this fraction of the work cap; it sits on top of the cap, for confirming candidates analysis had already found.
+const CONFIRMATION_RESERVE_DIVISOR: usize = 16;
+
+impl WordBudget {
+    /// A parse allowance: the cap plus its confirmation reserve.
+    pub fn new(work_cap: usize) -> Self {
+        let reserve = if work_cap >= CONFIRMATION_RESERVE_DIVISOR {
+            work_cap / CONFIRMATION_RESERVE_DIVISOR
+        } else {
+            0
+        };
+        Self::with_reserve(work_cap, reserve)
     }
 
-    pub fn with_limits(attempt_cap: usize, work_cap: usize) -> Self {
+    /// An exact allowance for synthesis and generation, which have no analysis phase to protect a reserve for.
+    pub fn without_reserve(work_cap: usize) -> Self {
+        Self::with_reserve(work_cap, 0)
+    }
+
+    fn with_reserve(work_cap: usize, reserve: usize) -> Self {
+        let work = pg_fst::work::WorkBudget::new(work_cap.saturating_add(reserve));
         Self {
-            steps: Cell::new(0),
-            attempt_cap,
-            attempt_capped: Cell::new(false),
-            work: pg_fst::work::WorkBudget::new(work_cap),
-            synthesis_counting: false,
+            shape_graph: crate::shape_graph::ShapeGraph::new(work.clone()),
+            work,
+            work_cap,
+            analysis_capped: Cell::new(false),
         }
     }
 
@@ -343,59 +359,106 @@ impl StepBudget {
         self
     }
 
-    /// Include synthesis orchestration in the attempt diagnostic and its limit.
-    pub fn with_synthesis_counting(mut self) -> Self {
-        self.synthesis_counting = true;
+    /// Ceiling on capture state held at once while matching (`None` = unbounded); see `pg_fst::work::DEFAULT_RETAINED_CAP_BYTES`.
+    pub fn with_retained_cap(mut self, cap: Option<usize>) -> Self {
+        self.work = self.work.with_retained_cap(cap);
         self
+    }
+
+    /// Ceiling for the parser's counted per-word retained state (`None` means unbounded).
+    pub fn with_word_cap(mut self, cap: Option<usize>) -> Self {
+        self.work = self.work.with_word_cap(cap);
+        self
+    }
+
+    /// Whether the parser-state ceiling stopped this word.
+    pub fn word_capped(&self) -> bool {
+        self.work.word_capped()
+    }
+
+    /// Whether the retained-capture ceiling, rather than the step cap, stopped the search. `capped()` is also true then.
+    pub fn capture_capped(&self) -> bool {
+        self.work.retained_capped()
+    }
+
+    /// The word's shape graph.
+    pub(crate) fn shape_graph(&self) -> &crate::shape_graph::ShapeGraph {
+        &self.shape_graph
     }
 
     pub fn enter(&self) -> pg_fst::work::WorkScope {
         self.work.enter()
     }
 
-    fn over_budget(&self) -> bool {
-        if self.steps.get() >= self.attempt_cap {
-            self.attempt_capped.set(true);
+    /// Whether analysis may not start another unit of work: it has spent the whole cap. Latches, and is checked only where a unit follows, so a word that needs no more than the cap never trips it.
+    pub fn analysis_exhausted(&self) -> bool {
+        if self.work.used() >= self.work_cap {
+            self.analysis_capped.set(true);
         }
-        self.attempt_capped.get() || self.work.stopped()
+        self.analysis_capped.get()
+    }
+
+    fn over_budget(&self) -> bool {
+        if self.work.used() > self.work_cap {
+            self.analysis_capped.set(true);
+        }
+        self.analysis_capped.get() || self.work.stopped()
     }
 
     fn synthesis_over_budget(&self) -> bool {
-        if self.synthesis_counting {
-            return !self.tick();
-        }
         !self.work.consume()
     }
 
+    /// One analysis unit: refused once analysis holds the whole cap.
+    pub fn analysis_unit(&self) -> bool {
+        !self.analysis_exhausted() && self.work.consume()
+    }
+
+    #[inline]
     fn tick(&self) -> bool {
-        if self.over_budget() || !self.work.consume() {
+        if self.work.used() >= self.work_cap {
+            self.analysis_capped.set(true);
             return false;
         }
-        self.steps.set(self.steps.get().saturating_add(1));
-        true
+        !(self.analysis_capped.get() || self.work.stopped()) && self.work.consume()
     }
 
     pub fn capped(&self) -> bool {
-        self.attempt_capped.get() || self.work.capped()
+        self.analysis_capped.get() || self.work.capped()
+    }
+
+    pub fn search_stopped(&self) -> bool {
+        self.capped() || self.capture_capped() || self.word_capped() || self.timed_out()
+    }
+
+    pub fn work_limit_reached(&self) -> bool {
+        self.analysis_capped.get()
+            || (self.work.capped() && !self.work.retained_capped() && !self.work.word_capped())
     }
 
     pub fn timed_out(&self) -> bool {
         self.work.timed_out()
     }
 
-    /// Morphological analysis attempts; synthesis attempts are included only when opted in.
-    pub fn steps(&self) -> usize {
-        self.steps.get()
-    }
-
-    /// Total inner search work reserved, never exceeding the configured work cap.
+    /// Total work reserved, never exceeding the cap plus its reserve.
     pub fn work_steps(&self) -> usize {
         self.work.used()
     }
 }
+mod required_slot_check;
 
 #[cfg(test)]
-mod step_budget_timeout_tests;
+mod required_slot_lookahead_tests;
+#[cfg(test)]
+mod required_slot_order_tests;
+#[cfg(test)]
+mod required_slot_review_tests;
+
+#[cfg(test)]
+mod shape_graph_tests;
+
+#[cfg(test)]
+mod word_budget_tests;
 
 #[cfg(test)]
 mod final_template_policy_tests;
@@ -429,11 +492,13 @@ pub struct AnalyzerConfig {
     /// Mirrors C# `Morpher.MaxStemCount` (default `2`): refuse to unapply a compounding rule once
     /// `non_heads.len() + 1 >= max_stem_count`. Without it, a compounding subrule whose patterns
     /// are "1+ of any segment" matches every split of every substring at every depth — a
-    /// Catalan-scale blowup that burns the whole step budget.
+    /// Catalan-scale blowup that burns the whole work cap.
     pub max_stem_count: u32,
     /// When enabled, reject an allomorph analysis match if repeated copies of an input part
     /// disagree in segment count or feature unifiability. Indeterminate captures are retained.
     pub prune_disagreeing_copies: bool,
+    /// Mirrors C# `Morpher.RequiredSlotLookahead` (default `On`): drop template partials whose required slot can no longer find the segments its affix inserts.
+    pub required_slot_lookahead: RequiredSlotLookahead,
 }
 
 impl Default for AnalyzerConfig {
@@ -443,6 +508,7 @@ impl Default for AnalyzerConfig {
             max_unapplications: 0,
             max_stem_count: 2,
             prune_disagreeing_copies: true,
+            required_slot_lookahead: RequiredSlotLookahead::default(),
         }
     }
 }
@@ -452,8 +518,35 @@ pub struct StratumAnalysis {
     /// The deduplicated candidate set (the post-prule input word is always the first element — the
     /// "nothing unapplied" candidate that C# seeds `output` with).
     pub words: Vec<Word>,
-    /// Whether the step budget fired (partial results). See the module docs.
+    /// Whether the work cap fired (partial results). See the module docs.
     pub capped: bool,
+}
+
+/// `StratumAnalysis` with the candidate set as the analysis built it, each word stored against the analysis' input.
+pub struct StoredStratumAnalysis {
+    /// The deduplicated candidate set, the post-prule input word first.
+    pub words: Canonicals,
+    /// Whether the work cap fired (partial results).
+    pub capped: bool,
+}
+
+impl StoredStratumAnalysis {
+    /// The analysis with every word built.
+    pub fn into_analysis(self) -> StratumAnalysis {
+        StratumAnalysis {
+            words: self.words.into_words(),
+            capped: self.capped,
+        }
+    }
+}
+
+/// The caller's root check for the last-analysed stratum's output words.
+#[derive(Copy, Clone)]
+pub struct RootGate<'a> {
+    /// Whether any root matches a word. It must answer from the word's shape and stratum alone and spend none of the word's work.
+    pub has_root: &'a dyn Fn(&Word) -> bool,
+    /// The check is not asked while the stratum holds fewer output words than this, so an ordinary word never pays for it.
+    pub from_words: usize,
 }
 
 // Analysis stratum rule.
@@ -466,7 +559,7 @@ pub fn analyze_stratum(
     stratum: StratumId,
     input: Word,
     cfg: &AnalyzerConfig,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered(g, stratum, input, cfg, None, None, budget)
 }
@@ -485,7 +578,7 @@ pub fn analyze_stratum_filtered(
     cfg: &AnalyzerConfig,
     non_head_root_filter: Option<NonHeadRootFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered_ruled(
         g,
@@ -510,7 +603,7 @@ pub fn analyze_stratum_filtered_ruled(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
 ) -> StratumAnalysis {
     analyze_stratum_filtered_ruled_traced(
         g,
@@ -540,7 +633,7 @@ pub fn analyze_stratum_filtered_ruled_traced(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -554,6 +647,7 @@ pub fn analyze_stratum_filtered_ruled_traced(
         rule_filter,
         cache,
         budget,
+        &SharedValues::default(),
         FinalTemplateAnalysisPolicy::default(),
         stats,
         trace,
@@ -573,12 +667,50 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
     non_head_root_filter: Option<NonHeadRootFilter>,
     rule_filter: Option<RuleFilter>,
     cache: Option<&RuleCache>,
-    budget: &StepBudget,
+    budget: &WordBudget,
+    values: &SharedValues,
     policy: FinalTemplateAnalysisPolicy,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
 ) -> StratumAnalysis {
+    analyze_last_stratum(
+        g,
+        stratum,
+        input,
+        cfg,
+        non_head_root_filter,
+        rule_filter,
+        cache,
+        budget,
+        values,
+        policy,
+        stats,
+        trace,
+        parent,
+        None,
+    )
+    .into_analysis()
+}
+
+/// `analyze_stratum_filtered_ruled_traced_with_policy` for a stratum whose outputs feed no later stratum, its candidate set left as the analysis built it. With a `root_gate`, once the output has grown to `RootGate::from_words` words, a word no root matches keeps its place in the output and in the visited set but none of the alternatives that fold into it: nothing can be synthesized from it, so they would never be read. The words, their order and the work are the same either way.
+#[allow(clippy::too_many_arguments)]
+pub fn analyze_last_stratum(
+    g: &Grammar,
+    stratum: StratumId,
+    input: Word,
+    cfg: &AnalyzerConfig,
+    non_head_root_filter: Option<NonHeadRootFilter>,
+    rule_filter: Option<RuleFilter>,
+    cache: Option<&RuleCache>,
+    budget: &WordBudget,
+    values: &SharedValues,
+    policy: FinalTemplateAnalysisPolicy,
+    stats: Option<&StatsCollector>,
+    trace: &dyn TraceSink,
+    parent: TraceHandle,
+    root_gate: Option<RootGate>,
+) -> StoredStratumAnalysis {
     let _work_scope = budget.enter();
     StratumAnalyzer::new(
         g,
@@ -588,15 +720,16 @@ pub fn analyze_stratum_filtered_ruled_traced_with_policy(
         rule_filter,
         cache,
         budget,
+        values,
         policy,
         stats,
         trace,
         parent,
     )
-    .analyze(input)
+    .analyze(input, root_gate)
 }
 
-/// The stratum orchestrator. Borrows the caller's `StepBudget` rather than owning its own step counter.
+/// The stratum orchestrator. Borrows the caller's `WordBudget` rather than owning its own work counter.
 struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     g: &'g Grammar,
     stratum_id: StratumId,
@@ -605,11 +738,15 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// The stratum's morphological rules reversed; the cascade indexes this list, so the closure maps `i -> reversed[i]` to record the correct `MRuleId`.
     reversed_mrules: Vec<MRuleId>,
     cfg: AnalyzerConfig,
-    budget: &'b StepBudget,
+    budget: &'b WordBudget,
+    /// The parse's shared shapes and syntactic feature structures; every word this stratum produces points into it.
+    values: &'b SharedValues,
     /// The non-head lexicon filter, or `None` for unfiltered. See `NonHeadRootFilter`.
     non_head_root_filter: Option<NonHeadRootFilter<'f>>,
     /// The mrule/template selector, or `None` to admit every rule. See `RuleFilter`.
     rule_filter: Option<RuleFilter<'r>>,
+    /// Per `MRuleId`, whether the selector admits it, decided once at construction; `None` when no selector restricts the parse.
+    admitted_mrules: Option<Vec<bool>>,
     /// The compile-once FST cache; `None` recompiles per call. See `analyze_stratum_filtered` for why the fallback is still needed.
     cache: Option<&'c RuleCache>,
     /// The gated `--stats` collector, or `None` when stats collection is off; see `crate::stats`.
@@ -618,10 +755,22 @@ struct StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     policy: FinalTemplateAnalysisPolicy,
     /// The analysis-side trace sink; every entry point but `analyze_stratum_filtered_ruled_traced` passes `NoopSink`.
     trace: &'t dyn TraceSink,
+    trace_mode: crate::trace::TraceMode<'t>,
     /// The ambient trace cursor; call sites resolve `word.trace.unwrap_or(parent)` so successful (un)applications nest under the deepest event on that branch.
     parent: TraceHandle,
     /// The stratum's templates' reversed slot sequences, built on the first untraced battery.
     slot_trie: std::cell::OnceCell<SlotTrie>,
+    /// The look-ahead tables when there is no `RuleCache` to hold them.
+    fallback_material: std::cell::OnceCell<Vec<RequiredSlotMaterial>>,
+}
+
+/// Per `MRuleId`, whether `rule_filter` admits it; `None` for no selector.
+fn admitted_mrule_flags(g: &Grammar, rule_filter: Option<RuleFilter>) -> Option<Vec<bool>> {
+    rule_filter.map(|f| {
+        (0..g.mrules.len())
+            .map(|i| f(RuleRef::MRule(MRuleId(i as u32))))
+            .collect()
+    })
 }
 
 /// Templates' slots in walk order (last first), sharing a node only while every walked slot is identical.
@@ -630,6 +779,8 @@ struct SlotTrie {
 }
 
 struct SlotTrieNode {
+    /// Slots walked from the root to reach this node.
+    depth: usize,
     /// The `(template, slot index)` of one slot this edge stands for; `None` at the root.
     slot: Option<(TemplateId, usize)>,
     children: Vec<usize>,
@@ -639,11 +790,30 @@ struct SlotTrieNode {
     below: Vec<usize>,
 }
 
+/// The per-call state of the shared walk: one flag per template (admitted, and dead once its look-ahead fails), and each template's outputs.
+struct TrieWalk<'i> {
+    admitted: Vec<bool>,
+    dead: Vec<bool>,
+    outs: Vec<BatterySet<'i>>,
+}
+
+impl TrieWalk<'_> {
+    fn live(&self, pos: usize) -> bool {
+        self.admitted[pos] && !self.dead[pos]
+    }
+}
+
+/// The slots fired for template `pos` on this path; empty outside shadow mode.
+fn fired_of(fired: &[Vec<usize>], pos: usize) -> &[usize] {
+    fired.get(pos).map_or(&[], Vec::as_slice)
+}
+
 impl SlotTrie {
     const ROOT: usize = 0;
 
     fn build(g: &Grammar, templates: &[TemplateId]) -> Self {
         let mut nodes = vec![SlotTrieNode {
+            depth: 0,
             slot: None,
             children: Vec::new(),
             terminal: Vec::new(),
@@ -665,6 +835,7 @@ impl SlotTrie {
                     Some(child) => child,
                     None => {
                         nodes.push(SlotTrieNode {
+                            depth: nodes[cur].depth + 1,
                             slot: Some((tid, index)),
                             children: Vec::new(),
                             terminal: Vec::new(),
@@ -697,14 +868,23 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         non_head_root_filter: Option<NonHeadRootFilter<'f>>,
         rule_filter: Option<RuleFilter<'r>>,
         cache: Option<&'c RuleCache>,
-        budget: &'b StepBudget,
+        budget: &'b WordBudget,
+        values: &'b SharedValues,
         policy: FinalTemplateAnalysisPolicy,
         stats: Option<&'b StatsCollector>,
         trace: &'t dyn TraceSink,
         parent: TraceHandle,
     ) -> Self {
         let stratum = &g.strata[stratum_id.0 as usize];
-        let reversed_mrules: Vec<MRuleId> = stratum.mrules.iter().rev().copied().collect();
+        let admitted_mrules = admitted_mrule_flags(g, rule_filter);
+        // A selector-excluded rule is neither attempted nor charged by the cascade.
+        let reversed_mrules: Vec<MRuleId> = stratum
+            .mrules
+            .iter()
+            .rev()
+            .copied()
+            .filter(|id| admitted_mrules.as_ref().is_none_or(|a| a[id.0 as usize]))
+            .collect();
         StratumAnalyzer {
             g,
             stratum_id,
@@ -713,58 +893,49 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             reversed_mrules,
             cfg,
             budget,
+            values,
             non_head_root_filter,
             rule_filter,
+            admitted_mrules,
             cache,
             stats,
             policy,
             trace,
+            trace_mode: trace.mode(),
             parent,
             slot_trie: std::cell::OnceCell::new(),
+            fallback_material: std::cell::OnceCell::new(),
         }
     }
 
     /// Rule admission — `true` when no filter was supplied, matching C#'s `rule => true` default.
     #[inline]
     fn rule_admitted(&self, r: RuleRef) -> bool {
-        self.rule_filter.is_none_or(|f| f(r))
+        match (r, &self.admitted_mrules) {
+            (RuleRef::MRule(id), Some(admitted)) => admitted[id.0 as usize],
+            _ => self.rule_filter.is_none_or(|f| f(r)),
+        }
+    }
+
+    /// True when the selector excludes every rule of a non-empty `slot`, so its batch can produce nothing.
+    fn slot_fully_excluded(&self, slot: &SlotDef) -> bool {
+        !slot.rules.is_empty()
+            && self
+                .admitted_mrules
+                .as_ref()
+                .is_some_and(|a| !slot.rules.iter().any(|id| a[id.0 as usize]))
     }
 
     /// The order-independent state key for `w` (`AnalyzerConfig::merge_equivalent`'s fold key), with each rule's count saturated at its `max_apps` -- the only reader compares `count >= max_apps`, so counts above it are behaviorally identical (C# does not saturate, `AnalysisStateKey.cs:14-34` -- deliberate divergence).
     fn state_key(&self, w: &Word) -> AnalysisStateKey {
-        let morph_history = w
-            .morphs
-            .iter()
-            .map(|morph| MorphHistoryKey {
-                allomorph: morph.allomorph,
-                morpheme: morph.morpheme,
-                order: morph.order,
-                status: morph.status,
-                runtime_identity: runtime_id(morph.runtime_root.as_deref()).map(str::to_owned),
-            })
-            .collect();
-        let rule_counts = w
-            .unapplied_rule_counts
-            .iter()
-            .filter_map(|(&id, &count)| {
-                let cap = self.g.mrules[id.0 as usize].max_apps();
-                let saturated = count.min(u32::from(cap));
-                (saturated > 0).then_some((id, saturated))
-            })
-            .collect();
-        AnalysisStateKey::new(
-            w.shape.clone(),
-            w.stratum,
-            w.syn_fs.clone(),
-            w.real_fs.clone(),
-            w.non_heads.len() as u32,
-            rule_counts,
-            w.flags.final_template_state,
-            morph_history,
-        )
+        crate::analysis_state_key::key_of(w, &|id| self.max_apps(id))
     }
 
-    /// True once the shared budget is exhausted; delegates to the shared `StepBudget`.
+    fn max_apps(&self, id: MRuleId) -> u32 {
+        u32::from(self.g.mrules[id.0 as usize].max_apps())
+    }
+
+    /// True once the shared budget is exhausted; delegates to the shared `WordBudget`.
     fn over_budget(&self) -> bool {
         self.budget.over_budget()
     }
@@ -773,13 +944,33 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.budget.tick()
     }
 
+    fn edge_candidates<'a>(
+        &'a self,
+        w: &Word,
+        mut rules: impl Iterator<Item = MRuleId>,
+    ) -> Option<crate::morph::edge_index::EdgeCandidates<'a>> {
+        if self.trace_mode.is_tree() || self.over_budget() {
+            return None;
+        }
+        let candidates = self
+            .cache?
+            .edge_candidates(self.g, self.stratum.table, &w.shape)?;
+        rules.any(|id| candidates.rejects(id)).then_some(candidates)
+    }
+
     /// Unapply a single morphological rule and record the bookkeeping on every output; `morph::analyze` stays semantics-pure.
-    fn apply_one_mrule(&self, id: MRuleId, w: &Word, role: RuleInvocationRole) -> Vec<Word> {
+    fn apply_one_mrule(
+        &self,
+        id: MRuleId,
+        w: &Word,
+        role: RuleInvocationRole,
+        candidates: Option<&crate::morph::edge_index::EdgeCandidates<'_>>,
+    ) -> Vec<Word> {
         if !crate::branch_census::enabled() {
-            return self.apply_one_mrule_uncounted(id, w, role);
+            return self.apply_one_mrule_uncounted(id, w, role, candidates);
         }
         let parent = crate::branch_census::node(w);
-        let may_compound = (w.non_heads.len() as u32 + 1) < self.cfg.max_stem_count
+        let may_compound = (w.non_heads().len() as u32 + 1) < self.cfg.max_stem_count
             && self.g.strata[..=self.stratum_id.0 as usize]
                 .iter()
                 .any(|st| {
@@ -790,12 +981,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if may_compound {
             crate::branch_census::mark_may_compound(parent);
         }
-        let (steps0, work0) = (self.budget.steps(), self.budget.work_steps());
+        let work0 = self.budget.work_steps();
         let t0 = web_time::Instant::now();
-        let outs = self.apply_one_mrule_uncounted(id, w, role);
+        let outs = self.apply_one_mrule_uncounted(id, w, role, candidates);
         crate::branch_census::charge_analysis(
             parent,
-            (self.budget.steps() - steps0) as u64,
             (self.budget.work_steps() - work0) as u64,
             t0.elapsed().as_nanos() as u64,
         );
@@ -810,6 +1000,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         id: MRuleId,
         w: &Word,
         role: RuleInvocationRole,
+        candidates: Option<&crate::morph::edge_index::EdgeCandidates<'_>>,
     ) -> Vec<Word> {
         // Checked before the budget tick: a rejected-by-gate rule was never attempted.
         if !self.rule_admitted(RuleRef::MRule(id)) {
@@ -821,14 +1012,52 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let rule = &self.g.mrules[id.0 as usize];
         // Depth gate; see `AnalyzerConfig::max_stem_count`. Outside `tick()`, same reason as the gate above.
         if matches!(rule, MorphRuleDef::Compounding(_))
-            && w.non_heads.len() as u32 + 1 >= self.cfg.max_stem_count
+            && w.non_heads().len() as u32 + 1 >= self.cfg.max_stem_count
         {
             return Vec::new();
         }
         // Once unapplied on `w`'s trail `max_apps` times, skipped for this candidate; outside `tick()`.
-        if w.unapplied_rule_counts.get(&id).copied().unwrap_or(0) >= u32::from(rule.max_apps()) {
+        if w.trail.count_of(id) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
+        if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
+            let syn_admitted = morph::ana_syn_gate(
+                self.g,
+                affix.required_syn_fs,
+                affix.out_syn_fs,
+                w,
+                self.stats.map(|stats| crate::stats::MRuleStatsCtx {
+                    stats,
+                    stratum: self.stratum_id,
+                    id,
+                    direction: crate::stats::Direction::Analysis,
+                }),
+            );
+            if syn_admitted && candidates.rejects(id) {
+                if candidates.charge_needed() {
+                    let _owner = self.stats.map(|stats| {
+                        stats.time_enter(
+                            crate::stats::ObjectKind::MorphRule,
+                            self.stratum_id,
+                            id.0,
+                            crate::stats::ALLOMORPH_NONE,
+                            crate::stats::Direction::Analysis,
+                        )
+                    });
+                    pg_fst::work::consume();
+                }
+                return Vec::new();
+            }
+        }
+        let _obj_time = self.stats.map(|stats| {
+            stats.time_enter(
+                crate::stats::ObjectKind::MorphRule,
+                self.stratum_id,
+                id.0,
+                crate::stats::ALLOMORPH_NONE,
+                crate::stats::Direction::Analysis,
+            )
+        });
         if !self.tick() {
             return Vec::new();
         }
@@ -841,16 +1070,6 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         });
         // Threaded into `morph::ana_compound` rather than post-filtering: root-allomorph resolution must join `ana_compound_subrule`'s own per-subrule dedup scope.
         let node_parent = w.trace.unwrap_or(self.parent);
-        // Book this rule's self time to its own report row.
-        let _obj_time = self.stats.map(|stats| {
-            stats.time_enter(
-                crate::stats::ObjectKind::MorphRule,
-                self.stratum_id,
-                id.0,
-                crate::stats::ALLOMORPH_NONE,
-                crate::stats::Direction::Analysis,
-            )
-        });
         let mut outs = match (rule, self.non_head_root_filter) {
             (MorphRuleDef::Compounding(_), Some(filter)) => match self.cache {
                 Some(cache) => morph::analyze_cached_with_root_filter_traced(
@@ -864,6 +1083,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
+                    Some(self.budget.shape_graph()),
                 ),
                 None => morph::analyze_with_root_filter_stats(
                     self.g,
@@ -885,6 +1105,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                     self.trace,
                     node_parent,
                     self.cfg.prune_disagreeing_copies,
+                    Some(self.budget.shape_graph()),
                 ),
                 None => {
                     morph::analyze_stats(self.g, w, rule, mstats, self.cfg.prune_disagreeing_copies)
@@ -899,34 +1120,74 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let keeps_template_state =
             matches!(rule, MorphRuleDef::AffixProcess(def) if self.g.affix_rule_is_clitic(def));
         for o in &mut outs {
+            let selected = if matches!(rule, MorphRuleDef::AffixProcess(_)) {
+                Some(
+                    o.analysis_allomorph
+                        .take()
+                        .expect("affix analysis did not record its allomorph"),
+                )
+            } else {
+                o.analysis_allomorph = None;
+                None
+            };
+            self.values.share(o);
             // Analysis always records the known rule; the null case only arises from generation seeding a bare non-head directly.
-            o.mrule_apps.push(Some(id));
-            o.mrule_app_index = o.mrule_apps.len() as i32 - 1;
-            // Paired with the `mrule_apps.push` above; only `Self::state_key` reads it.
-            o.record_unapplication(id);
+            o.trail.push(Some(id), selected);
+            o.mrule_app_index = o.trail.len() as i32 - 1;
             // `morph::ana_compound` already pushed the split-off non-head; this pairs that push with the index bump.
-            o.non_head_app_index = o.non_heads.len() as i32 - 1;
+            o.non_head_app_index = o.non_heads().len() as i32 - 1;
             if self.policy.enforce && !keeps_template_state {
                 o.flags.final_template_state = analysis_state_after_mrule(
                     role,
                     matches!(rule, MorphRuleDef::Realizational(_)),
                 );
             }
+            if let Some(recorder) = self.trace_mode.recorder() {
+                o.trace = recorder.advance(w.trace);
+            }
         }
         outs
     }
 
     /// The mrule cascade over the reversed rule list: permutation for `Linear`, combination for `Unordered`, deduped by full word key.
-    fn run_mrule_cascade(&self, input: &Word) -> Vec<Word> {
-        let apply_rule = |i: usize, w: &Word| {
-            self.apply_one_mrule(self.reversed_mrules[i], w, RuleInvocationRole::Ordinary)
+    fn run_mrule_cascade(&self, input: &Word) -> crate::cascade::CascadeOutput<Word> {
+        let prepare = |w: &Word, start: usize, applied: Option<&[bool]>| {
+            self.edge_candidates(
+                w,
+                self.reversed_mrules
+                    .iter()
+                    .enumerate()
+                    .skip(start)
+                    .filter(|(i, _)| applied.is_none_or(|a| !a[*i]))
+                    .map(|(_, &id)| id),
+            )
         };
+        let apply_rule =
+            |i: usize,
+             w: &Word,
+             candidates: &Option<crate::morph::edge_index::EdgeCandidates<'_>>| {
+                self.apply_one_mrule(
+                    self.reversed_mrules[i],
+                    w,
+                    RuleInvocationRole::Ordinary,
+                    candidates.as_ref(),
+                )
+            };
         let key = |w: &Word| w.dedup_key();
-        let casc = Cascade::new(true, usize::MAX);
+        let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
+            self.stats,
+            self.stratum_id,
+            &self.reversed_mrules,
+            crate::stats::Direction::Analysis,
+        );
         let n = self.reversed_mrules.len();
         let out = match self.order {
-            MorphRuleOrder::Linear => casc.permutation(n, input.clone(), &apply_rule, &key),
-            MorphRuleOrder::Unordered => casc.combination(n, input.clone(), &apply_rule, &key),
+            MorphRuleOrder::Linear => {
+                casc.permutation_prepared(n, input.clone(), &prepare, &apply_rule, &key)
+            }
+            MorphRuleOrder::Unordered => {
+                casc.combination_prepared(n, input.clone(), &prepare, &apply_rule, &key)
+            }
         };
         if frontier_profile::enabled() {
             frontier_profile::record_raw_cascade(
@@ -934,7 +1195,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 crate::word::estimate_words_bytes(&out.words),
             );
         }
-        out.words
+        out
     }
 
     /// Run the mrule cascade, then per stratum order interleave templates, streaming each output into `sink` (see `WordSink`) rather than returning an owned subtree.
@@ -944,7 +1205,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         let _depth = frontier_profile::enabled().then(frontier_profile::DepthGuard::enter);
         // `.Distinct(...)` in C# is redundant here — the cascade already deduped by key.
-        for w in self.run_mrule_cascade(input) {
+        let cascade = self.run_mrule_cascade(input);
+        let _memory = cascade.memory;
+        for w in cascade.words {
+            if self.budget.word_capped() {
+                break;
+            }
             if sink.done() {
                 break;
             }
@@ -978,10 +1244,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return;
         }
         let in_key = input.dedup_key();
-        for t in self.run_template_batch(input) {
+        // The battery's buffer is given back as this loop empties it.
+        let (batch, _memory) = self.run_template_batch(input);
+        for t in Releasing::new(batch) {
+            if self.budget.word_capped() {
+                break;
+            }
             if sink.done() {
                 break;
             }
+            let t = t.into_word(input);
             let changed = t.dedup_key() != in_key;
             match self.order {
                 MorphRuleOrder::Linear => {
@@ -1000,68 +1272,88 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
     }
 
-    /// The template battery: non-disjunctive union of every affix template's output, deduped by key.
-    fn run_template_batch(&self, input: &Word) -> Vec<Word> {
+    /// The template battery: non-disjunctive union of every affix template's output, deduped by key, each output stored against `input`.
+    fn run_template_batch<'i>(
+        &self,
+        input: &'i Word,
+    ) -> (Vec<BatteryWord>, pg_fst::work::WordMemory) {
         if let Some(stats) = self.stats {
             stats.record_template_battery(self.stratum_id, crate::stats::Direction::Analysis);
         }
         // Tracing keeps the per-template walk, whose begin/end events and slot outcomes are per template.
-        let per_template: Vec<Vec<Word>> = if self.trace.is_tracing() {
-            self.stratum
+        let per_template: Vec<BatterySet<'i>> = if self.trace_mode.is_tree() {
+            let outputs: Vec<_> = self
+                .stratum
                 .templates
                 .iter()
                 .map(|&tid| self.analyze_template(tid, input))
-                .collect()
+                .collect();
+            pg_cost::discount_bytes(
+                outputs.capacity() * std::mem::size_of::<pg_fst::work::WordMemory>(),
+            );
+            outputs
         } else {
             self.shared_slot_battery(input)
         };
-        let mut seen: HashMap<WordKey, usize> = HashMap::default();
-        let mut out: Vec<Word> = Vec::new();
+        // Each template's words are already distinct by key, so the first template with any is the union so far and the rest merge into it; copying it into a second set would hold every word twice.
+        let mut per_template = per_template.into_iter();
+        let mut union = per_template
+            .find(|words| !words.is_empty())
+            .unwrap_or_else(|| BatterySet::new(input));
         for template_out in per_template {
-            for w in template_out {
-                let key = w.dedup_key();
-                match seen.get(&key) {
+            // Each template's set shrinks as the union grows, and is gone once merged.
+            let (template_words, _template_memory) = template_out.into_stored();
+            for w in Releasing::new(template_words) {
+                if self.budget.word_capped() {
+                    break;
+                }
+                let key = w.dedup_key(input);
+                match union.position(&key) {
                     // WordKey ignores syntactic features, so a collision retains their existing generalization.
-                    Some(&idx) => {
-                        generalize_syn_fs(&mut out[idx], &w, &|f| self.g.syn_features.mask(f))
+                    Some(idx) => {
+                        let retained = union.get_mut(idx);
+                        widen_syn_fs(retained.syn_fs_mut(), w.syn_fs(), &|f| {
+                            self.g.syn_features.mask(f)
+                        });
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.merged(&w.into_word(input), retained.trace(input), true);
+                        }
                     }
-                    None => {
-                        seen.insert(key, out.len());
-                        out.push(w);
-                    }
+                    None => union.push_new(&key, w),
                 }
             }
         }
+        let (out, memory) = union.into_stored();
         if frontier_profile::enabled() {
-            frontier_profile::record_template(out.len(), crate::word::estimate_words_bytes(&out));
+            let bytes = out.iter().map(|w| w.estimated_bytes(input)).sum();
+            frontier_profile::record_template(out.len(), bytes);
         }
-        out
+        (out, memory)
     }
 
     /// Required syntactic features gate admission; only slot analysis changes output features.
-    fn analyze_template(&self, tid: TemplateId, input: &Word) -> Vec<Word> {
+    fn analyze_template<'i>(&self, tid: TemplateId, input: &'i Word) -> BatterySet<'i> {
         if !self.template_admits(tid, input) {
-            return Vec::new();
+            return BatterySet::new(input);
         }
         let tmpl = &self.g.templates[tid.0 as usize];
         // Fires once per `Apply`, right after the required-syn-FS gate and before the slot walk.
         let node_parent = input.trace.unwrap_or(self.parent);
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace.begin_unapply_template(node_parent, tid, input);
         }
-        let mut out: HashMap<WordKey, Word> = HashMap::default();
+        let mut out = BatterySet::new(input);
         let slot_outcomes =
-            (self.trace.is_tracing() && self.trace.captures_details()).then(Vec::new);
+            (self.trace_mode.is_tree() && self.trace.captures_details()).then(Vec::new);
+        let last_slot = tmpl.slots.len() as isize - 1;
+        let mut fired = Vec::new();
+        if self.required_slot_cannot_unapply(tid, input, last_slot, &mut fired, &mut None) {
+            self.end_unapply_template(tid, input, false, None);
+            return BatterySet::new(input);
+        }
         // Descend from the last slot.
-        self.template_unapply_slots(
-            tid,
-            tmpl,
-            input,
-            tmpl.slots.len() as isize - 1,
-            &mut out,
-            slot_outcomes,
-        );
-        out.into_values().collect()
+        self.template_unapply_slots(tid, input, last_slot, &mut out, slot_outcomes, fired);
+        out
     }
 
     /// The template's admission gates in `AnalysisAffixTemplateRule.Apply` order, recording their stats.
@@ -1070,6 +1362,15 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             return false;
         }
         let tmpl = &self.g.templates[tid.0 as usize];
+        // A required slot whose rules are all excluded leaves the template no path to an output; tracing keeps the walk for its events.
+        if !self.trace_mode.is_tree()
+            && tmpl
+                .slots
+                .iter()
+                .any(|slot| !slot_optional(slot) && self.slot_fully_excluded(slot))
+        {
+            return false;
+        }
         // In mixed strata, reject final templates before required-FS admission and slot walking.
         if self.policy.enforce
             && input.flags.final_template_state == crate::word::FinalTemplateState::NonTemplate
@@ -1097,7 +1398,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     }
 
     /// Per-template `analyze_template` outputs, running each shared slot batch once (divergence 095).
-    fn shared_slot_battery(&self, input: &Word) -> Vec<Vec<Word>> {
+    fn shared_slot_battery<'i>(&self, input: &'i Word) -> Vec<BatterySet<'i>> {
         let trie = self
             .slot_trie
             .get_or_init(|| SlotTrie::build(self.g, &self.stratum.templates));
@@ -1107,48 +1408,65 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             .iter()
             .map(|&tid| self.template_admits(tid, input))
             .collect();
-        let mut outs: Vec<HashMap<WordKey, Word>> =
-            (0..admitted.len()).map(|_| HashMap::default()).collect();
-        if admitted.iter().any(|&a| a) {
-            self.walk_slot_trie(trie, SlotTrie::ROOT, input, &admitted, &mut outs, true);
+        let outs: Vec<_> = (0..admitted.len())
+            .map(|_| BatterySet::new(input))
+            .collect();
+        pg_cost::discount_bytes(outs.capacity() * std::mem::size_of::<pg_fst::work::WordMemory>());
+        let mut walk = TrieWalk {
+            dead: vec![false; admitted.len()],
+            outs,
+            admitted,
+        };
+        if walk.admitted.iter().any(|&a| a) {
+            self.walk_slot_trie(trie, SlotTrie::ROOT, input, &mut walk, &[], true);
         }
-        outs.into_iter()
-            .map(|out| out.into_values().collect())
-            .collect()
+        walk.outs
     }
 
-    /// `template_unapply_slots` for every admitted template below `node`; `entered` is false on an optional skip.
+    /// `template_unapply_slots` for every live template below `node`; `entered` is false on an optional skip. A template that fails the look-ahead on `w` is dead below this node while its siblings go on (divergence 110).
     fn walk_slot_trie(
         &self,
         trie: &SlotTrie,
         node: usize,
         w: &Word,
-        admitted: &[bool],
-        outs: &mut [HashMap<WordKey, Word>],
+        walk: &mut TrieWalk<'_>,
+        fired: &[Vec<usize>],
         entered: bool,
     ) {
         if entered && self.over_budget() {
             return;
         }
         let here = &trie.nodes[node];
+        let (marked, fired_here) = self.shared_look_ahead(here, w, walk, fired);
+        let fired = fired_here.as_deref().unwrap_or(fired);
         for &pos in &here.terminal {
-            if admitted[pos] {
-                outs[pos].entry(w.dedup_key()).or_insert_with(|| w.clone());
+            if walk.admitted[pos] && !walk.dead[pos] {
+                self.shadow_completed(fired_of(fired, pos));
+                walk.outs[pos].insert(w, self.trace_mode.recorder());
             }
         }
         for &child in &here.children {
             let served = trie.nodes[child]
                 .below
                 .iter()
-                .filter(|&&pos| admitted[pos])
+                .filter(|&&pos| walk.live(pos))
                 .count();
             if served == 0 {
                 continue;
             }
-            if !pg_fst::work::consume() {
-                return;
-            }
             let slot = trie.slot(self.g, child);
+            if self.slot_fully_excluded(slot) {
+                // The batch would be empty; an optional slot is passed over, a required one ends the path.
+                let optional = slot_optional(slot);
+                self.observe_shared_slot(&trie.nodes[child], walk, w, optional);
+                if optional {
+                    self.walk_slot_trie(trie, child, w, walk, fired, false);
+                }
+                continue;
+            }
+            if !pg_fst::work::consume() {
+                break;
+            }
             if served > 1 {
                 if let Some(stats) = self.stats {
                     stats.record_shared_slot_batch(
@@ -1159,10 +1477,60 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
             }
             for (ow, _) in self.apply_slot_batch(slot, w) {
-                self.walk_slot_trie(trie, child, &ow, admitted, outs, true);
+                for &pos in &trie.nodes[child].below {
+                    let slot_index = self.g.templates[self.stratum.templates[pos].0 as usize]
+                        .slots
+                        .len()
+                        - trie.nodes[child].depth;
+                    self.shadow_violated(fired_of(fired, pos), slot_index);
+                }
+                self.walk_slot_trie(trie, child, &ow, walk, fired, true);
             }
             if slot_optional(slot) {
-                self.walk_slot_trie(trie, child, w, admitted, outs, false);
+                self.observe_shared_slot(&trie.nodes[child], walk, w, true);
+                self.walk_slot_trie(trie, child, w, walk, fired, false);
+            } else {
+                self.observe_shared_slot(&trie.nodes[child], walk, w, false);
+            }
+        }
+        for pos in marked {
+            walk.dead[pos] = false;
+        }
+    }
+
+    fn observe_shared_slot(
+        &self,
+        node: &SlotTrieNode,
+        walk: &TrieWalk<'_>,
+        word: &Word,
+        optional: bool,
+    ) {
+        if let Some(recorder) = self.trace_mode.recorder() {
+            if self.budget.search_stopped() {
+                return;
+            }
+            for &pos in &node.below {
+                if !walk.live(pos) {
+                    continue;
+                }
+                let template = self.stratum.templates[pos];
+                let slot = self.g.templates[template.0 as usize].slots.len() - node.depth;
+                recorder.record_at(
+                    word,
+                    if optional {
+                        Decision::OptionalSlotSkipped {
+                            template,
+                            slot,
+                            analysis: true,
+                        }
+                    } else {
+                        Decision::RequiredSlotUnfilled {
+                            template,
+                            slot,
+                            analysis: true,
+                        }
+                    },
+                );
             }
         }
     }
@@ -1175,7 +1543,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         unapplied: bool,
         slot_outcomes: Option<&[TemplateSlotOutcome]>,
     ) {
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             let node_parent = w.trace.unwrap_or(self.parent);
             if let Some(slot_outcomes) = slot_outcomes.filter(|_| self.trace.captures_details()) {
                 self.trace.end_unapply_template_with_slots(
@@ -1196,15 +1564,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     fn template_unapply_slots(
         &self,
         tid: TemplateId,
-        tmpl: &pg_grammar_model::model::AffixTemplateDef,
         in_word: &Word,
         index: isize,
-        out: &mut HashMap<WordKey, Word>,
+        out: &mut BatterySet<'_>,
         mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
+        fired: Vec<usize>,
     ) {
         if self.over_budget() {
             return;
         }
+        let tmpl = &self.g.templates[tid.0 as usize];
         let mut i = index;
         while i >= 0 {
             if !pg_fst::work::consume() {
@@ -1221,10 +1590,28 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                         selected_rule: Some(rid),
                     });
                 }
-                self.template_unapply_slots(tid, tmpl, &ow, i - 1, out, applied_outcomes);
+                self.shadow_violated(&fired, slot_index);
+                let mut ow_fired = fired.clone();
+                if self.required_slot_cannot_unapply(tid, &ow, i - 1, &mut ow_fired, &mut None) {
+                    self.end_unapply_template(tid, &ow, false, None);
+                    continue;
+                }
+                self.template_unapply_slots(tid, &ow, i - 1, out, applied_outcomes, ow_fired);
             }
             if !slot_optional(slot) {
                 // This level's `in_word` could not get past a non-optional slot.
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    if !self.budget.search_stopped() {
+                        recorder.record_at(
+                            in_word,
+                            Decision::RequiredSlotUnfilled {
+                                template: tid,
+                                slot: slot_index,
+                                analysis: true,
+                            },
+                        );
+                    }
+                }
                 if let Some(outcomes) = &mut slot_outcomes {
                     outcomes.push(TemplateSlotOutcome {
                         slot_index,
@@ -1255,31 +1642,46 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             outcomes.sort_by_key(|outcome| outcome.slot_index);
         }
         self.end_unapply_template(tid, in_word, true, slot_outcomes.as_deref());
-        out.entry(in_word.dedup_key())
-            .or_insert_with(|| in_word.clone());
+        self.shadow_completed(&fired);
+        out.insert(in_word, self.trace_mode.recorder());
     }
 
     /// One slot's non-disjunctive `RuleBatch`: the deduped union of its alternative rules' outputs.
     fn apply_slot_batch(&self, slot: &SlotDef, in_word: &Word) -> Vec<(Word, MRuleId)> {
-        let mut seen: HashMap<WordKey, usize> = HashMap::default();
+        let mut seen = WordIndex::default();
         let mut out: Vec<(Word, MRuleId)> = Vec::new();
+        let rules: Vec<MRuleId> = slot
+            .rules
+            .iter()
+            .copied()
+            .filter(|&id| self.rule_admitted(RuleRef::MRule(id)))
+            .collect();
         if let Some(stats) = self.stats {
             stats.record_slot_batch(
                 self.stratum_id,
                 crate::stats::Direction::Analysis,
-                slot.rules.len() as u64,
+                rules.len() as u64,
             );
         }
-        for &rid in &slot.rules {
-            for w in self.apply_one_mrule(rid, in_word, RuleInvocationRole::TemplateSlot) {
+        let candidates = self.edge_candidates(in_word, rules.iter().copied());
+        for &rid in &rules {
+            for w in self.apply_one_mrule(
+                rid,
+                in_word,
+                RuleInvocationRole::TemplateSlot,
+                candidates.as_ref(),
+            ) {
                 let key = w.dedup_key();
-                match seen.get(&key) {
+                match seen.find(&key, |at| &out[at].0) {
                     // Same FS-blind collapse as `run_template_batch_raw`, one slot rule down: widen rather than drop.
-                    Some(&idx) => {
+                    Some(idx) => {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.merged(&w, out[idx].0.trace, true);
+                        }
                         generalize_syn_fs(&mut out[idx].0, &w, &|f| self.g.syn_features.mask(f))
                     }
                     None => {
-                        seen.insert(key, out.len());
+                        seen.insert(&key, out.len());
                         // Retain the first dedup representative's producer, without asserting unique provenance.
                         out.push((w, rid));
                     }
@@ -1292,12 +1694,12 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
     /// Port of `AnalysisStratumRule.Apply`.
     // map_entry: saving one hash here would restructure the dedup block this port mirrors statement for statement.
     #[allow(clippy::map_entry)]
-    fn analyze(&self, mut input: Word) -> StratumAnalysis {
+    fn analyze(&self, mut input: Word, root_gate: Option<RootGate>) -> StoredStratumAnalysis {
         let census = crate::branch_census::enabled();
         let received = census.then(|| crate::branch_census::node(&input));
         // Fires against the word exactly as received, before the clone below; the resolved parent is reused for the matching end-event calls.
         let node_parent = input.trace.unwrap_or(self.parent);
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace
                 .begin_unapply_stratum(node_parent, self.stratum_id, &input);
         }
@@ -1317,7 +1719,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
 
         // A linear cascade over the prules reversed, applied in place with no per-prule cursor advance (a deliberately coarser trace depth).
         for &pid in self.stratum.prules.iter().rev() {
-            if self.budget.synthesis_over_budget() {
+            if !self.budget.analysis_unit() {
                 break;
             }
             let prule_stats = self.stats.map(|stats| PRuleStatsCtx {
@@ -1328,27 +1730,41 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             });
             let _phon_time = prule_stats.map(PRuleStatsCtx::time);
             let result = match &self.g.prules[pid.0 as usize] {
-                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => match self.cache {
-                    Some(cache) => rewrite::analyze_cached_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        cache,
-                        prule_stats,
-                        self.trace,
-                        self.parent,
-                    ),
-                    None => rewrite::analyze_traced(
-                        self.g,
-                        pid,
-                        r,
-                        &input.shape,
-                        prule_stats,
-                        self.trace,
-                        self.parent,
-                    ),
-                },
+                pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
+                    let rewritten = match self.cache {
+                        Some(cache) => rewrite::analyze_cached_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            cache,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                        None => rewrite::analyze_traced(
+                            self.g,
+                            pid,
+                            r,
+                            &input.shape,
+                            prule_stats,
+                            self.trace,
+                            self.parent,
+                        ),
+                    };
+                    if let Some(recorder) = self.trace_mode.recorder() {
+                        if rewritten.is_empty() && !self.budget.search_stopped() {
+                            recorder.record_at(
+                                &input,
+                                Decision::RewriteNoOutput {
+                                    rule: pid,
+                                    analysis: true,
+                                },
+                            );
+                        }
+                    }
+                    rewritten
+                }
                 pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
                     // `rewrite` records its own counters; `metathesis` takes no stats context.
                     if let Some(ctx) = prule_stats {
@@ -1382,95 +1798,164 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
             drop(_phon_time);
             if applied && self.stats.is_some() {
                 input
-                    .applied_phonological_rules
+                    .applied_phonological_rules_mut()
                     .push((self.stratum_id, pid));
             }
             if let Some(s) = result.into_iter().next() {
                 input.shape = s;
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    input.trace = recorder.advance(input.trace);
+                }
             }
         }
+        self.values.share(&mut input);
 
         // The first end-event, for `input` itself, placed before any nested template/mrule event since C#'s lazy evaluation reaches it first there and this port is eager.
-        if self.trace.is_tracing() {
+        if self.trace_mode.is_tree() {
             self.trace
                 .end_unapply_stratum(node_parent, self.stratum_id, &input);
         }
 
-        // WordKey -> its index in `words`, so an identity-fallback fold (below) can find its canonical.
-        let mut output_keys: HashMap<WordKey, usize> = HashMap::default();
-        // AnalysisStateKey -> canonical word index; the seed's key is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
-        let mut key_word: HashMap<AnalysisStateKey, usize> = HashMap::default();
-        let mut words: Vec<Word> = Vec::new();
-        output_keys.insert(input.dedup_key(), 0);
+        // The visited set: analysis state -> canonical word index, held as positions in `words` and compared exactly against the canonical itself (`AnalysisStateKey::matches_word`), so no canonical's key is stored. The seed's state is deliberately not registered (AnalysisStratumRule.cs never seeds `wordCache` from `input`).
+        let mut state_words = PositionIndex::default();
+        // The output words, each stored as its difference from `input`, with the `WordKey` index an identity-fallback fold (below) finds its canonical by.
+        let mut words = Canonicals::of_base(input.clone());
         // This call's own running byte total, the `record_live_bytes` companion to `words.len()`.
         let live_bytes = Cell::new(estimate_word_bytes(&input) as u64);
         // Per-canonical dedup state for `dedup_alternative`, below.
-        let mut alt_keys: HashMap<usize, FxHashSet<AltKey>> = HashMap::default();
+        let mut alt_keys: AltKeys = HashMap::default();
         if let Some(received) = received {
             crate::branch_census::edge(received, crate::branch_census::node(&input));
         }
-        words.push(input.clone());
+        // Only the merge keeps alternatives, so without it there is nothing to drop.
+        let root_gate = root_gate.filter(|_| self.cfg.merge_equivalent);
+        // What the gate said of each word it was asked about, by the word's position; grown only when the gate is asked.
+        let mut rooted: Vec<Option<bool>> = Vec::new();
+        // An arrival that folds into canonical `idx` is kept as an alternative unless the gate, once the output is large enough to ask it, finds the canonical rootless.
+        let keeps_alternatives =
+            |rooted: &mut Vec<Option<bool>>, words: &Canonicals, idx: usize| {
+                root_gate.is_none_or(|gate| {
+                    if words.len() < gate.from_words {
+                        return true;
+                    }
+                    if rooted.len() < words.len() {
+                        rooted.resize(words.len(), None);
+                    }
+                    *rooted[idx].get_or_insert_with(|| (gate.has_root)(&words.word(idx)))
+                })
+            };
+        words.push_new(&input.dedup_key(), input.clone());
+        if self.budget.word_capped() {
+            return StoredStratumAnalysis {
+                words,
+                capped: true,
+            };
+        }
 
         // A live count-down on candidates beyond the seed, unset by default -- a plain stop past the cap, no exception.
         let remaining =
             (self.cfg.max_unapplications > 0).then(|| Cell::new(self.cfg.max_unapplications));
         // The stratum's own dedup fold, now also the sink `apply_templates`/`apply_mrules` stream into directly -- the one durable accumulator this stratum call ever holds (`docs/research/live-frontier-memory-bound.md`).
         let mut fold = |mut w: Word| {
+            if self.budget.word_capped() {
+                return;
+            }
             let pre_fold = census.then(|| crate::branch_census::node(&w));
             w.source = Some(source.clone());
             let dedup_key = w.dedup_key();
             if let Some(pre_fold) = pre_fold {
                 crate::branch_census::edge(pre_fold, crate::branch_census::node(&w));
             }
-            let state_key = self.cfg.merge_equivalent.then(|| self.state_key(&w));
-            if let Some(state_key) = &state_key {
-                let canonical = key_word
-                    .get(state_key)
-                    .or_else(|| output_keys.get(&dedup_key));
-                if let (true, Some(&idx)) = (census, canonical) {
+            let state_key = self.cfg.merge_equivalent.then(|| {
+                use std::hash::BuildHasher;
+                let key = self.state_key(&w);
+                let hash = fold_hash(rustc_hash::FxBuildHasher.hash_one(&key));
+                (key, hash)
+            });
+            if let Some((state_key, state_hash)) = &state_key {
+                let state_canonical = state_words.find(*state_hash, |at| {
+                    // A canonical's own syntactic features are widened once alternatives arrive; the features its key was taken with are the ones `alt_keys` froze at the first arrival.
+                    let keyed_syn_fs = alt_keys
+                        .get(&at)
+                        .map_or(words.syn_fs(at), |seen| &seen.canonical_syn_fs);
+                    state_key.matches_fields(&words.key_fields(at), keyed_syn_fs, &|id| {
+                        self.max_apps(id)
+                    })
+                });
+                let canonical = state_canonical.or_else(|| words.position(&dedup_key));
+                if let (true, Some(idx)) = (census, canonical) {
                     crate::branch_census::alias(
-                        crate::branch_census::node(&words[idx]),
+                        crate::branch_census::node(&words.word(idx)),
                         crate::branch_census::node(&w),
                     );
                 }
-                if let Some(&idx) = key_word.get(state_key) {
-                    if let Some(w) =
-                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
-                            self.g.syn_features.mask(f)
-                        })
-                    {
-                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                        words[idx].alternatives.push(Rc::new(w));
+                if let Some(idx) = state_canonical {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.record_at(&w, Decision::RootNotViable { stratum: w.stratum });
+                        }
+                        return;
+                    }
+                    if let Some(w) = dedup_alternative(
+                        &mut words,
+                        &mut alt_keys,
+                        idx,
+                        &dedup_key,
+                        w,
+                        &|f| self.g.syn_features.mask(f),
+                        self.trace_mode.recorder(),
+                    ) {
+                        words.fold_alternative(idx, w);
+                        let stored = words.alternatives(idx).iter().next_back();
+                        live_bytes.set(
+                            live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
+                        );
                     }
                     return;
                 }
                 // `WordKey` ignores syntactic FS, so a distinct state key can still collide here; fold rather than let output dedup drop it silently.
-                if let Some(&idx) = output_keys.get(&dedup_key) {
-                    if let Some(w) =
-                        dedup_alternative(&mut words, &mut alt_keys, idx, &dedup_key, w, &|f| {
-                            self.g.syn_features.mask(f)
-                        })
-                    {
-                        live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                        words[idx].alternatives.push(Rc::new(w));
+                if let Some(idx) = words.position(&dedup_key) {
+                    if !keeps_alternatives(&mut rooted, &words, idx) {
+                        if let Some(recorder) = self.trace_mode.recorder() {
+                            recorder.record_at(&w, Decision::RootNotViable { stratum: w.stratum });
+                        }
+                        return;
+                    }
+                    if let Some(w) = dedup_alternative(
+                        &mut words,
+                        &mut alt_keys,
+                        idx,
+                        &dedup_key,
+                        w,
+                        &|f| self.g.syn_features.mask(f),
+                        self.trace_mode.recorder(),
+                    ) {
+                        words.fold_alternative(idx, w);
+                        let stored = words.alternatives(idx).iter().next_back();
+                        live_bytes.set(
+                            live_bytes.get() + stored.map_or(0, |alt| alt.estimated_bytes()) as u64,
+                        );
                     }
                     return;
                 }
             }
             // The second end-event, once per surviving candidate; must NOT be gated on the `output_keys` insert below, since a key-duplicate still fires it.
-            if self.trace.is_tracing() {
+            if self.trace_mode.is_tree() {
                 let w_parent = w.trace.unwrap_or(node_parent);
                 self.trace
                     .end_unapply_stratum(w_parent, self.stratum_id, &w);
             }
-            if !output_keys.contains_key(&dedup_key) {
-                // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
-                if let Some(state_key) = state_key {
-                    key_word.insert(state_key, words.len());
+            if let Some(idx) = words.position(&dedup_key) {
+                if let Some(recorder) = self.trace_mode.recorder() {
+                    recorder.merged(&w, words.trace_at(idx), true);
                 }
-                output_keys.insert(dedup_key, words.len());
+            } else {
+                // Registered only once the word is certain to reach the output, so a rejected word never becomes a canonical.
+                if let Some((_, state_hash)) = state_key {
+                    state_words.insert(state_hash, words.len());
+                }
                 live_bytes.set(live_bytes.get() + estimate_word_bytes(&w) as u64);
-                words.push(w);
+                words.push_new(&dedup_key, w);
                 if let Some(r) = &remaining {
                     r.set(r.get().saturating_sub(1));
                 }
@@ -1491,9 +1976,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         self.apply_mrules(&input, &mut sink);
 
         // `HC_WORD_STATS=1`: attribute this stratum pass's `words` to their own fields (docs/research/word-memory-trace.md).
-        crate::word_stats::record_live_words(&words);
+        if crate::word_stats::enabled() {
+            crate::word_stats::record_live_words(&words.words().collect::<Vec<_>>());
+        }
 
-        StratumAnalysis {
+        StoredStratumAnalysis {
             words,
             capped: self.budget.capped(),
         }
@@ -1506,40 +1993,110 @@ fn generalize_syn_fs(
     alternative: &Word,
     mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
 ) {
-    if canonical.syn_fs != alternative.syn_fs {
-        canonical.syn_fs = union(&canonical.syn_fs, &alternative.syn_fs, mask_of);
+    widen_syn_fs(&mut canonical.syn_fs, &alternative.syn_fs, mask_of);
+}
+
+/// `generalize_syn_fs` on the feature structures themselves.
+fn widen_syn_fs(
+    canonical: &mut pg_featstruct::FeatureStruct,
+    alternative: &pg_featstruct::FeatureStruct,
+    mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+) {
+    if canonical != alternative {
+        *canonical = union(canonical, alternative, mask_of);
     }
 }
 
-/// `WordKey` plus the two fields `Word::expand_alternatives`/`is_word_valid_traced` read off an
-/// alternative that `WordKey` omits (`docs/research/alt-yield.md` §pruning).
-type AltKey = (
-    WordKey,
-    pg_featstruct::FeatureStruct,
-    Vec<pg_featstruct::FeatId>,
-);
+/// What `dedup_alternative` remembers about one canonical's alternatives: which of them it has kept, as hash plus position. An alternative's `AltKey` is `WordKey` plus the two fields `Word::expand_alternatives`/`is_word_valid_traced` read off it that `WordKey` omits (`docs/research/alt-yield.md` §pruning); the kept alternatives and the canonical already hold all three, so none is copied here and equality is still checked field by field.
+#[derive(Default)]
+struct AltIndex {
+    /// The canonical's syntactic FS when its first alternative arrived. `generalize_syn_fs` widens the stored canonical afterwards, so the original has to be kept; it is one shared pointer.
+    canonical_syn_fs: pg_featstruct::FeatureStruct,
+    /// `(hash, j)`: `j` is a position in the canonical's `alternatives`, or `CANONICAL` for the canonical itself.
+    table: hashbrown::HashTable<(u32, u32)>,
+}
 
-/// An `AltKey` match against the canonical's frozen state or an earlier-kept alternative replays
-/// identically, so `w` is pure duplication; see docs/research/alt-yield.md.
+type AltKeys = HashMap<usize, AltIndex>;
+
+impl AltIndex {
+    const CANONICAL: u32 = u32::MAX;
+}
+
+fn alt_key_hash(
+    key: &WordKey,
+    syn_fs: &pg_featstruct::FeatureStruct,
+    obligatory: &[pg_featstruct::FeatId],
+) -> u32 {
+    use std::hash::BuildHasher;
+    fold_hash(rustc_hash::FxBuildHasher.hash_one((key, syn_fs, obligatory)))
+}
+
+/// A match against the canonical's frozen state or an earlier-kept alternative replays identically, so `w` is pure duplication (docs/research/alt-yield.md); a returned word must be pushed onto `alternatives` before the next call.
 fn dedup_alternative(
-    words: &mut [Word],
-    alt_keys: &mut HashMap<usize, FxHashSet<AltKey>>,
+    words: &mut Canonicals,
+    alt_keys: &mut AltKeys,
     idx: usize,
     dedup_key: &WordKey,
     w: Word,
     mask_of: &impl Fn(pg_featstruct::FeatId) -> u64,
+    recorder: Option<&dyn Recorder>,
 ) -> Option<Word> {
+    fn spread(h: u32) -> u64 {
+        u64::from(h) << 32 | u64::from(h)
+    }
+    // The canonical read in place: its key fields, and beside them its syntactic features and alternatives.
+    let canonical = words.key_fields(idx);
     let seen = alt_keys.entry(idx).or_insert_with(|| {
-        let mut s = FxHashSet::default();
-        s.insert((
-            words[idx].dedup_key(),
-            words[idx].syn_fs.clone(),
-            words[idx].obligatory.clone(),
-        ));
-        s
+        let mut index = AltIndex {
+            canonical_syn_fs: words.syn_fs(idx).clone(),
+            ..AltIndex::default()
+        };
+        let h = alt_key_hash(
+            &WordKey::of(&canonical),
+            words.syn_fs(idx),
+            &canonical.rest.obligatory,
+        );
+        index
+            .table
+            .insert_unique(spread(h), (h, AltIndex::CANONICAL), |&(h, _)| spread(h));
+        index
     });
-    let novel = seen.insert((dedup_key.clone(), w.syn_fs.clone(), w.obligatory.clone()));
-    generalize_syn_fs(&mut words[idx], &w, mask_of);
+    let h = alt_key_hash(dedup_key, &w.syn_fs, &w.obligatory);
+    let canonical_syn_fs = &seen.canonical_syn_fs;
+    let found = seen.table.find(spread(h), |&(stored, j)| {
+        if stored != h {
+            return false;
+        }
+        if j == AltIndex::CANONICAL {
+            return *canonical_syn_fs == w.syn_fs
+                && canonical.rest.obligatory == w.obligatory
+                && dedup_key.matches_fields(&canonical);
+        }
+        let alt = words
+            .alternatives(idx)
+            .get(j as usize)
+            .expect("an alternative index entry names a kept alternative");
+        *alt.syn_fs() == w.syn_fs && alt.matches_fields(dedup_key, &w.obligatory, &canonical)
+    });
+    let novel = found.is_none();
+    if let (Some(recorder), Some(&(_, at))) = (recorder, found) {
+        let retained = if at == AltIndex::CANONICAL {
+            words.trace_at(idx)
+        } else {
+            words
+                .alternatives(idx)
+                .get(at as usize)
+                .and_then(|alternative| alternative.trace(words.trace_at(idx)))
+        };
+        recorder.merged(&w, retained, true);
+    }
+    if novel {
+        let next = u32::try_from(words.alternatives(idx).len())
+            .expect("a canonical holds fewer than 2^32 alternatives");
+        seen.table
+            .insert_unique(spread(h), (h, next), |&(h, _)| spread(h));
+    }
+    widen_syn_fs(words.syn_fs_mut(idx), &w.syn_fs, mask_of);
     novel.then_some(w)
 }
 
@@ -1560,11 +2117,10 @@ fn slot_optional(slot: &SlotDef) -> bool {
 /// Mirrors C#'s `SynthesisAffixTemplateRule.Apply` + `ApplySlots`: slots applied bottom-up, a
 /// non-optional slot that produced nothing terminating the path. The **ungated** walk — every slot
 /// rule applies unconditionally, unlike production's `guided_template_apply`, which confirms the
-/// analysis first. Independent of lexicon state, so usable standalone; `cap` bounds total attempts.
+/// analysis first. Independent of lexicon state, so usable standalone; `cap` is its work cap.
 pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usize) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
-    let steps = Cell::new(0usize);
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         morph::synthesize_with_policy_and_role(
             g,
@@ -1575,7 +2131,7 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         )
     };
     // Builds its own budget with none armed, so this entry point stays cap-only.
-    let budget = StepBudget::with_limits(usize::MAX, cap);
+    let budget = WordBudget::without_reserve(cap);
     let _work_scope = budget.enter();
     synth_slots_generic(
         g,
@@ -1583,8 +2139,6 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         input,
         0,
         &mut out,
-        cap,
-        &steps,
         &apply,
         &crate::trace::NoopSink,
         tid,
@@ -1592,27 +2146,33 @@ pub fn synthesize_template(g: &Grammar, tid: TemplateId, input: &Word, cap: usiz
         &budget,
         None,
     );
-    out.into_values().collect()
+    out.into_vec()
 }
 
-/// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's step budget is shared.
+/// `synthesize_template`'s structure, but each rule goes through `guided_synth` and the caller's work budget is shared.
 #[allow(clippy::too_many_arguments)]
 fn guided_template_apply(
     g: &Grammar,
     stratum: StratumId,
     tid: TemplateId,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
     let tmpl = &g.templates[tid.0 as usize];
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
+    let mut observed_input;
+    let input = if let Some(recorder) = trace.mode().recorder() {
+        observed_input = input.clone();
+        observed_input.trace = recorder.advance(input.trace);
+        &observed_input
+    } else {
+        input
+    };
     let apply = |g: &Grammar, rid: MRuleId, w: &Word| {
         guided_synth(
             g,
@@ -1637,8 +2197,6 @@ fn guided_template_apply(
         input,
         0,
         &mut out,
-        cap,
-        steps,
         &apply,
         trace,
         tid,
@@ -1646,7 +2204,7 @@ fn guided_template_apply(
         budget,
         (trace.is_tracing() && trace.captures_details()).then(Vec::new),
     );
-    out.into_values().collect()
+    out.into_vec()
 }
 
 /// Fires `EndApplyTemplate` against `w`'s own resolved cursor, if tracing is on at all.
@@ -1675,21 +2233,16 @@ fn synth_slots_generic<F>(
     tmpl: &pg_grammar_model::model::AffixTemplateDef,
     input: &Word,
     index: usize,
-    out: &mut HashMap<WordKey, Word>,
-    cap: usize,
-    steps: &Cell<usize>,
+    out: &mut WordSet,
     apply: &F,
     trace: &dyn TraceSink,
     tid: TemplateId,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     mut slot_outcomes: Option<Vec<TemplateSlotOutcome>>,
 ) where
     F: Fn(&Grammar, MRuleId, &Word) -> Vec<Word>,
 {
-    if steps.get() >= cap {
-        return;
-    }
     if budget.synthesis_over_budget() {
         return;
     }
@@ -1700,44 +2253,65 @@ fn synth_slots_generic<F>(
         }
         let slot = &tmpl.slots[i];
         // The slot's non-disjunctive `RuleBatch`, in the synthesis direction.
+        let recorder = trace.mode().recorder();
         let mut seen: HashMap<WordKey, ()> = HashMap::default();
+        let mut observed = recorder.map(|recorder| (recorder, HashMap::default()));
         for &rid in &slot.rules {
-            if steps.get() >= cap {
-                return;
-            }
             if budget.synthesis_over_budget() {
                 return;
             }
-            steps.set(steps.get() + 1);
             for w in apply(g, rid, input) {
-                if seen.insert(w.dedup_key(), ()).is_none() {
-                    let mut applied_outcomes = slot_outcomes.clone();
-                    if let Some(outcomes) = &mut applied_outcomes {
-                        outcomes.push(TemplateSlotOutcome {
-                            slot_index: i,
-                            status: TemplateSlotStatus::Applied,
-                            selected_rule: Some(rid),
-                        });
+                let key = w.dedup_key();
+                if let Some((recorder, seen)) = &mut observed {
+                    use std::collections::hash_map::Entry;
+                    match seen.entry(key) {
+                        Entry::Occupied(retained) => {
+                            recorder.merged(&w, *retained.get(), false);
+                            continue;
+                        }
+                        Entry::Vacant(vacant) => {
+                            vacant.insert(w.trace);
+                        }
                     }
-                    synth_slots_generic(
-                        g,
-                        tmpl,
-                        &w,
-                        i + 1,
-                        out,
-                        cap,
-                        steps,
-                        apply,
-                        trace,
-                        tid,
-                        parent,
-                        budget,
-                        applied_outcomes,
-                    );
+                } else if seen.insert(key, ()).is_some() {
+                    continue;
                 }
+                let mut applied_outcomes = slot_outcomes.clone();
+                if let Some(outcomes) = &mut applied_outcomes {
+                    outcomes.push(TemplateSlotOutcome {
+                        slot_index: i,
+                        status: TemplateSlotStatus::Applied,
+                        selected_rule: Some(rid),
+                    });
+                }
+                synth_slots_generic(
+                    g,
+                    tmpl,
+                    &w,
+                    i + 1,
+                    out,
+                    apply,
+                    trace,
+                    tid,
+                    parent,
+                    budget,
+                    applied_outcomes,
+                );
             }
         }
         if !slot_optional(slot) {
+            if let Some(recorder) = trace.mode().recorder() {
+                if !budget.search_stopped() {
+                    recorder.record_at(
+                        input,
+                        Decision::RequiredSlotUnfilled {
+                            template: tid,
+                            slot: i,
+                            analysis: false,
+                        },
+                    );
+                }
+            }
             if let Some(outcomes) = &mut slot_outcomes {
                 outcomes.push(TemplateSlotOutcome {
                     slot_index: i,
@@ -1763,14 +2337,43 @@ fn synth_slots_generic<F>(
                 selected_rule: None,
             });
         }
+        if let Some(recorder) = trace.mode().recorder() {
+            if !budget.search_stopped() {
+                recorder.record_at(
+                    input,
+                    Decision::OptionalSlotSkipped {
+                        template: tid,
+                        slot: i,
+                        analysis: false,
+                    },
+                );
+            }
+        }
         i += 1;
     }
     if let Some(outcomes) = &mut slot_outcomes {
         outcomes.sort_by_key(|outcome| outcome.slot_index);
     }
     end_apply_template(trace, tid, input, parent, true, slot_outcomes.as_deref());
-    out.entry(input.dedup_key())
-        .or_insert_with(|| input.clone());
+    let (at, inserted) = out.insert_with(input.dedup_key(), || input.clone());
+    if !inserted {
+        if let Some(recorder) = trace.mode().recorder() {
+            recorder.merged(input, out.get(at).trace, false);
+        }
+    }
+}
+
+fn insert_synthesis_word(out: &mut WordSet, word: Word, recorder: Option<&dyn Recorder>) {
+    if let Some(recorder) = recorder {
+        let key = word.dedup_key();
+        let mut pending = Some(word);
+        let (at, _) = out.insert_with(key, || pending.take().expect("word awaiting insertion"));
+        if let Some(discarded) = pending {
+            recorder.merged(&discarded, out.get(at).trace, false);
+        }
+    } else {
+        out.insert(word);
+    }
 }
 
 // Synthesis stratum rule.
@@ -1793,11 +2396,11 @@ fn guided_synth(
         return Vec::new();
     }
     let idx = w.mrule_app_index as usize;
-    if idx >= w.mrule_apps.len() {
+    let Some(pending) = w.trail.rule(idx) else {
         return Vec::new();
-    }
+    };
     let is_compound = matches!(&g.mrules[id.0 as usize], MorphRuleDef::Compounding(_));
-    let applicable = match w.mrule_apps[idx] {
+    let applicable = match pending {
         Some(cur) => cur == id,
         None => is_compound,
     };
@@ -1838,12 +2441,37 @@ fn guided_synth(
         return Vec::new();
     }
     for o in &mut outs {
-        o.mrule_app_index -= 1;
+        // C# `Word.MorphologicalRuleApplied` steps the index only while a rule is pending. A blocking output is a fresh seed already at -1, and stepping it to -2 made `is_word_valid` drop it (sillsdev/PanGloss#423). The non-head index steps for every compounding rule, as in C#.
+        if o.mrule_app_index >= 0 {
+            o.mrule_app_index -= 1;
+        }
         if is_compound {
             o.non_head_app_index -= 1;
         }
+        if let Some(recorder) = trace.mode().recorder() {
+            o.trace = recorder.advance(w.trace);
+        }
     }
     outs
+}
+
+/// The ascending indices in `rules` that `guided_synth` could confirm `w` with: the trail's pending rule, or any compounding rule for an unspecified slot.
+fn trail_positions(g: &Grammar, rules: &[MRuleId], w: &Word) -> Vec<usize> {
+    let Some(pending) = usize::try_from(w.mrule_app_index)
+        .ok()
+        .and_then(|idx| w.trail.rule(idx))
+    else {
+        return Vec::new();
+    };
+    rules
+        .iter()
+        .enumerate()
+        .filter(|&(_, &id)| match pending {
+            Some(cur) => cur == id,
+            None => matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_)),
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// The stratum whose `mrules` list or affix-template slots contain `id`; a linear scan is fine since only a few final candidates use it.
@@ -1872,9 +2500,9 @@ fn has_remaining_rules_from_stratum(g: &Grammar, w: &Word, stratum: StratumId) -
         return false;
     }
     let idx = w.mrule_app_index as usize;
-    match w.mrule_apps.get(idx) {
-        Some(&Some(cur)) => owning_stratum(g, cur) == Some(stratum),
-        Some(&None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
+    match w.trail.rule(idx) {
+        Some(Some(cur)) => owning_stratum(g, cur) == Some(stratum),
+        Some(None) => w.current_non_head().map(|nh| nh.stratum) == Some(stratum),
         None => false,
     }
 }
@@ -1895,12 +2523,11 @@ pub fn synthesize_stratum(
     cache: &RuleCache,
 ) -> Vec<Word> {
     // No production call site: `pg-parse` threads its own budget through `synthesize_stratum_traced` directly; this exists for test callers.
-    let budget = StepBudget::with_limits(usize::MAX, cap);
+    let budget = WordBudget::without_reserve(cap);
     synthesize_stratum_traced(
         g,
         stratum,
         input,
-        cap,
         cache,
         &budget,
         None,
@@ -1912,9 +2539,7 @@ pub fn synthesize_stratum(
 /// The result of applying one stratum's ordered phonological rules to a single word.
 ///
 /// A stopped fold has no output: its last shape is only an intermediate and must not be treated as
-/// a completed surface. `steps` and `work_steps` are the cumulative owner-budget measurements.
-/// An attempt cap alone keeps the partial `output`, as ordinary synthesis always has, so a caller that
-/// needs completion must also require `!capped && !timed_out`.
+/// a completed surface. `work_steps` is the cumulative owner-budget measurement.
 #[derive(Debug)]
 pub struct PhonologyCascadeOutcome {
     pub output: Option<Word>,
@@ -1924,7 +2549,6 @@ pub struct PhonologyCascadeOutcome {
     pub applied_prule_ids: Vec<PRuleId>,
     pub capped: bool,
     pub timed_out: bool,
-    pub steps: usize,
     pub work_steps: usize,
 }
 
@@ -1940,7 +2564,7 @@ pub fn synthesize_phonological_stratum_traced(
     stratum: StratumId,
     mut input: Word,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -1966,9 +2590,11 @@ pub fn synthesize_phonological_stratum_traced(
         if let Some(ctx) = prule_stats {
             ctx.record_attempt(input.shape.len() as u64);
         }
+        let mut reordered_morphs = None;
+        let mut anchor_keys = None;
         let result = match &g.prules[pid.0 as usize] {
             pg_grammar_model::model::PhonRuleDef::Rewrite(r) => {
-                rewrite::synthesize_with_mpr_cached_traced(
+                match rewrite::synthesize_with_mpr_cached_traced_stats(
                     g,
                     pid,
                     r,
@@ -1976,10 +2602,17 @@ pub fn synthesize_phonological_stratum_traced(
                     cache,
                     trace,
                     rule_parent,
-                )
+                    prule_stats,
+                ) {
+                    Some(rewritten) => {
+                        anchor_keys = rewritten.anchor_keys;
+                        vec![rewritten.shape]
+                    }
+                    None => Vec::new(),
+                }
             }
             pg_grammar_model::model::PhonRuleDef::Metathesis(r) => {
-                metathesis::synthesize_cached_traced(
+                match metathesis::synthesize_cached_traced(
                     g,
                     pid,
                     r,
@@ -1987,7 +2620,13 @@ pub fn synthesize_phonological_stratum_traced(
                     cache.prule_metathesis(pid),
                     trace,
                     rule_parent,
-                )
+                ) {
+                    Some(applied) => {
+                        reordered_morphs = Some((applied.morphs, applied.extras));
+                        vec![applied.shape]
+                    }
+                    None => Vec::new(),
+                }
             }
         };
         if let Some(ctx) = prule_stats {
@@ -1995,7 +2634,27 @@ pub fn synthesize_phonological_stratum_traced(
         }
         if let Some(shape) = result.into_iter().next() {
             applied_prule_ids.push(pid);
+            if let Some(keys) = anchor_keys {
+                input.note_rewrite_spans(&shape, &keys, pid);
+                input.remap_morph_orders(input.shape.len(), &keys);
+            }
             input.shape = shape;
+            if let Some((morphs, extras)) = reordered_morphs {
+                input.morphs = morphs;
+                // Only the shape marks and stretched ends are carried, since the swap leaves pinned starts and the rest of the extras as they were.
+                input
+                    .extras
+                    .set_shape_marks(extras.deleted_gaps().to_vec(), extras.bare_nodes().to_vec());
+                input
+                    .extras
+                    .set_stretched_ends(extras.stretched_ends().to_vec());
+                if let Some(marks) = extras.span_marks() {
+                    *input.extras.span_marks_mut() = marks.clone();
+                }
+            }
+            if let Some(recorder) = trace.mode().recorder() {
+                input.trace = recorder.advance(input.trace);
+            }
         }
     }
 
@@ -2006,7 +2665,6 @@ pub fn synthesize_phonological_stratum_traced(
         applied_prule_ids,
         capped: budget.capped(),
         timed_out: budget.timed_out(),
-        steps: budget.steps(),
         work_steps: budget.work_steps(),
     }
 }
@@ -2017,9 +2675,8 @@ pub fn synthesize_stratum_traced(
     g: &Grammar,
     stratum: StratumId,
     input: Word,
-    cap: usize,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
@@ -2028,7 +2685,6 @@ pub fn synthesize_stratum_traced(
         g,
         stratum,
         input,
-        cap,
         cache,
         budget,
         FinalTemplateSynthesisPolicy::default(),
@@ -2048,9 +2704,8 @@ pub fn synthesize_stratum_traced_with_policy(
     g: &Grammar,
     stratum: StratumId,
     mut input: Word,
-    cap: usize,
     cache: &RuleCache,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
     rule_filter: Option<RuleFilter>,
     stats: Option<&StatsCollector>,
@@ -2065,20 +2720,20 @@ pub fn synthesize_stratum_traced_with_policy(
     }
 
     let sd = &g.strata[stratum.0 as usize];
-    let steps = Cell::new(0usize);
-
     let node_parent = input.trace.unwrap_or(parent);
-    if trace.is_tracing() {
+    let trace_mode = trace.mode();
+    if trace_mode.is_tree() {
         trace.begin_apply_stratum(node_parent, stratum, &input);
     }
 
+    let admitted = admitted_mrule_flags(g, rule_filter);
+    let admitted = admitted.as_deref();
     let mut candidates = synth_apply_mrules(
         g,
         stratum,
         sd,
+        admitted,
         &input,
-        cap,
-        &steps,
         cache,
         stats,
         trace,
@@ -2090,9 +2745,8 @@ pub fn synthesize_stratum_traced_with_policy(
         g,
         stratum,
         sd,
+        admitted,
         &input,
-        cap,
-        &steps,
         cache,
         stats,
         trace,
@@ -2104,7 +2758,7 @@ pub fn synthesize_stratum_traced_with_policy(
     let blocking = g.is_blocking_stratum(stratum, |s| {
         rule_filter.is_none_or(|f| f(RuleRef::Stratum(s)))
     });
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     for w in candidates {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -2112,22 +2766,24 @@ pub fn synthesize_stratum_traced_with_policy(
         let w_parent = w.trace.unwrap_or(node_parent);
         // PORT-CORRESPONDENCE: `SynthesisStratumRule.Apply` passes a non-blocking stratum's words on unchecked and still open.
         if !blocking {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 trace.end_apply_stratum(w_parent, stratum, &w);
             }
-            out.entry(w.dedup_key()).or_insert(w);
+            insert_synthesis_word(&mut out, w, trace_mode.recorder());
             continue;
         }
         // Only a word whose last applied template was non-final is refused; `None` (no template) proceeds.
         if w.flags.is_last_applied_rule_final == Some(false) {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 trace.non_final_template_applied_last(w_parent, stratum, &w);
+            } else if let Some(recorder) = trace_mode.recorder() {
+                recorder.record_at(&w, Decision::NonfinalTemplateLast { stratum });
             }
             continue;
         }
         // Drop partial parses that still owe this stratum a rule.
         if has_remaining_rules_from_stratum(g, &w, stratum) {
-            if trace.is_tracing() {
+            if trace_mode.is_tree() {
                 if trace.captures_details() {
                     trace.failed_partial_parse(
                         w_parent,
@@ -2137,6 +2793,8 @@ pub fn synthesize_stratum_traced_with_policy(
                 } else {
                     trace.failed(w_parent, &w, FailureReason::PartialParse);
                 }
+            } else if let Some(recorder) = trace_mode.recorder() {
+                recorder.record_at(&w, Decision::RemainingRulesInStratum { stratum });
             }
             continue;
         }
@@ -2155,15 +2813,15 @@ pub fn synthesize_stratum_traced_with_policy(
             return Vec::new();
         };
         nw.flags.is_last_applied_rule_final = None;
-        if trace.is_tracing() {
+        if trace_mode.is_tree() {
             trace.end_apply_stratum(w_parent, stratum, &nw);
         }
-        out.entry(nw.dedup_key()).or_insert(nw);
+        insert_synthesis_word(&mut out, nw, trace_mode.recorder());
     }
-    if trace.is_tracing() && out.is_empty() {
+    if trace_mode.is_tree() && out.is_empty() {
         trace.end_apply_stratum(node_parent, stratum, &input);
     }
-    out.into_values().collect()
+    out.into_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2171,35 +2829,38 @@ fn synth_apply_mrules(
     g: &Grammar,
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
+    admitted: Option<&[bool]>,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    if steps.get() >= cap {
-        return Vec::new();
-    }
     if budget.synthesis_over_budget() {
         return Vec::new();
     }
     let key = |w: &Word| w.dedup_key();
+    // A selector-excluded rule never matches a trail; only a compounding rule can match an unspecified slot, so it stays.
+    let rules: Vec<MRuleId> = sd
+        .mrules
+        .iter()
+        .copied()
+        .filter(|id| {
+            admitted.is_none_or(|a| {
+                a[id.0 as usize] || matches!(g.mrules[id.0 as usize], MorphRuleDef::Compounding(_))
+            })
+        })
+        .collect();
     let apply_rule = |i: usize, w: &Word| -> Vec<Word> {
-        if steps.get() >= cap {
-            return Vec::new();
-        }
         if budget.synthesis_over_budget() {
             return Vec::new();
         }
-        steps.set(steps.get() + 1);
         guided_synth(
             g,
             stratum,
-            sd.mrules[i],
+            rules[i],
             w,
             cache,
             stats,
@@ -2209,14 +2870,29 @@ fn synth_apply_mrules(
             RuleInvocationRole::Ordinary,
         )
     };
-    let casc = Cascade::new(true, usize::MAX);
-    let n = sd.mrules.len();
+    let casc = Cascade::new(true, usize::MAX).with_rule_work_owner(
+        stats,
+        stratum,
+        &rules,
+        crate::stats::Direction::Synthesis,
+    );
+    let n = rules.len();
+    // Only the rule the trail expects next can confirm a word, so only its position is attempted.
+    let positions = |w: &Word| trail_positions(g, &rules, w);
     // Synthesis mrules are in declaration order — no reverse, unlike analysis.
     let cascade_out = match sd.mrule_order {
-        MorphRuleOrder::Linear => casc.linear(n, input.clone(), &apply_rule, &key),
-        MorphRuleOrder::Unordered => casc.combination(n, input.clone(), &apply_rule, &key),
+        MorphRuleOrder::Linear => casc.linear_at(input.clone(), &positions, &apply_rule, &key),
+        MorphRuleOrder::Unordered => casc.combination_at(
+            n,
+            input.clone(),
+            &positions,
+            &|_, _, _| (),
+            &|i, w, &()| apply_rule(i, w),
+            &key,
+        ),
     };
     let mut result = Vec::new();
+    let _cascade_memory = cascade_out.memory;
     for w in cascade_out.words {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -2226,7 +2902,7 @@ fn synth_apply_mrules(
             result.push(w);
         } else {
             result.extend(synth_apply_templates(
-                g, stratum, sd, &w, cap, steps, cache, stats, trace, parent, budget, policy,
+                g, stratum, sd, admitted, &w, cache, stats, trace, parent, budget, policy,
             ));
         }
     }
@@ -2251,7 +2927,7 @@ fn root_is_partial(g: &Grammar, word: &Word) -> bool {
 }
 
 /// Walks the root's family (if any) in document order for the most specific applicable relative, swapping in against `best`'s CURRENT (possibly already-swapped) FS, never the original `input`; a guessed root returns unchanged, faithfully (C#'s fabrication never sets a family either).
-fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
+fn choose_inflectional_stem(g: &Grammar, input: &Word, recorder: Option<&dyn Recorder>) -> Word {
     let Some(root_id) = input.root_allomorph else {
         return input.clone();
     };
@@ -2283,7 +2959,12 @@ fn choose_inflectional_stem(g: &Grammar, input: &Word) -> Word {
         }
         let remainder = subtract(rel_syn, &best.syn_fs);
         if !remainder.is_empty() && is_unifiable(&input.real_fs, &remainder) {
+            let parent = best.trace;
             best = crate::morph::seed_from_entry(g, rel, input.real_fs.clone());
+            best.set_collect_partials(input.collect_partials());
+            if let Some(recorder) = recorder {
+                best.trace = recorder.advance(parent);
+            }
         }
     }
     best
@@ -2294,19 +2975,15 @@ fn synth_apply_templates(
     g: &Grammar,
     stratum: StratumId,
     sd: &pg_grammar_model::model::StratumDef,
+    admitted: Option<&[bool]>,
     input: &Word,
-    cap: usize,
-    steps: &Cell<usize>,
     cache: &RuleCache,
     stats: Option<&StatsCollector>,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-    budget: &StepBudget,
+    budget: &WordBudget,
     policy: FinalTemplateSynthesisPolicy,
 ) -> Vec<Word> {
-    if steps.get() >= cap {
-        return Vec::new();
-    }
     if budget.synthesis_over_budget() {
         return Vec::new();
     }
@@ -2315,45 +2992,76 @@ fn synth_apply_templates(
         return Vec::new();
     }
     // Shadowed so every use below reads the POST-swap word.
-    let input = choose_inflectional_stem(g, input);
+    let recorder = trace.mode().recorder();
+    let input = choose_inflectional_stem(g, input, recorder);
     let input = &input;
     let in_key = input.dedup_key();
-    let mut out: HashMap<WordKey, Word> = HashMap::default();
+    let mut out = WordSet::default();
     // The root does not change across templates, so this check is hoisted out of the loop.
     let root_partial = root_is_partial(g, input);
     let mut applicable = false;
+    let mut unique_applicable = None;
     for &tid in &sd.templates {
         if !pg_fst::work::consume() {
             return Vec::new();
         }
         let tmpl = &g.templates[tid.0 as usize];
         let req = g.fs_interner.get(tmpl.required_syn_fs);
-        if !is_unifiable(&input.syn_fs, req) || root_partial {
+        let syntactic_eligible = is_unifiable(&input.syn_fs, req);
+        if !syntactic_eligible || root_partial {
+            if let Some(recorder) = recorder {
+                recorder.record_at(
+                    input,
+                    Decision::TemplateIneligible {
+                        template: tid,
+                        partial_root: syntactic_eligible,
+                    },
+                );
+            }
             continue;
         }
+        unique_applicable = if applicable { None } else { Some(tid) };
         applicable = true;
         for w in guided_template_apply(
-            g, stratum, tid, input, cap, steps, cache, stats, trace, parent, budget, policy,
+            g, stratum, tid, input, cache, stats, trace, parent, budget, policy,
         ) {
-            let final_flag = w.flags.is_partial || tmpl.is_final;
+            let final_flag = w.flags.is_partial() || tmpl.is_final;
             let mut w = w;
             w.flags.is_last_applied_rule_final = Some(final_flag);
-            out.entry(w.dedup_key()).or_insert(w);
+            insert_synthesis_word(&mut out, w, recorder);
         }
     }
     // No template output: pass the input through UNLESS it is non-partial AND some template was applicable, else a templateless stratum would skip the mrule recursion below entirely.
     if out.is_empty() {
-        if input.flags.is_partial || !applicable {
+        if input.flags.is_partial() || !applicable {
             let mut w = input.clone();
             // PORT-CORRESPONDENCE: `SynthesisAffixTemplatesRule.Apply` closes the passthrough only when some template was applicable.
             if applicable {
                 w.flags.is_last_applied_rule_final = Some(true);
             }
-            out.insert(w.dedup_key(), w);
-        } else if trace.is_tracing() {
-            // Unlike the passthrough above, this branch drops the word, recording only a trace event.
-            let node_parent = input.trace.unwrap_or(parent);
-            trace.applicable_templates_not_applied(node_parent, stratum, input);
+            out.insert(w);
+        } else {
+            match trace.mode() {
+                crate::trace::TraceMode::Tree => {
+                    let node_parent = input.trace.unwrap_or(parent);
+                    trace.applicable_templates_not_applied(
+                        node_parent,
+                        stratum,
+                        input,
+                        unique_applicable,
+                    );
+                }
+                crate::trace::TraceMode::Observe(recorder) if !budget.search_stopped() => {
+                    recorder.record_at(
+                        input,
+                        Decision::ApplicableTemplatesNotApplied {
+                            stratum,
+                            template: unique_applicable,
+                        },
+                    );
+                }
+                _ => {}
+            }
         }
     }
 
@@ -2361,21 +3069,21 @@ fn synth_apply_templates(
         MorphRuleOrder::Linear => {}
         MorphRuleOrder::Unordered => {
             // For each changed template output, including the passthrough above when present, also run the mrules on it.
-            let templated: Vec<Word> = out.values().cloned().collect();
+            let templated: Vec<Word> = out.iter().cloned().collect();
             for t in templated {
                 if !pg_fst::work::consume() {
                     return Vec::new();
                 }
                 if t.dedup_key() != in_key {
                     for m in synth_apply_mrules(
-                        g, stratum, sd, &t, cap, steps, cache, stats, trace, parent, budget, policy,
+                        g, stratum, sd, admitted, &t, cache, stats, trace, parent, budget, policy,
                     ) {
-                        out.entry(m.dedup_key()).or_insert(m);
+                        insert_synthesis_word(&mut out, m, recorder);
                     }
                 }
             }
         }
     }
 
-    out.into_values().collect()
+    out.into_vec()
 }

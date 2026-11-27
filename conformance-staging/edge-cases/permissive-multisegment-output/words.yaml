@@ -1,0 +1,34 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: PermissiveExpansion
+inspired_by: ["synthetic regular vowel expansion"]
+sources: ["Read-only review of PanGloss 5cc418d4"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: ai
+    note: "One ordinary rewrite expands the underlying a into ai."
+    parses:
+      - signature: "ROOT|ai"
+        rules: [rExpand]
+  - word: a
+    note: "Obligatory expansion removes the unchanged surface."
+    expect_fail: true
+  - word: aiai
+    note: "Both a sites in aa expand independently."
+    parses:
+      - signature: "DOUBLE|aiai"
+        rules: [rExpand]
+  - word: aiiai
+    note: "The two a sites around unchanged i both expand."
+    parses:
+      - signature: "MIXED|aiiai"
+        rules: [rExpand]
+  - word: aa
+    note: "Both sites must expand in the DOUBLE root."
+    expect_fail: true
+  - word: aia
+    note: "The two sites must expand around the unchanged middle i."
+    expect_fail: true
+  - word: aai
+    note: "Changing only one site is a proposal, not an accepted surface."
+    expect_fail: true

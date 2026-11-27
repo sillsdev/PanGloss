@@ -6,7 +6,7 @@ Level: **warning**
 
 ## Explanation
 
-The allomorph's morph type is not supported for this compiler path.
+The allomorph's morph type is not supported for this compiler path. For a simulfix or suprafix written as literal text, C# HermitCrab skips the form silently; this warning is PanGloss-only.
 
 ## What to do
 

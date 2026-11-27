@@ -882,7 +882,7 @@ simultaneously (a) declares a `CharDefKind::Boundary` symbol, (b) commits a surf
 symbol, and (c) is representable by the backend under test. A sweep of every staged and upstream
 `words.yaml` found exactly three fixtures satisfying (a) and (b): `backend-ordered-generic` and
 `metathesis-phase-isolation` both carry infix and reduplication rules and so fail (c), and
-`loader-isactive-breadth` satisfies all three but lives under `machine/conformance`, so a test
+`loader-isactive-breadth` satisfies all three but lives under `conformance`, so a test
 unwrapping it fails rather than skips under `-Scope local`. Authoring a staged fixture is therefore
 the honest fix, and it is not done.
 

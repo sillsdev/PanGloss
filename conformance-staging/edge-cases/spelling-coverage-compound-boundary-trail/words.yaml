@@ -1,0 +1,49 @@
+# oracle-provenance: founding-oracle
+# Machine 1ddef2bd2f1503717de95556116df8e4a63846d6; cached hc batch through pg.ps1.
+language: SpellingCompoundBoundaryTrail
+requires: []
+fieldworks_producible: false
+fieldworks_producible_notes: "row 30 of fieldworks-cannot-say.md: the compound output writes + outside the single junction between its parts, which HCLoader does not write"
+words:
+  - word: "a"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei]"
+        rules: []
+  - word: "aa"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]-?"
+        rules: ["cr1"]
+  - word: "-aa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aa-"
+    note: Every observed C# signature occurrence is retained.
+    parses:
+      - signature: "ROOT|[aá(xy)ei][aá(xy)ei]-?"
+        rules: ["cr1"]
+  - word: "a-a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a--a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "--aa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aa--"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a-a-a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aaa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "a-aa"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true
+  - word: "aa-a"
+    note: Every observed C# signature occurrence is retained.
+    expect_fail: true

@@ -9,7 +9,7 @@ Batch TSV format (one word may appear on two lines: a STARTED sentinel then the
 result):
     idx  word  time_ms  status  signature
 where `signature` is a ';'-separated list of per-analysis parse strings, or '-'
-for zero analyses. `status` is one of `ok`, `CAP` (the step cap fired; `signature`
+for zero analyses. `status` is one of `ok`, `CAP` (the work cap fired; `signature`
 is the partial, unconfirmed result reached before it did), `TIMEOUT`, or `SKIPPED`
 (both report `signature` as '-').
 
@@ -23,7 +23,7 @@ For every word present in both files we bucket the pair into:
 
 A word is "parse-exact" if it is IDENTICAL, MULTISET_EQUAL, or SET_EQUAL and the
 status matches -- i.e. we have the correct analysis and only ordering/dups differ.
-CAPPED is neither parse-exact nor a genuine difference: a step-cap-exhausted
+CAPPED is neither parse-exact nor a genuine difference: a work-cap-exhausted
 signature is a partial, unconfirmed snapshot, so comparing it proves nothing about
 whether the two engines agree -- it is reported as its own category instead of
 inflating either PARSE-EXACT or NOT-parse-exact.
@@ -129,7 +129,7 @@ def main():
     print(f"  PARSE-EXACT    {exact:>6}  ({100.0*exact/n if n else 0:5.1f}%)   "
           f"(identical + reorder-only + dup-count-only)")
     print(f"  CAPPED         {capped:>6}  ({100.0*capped/n if n else 0:5.1f}%)   "
-          f"(step cap fired on rust and/or reference -- partial, not comparable)")
+          f"(work cap fired on rust and/or reference -- partial, not comparable)")
     print(f"  NOT parse-exact{not_exact:>6}  ({100.0*not_exact/n if n else 0:5.1f}%)   "
           f"(status or analysis-set differs, excludes CAPPED)")
 

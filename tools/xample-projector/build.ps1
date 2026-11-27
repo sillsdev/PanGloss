@@ -598,7 +598,7 @@ function Get-AnalysisSignatures {
 	return $wordEntry.analyses | ForEach-Object { ($_.morphemes | ForEach-Object { $_.msaGuid }) -join '+' } | Sort-Object
 }
 
-# phonology-mutations.yaml (machine\conformance\PROTOCOL.md section 10) is a small, fixed-shape
+# phonology-mutations.yaml (conformance\PROTOCOL.md section 10) is a small, fixed-shape
 # manifest; a bespoke parser matches its exact shape rather than pulling in a general YAML reader
 # (the Rust side owns YAML later).
 function ConvertFrom-PhonologyMutationsYaml {
@@ -1046,7 +1046,7 @@ finally {
 
 # --- refusal-before-project-exists probes: GrammarParser.Parse runs before AuthorSession.Run ever
 #     creates a .fwdata, so these need FieldWorks (for the pin check in Program.Main) but NEITHER
-#     the machine submodule NOR Sena 3 -- both grammars are tiny inline fixtures. ---
+#     the conformance suite NOR Sena 3 -- both grammars are tiny inline fixtures. ---
 $parserRefusalTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-parser-refusal-" + [System.Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $parserRefusalTempRoot -Force | Out-Null
 try {
@@ -1238,17 +1238,144 @@ finally {
 	Remove-Item -Path $parserRefusalTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- author / verify-parity live tests: the `machine` conformance submodule's own fixtures,
+# --- Enclitic authoring probe: a clitic MorphologicalRule of the Clitics stratum plus its stem LexicalEntry copy (the pair
+#     HCLoader emits for ONE FieldWorks enclitic entry) is authored as one entry of the enclitic morph
+#     type, and a MorphemeCoOccurrenceRule naming it by either id becomes one MoMorphAdhocProhib that
+#     binds in the live HC engine. Refusals: a table of small mutations of the probe grammar (the pairing, the partner entry's
+#     shape and stratum, the clitic rule, the Clitics stratum), each of which must exit 7 naming its cause. Needs no conformance suite. ---
+$encliticGrammar = Join-Path $root 'testdata\enclitic-probe.grammar.xml'
+$encliticTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-enclitic-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $encliticTempRoot -Force | Out-Null
+try {
+	$encliticOutDir = Join-Path $encliticTempRoot 'enclitic-out'
+	New-Item -ItemType Directory -Path $encliticOutDir -Force | Out-Null
+	& $exePath author --grammar $encliticGrammar --out-dir $encliticOutDir --name Enclitic --enclitic-of eX=mrX --enclitic-of eY=mrY
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'author' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticResponsePath = Join-Path $encliticOutDir 'author-response.json'
+	$encliticResponse = Get-Content $encliticResponsePath -Raw | ConvertFrom-Json
+	# Three LexicalEntries stay three LexEntries: each clitic rule is the same entry as its stem copy,
+	# and the two prohibition rules (one per id of the enclitic) are one MoMorphAdhocProhib.
+	if ($encliticResponse.authored.LexEntry -ne 3 -or $encliticResponse.authored.MoMorphAdhocProhib -ne 1) {
+		Write-Error "Enclitic authoring probe: expected authored LexEntry == 3 and MoMorphAdhocProhib == 1, got '$($encliticResponse.authored.LexEntry)' and '$($encliticResponse.authored.MoMorphAdhocProhib)'."
+		exit 1
+	}
+	foreach ($pair in @(@('mrX', 'eX'), @('subX', 'aX'), @('mrY', 'eY'), @('subY', 'aY'))) {
+		if ($encliticResponse.guidMap.($pair[0]) -ne $encliticResponse.guidMap.($pair[1])) {
+			Write-Error "Enclitic authoring probe: guidMap '$($pair[0])' ($($encliticResponse.guidMap.($pair[0]))) is not the same object as '$($pair[1])' ($($encliticResponse.guidMap.($pair[1])))."
+			exit 1
+		}
+	}
+	$encliticFwdata = Join-Path $encliticOutDir 'Enclitic\Enclitic.fwdata'
+	$encliticFwdataText = Get-Content -LiteralPath $encliticFwdata -Raw
+	# The morph type is the well-known enclitic guid (MoMorphTypeTags.kguidMorphEnclitic). A project with no
+	# enclitic form names it twice (the type's own record and its owner's reference); each enclitic form adds one.
+	$encliticTypeGuid = 'd7f713e1-e8cf-11d3-9764-00c04f186933'
+	if (([regex]::Matches($encliticFwdataText, $encliticTypeGuid)).Count -lt 4) {
+		Write-Error "Enclitic authoring probe: the authored project does not reference the enclitic morph type ($encliticTypeGuid) from its two enclitic forms."
+		exit 1
+	}
+	$encliticProjectedDir = Join-Path $encliticTempRoot 'projected'
+	New-Item -ItemType Directory -Path $encliticProjectedDir -Force | Out-Null
+	& $exePath project --project $encliticFwdata --out-dir $encliticProjectedDir --database Enclitic
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'project' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticWords = Join-Path $encliticTempRoot 'words.txt'
+	Set-Content -LiteralPath $encliticWords -Value @('k', 'kx', 'ky') -Encoding utf8
+	$encliticCapture = Join-Path $encliticTempRoot 'hc.json'
+	& $exePath parse-hc --project $encliticFwdata --hc-xml (Join-Path $encliticProjectedDir 'Enclitic.hc.xml') --words $encliticWords --out $encliticCapture
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Enclitic authoring probe: 'parse-hc' failed (exit $LASTEXITCODE)."
+		exit 1
+	}
+	$encliticCounts = (Get-Content $encliticCapture -Raw | ConvertFrom-Json).words | ForEach-Object { "$($_.word)=$(@($_.analyses).Count)" }
+	if (($encliticCounts -join ' ') -ne 'k=1 kx=0 ky=1') {
+		Write-Error "Enclitic authoring probe: expected 'k=1 kx=0 ky=1' from the live HC engine, got '$($encliticCounts -join ' ')'."
+		exit 1
+	}
+	Write-Host "Enclitic authoring probe OK: one enclitic entry per clitic rule + stem copy, one MoMorphAdhocProhib, and the live HC engine gives k=1 kx=0 ky=1."
+
+	# Refusal probes, table-driven: each case is a small mutation of the probe grammar (pairs of old,new text, each old text
+	# must occur exactly once), the author arguments, and the words the refusal message must name. Every case must exit 7,
+	# name its cause, and leave no .fwdata behind.
+	$encliticRefusalGrammar = Get-Content $encliticGrammar -Raw
+	$stratumTag = '<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered" morphologicalRules="mrX mrY">'
+	$subruleXTag = '<MorphologicalSubrule id="subX">'
+	$bothPartners = @('--enclitic-of', 'eX=mrX', '--enclitic-of', 'eY=mrY')
+	# A first-stratum stem with the partner's shape x, so an --msa-copies group eX,eW passes ValidateMsaCopyGroups and reaches the enclitic check.
+	$sameShapeStem = '<LexicalEntry id="eW" partOfSpeech="posV"><Allomorphs><Allomorph id="aW"><PhoneticShape>x</PhoneticShape></Allomorph></Allomorphs><MorphemeId>W</MorphemeId></LexicalEntry>'
+	$strayStem = '<LexicalEntry id="eZ" partOfSpeech="posV"><Allomorphs><Allomorph id="aZ"><PhoneticShape>k</PhoneticShape></Allomorph></Allomorphs><MorphemeId>Z</MorphemeId></LexicalEntry>'
+	$slotTemplate = '<AffixTemplates><AffixTemplate><Name>tpl</Name><Slot morphologicalRules="mrX"><Name>slot</Name></Slot></AffixTemplate></AffixTemplates>'
+	$mprFeatures = '<MorphologicalPhonologicalRuleFeatures><MorphologicalPhonologicalRuleFeature id="mprA">a</MorphologicalPhonologicalRuleFeature></MorphologicalPhonologicalRuleFeatures>'
+	$encliticRefusals = @(
+		# The pairing itself.
+		@{ Name = 'clitic rule without an --enclitic-of partner'; Edits = @(); Args = @('--enclitic-of', 'eY=mrY'); Expect = @('mrX', 'enclitic-of') },
+		@{ Name = 'two partners for one clitic rule'; Edits = @(); Args = @('--enclitic-of', 'eX=mrX', '--enclitic-of', 'eK=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('mrX', 'exactly one') },
+		@{ Name = 'partner that is not a LexicalEntry'; Edits = @(); Args = @('--enclitic-of', 'eNope=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('eNope', 'LexicalEntry') },
+		@{ Name = 'partner declared in the first stratum'; Edits = @(); Args = @('--enclitic-of', 'eK=mrX', '--enclitic-of', 'eY=mrY'); Expect = @('eK', 'first Stratum', 'Clitics') },
+		@{ Name = 'ordinary stem entry declared in the Clitics stratum'; Edits = @(, @('<LexicalEntry id="eY" partOfSpeech="posV">', ($strayStem + '<LexicalEntry id="eY" partOfSpeech="posV">'))); Args = $bothPartners; Expect = @('eZ', 'Clitics', 'ordinary stem') },
+		# The partner entry's shape.
+		@{ Name = 'partner without a part of speech'; Edits = @(, @('<LexicalEntry id="eX" partOfSpeech="posV">', '<LexicalEntry id="eX">')); Args = $bothPartners; Expect = @('eX', 'part of speech') },
+		@{ Name = 'partner whose allomorph shape is not the inserted shape'; Edits = @(, @('<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph>', '<Allomorph id="aX"><PhoneticShape>k</PhoneticShape></Allomorph>')); Args = $bothPartners; Expect = @('eX', 'inserted shape') },
+		@{ Name = 'partner with two allomorphs'; Edits = @(, @('<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph>', '<Allomorph id="aX"><PhoneticShape>x</PhoneticShape></Allomorph><Allomorph id="aX2"><PhoneticShape>x</PhoneticShape></Allomorph>')); Args = $bothPartners; Expect = @('eX', 'one environment-free allomorph') },
+		@{ Name = 'partner with a rule feature'; Edits = @(@('</PartsOfSpeech>', ('</PartsOfSpeech>' + $mprFeatures)), @('<LexicalEntry id="eX" partOfSpeech="posV">', '<LexicalEntry id="eX" partOfSpeech="posV" ruleFeatures="mprA">')); Args = $bothPartners; Expect = @('eX', 'one environment-free allomorph') },
+		@{ Name = 'partner that is also a --variant-of main entry'; Edits = @(); Args = ($bothPartners + @('--variant-of', 'eY=eX')); Expect = @('eX', 'cannot also be') },
+		@{ Name = 'partner that is also an --msa-copies member'; Edits = @(, @('<LexicalEntry id="eK" partOfSpeech="posV">', ($sameShapeStem + '<LexicalEntry id="eK" partOfSpeech="posV">'))); Args = ($bothPartners + @('--msa-copies', 'eX,eW')); Expect = @('eX', 'cannot also be') },
+		# The clitic rule itself.
+		@{ Name = 'proclitic'; Edits = @(, @('<CopyFromInput index="stemX" /><InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments>', '<InsertSegments><PhoneticShape>x</PhoneticShape></InsertSegments><CopyFromInput index="stemX" />')); Args = $bothPartners; Expect = @('mrX', 'proclitic') },
+		@{ Name = 'clitic rule with a part of speech'; Edits = @(, @('<MorphologicalRule id="mrX">', '<MorphologicalRule id="mrX" requiredPartsOfSpeech="posV" outputPartOfSpeech="posV">')); Args = $bothPartners; Expect = @('mrX', 'requiredPartsOfSpeech') },
+		@{ Name = 'clitic rule with a required environment'; Edits = @(, @($subruleXTag, ($subruleXTag + '<RequiredEnvironments><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cK" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment></RequiredEnvironments>'))); Args = $bothPartners; Expect = @('mrX', 'RequiredEnvironments') },
+		@{ Name = 'clitic rule in an affix template slot'; Edits = @(, @('<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">', ('<Stratum characterDefinitionTable="t1" morphologicalRuleOrder="unordered">' + $slotTemplate))); Args = $bothPartners; Expect = @('mrX', 'clitic', 'slot') },
+		@{ Name = 'clitic rule carrying the isCliticRule attribute'; Edits = @(, @('<MorphologicalRule id="mrX">', '<MorphologicalRule id="mrX" isCliticRule="true">')); Args = $bothPartners; Expect = @('mrX', 'isCliticRule') },
+		@{ Name = 'clitic rule missing from the Clitics morphologicalRules'; Edits = @(, @('morphologicalRules="mrX mrY"', 'morphologicalRules="mrX"')); Args = $bothPartners; Expect = @('mrY', 'morphologicalRules') },
+		@{ Name = 'Clitics morphologicalRules listing an id that is not its rule'; Edits = @(, @('morphologicalRules="mrX mrY"', 'morphologicalRules="mrX mrY eK"')); Args = $bothPartners; Expect = @('eK', 'morphologicalRules') },
+		# The Clitics stratum itself.
+		@{ Name = 'second stratum not named Clitics'; Edits = @(, @('<Name>Clitics</Name>', '<Name>Other</Name>')); Args = $bothPartners; Expect = @('Clitics') },
+		@{ Name = 'inactive Clitics stratum'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum isActive="no" '))); Args = $bothPartners; Expect = @('Clitics', 'isActive') },
+		@{ Name = 'Clitics stratum with another character table'; Edits = @(, @($stratumTag, $stratumTag.Replace('"t1"', '"t2"'))); Args = $bothPartners; Expect = @('Clitics', 'characterDefinitionTable') },
+		@{ Name = 'Clitics stratum with phonologicalRules'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum phonologicalRules="prX" '))); Args = $bothPartners; Expect = @('Clitics', 'phonologicalRules') },
+		@{ Name = 'cyclic Clitics stratum'; Edits = @(, @($stratumTag, $stratumTag.Replace('<Stratum ', '<Stratum cyclicity="cyclic" '))); Args = $bothPartners; Expect = @('Clitics', 'cyclic') },
+		@{ Name = 'AffixTemplates in the Clitics stratum'; Edits = @(, @('<Name>Clitics</Name>', ('<Name>Clitics</Name>' + $slotTemplate))); Args = $bothPartners; Expect = @('Clitics', 'AffixTemplates') }
+	)
+	$encliticCaseIndex = 0
+	foreach ($case in $encliticRefusals) {
+		$encliticCaseIndex++
+		$mutated = $encliticRefusalGrammar
+		foreach ($edit in $case.Edits) {
+			$occurrences = ([regex]::Matches($mutated, [regex]::Escape($edit[0]))).Count
+			if ($occurrences -ne 1) { Write-Error "Enclitic refusal probe '$($case.Name)': expected its edit anchor to occur once in the probe grammar, found $occurrences (anchor: $($edit[0]))."; exit 1 }
+			$mutated = $mutated.Replace($edit[0], $edit[1])
+		}
+		$caseGrammarPath = Join-Path $encliticTempRoot "refusal-$encliticCaseIndex.grammar.xml"
+		Set-Content -LiteralPath $caseGrammarPath -Value $mutated -Encoding utf8
+		$caseOutDir = Join-Path $encliticTempRoot "refusal-$encliticCaseIndex-out"
+		Assert-ProjectorExit -ExePath $exePath -Label "Enclitic refusal probe '$($case.Name)'" -ExpectedExitCode 7 -ExpectedSubstrings $case.Expect -Arguments (@('author', '--grammar', $caseGrammarPath, '--out-dir', $caseOutDir, '--name', 'Refused') + $case.Args) | Out-Null
+		if ((Test-Path $caseOutDir) -and (Get-ChildItem -Path $caseOutDir -Recurse -Filter '*.fwdata' -ErrorAction SilentlyContinue)) {
+			Write-Error "Enclitic refusal probe '$($case.Name)': exit was 7 but a .fwdata was left on disk under $caseOutDir."
+			exit 1
+		}
+	}
+	Write-Host "Enclitic refusal probes OK: $($encliticRefusals.Count) refusals (pairing, partner shape, clitic rule, Clitics stratum) each exit 7 naming the cause and leave no .fwdata."
+}
+finally {
+	Remove-Item -Path $encliticTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# --- author / verify-parity live tests: the `conformance` suite's own fixtures,
 #     not Sena 3 -- independent of whether Sena3 is reachable above. ---
-$conformanceRoot = Join-Path $root '..\..\machine\conformance'
-if ($env:PANGLOSS_CONFORMANCE_DIR) { $conformanceRoot = $env:PANGLOSS_CONFORMANCE_DIR }
+$conformanceRoot = Join-Path $root '..\..\conformance'
+if ($env:HC_CONFORMANCE_SUITE) { $conformanceRoot = $env:HC_CONFORMANCE_SUITE }
 $pilotGrammar = Join-Path $conformanceRoot 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 $mprRefusalGrammar = Join-Path $conformanceRoot 'languages\prefixal-discontinuous-slot-dependency\grammar.xml'
 $requireRefusalGrammar = Join-Path $conformanceRoot 'languages\suffixing-evidential-adjacency-chain\grammar.xml'
 
-# --- AllomorphCoOccurrenceRule authoring probe: runs above the machine-submodule gate below
-#     (this fixture is this tool's own testdata, not part of the machine submodule, so it needs no
-#     submodule at all) and pins the fix for the silent-drop defect (a type="exclude"
+# --- AllomorphCoOccurrenceRule authoring probe: runs above the conformance-suite gate below
+#     (this fixture is this tool's own testdata, not part of the conformance suite, so it needs no
+#     suite at all) and pins the fix for the silent-drop defect (a type="exclude"
 #     AllomorphCoOccurrenceRule used to author with no IMoAlloAdhocProhib created and no refusal at
 #     all -- see GrammarAuthor.CreateCoOccurrenceRules); it also proves the exclusion actually
 #     binds in the live HC engine, not just that an object was created. ---
@@ -1292,7 +1419,7 @@ try {
 	# allomorph "anywhere" in a word -- the ONLY way to produce "xk" (resp. "yl") at all is that
 	# exact combination, so a correct exclusion makes "xk" and "yl" unparseable (0 analyses) while
 	# the affixless "k"/"l" still parse (1 analysis each). This is the probe's own designed
-	# semantics, not an oracle-confirmed count (this fixture is not a `machine` conformance
+	# semantics, not an oracle-confirmed count (this fixture is not a conformance
 	# fixture) -- unlike the pilot fixture's counts below.
 	$alloCoOccurVerifyOutput = & $exePath verify-parity --grammar $alloCoOccurGrammar --hc-xml $alloCoOccurHcXml --guid-map $alloCoOccurResponsePath --expect k=1 --expect xk=0 --expect l=1 --expect yl=0
 	if ($LASTEXITCODE -ne 0) {
@@ -1335,8 +1462,48 @@ finally {
 	Remove-Item -Path $alloCoOccurTempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# --- Empty required slot probe: a slot with no affix rules authors (direction names its list) and
+#     HCLoader drops it, so the loaded language keeps only the filled slot. ---
+$emptySlotGrammar = Join-Path $root 'testdata\empty-required-slot-probe.grammar.xml'
+$emptySlotTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("xample-projector-empty-slot-" + [System.Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $emptySlotTempRoot -Force | Out-Null
+try {
+	$emptySlotOutDir = Join-Path $emptySlotTempRoot 'author'
+	New-Item -ItemType Directory -Path $emptySlotOutDir -Force | Out-Null
+	& $exePath author --grammar $emptySlotGrammar --out-dir $emptySlotOutDir --name EmptySlot
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'author' failed (exit $LASTEXITCODE)." }
+	$emptySlotResponse = Get-Content (Join-Path $emptySlotOutDir 'author-response.json') -Raw | ConvertFrom-Json
+	if ($emptySlotResponse.authored.MoInflAffixSlot -ne 2) { throw "Empty required slot probe: expected 2 MoInflAffixSlot, got '$($emptySlotResponse.authored.MoInflAffixSlot)'." }
+	$emptySlotFwdata = Join-Path $emptySlotOutDir 'EmptySlot\EmptySlot.fwdata'
+	$emptySlotGuid = $emptySlotResponse.guidMap.slotEmptyRequired
+	$emptySlotText = Get-Content $emptySlotFwdata -Raw
+	if ($emptySlotText -notmatch "(?s)<PrefixSlots>\s*<objsur guid=""$emptySlotGuid""") { throw 'Empty required slot probe: the empty slot is not in PrefixSlotsRS.' }
+	if ($emptySlotText -notmatch "(?s)<rt class=""MoInflAffixSlot"" guid=""$emptySlotGuid""[^>]*>(?:(?!</rt>).)*?<Optional val=""False""") { throw 'Empty required slot probe: the empty slot is not required.' }
+	$emptySlotProjected = Join-Path $emptySlotTempRoot 'projected'
+	New-Item -ItemType Directory -Path $emptySlotProjected -Force | Out-Null
+	& $exePath project --project $emptySlotFwdata --out-dir $emptySlotProjected --database EmptySlot
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'project' failed (exit $LASTEXITCODE)." }
+	$emptySlotHcXml = Join-Path $emptySlotProjected 'EmptySlot.hc.xml'
+	$emptySlotHcSlots = @(([xml](Get-Content $emptySlotHcXml -Raw)).SelectNodes('//AffixTemplate/Slot'))
+	if ($emptySlotHcSlots.Count -ne 1 -or $emptySlotHcSlots[0].SelectSingleNode('Name').InnerText -ne 'slotSuffix') { throw "Empty required slot probe: expected HCLoader to keep only slotSuffix, got $($emptySlotHcSlots.Count) slot(s)." }
+	$emptySlotWords = Join-Path $emptySlotTempRoot 'words.txt'
+	Set-Content -LiteralPath $emptySlotWords -Value @('monu', 'monua', 'amonu') -Encoding utf8
+	$emptySlotParse = Join-Path $emptySlotTempRoot 'parse-hc.json'
+	& $exePath parse-hc --project $emptySlotFwdata --hc-xml $emptySlotHcXml --words $emptySlotWords --out $emptySlotParse
+	if ($LASTEXITCODE -ne 0) { throw "Empty required slot probe: 'parse-hc' failed (exit $LASTEXITCODE)." }
+	$emptySlotCapture = Get-Content $emptySlotParse -Raw | ConvertFrom-Json
+	$emptySlotMorphCounts = @($emptySlotCapture.words | ForEach-Object { if ($_.analyses.Count -eq 1) { $_.analyses[0].morphemes.Count } else { -$_.analyses.Count } })
+	if (($emptySlotMorphCounts -join ',') -ne '1,2,0' -or -not (($emptySlotCapture.words | Where-Object { -not $_.projectionAgrees }).Count -eq 0)) {
+		throw "Empty required slot probe: expected monu=1 morph, monua=2 morphs, amonu=0 analyses with agreeing projections, got $($emptySlotMorphCounts -join ',')."
+	}
+	Write-Host 'Empty required slot probe OK: the zero-rule required slot authors, HCLoader drops it, and the empty slot does not block parses.'
+}
+finally {
+	Remove-Item -Path $emptySlotTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 if (-not (Test-Path $pilotGrammar)) {
-	Write-Host "SKIPPED (author/verify-parity live tests): machine submodule fixture not found at $pilotGrammar"
+	Write-Host "SKIPPED (author/verify-parity live tests): conformance suite fixture not found at $pilotGrammar"
 	exit 0
 }
 
@@ -1491,13 +1658,11 @@ finally {
 
 # --- mutate/parse live proof: 'mutate' + 'parse' against a freshly authored pilot project.
 #     Skipped (with reason) only when FieldWorks itself is absent -- already checked at the top of
-#     this script, so reaching here means FieldWorks is present. The Machine grammar root defaults
-#     to a fixed path and is independently overridable via PANGLOSS_MACHINE_DIR, distinct from this
-#     repo's own `machine` submodule ($conformanceRoot above); the checked-in FieldWorks witness
-#     below swaps in a real project for this same fixture when present. ---
-$machineRootForMutateParse = $env:PANGLOSS_MACHINE_DIR
-if ([string]::IsNullOrEmpty($machineRootForMutateParse)) { $machineRootForMutateParse = 'C:\Users\johnm\Documents\repos\machine' }
-$mutateParseConformanceDir = Join-Path $machineRootForMutateParse 'conformance'
+#     this script, so reaching here means FieldWorks is present. It reads the same suite root as the
+#     author / verify-parity tests above ($conformanceRoot: this repo's `conformance` suite, or
+#     HC_CONFORMANCE_SUITE); the checked-in FieldWorks witness below swaps in a real project for
+#     this same fixture when present. ---
+$mutateParseConformanceDir = $conformanceRoot
 $mutateParseGrammar = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\grammar.xml'
 
 if (-not (Test-Path $mutateParseGrammar)) {
@@ -1505,10 +1670,10 @@ if (-not (Test-Path $mutateParseGrammar)) {
 	exit 0
 }
 
-# Prefer the checked-in FieldWorks witness (machine\conformance\PROTOCOL.md section 10) over
+# Prefer the checked-in FieldWorks witness (conformance\PROTOCOL.md section 10) over
 # authoring a fresh base project -- it IS a real, oracle-adjacent project rather than one this run
 # just invented, and using it here is what keeps it from silently drifting away from what 'author'
-# actually produces. Absence is not an error (an older or partial machine checkout) -- name the
+# actually produces. Absence is not an error (an older or partial suite checkout) -- name the
 # path and fall back, as today.
 $witnessDir = Join-Path $mutateParseConformanceDir 'edge-cases\deep-optional-affix-nesting\fieldworks'
 $witnessFwdata = Join-Path $witnessDir 'project.fwdata'
@@ -1539,7 +1704,7 @@ try {
 		}
 		Write-Host "mutate/parse live proof: using the checked-in FieldWorks witness at $witnessFwdata (sha256 $witnessActualSha256, verified against phonology-mutations.yaml)."
 
-		# Never touch the machine checkout's own copy: opening a project, even read-only, can leave
+		# Never touch the suite checkout's own copy: opening a project, even read-only, can leave
 		# session artifacts beside it (this same witness's own first 'inspect' left a SharedSettings
 		# directory that had to be deleted before it was committed) -- copy it out first.
 		$witnessCopyDir = Join-Path $mpTempRoot 'witness-base\project'

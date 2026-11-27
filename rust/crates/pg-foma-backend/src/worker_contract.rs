@@ -6,7 +6,7 @@ pub(crate) struct WorkerProtocolLimits {
     pub(crate) max_result_bytes: u64,
 }
 
-pub(crate) const PROTOCOL_VERSION: u32 = 9;
+pub(crate) const PROTOCOL_VERSION: u32 = 10;
 
 pub(crate) const PROTOCOL_LIMITS: WorkerProtocolLimits = WorkerProtocolLimits {
     max_request_bytes: 4 * 1024 * 1024,

@@ -10,7 +10,7 @@ fn wa(n: u32) -> WordAnalysis {
 /// Same identity as `wa(n)`, differing only in `mpr` — a field `AnalysisIdentity` does not capture and `WordAnalysis::Eq` does.
 fn wa_other_mpr(n: u32) -> WordAnalysis {
     WordAnalysis {
-        mpr: pg_grammar::model::MprSet(1),
+        mpr: pg_grammar::model::MprSet::from_bits(1),
         ..wa(n)
     }
 }
@@ -333,7 +333,7 @@ fn selectable_requires_both_accurate_certification_and_clean_production_health()
         apply: 1,
         proposals: 1,
         confirmation: 1,
-        confirmation_steps: 1,
+        confirmation_work: 1,
         raw_paths: 0,
     };
     let divergence = IdentityDivergence::not_compared(0);
@@ -344,7 +344,7 @@ fn selectable_requires_both_accurate_certification_and_clean_production_health()
         |certification: Certification, production_health: HealthReport| RuntimeEvaluation {
             certification,
             score,
-            realized_strategy: EmissionStrategy::PlanComposed,
+            realized_strategy: EmissionStrategy::TunedSurfaceProbed,
             divergence,
             production_health,
         };

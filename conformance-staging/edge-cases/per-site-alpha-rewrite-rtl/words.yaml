@@ -1,0 +1,35 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: PerSiteAlphaRewrite
+inspired_by: ["synthetic vowel fronting with alpha agreement and an opaque second site"]
+sources:
+  - "Derived from edge-cases/overridden-alpha-plain-ltr-left; ordinary regular rewrite and variable-feature environments"
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: uiu
+    note: "The second u fronts after an agreeing u; that i makes the next alpha environment fail."
+    parses:
+      - signature: "UUU|uiu"
+        rules: [prDoubleAlpha, prSubruleFeed]
+        exercises:
+          - "Alpha-variable phonological environments (VariableFeature/AlphaVariables)"
+          - "RewriteRule Iterative (epenthesis/deletion/feature/expansion/merge)"
+  - word: uuu
+    note: "The eligible second site must change; the unchanged root is not a surface."
+    expect_fail: true
+  - word: iiu
+    note: "Changing both original matching sites ignores the first change's opaque environment."
+    expect_fail: true
+  - word: uii
+    note: "The final vowel has no right environment and must stay u."
+    expect_fail: true
+  - word: iii
+    note: "A literal i context feeds the next site within the same right-to-left rule."
+    parses:
+      - signature: "FEED|iii"
+        rules: [prLiteralFeed]
+  - word: iyu
+    note: "The later y-producing subrule creates the earlier subrule's i-producing environment."
+    parses:
+      - signature: "SUBRULE|iyu"
+        rules: [prDoubleAlpha, prSubruleFeed]
