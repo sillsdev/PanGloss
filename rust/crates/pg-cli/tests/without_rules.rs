@@ -332,3 +332,50 @@ fn without_refuses_unsupported_objects_with_their_kind() {
         );
     }
 }
+
+/// A genuine reference to the rule left behind by the removal (here a part-of-speech name field carrying its guid) is still refused as dangling.
+#[test]
+fn without_refuses_a_rule_that_something_else_still_refers_to() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut value: Value = serde_json::from_str(&snapshot().to_json()).unwrap();
+    value["morphology"]["partsOfSpeech"][0]["name"] = Value::String("prule-t-s".to_string());
+    let path = dir.path().join("grammar.json");
+    std::fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+    let output = parse(&path, "kasi", Some("prule-t-s"));
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("dangling reference"), "{stderr}");
+}
+
+const FW: &str = "00000000-0000-0000-0000-";
+
+/// A real-format FieldWorks project: `--without` must not see `conversionProvenance.source_objects`, which lists every record guid and used to refuse every rule of every real project (#397).
+fn real_project() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../pg-parse/tests/data/why-not-fieldworks-guids/project.fwdata")
+}
+
+/// One object of each removable kind in the fixture: an affix template, a phonological rule and an ad hoc co-occurrence rule. The fixture has no compound rule; the compound path shares the same scan and is covered on the synthetic grammar.
+#[test]
+fn without_each_rule_kind_succeeds_on_a_real_fwdata_project() {
+    let grammar = real_project();
+    let plain = parse(&grammar, "tada", None);
+    assert!(
+        plain.status.success(),
+        "{}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    for (kind, id) in [
+        ("affix template", "00000000000e"),
+        ("phonological rule", "000000000018"),
+        ("ad hoc co-occurrence rule", "0000000009a1"),
+    ] {
+        let guid = format!("{FW}{id}");
+        let output = parse(&grammar, "tada", Some(&guid));
+        assert!(
+            output.status.success(),
+            "--without {kind} {guid}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

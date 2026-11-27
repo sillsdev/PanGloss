@@ -2,7 +2,7 @@
 
 use pg_snapshot::{PartOfSpeech, Snapshot};
 
-fn guid_eq(a: &str, b: &str) -> bool {
+pub(crate) fn guid_eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
@@ -177,7 +177,11 @@ pub(crate) fn remove_rule_objects(
         }
     }
     if !removed.is_empty() {
-        let value = serde_json::to_value(&*snapshot).expect("snapshot serializes");
+        let mut value = serde_json::to_value(&*snapshot).expect("snapshot serializes");
+        if let Some(root) = value.as_object_mut() {
+            // Provenance lists every record guid of the import, so it always "mentions" the rule.
+            root.remove("conversionProvenance");
+        }
         for (id, kind) in &removed {
             if mentions(&value, id) {
                 return Err(format!(
@@ -195,7 +199,7 @@ pub(crate) fn remove_rule_objects(
     Ok(rest)
 }
 
-fn mentions(value: &serde_json::Value, id: &str) -> bool {
+pub(crate) fn mentions(value: &serde_json::Value, id: &str) -> bool {
     match value {
         serde_json::Value::String(s) => guid_eq(s, id),
         serde_json::Value::Array(items) => items.iter().any(|v| mentions(v, id)),

@@ -8,6 +8,8 @@ use pg_parse::morpher::Morpher;
 use pg_parse::{project_parse_analysis_with_morphemes, ParseMorph};
 use serde::Serialize;
 
+use crate::without::{guid_eq, mentions};
+
 /// The schema tag on every report row.
 pub(crate) const RETIRE_SCHEMA: &str = "pangloss-retire/v1";
 
@@ -65,10 +67,6 @@ struct Row<'a> {
 const CAPPED: &str = "a parse hit a work, memory, capture or time cap";
 const UNPROJECTABLE: &str = "a reading cannot be projected, so it cannot be compared";
 
-fn guid_eq(a: &str, b: &str) -> bool {
-    a.eq_ignore_ascii_case(b)
-}
-
 /// The snapshot with each entry, or allomorph, named by `ids` deleted, and every ad hoc prohibition reference to it dropped as FieldWorks does; errors on an id that names neither, and the ad hoc prohibition references to it dropped; true when an allomorph was retired.
 pub(crate) fn retire_from_snapshot(
     snapshot: &mut pg_snapshot::Snapshot,
@@ -124,15 +122,7 @@ pub(crate) fn retire_from_snapshot(
 
 /// True when `id` appears as a string anywhere in the snapshot, so it names a real object of a kind this reduction does not remove (an MSA, a rule, a feature, a template and so on).
 fn names_other_object(snapshot: &pg_snapshot::Snapshot, id: &str) -> bool {
-    fn walk(value: &serde_json::Value, id: &str) -> bool {
-        match value {
-            serde_json::Value::String(s) => guid_eq(s, id),
-            serde_json::Value::Array(items) => items.iter().any(|v| walk(v, id)),
-            serde_json::Value::Object(map) => map.values().any(|v| walk(v, id)),
-            _ => false,
-        }
-    }
-    serde_json::to_value(snapshot).is_ok_and(|v| walk(&v, id))
+    serde_json::to_value(snapshot).is_ok_and(|v| mentions(&v, id))
 }
 
 /// Removes retired guids from ad hoc prohibitions, dropping those that lose their primary or every other item, and their group memberships.
