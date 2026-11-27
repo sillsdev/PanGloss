@@ -43,7 +43,6 @@
 //! `char_def`" invariant) while the surface word it must confirm against was segmented in a
 //! different (but unifying) char-def.
 
-use pg_featstruct::flat_unifiable;
 use pg_grammar_model::chardef::{CharDef, CharDefId, CharDefKind, CharDefTable};
 use pg_shape::{EffectiveCdSet, NodeKind, Shape, NO_CHAR_DEF};
 use unicode_normalization::UnicodeNormalization;
@@ -126,7 +125,7 @@ pub(crate) fn matching_reps_for_node<'t>(
         && table.unifiable_cds(CharDefId(char_def)).is_some();
     if char_def != NO_CHAR_DEF && !feature_bearing_table && (char_def as usize) < table.len() {
         let cd = table.get(CharDefId(char_def));
-        return if kind_matches(kind, cd) && flat_unifiable(lanes, &cd.literal_constraint_lanes()) {
+        return if kind_matches(kind, cd) && cd.literal_constraint_unifiable(lanes) {
             reps_of(cd).collect()
         } else {
             Vec::new()
@@ -153,7 +152,7 @@ pub(crate) fn matching_reps_for_node<'t>(
         if !member {
             continue;
         }
-        if flat_unifiable(lanes, &cd.literal_constraint_lanes()) {
+        if cd.literal_constraint_unifiable(lanes) {
             out.extend(reps_of(cd));
         }
     }

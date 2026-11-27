@@ -11,7 +11,8 @@ pub const ALL: u64 = DEFINED | FEATURELESS | PROVISIONAL | BOUNDARY;
 
 /// Literal constraints preserve phonological values without restricting natural-class eligibility.
 pub fn literal_lanes(feature_lanes: &[u64]) -> Vec<u64> {
-    let mut lanes = feature_lanes.to_vec();
+    let mut lanes = Vec::with_capacity(feature_lanes.len() + 1);
+    lanes.extend_from_slice(feature_lanes);
     lanes.push(ALL);
     lanes
 }

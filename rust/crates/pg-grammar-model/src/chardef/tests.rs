@@ -142,3 +142,45 @@ fn greedy_longest_match_prefers_two_char_rep() {
     assert!(table.lookup_nfd("sy").is_some());
     assert_ne!(table.lookup_nfd("s"), table.lookup_nfd("sy"));
 }
+
+#[test]
+fn literal_constraint_unifiable_equals_the_materialized_check() {
+    // Bit 16 is outside ALL, so it exercises the eligibility lane.
+    use crate::featsys::RawFeature;
+    let feature = |id: &str| RawFeature {
+        xml_id: id.into(),
+        name: id.into(),
+        symbols: vec![("symP".into(), "+".into()), ("symM".into(), "-".into())],
+        default_symbol: None,
+    };
+    let feat_sys = PhonFeatureSystem::from_raw(vec![feature("f1"), feature("f2")]).unwrap();
+    let mut raw = seg("c1", &["p"]);
+    raw.feature_values = vec![RawFeatureValue {
+        feature_xml_id: "f1".to_string(),
+        symbol_xml_ids: vec!["symP".to_string()],
+    }];
+    let table = CharDefTable::from_raw("t".to_string(), None, vec![raw], &feat_sys).unwrap();
+    let def = table.get(table.lookup_nfd("p").unwrap());
+    let constraint = def.literal_constraint_lanes();
+    let fl = def.feature_lanes().len();
+    assert_eq!(constraint.len(), fl + 1);
+    let values = [0, 1, 1 << 16, crate::membership::ALL, u64::MAX];
+    for len in fl.saturating_sub(1)..=fl + 2 {
+        let mut seg_lanes = vec![0usize; len];
+        loop {
+            let seg: Vec<u64> = seg_lanes.iter().map(|&i| values[i]).collect();
+            assert_eq!(
+                def.literal_constraint_unifiable(&seg),
+                pg_featstruct::flat_unifiable(&seg, &constraint),
+                "seg {seg:?}"
+            );
+            let Some(at) = seg_lanes.iter().position(|&i| i + 1 < values.len()) else {
+                break;
+            };
+            for lane in &mut seg_lanes[..at] {
+                *lane = 0;
+            }
+            seg_lanes[at] += 1;
+        }
+    }
+}

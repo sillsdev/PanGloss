@@ -91,7 +91,8 @@ impl CharDef {
 
     /// Phonological lanes followed by the independent natural-class eligibility lane.
     pub fn matching_lanes(&self) -> Vec<u64> {
-        let mut lanes = self.feature_lanes.clone();
+        let mut lanes = Vec::with_capacity(self.feature_lanes.len() + 1);
+        lanes.extend_from_slice(&self.feature_lanes);
         lanes.push(self.membership_bits());
         lanes
     }
@@ -99,6 +100,17 @@ impl CharDef {
     /// A literal constraint pins phonological values without imposing natural-class eligibility.
     pub fn literal_constraint_lanes(&self) -> Vec<u64> {
         crate::membership::literal_lanes(&self.feature_lanes)
+    }
+
+    /// `flat_unifiable(seg, &self.literal_constraint_lanes())` without building the lanes.
+    ///
+    /// The constraint is the feature lanes followed by an all-eligibility lane, and a lane missing
+    /// from either side is unconstrained, so the extra lane only needs `seg`'s own bits there.
+    pub fn literal_constraint_unifiable(&self, seg: &[u64]) -> bool {
+        pg_featstruct::flat_unifiable(seg, &self.feature_lanes)
+            && seg
+                .get(self.feature_lanes.len())
+                .is_none_or(|v| v & crate::membership::ALL != 0)
     }
 
     #[inline]
