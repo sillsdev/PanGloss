@@ -248,6 +248,8 @@ machine:edge-cases/truncate-morphotactic-identity	TunedSurfaceProbed	refused
 machine:edge-cases/truncate-morphotactic-subsumption	TunedSurfaceProbed	refused
 machine:edge-cases/two-merges-cascade-env	TunedSurfaceProbed	refused
 machine:edge-cases/unbounded-iterative-quantifier-expansion	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/variant-clitic-typed-form	TunedSurfaceProbed	oracle_exact
+machine:edge-cases/variant-complex-form-ref-senseless-entry	TunedSurfaceProbed	oracle_exact
 machine:edge-cases/word-boundary-affix-rewrite	TunedSurfaceProbed	oracle_exact
 machine:languages/metathesis-phase-isolation	TunedSurfaceProbed	refused
 machine:languages/polysynthetic-stratal-derivation-chain	TunedSurfaceProbed	refused
@@ -332,8 +334,6 @@ staging:edge-cases/unbound-pair-expansion	TunedSurfaceProbed	refused
 staging:edge-cases/unordered-independent-affix-sites	TunedSurfaceProbed	refused
 staging:edge-cases/unspecified-feature-minus-environment	TunedSurfaceProbed	refused
 staging:edge-cases/unspecified-feature-minus-target	TunedSurfaceProbed	refused
-staging:edge-cases/variant-clitic-typed-form	TunedSurfaceProbed	oracle_exact
-staging:edge-cases/variant-complex-form-ref-senseless-entry	TunedSurfaceProbed	oracle_exact
 staging:edge-cases/zero-width-morpheme-identity-stability	TunedSurfaceProbed	oracle_exact
 staging:languages/fusional-realizational-morphology	TunedSurfaceProbed	oracle_exact
 staging:languages/prefixal-discontinuous-slot-dependency	TunedSurfaceProbed	oracle_exact

@@ -68,8 +68,6 @@ edge-cases/unbound-pair-expansion
 edge-cases/unordered-independent-affix-sites
 edge-cases/unspecified-feature-minus-environment
 edge-cases/unspecified-feature-minus-target
-edge-cases/variant-clitic-typed-form
-edge-cases/variant-complex-form-ref-senseless-entry
 edge-cases/zero-width-morpheme-identity-stability
 languages/fusional-realizational-morphology
 languages/prefixal-discontinuous-slot-dependency
