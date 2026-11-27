@@ -1,0 +1,1 @@
+- `pangloss generate` can force a root or stem form with `formGuid` (only that form's seeds run, an affix `formGuid` stays refused) and mark each surface `attested` against a word list with `--requests ... --attested <words.txt>` or the `serve` `generate` fields `attestedWords` / `attestedWordsFile`; output is unchanged without them (#398).

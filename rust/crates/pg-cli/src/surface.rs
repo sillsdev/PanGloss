@@ -530,12 +530,17 @@ const GENERATE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--request",
         takes_value: true,
-        summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
+        summary: "versioned exact FieldWorks entry/MSA JSON request; a formGuid on the root or a stem morpheme runs only the seeds using that form, on an affix it is refused",
     },
     FlagSpec {
         name: "--requests",
         takes_value: true,
         summary: "JSONL file of `serve` generate requests (`-` reads stdin); one response row per line on stdout, in order; a bad line is an error row and the batch continues",
+    },
+    FlagSpec {
+        name: "--attested",
+        takes_value: true,
+        summary: "with --requests: a word list, one word per line; every surface in every row gets attested true/false (NFD comparison) unless the row sends its own attestedWords or attestedWordsFile",
     },
 ];
 

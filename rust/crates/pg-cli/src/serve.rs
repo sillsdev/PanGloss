@@ -297,9 +297,10 @@ pub(crate) fn generate_response(
     morpher: &Morpher<'_>,
     id: Value,
     object: &Map<String, Value>,
+    default_attested: Option<&crate::serve_generate::AttestedSet>,
 ) -> Value {
     let outcome = catch_unwind(AssertUnwindSafe(|| {
-        crate::serve_generate::run(grammar, morpher, object)
+        crate::serve_generate::run(grammar, morpher, object, default_attested)
     }));
     match outcome {
         Ok(Ok(mut result)) => {
@@ -411,7 +412,7 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             (response, false)
         }
         Some("generate") => (
-            generate_response(ctx.grammar, ctx.morpher, id, object),
+            generate_response(ctx.grammar, ctx.morpher, id, object, None),
             false,
         ),
         Some("inventory") => (

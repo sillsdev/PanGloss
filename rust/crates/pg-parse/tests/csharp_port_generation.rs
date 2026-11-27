@@ -389,3 +389,122 @@ fn simultaneous_overlapping_expansion_keeps_csharp_synthesis() {
     assert_eq!(outcome.stop_reason, None);
     assert_eq!(outcome.surfaces, ["iiiaiii"]);
 }
+
+fn first_allomorph(
+    grammar: &pg_grammar_model::model::Grammar,
+    entry: &str,
+) -> pg_grammar_model::model::AllomorphId {
+    grammar.entries[lex_entry_id(grammar, entry).0 as usize].allomorphs[0].id
+}
+
+#[test]
+fn forcing_a_stem_form_runs_only_its_seeds_and_each_equals_the_unforced_seed() {
+    use pg_parse::morpher::{AllomorphFilter, TracedGenerateLimits};
+    let grammar = multi_allomorph_compound_grammar();
+    let root = lex_entry_id(&grammar, "root");
+    let nonhead = lex_entry_id(&grammar, "nonhead");
+    let morpher = Morpher::new(&grammar, 1_000);
+    let limits = TracedGenerateLimits {
+        work_limit: 1_000,
+        timeout: None,
+        max_seeds: 100,
+        max_trace_nodes: None,
+    };
+    let run = |others: &[GenMorpheme], filter: &AllomorphFilter| {
+        morpher.generate_words_traced_filtered(root, others, FeatureStruct::EMPTY, &limits, filter)
+    };
+
+    // One stem slot: forcing nonhead1 keeps the two seeds that use it, under their unforced keys.
+    let one = [GenMorpheme::NonHead(nonhead)];
+    let all = run(&one, &AllomorphFilter::default());
+    assert_eq!(all.seeds.len(), 4);
+    let forced = run(
+        &one,
+        &AllomorphFilter {
+            root: None,
+            others: vec![Some(vec![first_allomorph(&grammar, "nonhead")])],
+        },
+    );
+    assert_eq!(forced.seed_choices, 2);
+    for seed in &forced.seeds {
+        let unforced = all
+            .seeds
+            .iter()
+            .find(|s| s.seed_key == seed.seed_key)
+            .unwrap();
+        assert_eq!(seed, unforced, "a forced seed equals its unforced seed");
+        assert_eq!(seed.items[1].shape.as_deref(), Some("mi"));
+    }
+    let surfaces: Vec<&str> = forced
+        .seeds
+        .iter()
+        .flat_map(|s| s.surfaces.iter().map(|x| x.surface.as_str()))
+        .collect();
+    assert_eq!(surfaces, ["kami", "tami"]);
+
+    // The forms of the stem together are the unforced run, seed keys and surfaces.
+    let mut union: Vec<_> = grammar.entries[nonhead.0 as usize]
+        .allomorphs
+        .iter()
+        .flat_map(|a| {
+            run(
+                &one,
+                &AllomorphFilter {
+                    root: None,
+                    others: vec![Some(vec![a.id])],
+                },
+            )
+            .seeds
+        })
+        .collect();
+    union.sort_by(|a, b| a.seed_key.cmp(&b.seed_key));
+    let mut expected = all.seeds.clone();
+    expected.sort_by(|a, b| a.seed_key.cmp(&b.seed_key));
+    assert_eq!(union, expected);
+
+    // Two stem slots: a filter on slot 1 constrains the second morpheme, not the first.
+    let two = [GenMorpheme::NonHead(nonhead), GenMorpheme::NonHead(nonhead)];
+    let second = run(
+        &two,
+        &AllomorphFilter {
+            root: None,
+            others: vec![None, Some(vec![first_allomorph(&grammar, "nonhead")])],
+        },
+    );
+    assert_eq!(second.seed_choices, 4, "half of the eight seeds");
+    let shapes = |slot: usize| -> BTreeSet<String> {
+        second
+            .seeds
+            .iter()
+            .map(|s| s.items[slot].shape.clone().unwrap())
+            .collect()
+    };
+    assert_eq!(shapes(2), BTreeSet::from(["mi".to_string()]));
+    assert_eq!(
+        shapes(1),
+        BTreeSet::from(["mi".to_string(), "ni".to_string()]),
+        "the unconstrained slot still varies"
+    );
+    let unforced_two = run(&two, &AllomorphFilter::default());
+    for seed in &second.seeds {
+        let unforced = unforced_two
+            .seeds
+            .iter()
+            .find(|s| s.seed_key == seed.seed_key)
+            .unwrap();
+        assert_eq!(seed, unforced);
+    }
+
+    // The bounded path agrees: forcing the stem narrows the surface set.
+    let bounded = morpher.generate_words_bounded_filtered(
+        root,
+        &one,
+        FeatureStruct::EMPTY,
+        &AllomorphFilter {
+            root: None,
+            others: vec![Some(vec![first_allomorph(&grammar, "nonhead")])],
+        },
+    );
+    assert_eq!(bounded.surfaces, ["kami", "tami"]);
+    assert_eq!(bounded.seed_choices, 2);
+}

@@ -13,8 +13,8 @@ use pg_rules::word::Word;
 use unicode_normalization::UnicodeNormalization;
 
 use super::{
-    generation_seed_product, visit_permute_rules, FinalTemplateSynthesisPolicy, GenMorpheme,
-    Morpher, PermItem,
+    generation_seed_product, visit_permute_rules, AllomorphFilter, FinalTemplateSynthesisPolicy,
+    GenMorpheme, Morpher, PermItem,
 };
 use crate::surface;
 
@@ -220,6 +220,24 @@ impl<'g> Morpher<'g> {
         real_fs: FeatureStruct,
         limits: &TracedGenerateLimits,
     ) -> TracedGenerateOutcome {
+        self.generate_words_traced_filtered(
+            root,
+            others,
+            real_fs,
+            limits,
+            &AllomorphFilter::default(),
+        )
+    }
+
+    /// `Self::generate_words_traced` over only the seeds `filter` admits. A skipped seed still counts in `seedKey`'s selection number, so an admitted seed keeps the key it has in the unfiltered run; it costs no work and no seed slot.
+    pub fn generate_words_traced_filtered(
+        &self,
+        root: LexEntryId,
+        others: &[GenMorpheme],
+        real_fs: FeatureStruct,
+        limits: &TracedGenerateLimits,
+        filter: &AllomorphFilter,
+    ) -> TracedGenerateOutcome {
         let g = self.g;
         let work_limit = limits.work_limit;
         let mut outcome = TracedGenerateOutcome {
@@ -248,8 +266,15 @@ impl<'g> Morpher<'g> {
         let mut selected = Vec::with_capacity(others.len());
         let mut stop: Option<TracedStopReason> = None;
         for allo_idx in 0..g.entries[root.0 as usize].allomorphs.len() {
+            if !filter.admits_root(g.entries[root.0 as usize].allomorphs[allo_idx].id) {
+                continue;
+            }
             let mut permutation_index = 0usize;
             let keep_going = visit_permute_rules(g, others, &mut selected, &mut |perm| {
+                if !filter.admits(perm) {
+                    permutation_index += 1;
+                    return true;
+                }
                 if !pg_fst::work::consume() {
                     return false;
                 }
