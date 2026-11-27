@@ -3528,6 +3528,9 @@ fn ana_affix_cached<const COLLECT_STATS: bool>(
         }
         Consult::Run(run) => run,
     };
+    if pg_fst::census::enabled() {
+        pg_fst::census::set_rule(format!("m{}", mrid.0));
+    }
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
