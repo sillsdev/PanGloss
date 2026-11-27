@@ -244,11 +244,20 @@ impl<'i> BatterySet<'i> {
         }
     }
 
+    /// Reserves room for `extra` more outputs once, so later pushes never double the buffer.
+    pub(crate) fn reserve_exact(&mut self, extra: usize) {
+        self.words.reserve_exact(extra);
+    }
+
+    /// Gives back the slack a bound-sized `reserve_exact` left.
+    pub(crate) fn trim(&mut self) {
+        self.words.shrink_to_fit();
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.words.is_empty()
     }
 
-    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.words.len()
     }

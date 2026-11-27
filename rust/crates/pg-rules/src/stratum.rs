@@ -1229,6 +1229,8 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         let mut union = per_template
             .find(|words| !words.is_empty())
             .unwrap_or_else(|| BatterySet::new(input));
+        // The union is at most the first set plus every remaining set; one reserve avoids the doubling copy.
+        union.reserve_exact(per_template.as_slice().iter().map(BatterySet::len).sum());
         for template_out in per_template {
             // Each template's set shrinks as the union grows, and is gone once merged.
             for w in Releasing::new(template_out.into_stored()) {
@@ -1242,6 +1244,7 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
                 }
             }
         }
+        union.trim();
         let out = union.into_stored();
         if frontier_profile::enabled() {
             let bytes = out.iter().map(|w| w.estimated_bytes(input)).sum();
