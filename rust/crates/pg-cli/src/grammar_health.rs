@@ -2,9 +2,9 @@
 //! [--stored-analyses bounded|all|off] [--fst] [--shadowed [--include-selectable]]`: run the ported `hc-*` HermitCrab grammar-authoring checks
 //! (`pg_grammar::grammar_health`) and print/serialize the diagnostics.
 //!
-//! `--shadowed` adds the shadowed-alternates report of `pangloss serve`'s `shadowedAllomorphs` op
-//! (`serve_shadowed::report`, the same code): a `grammar.allomorph.shadowed` warning per proven row,
-//! and the whole report under the JSON key `shadowed_alternates` with the serve op's rows,
+//! `--shadowed` adds the shadowed-alternates report
+//! (`serve_shadowed::report`): a `grammar.allomorph.shadowed` warning per proven row,
+//! and the whole report under the JSON key `shadowed_alternates` with its rows,
 //! verdicts and `removableGuids`. `--include-selectable` also lists the `selectable` rows.
 //!
 //! The stored-analysis comparison also writes one row per compared wordform under the top-level

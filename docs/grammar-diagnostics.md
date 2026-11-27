@@ -194,8 +194,7 @@ schema version 5 stays.
 
 ## Shadowed alternates
 
-`--shadowed` adds the report of `pangloss serve`'s `shadowedAllomorphs` op (computed by the same code, so
-the verdicts, reasons and GUIDs are identical; wire and reason codes in `formats/serve-protocol.md`).
+`--shadowed` adds the shadowed-alternates report under `shadowed_alternates`.
 It is off by default, needs no parse, and changes no other finding.
 
 - Each proven `shadowed` alternate (an earlier alternate of the same entry or affix is eligible wherever

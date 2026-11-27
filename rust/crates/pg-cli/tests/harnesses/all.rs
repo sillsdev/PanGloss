@@ -46,16 +46,12 @@ mod rule_costs_cli;
 mod serve_effects;
 #[path = "../serve_generate.rs"]
 mod serve_generate;
-#[path = "../serve_health.rs"]
-mod serve_health;
 #[path = "../serve_inventory.rs"]
 mod serve_inventory;
 #[path = "../serve_match.rs"]
 mod serve_match;
 #[path = "../serve_protocol.rs"]
 mod serve_protocol;
-#[path = "../serve_shadowed.rs"]
-mod serve_shadowed;
 #[cfg(target_os = "linux")]
 #[path = "../stats_memory.rs"]
 mod stats_memory;

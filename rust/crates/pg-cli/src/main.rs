@@ -174,7 +174,6 @@ mod rich_trace;
 mod serve;
 mod serve_effects;
 mod serve_generate;
-mod serve_health;
 mod serve_inventory;
 mod serve_match;
 mod serve_shadowed;
@@ -992,7 +991,7 @@ pub(crate) fn load_grammar_with_trace_metadata(
     ),
     String,
 > {
-    let (grammar, warnings, metadata, _) = load_grammar_for_serve(path)?;
+    let (grammar, warnings, metadata) = load_grammar_for_serve(path)?;
     Ok((grammar, warnings, metadata))
 }
 
@@ -1004,7 +1003,6 @@ pub(crate) fn load_grammar_for_serve(
         Grammar,
         Vec<pg_snapshot::Warning>,
         rich_trace::TraceMetadata,
-        Vec<pg_fwdata::StoredAnalysis>,
     ),
     String,
 > {
@@ -1014,12 +1012,7 @@ pub(crate) fn load_grammar_for_serve(
         .metadata
         .ok_or_else(|| "rich trace metadata was not captured".to_string())?;
     print_substrate_report(&loaded.substrate);
-    Ok((
-        loaded.grammar,
-        loaded.warnings,
-        metadata,
-        loaded.stored_analyses,
-    ))
+    Ok((loaded.grammar, loaded.warnings, metadata))
 }
 fn load_diagnostic_grammar(
     path: &str,

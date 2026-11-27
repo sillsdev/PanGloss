@@ -1,65 +1,12 @@
-//! `pangloss serve` op `shadowedAllomorphs`: alternates that no word can select because an earlier alternate of the same morpheme covers them. Wire shape: `docs/formats/serve-protocol.md`.
+//! The shadowed-alternates report behind `pangloss grammar-health --shadowed`: alternates that no word can select because an earlier alternate of the same morpheme covers them.
 
 use std::collections::{HashMap, HashSet};
 
 use pg_grammar::grammar_health::{GrammarHealthCode, GrammarHealthDiagnostic};
 use pg_grammar::model::{AllomorphId, AllomorphOwner, Grammar, MorphemeId};
-use pg_rules::dead::{
-    dead_continuations, Continuation, REASONS as DEAD_REASONS, SOURCE_ELSEWHERE as DEAD_ELSEWHERE,
-};
-use pg_rules::shadow::{
-    shadowed_allomorphs, Owner, Verdict, REASONS, SOURCE_ELSEWHERE as SHADOW_ELSEWHERE,
-};
+use pg_rules::dead::{dead_continuations, Continuation, SOURCE_ELSEWHERE as DEAD_ELSEWHERE};
+use pg_rules::shadow::{shadowed_allomorphs, Owner, Verdict, SOURCE_ELSEWHERE as SHADOW_ELSEWHERE};
 use serde_json::{json, Map, Value};
-
-const VERSION: u32 = 1;
-const KNOWN_FIELDS: [&str; 3] = ["id", "op", "includeSelectable"];
-const ERROR_CODES: [&str; 2] = ["bad_request", "internal"];
-const VERDICTS: [&str; 3] = ["shadowed", "maybe_shadowed", "selectable"];
-const ROW_FIELDS: [&str; 17] = [
-    "kind",
-    "morphemeId",
-    "entryId",
-    "entryGuid",
-    "ruleName",
-    "msaGuid",
-    "sourceAllomorphGuids",
-    "removableGuids",
-    "environments",
-    "allomorphId",
-    "xmlKey",
-    "index",
-    "form",
-    "verdict",
-    "blockers",
-    "reasons",
-    "siblings",
-];
-
-/// The `interfaces.serveOps.shadowedAllomorphs` capability object; derived from the constants the handler uses.
-pub(crate) fn describe() -> Value {
-    json!({
-        "version": VERSION,
-        "readOnly": true,
-        "request": &KNOWN_FIELDS[2..],
-        "errors": ERROR_CODES,
-        "verdicts": VERDICTS,
-        "rowFields": ROW_FIELDS,
-        "blockerFields": ["allomorphId", "xmlKey", "index"],
-        "reasons": REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
-        "deadContinuationFields": ["entryId", "entryGuid", "msaGuid", "sourceAllomorphGuids", "removableGuids", "environments", "siblings", "morphemeId", "allomorphId", "xmlKey", "index", "form", "continuation", "reasons", "features", "affixRules", "acceptingRules", "blockedBy", "neighbourRejections", "viaConverter"],
-        "continuations": ["proven", "maybe", "live"],
-        "deadContinuationReasons": DEAD_REASONS.iter().map(|(code, meaning)| json!({"code": code, "meaning": meaning})).collect::<Vec<_>>(),
-        "blockedByFields": ["kind", "names", "allomorphs", "rules"],
-        "deadContinuationContract": "deadContinuations lists root allomorphs after which no affix can attach, because every affix allomorph's required or excluded rule features (inflection class) or required stem name rejects the entry as it stands before its first affix. proven also needs the allomorph unable to stand as a bare word (bound, or every environment needs a neighbouring segment and no phonological rule inserts segments) and no compounding rule; otherwise maybe. Rule-level conditions other than those are ignored, which can only make an affix look attachable. live rows appear with includeSelectable, except a live row with neighbourRejections: an allomorph whose environment needs a following segment, where affixes that could supply it reject the entry's rule features or stem name (blockedBy shape) while others accept; neighbourRejections is an upper bound (any affix that changes rule features, or has an unmodelled shape, counts as a possible supplier; the inserted text is compared with the environment's text, ignoring phonology) and lists only the five most frequent requirements; viaConverter says some affix whose inserted shape has no real segment (a null affix, +∅) accepts the entry and changes its rule features, so the rejecting affixes may be reached after it; the converter's own input pattern and environments are not checked, so it may not apply to this allomorph",
-        "contract": "Act only on removableGuids. Never remove another guid from sourceAllomorphGuids. proven verdicts are not yet replayed against C# HC. A row is one HC allomorph: one environment pass of one MSA of a FieldWorks allomorph. shadowed and proven are reported only when every HC copy containing at least one of the row's sourceAllomorphGuids (a circumfix copy contains a prefix and a suffix guid) is shadowed or proven, and removableGuids names the guids for which that holds; a row with none is downgraded to maybe_shadowed or maybe with reason source_allomorph_selectable_elsewhere or source_allomorph_live_elsewhere, and siblings lists the copies that are not. shadowed is proven: no word is parsed or generated with this alternate, because an earlier alternate of the same morpheme is eligible wherever this one is and does not free-fluctuate with it. maybe_shadowed names what was not proven. Proofs use only identical or empty conditions, never a guess; a condition the engine does not model is never counted as covered. The report changes no parse",
-    })
-}
-
-fn error(id: &Value, code: &str, message: String) -> Value {
-    debug_assert!(ERROR_CODES.contains(&code), "undeclared error code {code}");
-    json!({"id": id, "type": "error", "code": code, "message": message})
-}
 
 fn allomorph_ref(g: &Grammar, id: pg_grammar::model::AllomorphId, index: usize) -> Value {
     json!({"allomorphId": id.0, "xmlKey": g.allomorph_xml_key(id), "index": index})
@@ -77,35 +24,7 @@ fn blocking_json(v: &[pg_rules::dead::BlockingCount]) -> Vec<Value> {
         .collect()
 }
 
-/// Answers one `shadowedAllomorphs` request.
-pub(crate) fn handle(g: &Grammar, id: &Value, object: &Map<String, Value>) -> Value {
-    if let Some(unknown) = object.keys().find(|k| !KNOWN_FIELDS.contains(&k.as_str())) {
-        return error(
-            id,
-            "bad_request",
-            format!("unknown shadowedAllomorphs field: {unknown}"),
-        );
-    }
-    let include_selectable = match object.get("includeSelectable") {
-        None => false,
-        Some(Value::Bool(b)) => *b,
-        Some(_) => {
-            return error(
-                id,
-                "bad_request",
-                "\"includeSelectable\" must be a boolean".into(),
-            )
-        }
-    };
-    let mut result = json!({"id": id, "type": "result", "op": "shadowedAllomorphs"});
-    result
-        .as_object_mut()
-        .expect("object literal")
-        .extend(report(g, include_selectable));
-    result
-}
-
-/// The report body of `shadowedAllomorphs`, shared by the serve op and `grammar-health --shadowed`.
+/// The shadowed-alternates report body, used by `grammar-health --shadowed`.
 pub(crate) fn report(g: &Grammar, include_selectable: bool) -> Map<String, Value> {
     let copies = Copies::new(g);
     let mut rows = Vec::new();
@@ -467,7 +386,7 @@ mod tests {
             g.allomorph_sources[id.0 as usize].form_guids =
                 guids.iter().map(|x| Some(x.to_string())).collect();
         }
-        let r = handle(&g, &json!("c"), &Map::new());
+        let r = Value::Object(report(&g, false));
         let row = r["alternates"]
             .as_array()
             .unwrap()
@@ -481,7 +400,7 @@ mod tests {
         // Both copies now claim only p: the live copy keeps it from being removable.
         let id = id_of(&g, "z#0");
         g.allomorph_sources[id.0 as usize].form_guids = vec![Some("p".into())];
-        let r = handle(&g, &json!("c"), &Map::new());
+        let r = Value::Object(report(&g, false));
         let row = r["alternates"]
             .as_array()
             .unwrap()

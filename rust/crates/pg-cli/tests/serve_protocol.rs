@@ -447,6 +447,16 @@ fn bad_requests_get_an_error_and_the_server_keeps_running() {
     );
     assert_eq!(r["id"], "u");
 
+    // Removed ops (#544) answer like any unknown op; `pangloss grammar-health` replaces them.
+    for op in ["health", "shadowedAllomorphs"] {
+        let r = server.ask(json!({"id": op, "op": op}));
+        assert_eq!(
+            (r["type"].as_str(), r["code"].as_str()),
+            (Some("error"), Some("unknown_op")),
+            "{op}"
+        );
+    }
+
     let r = server.ask(json!({"id": "w", "op": "parse"}));
     assert_eq!(r["code"], "bad_request");
     assert_eq!(r["id"], "w");

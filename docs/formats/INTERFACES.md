@@ -61,8 +61,6 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | `inventory` | 0.3.0 | none | M | stable |
 | `match` (`boundaryMarkers` 0.35.3) | 0.29.0 | none | M | stable |
 | `effects` (`outputMatchPattern` 0.35.0) | 0.29.0 | none | M | stable |
-| `shadowedAllomorphs` | 0.35.0 | `grammar-health --shadowed` | removed outright (PR in progress); the CLI `--shadowed` (planned, motif#438) is the one route | removed |
-| `health` | 0.35.3 | `grammar-health` | removed outright (PR in progress); CLI `grammar-health` is the one route | removed |
 | `shutdown` | 0.3.1 | n/a | none; keep | stable |
 
 ## Formats and schemas alive
