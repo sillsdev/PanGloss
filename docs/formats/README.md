@@ -19,7 +19,12 @@ assuming you have this repository open or know its internal vocabulary.
 - [`fst-verify.md`](fst-verify.md) — per-word FST versus HC-Rust analysis-set comparison, incomplete outcomes and provenance.
 - [`stats-cache.md`](stats-cache.md) — feature-gate counters, authored identities, measurement state, and replay.
 - [`serve-protocol.md`](serve-protocol.md) — the line-delimited JSON protocol of `pangloss serve`.
-- [`trace-details-v2.md`](trace-details-v2.md) — the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
+- [`INTERFACES.md`](INTERFACES.md) — the one inventory: every command, serve op, format, env var and WASM item, with versions and known callers.
+- The formats that live one level up in `docs/` rather than here: [`generation.md`](../generation.md) (generate request),
+  [`retire-format.md`](../retire-format.md) (`pangloss-retire/v1`), [`parse-analysis-format.md`](../parse-analysis-format.md),
+  [`grammar-diagnostics.md`](../grammar-diagnostics.md) (grammar-health), [`text-analysis-format.md`](../text-analysis-format.md),
+  [`snapshot-format.md`](../snapshot-format.md).
+- [`trace-details-v2.md`](trace-details-v2.md) — (file name predates v5 and v6) the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
 
 This is **not** the same audience, and not the same material, as `../research/`, `../history/`,
 and `../divergences/`. Those three are written for people porting or maintaining HermitCrab itself
