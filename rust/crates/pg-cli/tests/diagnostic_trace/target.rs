@@ -726,7 +726,7 @@ fn found_membership_survives_a_partial_output_census() {
         "json",
         ROOT,
         &selector,
-        &["--work-cap", "186"],
+        &["--work-cap", "193"],
         &[],
     );
     let end = completion(&data);

@@ -463,3 +463,59 @@ fn a_char_def_less_query_node_with_an_identity_takes_only_member_edges() {
         "without an identity the node is a wildcard"
     );
 }
+
+/// Every prefix answer equals "searching that prefix returns an eligible entry", for several eligibility sets and queries with optional segments.
+#[test]
+fn prefix_ends_agree_with_searching_each_prefix() {
+    let trie = tiny_trie();
+    let p = (10u32, vec![0b01u64], false);
+    let a = (11u32, vec![0b10u64], false);
+    let b = (12u32, vec![0b01u64], false);
+    let opt = |q: &(u32, Vec<u64>, bool)| (q.0, q.1.clone(), true);
+    let queries: Vec<Vec<(u32, Vec<u64>, bool)>> = vec![
+        vec![p.clone(), a.clone(), b.clone()],
+        vec![opt(&b), p.clone(), a.clone(), b.clone()],
+        vec![p.clone(), opt(&b), a.clone(), opt(&p), b.clone()],
+        vec![a.clone(), b.clone()],
+        vec![b.clone(), a.clone()],
+        Vec::new(),
+    ];
+    let sets: [&[u32]; 5] = [&[0], &[1], &[2], &[0, 2], &[]];
+    for set in sets {
+        let eligible = trie.eligible_nodes(&mut |le| set.contains(&le.0));
+        assert_eq!(eligible.any(), !set.is_empty());
+        for q in &queries {
+            let ends = trie
+                .eligible_prefix_ends_segs(q, None, None, &eligible)
+                .expect("no work cap in a unit test");
+            assert_eq!(ends.len(), q.len() + 1);
+            for k in 0..=q.len() {
+                let hits = trie.search_segs_opt(&q[..k], None);
+                let expected = hits.iter().any(|(_, le)| set.contains(&le.0));
+                assert_eq!(ends[k], expected, "set {set:?} query {q:?} prefix {k}");
+            }
+        }
+    }
+}
+
+#[test]
+fn eligible_below_marks_every_ancestor_of_an_eligible_accept() {
+    let trie = tiny_trie();
+    let eligible = trie.eligible_nodes(&mut |le| le.0 == 1);
+    assert!(eligible.any());
+    // Entry 1 is /pab/: root, p, pa and pab are marked below; the /a/ branch from the root is not a node of its own beyond a.
+    let marked = eligible
+        .bits
+        .iter()
+        .filter(|b| **b & ELIGIBLE_BELOW != 0)
+        .count();
+    assert_eq!(marked, 4);
+    assert_eq!(
+        eligible
+            .bits
+            .iter()
+            .filter(|b| **b & ELIGIBLE_HERE != 0)
+            .count(),
+        1
+    );
+}

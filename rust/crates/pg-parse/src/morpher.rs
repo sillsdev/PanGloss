@@ -30,7 +30,7 @@ use pg_rules::word_set::WordSet;
 use crate::alt_yield;
 use crate::guess;
 use crate::identity::AnalysisIdentity;
-use crate::root_trie::{collect_lexical_patterns, RootAllomorphIndex};
+use crate::root_trie::{collect_lexical_patterns, EligibleNodes, RootAllomorphIndex};
 use crate::{result_signature, surface, AnalysisProvenance, SuppliedRootOverlay, WordAnalysis};
 
 fn consume_parser_work(
@@ -60,6 +60,8 @@ pub struct Morpher<'g> {
     /// The output size from which the last-analysed stratum drops the alternatives of a word no root matches; `None` never does.
     early_root_check_from: Option<usize>,
     root_index: RootAllomorphIndex,
+    /// Per (stratum, compounding rule's non-head requirement): the trie nodes where a root the rule could keep ends, at or below. Built with the tries; read only by the compound prefix walk.
+    non_head_eligible: std::collections::HashMap<(StratumId, FsId), EligibleNodes>,
     overlay: Option<&'g SuppliedRootOverlay>,
     /// Every `IsPattern` root allomorph across every stratum, in document order; read only by guess.
     lexical_patterns: Vec<(AllomorphId, LexEntryId)>,
@@ -86,6 +88,82 @@ pub struct Morpher<'g> {
     merge_equivalent_analyses: bool,
     /// The host's `guessRoot` argument, starting from `Grammar::guess_roots`; read only by `Self::project_parse_options`.
     guess_roots: bool,
+}
+
+/// Eligibility bits for each (stratum, requirement) pair a compounding rule of that stratum asks about; empty without compounding.
+fn build_non_head_eligible(
+    g: &Grammar,
+    index: &RootAllomorphIndex,
+) -> std::collections::HashMap<(StratumId, FsId), EligibleNodes> {
+    let mut out = std::collections::HashMap::new();
+    for (si, sd) in g.strata.iter().enumerate() {
+        let stratum = StratumId(si as u8);
+        for &mrid in &sd.mrules {
+            let pg_grammar_model::model::MorphRuleDef::Compounding(rule) =
+                &g.mrules[mrid.0 as usize]
+            else {
+                continue;
+            };
+            let required = rule.non_head_required_syn_fs;
+            if out.contains_key(&(stratum, required)) {
+                continue;
+            }
+            let required_fs = g.fs_interner.get(required);
+            let mut verdict: std::collections::HashMap<LexEntryId, bool> =
+                std::collections::HashMap::new();
+            let nodes = index.trie(stratum).eligible_nodes(&mut |le| {
+                *verdict.entry(le).or_insert_with(|| {
+                    pg_featstruct::is_unifiable(
+                        required_fs,
+                        g.fs_interner.get(g.entries[le.0 as usize].syn_fs),
+                    )
+                })
+            });
+            out.insert((stratum, required), nodes);
+        }
+    }
+    out
+}
+
+/// The lexicon as a compounding rule's non-head lookup: the root search with its per-word cache, and the prefix walk over the eligibility bits.
+struct MorpherLookup<'m, 'g> {
+    morpher: &'m Morpher<'g>,
+    search_cache: &'m Mutex<crate::root_search_cache::RootSearchCache>,
+}
+
+impl pg_rules::stratum::NonHeadLookup for MorpherLookup<'_, '_> {
+    fn search(
+        &self,
+        st: StratumId,
+        shape: &pg_shape::Shape,
+        stats: Option<&pg_rules::stats::StatsCollector>,
+    ) -> Vec<ResolvedRoot> {
+        if let Some(stats) = stats {
+            stats.record_root_index_attempt(st, shape.len() as u64);
+        }
+        pg_rules::branch_census::record_non_head_lookup(st, shape);
+        self.morpher
+            .search_roots(st, shape, stats, self.search_cache)
+    }
+
+    fn eligible_prefix_ends(
+        &self,
+        st: StratumId,
+        non_head_required: FsId,
+        shape: &pg_shape::Shape,
+    ) -> Option<Vec<bool>> {
+        // Roots the grammar does not own, and the census that counts every lookup, need the search itself.
+        if self.morpher.overlay.is_some() || pg_rules::branch_census::enabled() {
+            return None;
+        }
+        let eligible = self
+            .morpher
+            .non_head_eligible
+            .get(&(st, non_head_required))?;
+        self.morpher
+            .root_index
+            .eligible_prefix_ends(self.morpher.g, st, shape, eligible)
+    }
 }
 
 type ParseSelection<'a> = (
@@ -531,13 +609,16 @@ impl<'g> Morpher<'g> {
         let final_template_facts = g
             .final_template_prune_facts()
             .unwrap_or_else(|err| panic!("invalid Grammar for Morpher::new: {err}"));
+        let root_index = RootAllomorphIndex::build(g);
+        let non_head_eligible = build_non_head_eligible(g, &root_index);
         Morpher {
             g,
             final_template_facts,
             always_enforce_final_templates: g.always_enforce_final_templates,
             prune_final_templates: true,
             early_root_check_from: Some(EARLY_ROOT_CHECK_WORDS),
-            root_index: RootAllomorphIndex::build(g),
+            root_index,
+            non_head_eligible,
             overlay: None,
             lexical_patterns: collect_lexical_patterns(g),
             work_cap,
@@ -1126,16 +1207,11 @@ impl<'g> Morpher<'g> {
             required_slot_lookahead: self.required_slot_lookahead,
         };
         // Closure lives here because `pg-parse` owns `RootAllomorphIndex` and `pg-rules` cannot depend on `pg-parse`.
-        let filter: NonHeadRootFilter =
-            &|st: StratumId,
-              shape: &pg_shape::Shape,
-              stats: Option<&pg_rules::stats::StatsCollector>| {
-                if let Some(stats) = stats {
-                    stats.record_root_index_attempt(st, shape.len() as u64);
-                }
-                pg_rules::branch_census::record_non_head_lookup(st, shape);
-                self.search_roots(st, shape, stats, &search_cache)
-            };
+        let lookup = MorpherLookup {
+            morpher: self,
+            search_cache: &search_cache,
+        };
+        let filter: NonHeadRootFilter = &lookup;
         // One set per analysed stratum, in the order the strata ran.
         let mut results: Vec<Canonicals> = Vec::new();
         // Stratum 0 is analysed last and its outputs feed no other stratum, so a word of it that no root matches is never read again. Not where something does read such a word: a trace, the root guesser, and the census and alternative-yield diagnostics.

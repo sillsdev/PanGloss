@@ -1,0 +1,1 @@
+- Compounding-rule analysis skips a rule whose first member cannot end in any eligible root, answering the question with one walk of the root trie; results and traces are unchanged and long compound words do 30-40% less work (#437)
