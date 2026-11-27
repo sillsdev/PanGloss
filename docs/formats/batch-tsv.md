@@ -49,6 +49,10 @@ The per-word parser-state ceiling is 100 MiB by default; `--word-mem-cap-mib N` 
 not process RSS or the loaded grammar. The separate `--capture-cap-mib` ceiling defaults to
 256 MiB and covers affix-matching capture state. Either produces `MEMCAP`.
 
+### Readings per word
+
+`pangloss readings-histogram <batch.tsv> [--json]` counts the words of a finished run by how many Readings each has (#396). A Reading is one `;`-separated entry of `signature`, repeats included, so `-` is 0; only `ok` words are binned, and every other status is listed apart with its word count because its signature is partial or absent. Text is a `readings<TAB>words` table then one `status<TAB>count` line per other status; `--json` gives `words`, `readings` (`[{"readings": n, "words": c}]`) and `notOk`. It reads the default columns of any `batch` run, so existing output is unchanged. It counts parsed Readings only: it does not compare them with approved analyses, so it makes no claim about which Readings are "extra" (see `grammar-health` for that), and it does not report the kinds of object a Reading uses.
+
 ### Determinism
 
 `work_steps` depends only on the grammar, the word, the cap setting and the PanGloss

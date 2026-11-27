@@ -526,3 +526,55 @@ mod calibrate {
         assert!(rows.is_empty());
     }
 }
+
+// `readings-histogram` (#396).
+
+fn readings_tsv(tag: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("pangloss-rh-{tag}-{}.tsv", std::process::id()));
+    std::fs::write(
+        &path,
+        "0\ta\t1\tok\t-\n1\tb\t1\tok\tm|x\n2\tc\t1\tok\tm|x;n|y\n3\td\t1\tok\tm|x\n4\te\t1\tCAP\tm|x\n",
+    )
+    .unwrap();
+    path
+}
+
+#[test]
+fn text_lists_each_reading_count_then_the_other_statuses() {
+    let path = readings_tsv("text");
+    let out = Command::new(BIN)
+        .args(["readings-histogram", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        "readings\twords\n0\t1\n1\t2\n2\t1\nCAP\t1\n"
+    );
+}
+
+#[test]
+fn json_carries_the_same_counts() {
+    let path = readings_tsv("json");
+    let out = Command::new(BIN)
+        .args(["readings-histogram", path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["words"], 5);
+    assert_eq!(
+        v["readings"][1],
+        serde_json::json!({"readings": 1, "words": 2})
+    );
+    assert_eq!(v["notOk"]["CAP"], 1);
+}
+
+#[test]
+fn an_unknown_flag_is_refused() {
+    let out = Command::new(BIN)
+        .args(["readings-histogram", "x.tsv", "--nope"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}

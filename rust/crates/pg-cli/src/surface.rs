@@ -83,6 +83,13 @@ fn dispatch_batch(args: &[String]) -> ExitCode {
 fn dispatch_cost_compare(args: &[String]) -> ExitCode {
     dispatch("cost-compare", args, crate::cost_compare::run_cost_compare)
 }
+fn dispatch_readings_histogram(args: &[String]) -> ExitCode {
+    dispatch(
+        "readings-histogram",
+        args,
+        crate::readings_histogram::run_readings_histogram,
+    )
+}
 #[cfg(feature = "cost-calibration")]
 fn dispatch_cost_calibrate(args: &[String]) -> ExitCode {
     dispatch(
@@ -1035,6 +1042,12 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+const READINGS_HISTOGRAM_FLAGS: &[FlagSpec] = &[FlagSpec {
+    name: "--json",
+    takes_value: false,
+    summary: "print the histogram as one JSON object",
+}];
+
 const COST_COMPARE_FLAGS: &[FlagSpec] = &[FlagSpec {
     name: "--json",
     takes_value: false,
@@ -1079,6 +1092,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["before.tsv", "after.tsv"],
         flags: COST_COMPARE_FLAGS,
         handler: dispatch_cost_compare,
+    },
+    CommandSpec {
+        name: "readings-histogram",
+        summary: "Count the words of a `batch` TSV by how many Readings each has (0, 1, 2, ...); words that did not finish ok are counted apart.",
+        hidden: false,
+        positionals: &["batch.tsv"],
+        flags: READINGS_HISTOGRAM_FLAGS,
+        handler: dispatch_readings_histogram,
     },
     #[cfg(feature = "cost-calibration")]
     CommandSpec {
