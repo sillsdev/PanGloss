@@ -192,9 +192,7 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             // `None` here means "use `RuntimeBudget`'s default", never "unbounded".
             "oracle-work-cap" => r.oracle_work_cap = Some(n as usize),
             // This flag does not exclude a word on timeout; it only aborts the run.
-            "oracle-liveness-net-ms" => {
-                r.oracle_liveness_net = Some(Duration::from_millis(n))
-            }
+            "oracle-liveness-net-ms" => r.oracle_liveness_net = Some(Duration::from_millis(n)),
             "oracle-memory-ceiling-bytes" => r.oracle_memory_ceiling = Some(n),
             _ => {
                 // Delegates so the message matches every other subcommand's parser.
