@@ -150,7 +150,7 @@ $crateSpecs = @(
         ExpectedSourceNames = @(
             'stats_manifest_roundtrip.rs',
             'diagnostic_trace.rs',
-            'analyze_text_cli.rs', 'authored_generate_request.rs', 'generate_batch_target.rs', 'batch_engine.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'stats_memory.rs', 'reserved_word_boundary.rs', 'slotted_suffix_left_environment.rs', 'without_rules.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
+            'analyze_text_cli.rs', 'authored_generate_request.rs', 'generate_batch_target.rs', 'batch_engine.rs', 'facts_command.rs', 'frozen_batch_hard_links.rs', 'stats_memory.rs', 'reserved_word_boundary.rs', 'result_cache_cli.rs', 'slotted_suffix_left_environment.rs', 'without_rules.rs', 'underdefined_measurement_integrity_gate.rs', 'underdefined_stored_keys_gate.rs',
             'build_context_provenance.rs', 'default_dependency_closure.rs','agent_docs_resolve_gate.rs', 'compile_errors_contract.rs', 'cost_cli.rs', 'cost_measurement.rs', 'developer_flags_contract.rs', 'divergence_catalogue_gate.rs', 'fixture_pins_never_self_skip.rs', 'four_grammar_recipe_evidence.rs', 'fwdata_conformance_gate.rs', 'fwdata_grammar_equivalence_gate.rs', 'grammar_dump_diag.rs', 'grammar_health_artifacts.rs', 'grammar_health_shadowed.rs', 'guesser_conformance_gate.rs', 'inferred_segment_engine_parity_gate.rs', 'recipe_optimize_continuation.rs', 'recipe_optimize_timeout.rs', 'rule_costs_cli.rs', 'serve_effects.rs', 'serve_generate.rs', 'serve_inventory.rs', 'serve_match.rs', 'serve_protocol.rs', 'skills_never_instruct_bare_cargo.rs', 'wide_table_segment_identity.rs', 'why_not_cli.rs')
     }
     @{
