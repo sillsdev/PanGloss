@@ -420,26 +420,18 @@ fn compare_word(
     }
 
     let mut diagnostics = Vec::new();
-    let mut matched = 0;
-    let mut missing = 0;
-    let mut approved_keys = BTreeSet::new();
-    for analysis in analyses {
-        let key = stored_key(grammar, analysis);
-        if let Some(key) = key {
-            approved_keys.insert(key.clone());
-            if let Some(count) = produced.get_mut(&key) {
-                if *count > 0 {
-                    *count -= 1;
-                    matched += 1;
-                    continue;
-                }
-            }
-        }
-        missing += 1;
+    let keys: Vec<_> = analyses
+        .iter()
+        .map(|analysis| stored_key(grammar, analysis))
+        .collect();
+    let approved_keys: BTreeSet<StoredKey> = keys.iter().flatten().cloned().collect();
+    let (matched, missing_indexes) = match_approved(&keys, &mut produced);
+    let missing = missing_indexes.len();
+    for index in missing_indexes {
         diagnostics.push(finding_for_missing(
             grammar,
             synthesizer,
-            analysis,
+            analyses[index],
             wordform,
         ));
     }
@@ -459,6 +451,34 @@ fn compare_word(
         row: row(outcome, matched, missing, extra),
         work,
     }
+}
+
+/// Matches approved analyses against the produced Reading counts. Approved analyses that share a key are one Reading in FieldWorks, so once a key has matched, its duplicates match too. Returns the matched count and the indexes of the missing analyses.
+fn match_approved(
+    keys: &[Option<StoredKey>],
+    produced: &mut BTreeMap<StoredKey, usize>,
+) -> (usize, Vec<usize>) {
+    let mut matched = 0;
+    let mut missing = Vec::new();
+    let mut matched_keys = BTreeSet::new();
+    for (index, key) in keys.iter().enumerate() {
+        if let Some(key) = key {
+            if matched_keys.contains(key) {
+                matched += 1;
+                continue;
+            }
+            if let Some(count) = produced.get_mut(key) {
+                if *count > 0 {
+                    *count -= 1;
+                    matched += 1;
+                    matched_keys.insert(key.clone());
+                    continue;
+                }
+            }
+        }
+        missing.push(index);
+    }
+    (matched, missing)
 }
 
 /// The parsed keys no approved analysis has, once each: FieldWorks merges equal bundles, so Readings that share a key are one Reading. A key only guessed roots produce is not extra.
@@ -955,6 +975,21 @@ mod extra_key_tests {
             extra_keys(&parsed, &BTreeMap::new(), &approved),
             vec![&key("a")]
         );
+    }
+
+    #[test]
+    fn approved_analyses_sharing_one_produced_key_all_match() {
+        let mut produced = BTreeMap::from([(key("a"), 1)]);
+        let keys = vec![Some(key("a")), Some(key("a")), Some(key("b")), None];
+        let (matched, missing) = match_approved(&keys, &mut produced);
+        assert_eq!((matched, missing), (2, vec![2, 3]));
+    }
+
+    #[test]
+    fn duplicate_approved_keys_the_parser_does_not_produce_stay_missing() {
+        let mut produced = BTreeMap::new();
+        let keys = vec![Some(key("a")), Some(key("a"))];
+        assert_eq!(match_approved(&keys, &mut produced), (0, vec![0, 1]));
     }
 
     #[test]

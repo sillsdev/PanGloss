@@ -665,6 +665,7 @@ fn streamed_run_refuses_invalid_identity_and_elapsed_overflow() {
     let mut word = sample_word("apu");
     word.elapsed_ns = i64::MAX as u64;
     writer.write_word(&word).unwrap();
+    word.form = "beta".into();
     word.elapsed_ns = 1;
     assert!(matches!(
         writer.write_word(&word),
@@ -2240,4 +2241,53 @@ fn file_backed_open_enters_wal_journal_mode() {
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
     assert_eq!(mode, "wal");
+}
+
+fn run_counts(cache: &StatsCache, run_id: i64) -> (i64, i64) {
+    cache
+        .connection()
+        .query_row(
+            "SELECT word_count, total_elapsed_ns FROM run WHERE run_id = ?1",
+            [run_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap()
+}
+
+#[test]
+fn a_repeated_form_in_one_run_counts_once() {
+    let cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut writer = cache.into_run(&sample_run()).unwrap();
+    let mut first = sample_word("apu");
+    first.elapsed_ns = 1_000;
+    let mut again = sample_word("apu");
+    again.elapsed_ns = 4_000;
+    writer.write_word(&first).unwrap();
+    writer.write_word(&again).unwrap();
+    writer.write_word(&sample_word("beta")).unwrap();
+    let (cache, run_id) = writer.finish().unwrap();
+    assert_eq!(run_counts(&cache, run_id), (2, 5_000));
+}
+
+#[test]
+fn a_repeated_form_in_a_flushed_slice_counts_once() {
+    let mut cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let mut again = sample_word("apu");
+    again.elapsed_ns = 4_000;
+    let run_id = cache
+        .flush(&sample_run(), &[sample_word("apu"), again])
+        .unwrap();
+    assert_eq!(run_counts(&cache, run_id), (1, 4_000));
+}
+
+#[test]
+fn a_later_run_taking_over_words_reduces_the_earlier_runs_counts() {
+    let mut cache = StatsCache::open_in_memory("hash-a").unwrap().cache;
+    let first = cache
+        .flush(&sample_run(), &[sample_word("apu"), sample_word("beta")])
+        .unwrap();
+    assert_eq!(run_counts(&cache, first), (2, 2_000));
+    let second = cache.flush(&sample_run(), &[sample_word("apu")]).unwrap();
+    assert_eq!(run_counts(&cache, first), (1, 1_000));
+    assert_eq!(run_counts(&cache, second), (1, 1_000));
 }
