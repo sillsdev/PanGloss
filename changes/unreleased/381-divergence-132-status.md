@@ -1,1 +1,0 @@
-- Divergence 132's status now points at machine#649 and #392 instead of the closed #381.
