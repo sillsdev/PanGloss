@@ -146,6 +146,14 @@
   -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
   trips it, short enough that a genuinely wedged holder (crashed mid-build without releasing) is
   reported rather than blocking every other worktree's build silently forever.
+
+  Host admission: every heavy mode (check quick build test corpus-test conformance-test release doc
+  preland, and `run -Heavy`) first waits for `stile admit --jobs <n>` to exit 0, BEFORE taking a slot,
+  so a queued build holds nothing while the host is loaded. Exit 29: stile failed with anything but
+  0 or 10 (fail closed). Exit 30: still told to wait after -AdmitTimeoutSeconds (default 3600).
+  -ReleaseBlocker '<reason>' is passed to `stile admit --release-blocker`. Skipped, with one visible
+  line, when stile is not on PATH (CI) or PANGLOSS_SKIP_ADMIT=1; PANGLOSS_ADMITTED=1 (set after
+  admission) stops preland's child pg.ps1 runs from waiting again.
 #>
 # PositionalBinding = $false is a CORRECTNESS gate, not style. Without it every string parameter
 # below is implicitly positional, so a stray or misplaced cargo flag is silently absorbed as the
@@ -203,6 +211,10 @@ param(
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
     # 30 minutes: long enough not to trip on a normal queue, short enough to report a genuinely wedged holder.
     [int]$BuildSlotTimeoutSeconds = 1800,
+    # Heavy modes wait for `stile admit` (host load gate) before any slot or cargo; exit 30 when this many seconds pass still told to wait. See Wait-StileAdmission.
+    [int]$AdmitTimeoutSeconds = 3600,
+    # Passed to `stile admit --release-blocker`: for work that blocks the release queue.
+    [string]$ReleaseBlocker = '',
     [switch]$NoSccache,
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
     [switch]$Apply,
@@ -274,12 +286,15 @@ if ($Mode -eq 'preland') {
         Write-Host "[pg] -Mode preland takes only -Base, -All and -Jobs; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
         exit 2
     }
+    $admitCode = Wait-StileAdmission -Jobs ([Math]::Max(1, $Jobs)) -Mode $Mode -MaxWaitSeconds $AdmitTimeoutSeconds -ReleaseBlocker $ReleaseBlocker
+    if ($admitCode -ne 0) { exit $admitCode }
     $prelandArgs = @()
     if ($Jobs -gt 0) { $prelandArgs += @('-Jobs', "$Jobs") }
     if ($Base) { $prelandArgs += @('-Base', $Base) }
     if ($All) { $prelandArgs += '-All' }
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs
-    exit $LASTEXITCODE
+    try { & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs; $prelandCode = $LASTEXITCODE }
+    finally { Clear-StileAdmissionMarker }
+    exit $prelandCode
 }
 
 # The thin-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`; see that file's comment for why.
@@ -985,8 +1000,16 @@ if ($Mode -ne 'run' -and -not $runnerLabel) {
 $slotPool = if ($Mode -eq 'run' -and -not $Heavy) { 'run' } else { 'build' }
 $slotLimit = if ($slotPool -eq 'run') { $runSlots } else { $MaxConcurrent }
 $script:CurrentPgMode = $Mode
+# Heavy modes wait for host admission before taking a slot, after every refusal above so a refused run never waits.
+if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc') -or ($Mode -eq 'run' -and $Heavy)) {
+    # A non-cargo heavy mode (`run -Exe`) compiles nothing: one job.
+    $admitJobs = if ($Mode -eq 'run' -and $Exe) { 1 } else { $Jobs }
+    $admitCode = Wait-StileAdmission -Jobs $admitJobs -Mode $Mode -MaxWaitSeconds $AdmitTimeoutSeconds -ReleaseBlocker $ReleaseBlocker
+    if ($admitCode -ne 0) { exit $admitCode }
+}
 $sem = Enter-ResourceSlot -Pool $slotPool -MaxConcurrent $slotLimit -TimeoutSeconds $BuildSlotTimeoutSeconds
 if (-not $sem) {
+    Clear-StileAdmissionMarker
     Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a $slotPool slot (max $slotLimit concurrent across all worktrees) -- another worktree is holding them all." -ForegroundColor Red
     exit $script:ExitCodeBuildSlotTimeout
 }
@@ -995,6 +1018,7 @@ if (-not $sem) {
 $memCheckNow = Test-MemoryReserve -AvailableGB (Get-AvailableMemoryGB)
 if (-not $memCheckNow.Ok) {
     Exit-ResourceSlot -Slot $sem
+    Clear-StileAdmissionMarker
     Write-Host "[pg] memory dropped below the reserve while waiting for a $slotPool slot: $($memCheckNow.Detail)" -ForegroundColor Red
     Write-Host '[pg] nothing was started. Re-run when the build that was ahead of this one has finished.' -ForegroundColor Yellow
     exit $script:ExitCodeLowMemory
@@ -1112,6 +1136,7 @@ try {
         }
     }
 } finally {
+    Clear-StileAdmissionMarker
     if ($HygieneBootstrap) { $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT = $hygienePreviousStamp }
     Exit-ResourceSlot -Slot $sem
     # Post-run disk check: preflight runs BEFORE cargo and cannot see space consumed during the build itself.
