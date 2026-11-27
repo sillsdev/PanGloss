@@ -10,7 +10,6 @@ surface; fix them in one release window with Motif, with no aliases or legacy sp
 - `--flag=value` (`--trace-format=json`, `--guess=false`) and `--flag value` are handled per command by hand-rolled parsers.
 - Id lists: comma-separated (`--without`, `--retire`), repeated flag (why-not `--expect`), space-separated positionals (generate).
 - Casing: kebab-case flags; serve and `--describe` `interfaces` keys camelCase; `--describe` top level snake_case.
-- `--oracle-word-timeout-ms` is a legacy alias kept in recipe-optimize (to be removed outright).
 
 ## Errors and exit codes
 - CLI errors are free text on stderr, `pangloss <cmd>: ...`, exit 1. Only serve, why-not and compile failures are typed.
@@ -26,11 +25,8 @@ surface; fix them in one release window with Motif, with no aliases or legacy sp
 - Env vars and the `--trace-*` rejection flags are invisible to a host that gates on `--describe`.
 
 ## Doc and code mismatches
-1. The `serve` COMMANDS summary says "parse requests"; there are 8 ops.
-2. USAGE omits `stats-cache`, `readings-histogram` detail and every `--trace-rejections` flag (only in `--describe` `interfaces.diagnostic`).
-3. `docs/formats/README.md` indexed 9 documents and omitted the generation, retire, parse-analysis, grammar-diagnostics,
+1. `docs/formats/README.md` indexed 9 documents and omitted the generation, retire, parse-analysis, grammar-diagnostics,
    text-analysis and snapshot formats (now indexed; the files stay in `docs/`).
-4. `trace-details-v2.md` documents v5 and v6 but its name and the README entry say v2. Not renamed: Motif and docs link to it.
 
 ## Versions and parity
 - Version schemes mix: string ids in the document (trace-details), integers (grammar-health, facts, stats), a protocol integer

@@ -69,7 +69,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 |---|---|---|
 | batch TSV | 5 | [batch-tsv.md](batch-tsv.md) |
 | serve protocol | 2 | [serve-protocol.md](serve-protocol.md) |
-| trace-details | v5 default, v6 opt-in (`--rule-costs`) | [trace-details-v2.md](trace-details-v2.md) (file name predates v5) |
+| trace-details | v5 default, v6 opt-in (`--rule-costs`) | [trace-details.md](trace-details.md) |
 | legacy trace | unversioned | [trace-format.md](trace-format.md) |
 | rejection diagnostics | `pangloss.diagnostic.v1` | [rejection-trace-v1.md](rejection-trace-v1.md) |
 | why-not | `pangloss.whynot.v1`, expect-v1 | [why-not.md](why-not.md) |

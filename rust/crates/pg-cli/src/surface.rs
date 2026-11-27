@@ -1029,11 +1029,6 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
         summary: "aborts the run (never excludes a word) if a word runs past this deadline",
     },
     FlagSpec {
-        name: "--oracle-word-timeout-ms",
-        takes_value: true,
-        summary: "legacy alias for --oracle-liveness-net-ms",
-    },
-    FlagSpec {
         name: "--oracle-memory-ceiling-bytes",
         takes_value: true,
         summary: "aborts the run if exceeded; never classifies a word",
@@ -1139,7 +1134,7 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "serve",
-        summary: "Long-lived parser: load a project once, then answer line-delimited JSON parse requests on stdin (protocol in docs/formats/serve-protocol.md).",
+        summary: "Long-lived parser: load a project once, then answer line-delimited JSON requests on stdin: ops parse, generate, inventory, match, effects, shadowedAllomorphs, health and shutdown (protocol in docs/formats/serve-protocol.md).",
         hidden: false,
         positionals: &[],
         flags: SERVE_FLAGS,
