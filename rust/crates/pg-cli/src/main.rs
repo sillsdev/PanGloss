@@ -143,6 +143,7 @@ mod fst_batch;
 #[cfg(feature = "foma-tools")]
 mod fst_engine;
 mod generate_request;
+mod readings_histogram;
 // `pub` changes nothing for a binary crate; it marks these moved library modules' long docs as interface for comment-hygiene.
 #[cfg(feature = "foma-tools")]
 pub mod backend_report;
@@ -572,6 +573,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss batch <grammar> <words.txt> <out.tsv> [--engine hc|fst] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--capture-cap-mib N|unbounded] [--word-timeout-ms N] [--threads N] [--start N] [--analyses <path> [--morph-spans] [--query-fields]] [--result-cache <dir|auto> [--result-cache-max-mib N]] [--retire <guid>[,<guid>...] --retire-out <path>] [--without <guid>[,<guid>...]] [--guess[=true|false]] [--work-columns] [--cost-column] [--no-flush] [--phase-marks] [--stats [--stats-profile full|word-only] [--stats-compact] [--cache-pack]] [--cache <path>] [--stats-manifest <path>] [--always-enforce-final-templates[=true|false]]\n\
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
+         usage: pangloss readings-histogram <batch.tsv> [--json]\n\
          usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
