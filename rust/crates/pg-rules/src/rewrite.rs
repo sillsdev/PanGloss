@@ -3348,12 +3348,76 @@ fn ana_narrow_deletion(
 
     // Sites: gaps after each segment node where the (deleted) LHS could sit and both environments hold; insertion goes after the site node.
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
-    let (segs, node_of) = ms.segs(false);
+    let (mut segs, node_of) = ms.segs(false);
     let mut sites: Vec<(usize, Bindings)> = Vec::new(); // shape node index after which to insert
+                                                        // EXPERIMENT (env HC_DEL_DOMGAP, off by default): a gap whose next segment is OPTIONAL and whose right environment fails when that segment is made mandatory can only be a real derivation with the segment absent, which the gap after it already covers; skip it. Only with a right environment, so the last gap of an optional run (next node mandatory or none) always stays.
+    let dom_gap = right.is_some()
+        && std::env::var_os("HC_DEL_DOMGAP").is_some()
+        && dom_gap_eligible(g, table, rule, sr, left, right, &lhs_vars)
+        && (std::env::var_os("HC_DEL_DOMGAP").is_some_and(|v| v != "global")
+            || g.prules.iter().all(|pr| {
+                let pg_grammar_model::model::PhonRuleDef::Rewrite(r) = pr else {
+                    return true;
+                };
+                r.subrules
+                    .iter()
+                    .filter(|s| s.rhs.nodes.is_empty())
+                    .all(|s| {
+                        let vars = |p: &Option<Pattern>| p.as_ref().is_some_and(pattern_has_vars);
+                        !pattern_has_vars(&r.lhs)
+                            && !vars(&s.left_env)
+                            && !vars(&s.right_env)
+                            && dom_gap_eligible(g, table, r, s, &None, &None, &[])
+                    })
+            }));
+    let m655 = std::env::var_os("HC_DEL_DOMGAP").is_some_and(|v| v == "m655");
+    let dom_gap = dom_gap && !m655;
+    // Port of sillsdev/machine#655 `RewriteRuleSpec.RedundantMatch`: `side` fails at gap `i` once the optional node next to it is made mandatory.
+    let redundant =
+        |segs: &mut Vec<Segment>, i: usize, at: usize, is_left: bool, b: &Bindings| -> bool {
+            let env = if is_left { left } else { right };
+            if !m655 || env.is_none() || at >= segs.len() || !segs[at].optional {
+                return false;
+            }
+            segs[at].optional = false;
+            let (l, r) = if is_left {
+                (left, &None)
+            } else {
+                (&None, right)
+            };
+            let holds = environment_bindings(g, segs, i, i, l, r, b.clone()).is_some();
+            segs[at].optional = true;
+            !holds
+        };
+    let m655_skip = |segs: &mut Vec<Segment>, i: usize| -> bool {
+        if !m655 {
+            return false;
+        }
+        if i > 0 && redundant(segs, i, i - 1, true, &Bindings::default()) {
+            return true;
+        }
+        let lb = environment_bindings(g, segs, i, i, left, &None, Bindings::default())
+            .unwrap_or_default();
+        redundant(segs, i, i, false, &lb) && !redundant(segs, i + 1, i, true, &Bindings::default())
+    };
+    let dominated = |segs: &mut Vec<Segment>, s: usize, e: usize| -> bool {
+        if m655_skip(segs, s) {
+            return true;
+        }
+        if !dom_gap || e >= segs.len() || !segs[e].optional {
+            return false;
+        }
+        segs[e].optional = false;
+        let holds = environment_bindings(g, segs, s, e, left, right, Bindings::default()).is_some();
+        segs[e].optional = true;
+        !holds
+    };
 
     // The word-initial gap is a real site: C#'s substitute pattern matches the left anchor (node 0, here) and inserts right after it; without this a word-initial deletion can't be re-inserted.
     if let Some(bindings) = environment_bindings(g, &segs, 0, 0, left, right, Bindings::default()) {
-        sites.push((0, bindings));
+        if !dominated(&mut segs, 0, 0) {
+            sites.push((0, bindings));
+        }
     }
     for (site, &node) in node_of.iter().enumerate() {
         if !pg_fst::work::consume() {
@@ -3370,7 +3434,9 @@ fn ana_narrow_deletion(
             right,
             Bindings::default(),
         ) {
-            sites.push((node, bindings));
+            if !dominated(&mut segs, right_start, right_start) {
+                sites.push((node, bindings));
+            }
         }
     }
     if sites.is_empty() {
@@ -3391,6 +3457,85 @@ fn ana_narrow_deletion(
         ms.nodes.splice(at..at, inserted);
     }
     true
+}
+
+/// EXPERIMENT: whether any context node of `p` carries an alpha variable.
+fn pattern_has_vars(p: &Pattern) -> bool {
+    fn walk(nodes: &[PatternNode]) -> bool {
+        nodes.iter().any(|n| match n {
+            PatternNode::Context(sc) => !sc.vars.is_empty(),
+            PatternNode::Quantifier { children, .. } => walk(children),
+            _ => false,
+        })
+    }
+    walk(&p.nodes)
+}
+
+/// EXPERIMENT (HC_DEL_DOMGAP): whether the dominated-gap prune may run: no alpha variable, no deletion reapplication, no right-to-left iterative mode, and a right environment whose first segment cannot be the LHS (a run of LHS copies stays undeletable).
+fn dom_gap_eligible(
+    g: &Grammar,
+    table: &CharDefTable,
+    rule: &RewriteRuleDef,
+    sr: &RewriteSubruleDef,
+    left: &Option<EnvFst>,
+    right: &Option<EnvFst>,
+    lhs_vars: &[Vec<VarOccur>],
+) -> bool {
+    if g.deletion_reapplications != 0
+        || (rule.mode == RewriteMode::Iterative
+            && rule.dir == pg_grammar_model::model::Dir::RightToLeft)
+        || lhs_vars.iter().any(|v| !v.is_empty())
+        || left.as_ref().is_some_and(EnvFst::uses_alpha)
+        || right.as_ref().is_some_and(EnvFst::uses_alpha)
+    {
+        return false;
+    }
+    // A literal names one segment (identity lanes), a segment class names its members, a feature class names none.
+    let first = |nodes: &[PatternNode]| -> Option<(Vec<u64>, Option<Vec<u32>>)> {
+        for n in nodes {
+            match n {
+                PatternNode::CharDef(cd) if table.get(*cd).kind() == CharDefKind::Boundary => {}
+                PatternNode::CharDef(cd) => {
+                    return Some((node_full_lanes(g, table, n), Some(vec![cd.0])))
+                }
+                PatternNode::Context(sc) => {
+                    let ids = match &g.natural_classes[sc.nat_class.0 as usize].kind {
+                        NaturalClassKind::Segments(segs) => {
+                            Some(segs.iter().map(|c| c.0).collect())
+                        }
+                        NaturalClassKind::Feature(_) => None,
+                    };
+                    return Some((node_full_lanes(g, table, n), ids));
+                }
+                PatternNode::Segments { table: t, shape } => {
+                    if let Some((_, _, cd, _)) = shape
+                        .shape
+                        .interior()
+                        .find(|(_, kind, _, _)| *kind == NodeKind::Segment)
+                    {
+                        let seg = PatternNode::CharDef(CharDefId(cd));
+                        let lanes = node_full_lanes(g, &g.char_tables[t.0 as usize], &seg);
+                        return Some((lanes, Some(vec![cd])));
+                    }
+                }
+                _ => return None,
+            }
+        }
+        None
+    };
+    match (
+        first(&rule.lhs.nodes),
+        sr.right_env.as_ref().and_then(|e| first(&e.nodes)),
+    ) {
+        (Some((l, li)), Some((r, ri))) => {
+            let ids_meet = match (li, ri) {
+                (Some(a), Some(b)) => a.iter().any(|x| b.contains(x)),
+                _ => true,
+            };
+            !(ids_meet && pg_featstruct::flat_unifiable(&l, &r))
+        }
+        _ => false,
+    }
 }
 
 /// The non-empty-RHS branch zips LHS segments into captured RHS nodes, inserts LHS leftovers as Optional, and marks surplus RHS nodes Optional. Matches apply descending because index-based nodes do not survive insertion.
