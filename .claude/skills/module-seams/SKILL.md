@@ -38,7 +38,7 @@ plan-topology flag the caller had skipped. So:
    a working capability.
 3. **Check the seam before the condition.** The same condition that failed as a `CapabilityPredicate`
    (7 failures against ratified `ConfirmOnly` contracts) passed with 0 at
-   `backend_selection`'s existing per-strategy refusal seam, beside `plan_composed_marker_refusal`.
+   `backend_selection`'s existing per-strategy refusal seam, beside the other per-strategy refusals.
    A backend-specific structural fact belongs there, not in a predicate, and needs no
    `CharacteristicKind`.
 

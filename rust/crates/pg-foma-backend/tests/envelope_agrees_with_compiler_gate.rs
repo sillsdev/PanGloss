@@ -8,9 +8,8 @@ use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma::strategy_coverage::ALL_STRATEGIES;
 use pg_foma_backend::backend_selection::{select_backends, BackendReport};
-use pg_foma_backend::production_admission::assess_completed_fst;
+use pg_foma_backend::grammar_admission::assess_completed_fst;
 use pg_foma_backend::witnessed_coverage::compile_with_backend_for_measurement;
-use pg_grammar::model::Grammar;
 
 /// How a fixture's envelope verdict lines up with what its compiler actually did.
 #[derive(Debug, PartialEq, Eq)]
@@ -29,7 +28,7 @@ struct Row {
     agreement: Agreement,
     compiled: bool,
     production_blocks: bool,
-    has_partials: bool,
+    has_labels: bool,
 }
 
 /// The four differential columns, printed together so closing one cannot hide opening another.
@@ -43,7 +42,8 @@ struct DifferentialCounts {
 
 fn observe(name: &str, strategy: EmissionStrategy) -> Option<Row> {
     let fixture = discover().into_iter().find(|f| f.label() == name)?;
-    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).ok()?;
+    let mut grammar = pg_grammar::load(&fixture.load_grammar_xml()).ok()?;
+    fixture.load_words_yaml().morpher.apply_to(&mut grammar);
     if grammar.char_tables.is_empty() {
         return None;
     }
@@ -62,9 +62,8 @@ fn observe(name: &str, strategy: EmissionStrategy) -> Option<Row> {
     };
     let compiled_ok = compiled.is_ok();
 
-    let facts = grammar
-        .partial_morpheme_facts()
-        .unwrap_or_else(|error| panic!("{name}: partial inventory must be valid: {error}"));
+    let diagnostics = pg_grammar::grammar_health::check_grammar_health_diagnostics(&grammar)
+        .unwrap_or_else(|error| panic!("{name}: grammar-health must decide: {error}"));
     let admission = assess_completed_fst(&grammar, strategy)
         .unwrap_or_else(|error| panic!("{name}: production admission must decide: {error}"));
 
@@ -78,7 +77,7 @@ fn observe(name: &str, strategy: EmissionStrategy) -> Option<Row> {
         agreement,
         compiled: compiled_ok,
         production_blocks: admission.blocks_publication(),
-        has_partials: facts.has_partials(),
+        has_labels: diagnostics.iter().any(|d| d.blocks_fst),
     })
 }
 
@@ -155,7 +154,7 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
         }
         // A capability refusal names its constructs via `CapabilityDiagnostic`, not `uncovered`.
         let report = match pg_foma::analyzer::compile_proposer(&grammar) {
-            Err(FomaError::Incomplete(report)) | Err(FomaError::Unsupported(report)) => *report,
+            Err(FomaError::Unsupported(report)) => *report,
             Err(FomaError::CapabilityRefused(diagnostics)) => {
                 for diagnostic in &diagnostics {
                     named += 1;
@@ -213,10 +212,10 @@ fn report_uncovered_constructs_behind_surface_probe_divergence() {
     );
 }
 
-/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make. `claimed == 0` is the currently-measured state (its one witness, `staging:edge-cases/circumfix-non-first-allomorph-selection`, now compiles), not a proof the condition can never recur -- a genuinely unowned zone mismatch on a future grammar can still trip it.
+/// The published mixed-circumfix-zone fact must never claim a refusal the eager route does not make.
 #[test]
 fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
-    let mut claimed = 0usize;
+    let mut claimed = Vec::new();
     for fixture in discover() {
         let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
             continue;
@@ -227,7 +226,7 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
         if !pg_foma::emit::eager_route_refuses_mixed_circumfix_zone(&grammar) {
             continue;
         }
-        claimed += 1;
+        claimed.push(fixture.label());
         assert!(
             pg_foma::analyzer::compile_proposer(&grammar).is_err(),
             "{}: the mixed-circumfix-zone fact claims the eager route refuses, but it compiled",
@@ -235,79 +234,9 @@ fn the_published_mixed_circumfix_zone_fact_never_over_claims_a_refusal() {
         );
     }
     assert_eq!(
-        claimed, 0,
-        "mixed-circumfix-zone fact fired on {claimed} fixture(s) -- update this assertion \
-         deliberately (its stale value was 1, this fixture's own commit made it 0) rather than \
-         reverting to a bare non-vacuity check"
-    );
-}
-
-/// Compiles `grammar` with `strategy`; asserts the attempt never panics, returns whether it compiled.
-fn compiled_without_panicking(grammar: &Grammar, strategy: EmissionStrategy, label: &str) -> bool {
-    match panic::catch_unwind(AssertUnwindSafe(|| {
-        compile_with_backend_for_measurement(grammar, strategy)
-    })) {
-        Ok(result) => result.is_ok(),
-        Err(_) => panic!("{label}: {strategy:?} panicked instead of returning a typed refusal"),
-    }
-}
-
-/// The published untokenizable-root-shape fact must never claim a refusal `TemplatedUnderlyingTokens` does not make.
-#[test]
-fn the_published_untokenizable_root_shape_fact_never_over_claims_a_refusal() {
-    let mut claimed = 0usize;
-    for fixture in discover() {
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            continue;
-        };
-        if grammar.char_tables.is_empty() {
-            continue;
-        }
-        if !pg_foma::replace::grammar_has_untokenizable_root_shape(&grammar) {
-            continue;
-        }
-        claimed += 1;
-        assert!(
-            !compiled_without_panicking(
-                &grammar,
-                EmissionStrategy::TemplatedUnderlyingTokens,
-                &fixture.label()
-            ),
-            "{}: the untokenizable-root-shape fact claims TemplatedUnderlyingTokens cannot \
-             compile, but it did",
-            fixture.label()
-        );
-    }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the untokenizable-root-shape fact, so this gate proves nothing"
-    );
-}
-
-/// The published no-tokenizable-root fact must never claim a refusal `PlanComposed` does not make.
-#[test]
-fn the_published_no_tokenizable_root_fact_never_over_claims_a_refusal() {
-    let mut claimed = 0usize;
-    for fixture in discover() {
-        let Ok(grammar) = pg_grammar::load(&fixture.load_grammar_xml()) else {
-            continue;
-        };
-        if grammar.char_tables.is_empty() || grammar.entries.is_empty() {
-            continue;
-        }
-        if !pg_foma::replace::grammar_has_no_tokenizable_root(&grammar) {
-            continue;
-        }
-        claimed += 1;
-        assert!(
-            !compiled_without_panicking(&grammar, EmissionStrategy::PlanComposed, &fixture.label()),
-            "{}: the no-tokenizable-root fact claims PlanComposed builds no network, but it did",
-            fixture.label()
-        );
-    }
-    assert!(
-        claimed > 0,
-        "no fixture exercised the no-tokenizable-root fact, so this gate proves nothing"
+        claimed,
+        ["machine:edge-cases/spelling-coverage-compound-depth-prefix-zone"],
+        "the set of mixed-circumfix-zone witnesses changed"
     );
 }
 
@@ -395,11 +324,7 @@ fn report_envelope_compiler_divergence() {
     }
 
     // Staged: names every too-strict row so a NEW one fails here rather than joining an unnamed backlog.
-    const EXPECTED_TOO_STRICT: &[&str] = &[
-        // strategy_coverage.rs's ProcessMorphology row is a static, grammar-independent claim; crate::build::unbuildable_marker_material admits this grammar's structural union, so the envelope is stricter than the compiler here until that row becomes grammar-aware.
-        "machine:edge-cases/process-morphology-in-place-mutation x plan-composed",
-        "staging:edge-cases/realizational-reduplication-no-proposal-route x plan-composed",
-    ];
+    const EXPECTED_TOO_STRICT: &[&str] = &[];
     let mut strict_sorted: Vec<&str> = strict.iter().map(|label| label.as_str()).collect();
     strict_sorted.sort_unstable();
     let mut expected_sorted = EXPECTED_TOO_STRICT.to_vec();
@@ -420,9 +345,9 @@ fn report_envelope_compiler_divergence() {
     );
 }
 
-/// The two production columns must partition the compile successes and correspond one-for-one with the grammar's own partial inventory in BOTH directions.
+/// The two production columns must partition the compile successes and correspond one-for-one with the grammar-health labels in BOTH directions.
 #[test]
-fn production_admission_partitions_compile_successes_by_partial_inventory() {
+fn production_admission_partitions_compile_successes_by_grammar_health_labels() {
     let rows = sweep();
     let counts = counts(&rows);
     let compiled = rows.iter().filter(|row| row.compiled).count();
@@ -438,42 +363,42 @@ fn production_admission_partitions_compile_successes_by_partial_inventory() {
 
     let over_refused: Vec<&str> = rows
         .iter()
-        .filter(|row| row.production_blocks && !row.has_partials)
+        .filter(|row| row.production_blocks && !row.has_labels)
         .map(|row| row.label.as_str())
         .collect();
     assert!(
         over_refused.is_empty(),
-        "production admission refused {} partial-free observation(s), so it is refusing more than \
+        "production admission refused {} unlabelled observation(s), so it is refusing more than \
          the policy: {over_refused:#?}",
         over_refused.len()
     );
 
     let under_refused: Vec<&str> = rows
         .iter()
-        .filter(|row| row.has_partials && !row.production_blocks)
+        .filter(|row| row.has_labels && !row.production_blocks)
         .map(|row| row.label.as_str())
         .collect();
     assert!(
         under_refused.is_empty(),
-        "production admission ADMITTED {} partial-bearing observation(s), so the policy is not \
+        "production admission ADMITTED {} labelled observation(s), so the policy is not \
          being applied: {under_refused:#?}",
         under_refused.len()
     );
 
-    // Non-vacuity, scope-honest: assert a rejection was really observed only when the claimed scope actually contains a partial-bearing fixture, and say so either way.
-    let partial_bearing = rows.iter().filter(|row| row.has_partials).count();
-    eprintln!("partial-bearing observations in this scope: {partial_bearing}");
+    // Non-vacuity, scope-honest: assert a rejection was really observed only when the claimed scope actually contains a labelled fixture, and say so either way.
+    let partial_bearing = rows.iter().filter(|row| row.has_labels).count();
+    eprintln!("labelled observations in this scope: {partial_bearing}");
     if partial_bearing == 0 {
         eprintln!(
-            "NOTE: no discovered fixture declares a partial morpheme, so this run witnesses only \
+            "NOTE: no discovered fixture declares a blocking label, so this run witnesses only \
              the ADMIT direction; the refuse direction is witnessed by \
-             partial_fst_production_admission_gate's synthetic fixtures"
+             grammar_health_publication_gate's synthetic fixtures"
         );
     } else {
         assert!(
             counts.compiler_succeeds_production_rejects > 0
-                || rows.iter().all(|row| !(row.has_partials && row.compiled)),
-            "a partial-bearing fixture compiled but produced no production rejection"
+                || rows.iter().all(|row| !(row.has_labels && row.compiled)),
+            "a labelled fixture compiled but produced no production rejection"
         );
     }
     assert!(

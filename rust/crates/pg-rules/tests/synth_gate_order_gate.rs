@@ -16,7 +16,7 @@ use pg_rules::cache::RuleCache;
 use pg_rules::morph::synthesize_with_policy;
 use pg_rules::stratum::{
     synthesize_stratum, synthesize_stratum_traced, synthesize_stratum_traced_with_policy,
-    synthesize_template, FinalTemplateSynthesisPolicy, StepBudget,
+    synthesize_template, FinalTemplateSynthesisPolicy, WordBudget,
 };
 use pg_rules::trace::{
     FailureReason, NoopSink, TraceHandle, TraceSink, TraceSource, TraceType, TreeTraceSink,
@@ -112,6 +112,7 @@ fn push_suffix_rule_with_syn_fs(
         is_template_rule: false,
         is_clitic_rule: None,
         allomorphs: vec![AffixAllomorphDef {
+            xml_key: String::new(),
             id: allo_id,
             environments: vec![],
             co_occurrence: vec![],
@@ -160,8 +161,8 @@ fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
     let mut input = word(&g, "a", s);
     input.syn_fs = one_feature_fs(0b10); // disjoint from `req_fs` => the syn-FS gate fails too.
     input.flags.is_last_applied_rule_final = Some(true); // => the final-template gate fails.
-    input.flags.is_partial = false;
-    input.mrule_apps = vec![Some(r)];
+    input.flags.set_is_partial(false);
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     (g, s, r, input, cache)
@@ -170,11 +171,11 @@ fn build_fixture() -> (Grammar, StratumId, MRuleId, Word, RuleCache) {
 #[test]
 fn both_gates_reject_first_reported_reason_is_the_template_prohibition() {
     let (g, s, r, input, cache) = build_fixture();
-    let budget = StepBudget::new(10_000);
+    let budget = WordBudget::new(1_000_000);
     let sink = TreeTraceSink::new();
     let root = sink.generate_words();
 
-    synthesize_stratum_traced(&g, s, input, 10_000, &cache, &budget, None, &sink, root);
+    synthesize_stratum_traced(&g, s, input, &cache, &budget, None, &sink, root);
 
     // Finds every rule-level gate node (`subrule_index == Some(-1)`); see docs/research/pg-rules-synth-gate-order-design-notes.md.
     let mut rule_level_reasons = Vec::new();
@@ -228,7 +229,7 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
 
     let mut input = word(&g, "a", s);
     input.syn_fs = one_feature_fs(0b01); // unifies with `req_fs` (same bit).
-    input.mrule_apps = vec![Some(r)];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
@@ -252,7 +253,7 @@ fn syn_fs_gate_still_applies_when_every_gate_actually_passes() {
 fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
     let (g, s, _r, mut input, cache) = build_fixture();
     input.syn_fs = one_feature_fs(0b01);
-    input.flags.is_partial = true;
+    input.flags.set_is_partial(true);
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
     assert_eq!(
         baseline.len(),
@@ -263,9 +264,8 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
@@ -285,7 +285,7 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
             Some(pg_grammar_model::model::PartialMorphemeReason::UnclassifiedAffix);
     }
     input.syn_fs = one_feature_fs(0b01);
-    input.flags.is_partial = false;
+    input.flags.set_is_partial(false);
     let baseline = synthesize_stratum(&g, s, input.clone(), 10_000, &cache);
     assert_eq!(
         baseline.len(),
@@ -296,9 +296,8 @@ fn synthesis_override_bypasses_partial_word_rescue_at_final_gate() {
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },
@@ -345,7 +344,7 @@ fn synthesis_override_bypasses_partial_word_rescue_for_compounding() {
     let mut input = word(&g, "a", StratumId(0));
     input.non_head_unapplied(word(&g, "a", StratumId(0)));
     input.flags.is_last_applied_rule_final = Some(true);
-    input.flags.is_partial = true;
+    input.flags.set_is_partial(true);
 
     let baseline =
         synthesize_with_policy(&g, &input, &rule, FinalTemplateSynthesisPolicy::default());
@@ -375,16 +374,15 @@ fn ordinary_synthesis_uses_the_call_site_role_for_a_shared_affix_id() {
     let cache = RuleCache::build(&g);
     let mut input = word(&g, "a", s);
     input.flags.is_last_applied_rule_final = Some(true);
-    input.mrule_apps = vec![Some(r)];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
 
     let out = synthesize_stratum_traced_with_policy(
         &g,
         s,
         input,
-        10_000,
         &cache,
-        &StepBudget::new(10_000),
+        &WordBudget::new(1_000_000),
         FinalTemplateSynthesisPolicy {
             always_enforce: true,
         },

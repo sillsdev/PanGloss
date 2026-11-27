@@ -7,7 +7,7 @@ use pangloss_ffi::{
     hc_grammar_free, hc_grammar_load, hc_lexicon_add_json, hc_lexicon_catalog_json,
     hc_lexicon_export_json, hc_lexicon_import_json, hc_lexicon_remove_json, hc_parse_batch,
     hc_parse_batch_opts, hc_parse_word, hc_parse_word_opts, DecodedWordGuess, HcError, HcResultBuf,
-    HcStr, DEFAULT_STEP_CAP, HC_OK,
+    HcStr, DEFAULT_WORK_CAP, HC_OK,
 };
 
 const GRAMMAR_XML: &str = r#"<?xml version="1.0" encoding="utf-8"?>
@@ -167,15 +167,18 @@ fn assert_wire_matches_owner(
     word: &str,
 ) {
     let expected_outcome = pg_parse::ParseOutcome {
+        partials: Vec::new(),
         analyses: owner.analyses.clone(),
         structured: owner.structured.clone(),
         capped: owner.capped,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: owner.invalid_shape,
-        steps: 0,
         work_steps: 0,
         timed_out: owner.timed_out,
         guessed: owner.guessed,
         candidates_generated: owner.candidates_generated,
+        cost: None,
     };
     let mut expected =
         decode_guess(&encode_single_guess(&expected_outcome)).expect("encode direct owner outcome");
@@ -192,7 +195,9 @@ fn assert_opts_owner_matrix(handle: *mut c_void, words: &[&str]) {
         grammar,
         GRAMMAR_XML,
         pg_lexicon::AnalysisPolicy {
-            step_cap: DEFAULT_STEP_CAP,
+            work_cap: DEFAULT_WORK_CAP,
+            word_mem_cap: Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES),
+            generation_cap: 500_000,
         },
     )
     .expect("construct independent owner");
@@ -504,7 +509,7 @@ fn hc_parse_word_bytes_for_a_real_word_are_byte_identical_to_the_in_process_enco
     }
 
     let grammar = pg_grammar::load(GRAMMAR_XML).expect("load grammar in-process");
-    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_STEP_CAP);
+    let morpher = pg_parse::Morpher::new(&grammar, DEFAULT_WORK_CAP);
     let outcome = morpher.parse_word("kad");
     let expected_bytes = encode_single(&outcome);
 

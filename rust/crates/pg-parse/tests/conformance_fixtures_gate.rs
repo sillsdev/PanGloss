@@ -2,7 +2,10 @@
 
 use pg_conformance_fixtures::{
     all_staged_fixtures, assert_matches_oracle, discover, graduation_guard_violations,
-    producibility_census, replay_fixture_runs, require_fixture, OracleProvenance,
+    known_divergences_path, pangloss_expectation_for, pangloss_expectation_violations,
+    parse_pangloss_expectations, parse_upstream_baseline, producibility_census,
+    replay_against_oracle, replay_fixture_runs, require_fixture, staging_root,
+    staging_upstream_violations, OracleProvenance, Root, WordsYaml,
 };
 use pg_parse::Morpher;
 
@@ -58,6 +61,17 @@ fn a_reinserted_class_node_looks_up_only_class_members_on_a_featureless_grammar(
 }
 
 #[test]
+fn two_reinserted_class_nodes_retain_members_and_exclude_other_roots() {
+    let fixture = require_fixture("edge-cases", "class-deletion-reinsertion-strrep");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    assert_eq!(
+        looked_up_entries(&grammar, "amuma"),
+        ["ePuma", "eUma", "eUmpa"]
+    );
+    assert_eq!(looked_up_entries(&grammar, "umuma"), ["eUmbumpa"]);
+}
+
+#[test]
 fn strrep_rewrite_tracks_membership_when_a_provisional_literal_changes_identity() {
     use pg_grammar_model::model::PhonRuleDef;
     use pg_rules::{rewrite, shape_feat::segment_with_features};
@@ -99,6 +113,7 @@ fn strrep_rewrite_preserves_provisional_named_class_exclusion() {
     grammar.natural_classes.push(NaturalClass {
         xml_id: "named-x".into(),
         name: Some("Named x".into()),
+        full_name: None,
         kind: NaturalClassKind::Segments(vec![x]),
     });
     let PhonRuleDef::Rewrite(rule) = &mut grammar.prules[0] else {
@@ -339,21 +354,41 @@ fn graduation_guard_no_duplicate_fixture_names() {
     );
 }
 
+/// Every staged fixture's STAGING.md needs an `upstream:` line unless it is on the shrinking baseline.
+#[test]
+fn staged_fixtures_have_upstream_pr_or_not_producible_reason() {
+    let fixtures = discover();
+    let path = staging_root().join("upstream-baseline.txt");
+    let baseline = parse_upstream_baseline(&std::fs::read_to_string(&path).expect("baseline file"));
+    let violations = staging_upstream_violations(&fixtures, &baseline);
+    assert!(
+        violations.is_empty(),
+        "staged fixtures need an `upstream:` line in STAGING.md. For a behaviour fix, open the \
+         sillsdev/fieldworks-parser-conformance PR and write `upstream: <PR URL>`; for a shape \
+         FieldWorks cannot produce, write `upstream: not-producible: row <N> <reason>` (N from conformance/docs/fieldworks-cannot-say.md). Baseline \
+         entries that gained the line must be deleted from {}: {violations:?}",
+        path.display()
+    );
+}
+
 /// Every discovered fixture's `words.yaml` replayed against `pg_parse::Morpher`; pathological/crash-pinning fixtures are skipped since a crash fixture has no signature to diff against.
 #[test]
 fn all_discovered_fixtures_match_oracle() {
     let fixtures = discover();
     assert!(
         !fixtures.is_empty(),
-        "no conformance fixtures discovered at all — check the `machine` submodule is \
-         initialized (`git submodule update --init machine`) and conformance-staging/ exists"
+        "no conformance fixtures discovered at all — check the suite is fetched \
+         (`pwsh rust/tools/conformance.ps1`) and conformance-staging/ exists"
     );
 
+    let expectations = recorded_pangloss_expectations();
+    let mut used = vec![false; expectations.len()];
     let mut total_checked = 0usize;
     let mut total_skipped_fixtures = 0usize;
     let mut total_variant_runs = 0usize;
     let mut mismatches = Vec::new();
     for f in &fixtures {
+        let fixture_id = format!("{}/{}", f.category, f.name);
         let words_yaml = f.load_words_yaml();
         if let Some(reason) = words_yaml.skip_in_generic_replay() {
             eprintln!("skipping {}: {reason}", f.label());
@@ -365,10 +400,17 @@ fn all_discovered_fixtures_match_oracle() {
                 total_variant_runs += 1;
             }
             for mismatch in &run.replay.mismatches {
-                mismatches.push(format!(
+                if let Some(i) =
+                    pangloss_expectation_for(&expectations, f.root, &fixture_id, mismatch)
+                {
+                    used[i] = true;
+                    continue;
+                }
+                let detail = format!(
                     "{}: word {:?} {}\n  left (HC-Rust): {}\n right (oracle): {}",
                     run.name, mismatch.word, mismatch.what, mismatch.got, mismatch.expected
-                ));
+                );
+                mismatches.push(detail);
             }
             if run.is_base {
                 assert!(
@@ -396,6 +438,76 @@ fn all_discovered_fixtures_match_oracle() {
         "{} conformance mismatches across the complete replay:\n{}",
         mismatches.len(),
         mismatches.join("\n")
+    );
+    let stale = pangloss_expectation_violations(&expectations, &used, &fixtures);
+    assert!(
+        stale.is_empty(),
+        "pangloss_expectations entries in {} that no longer apply: {stale:?}",
+        known_divergences_path().display()
+    );
+}
+
+fn recorded_pangloss_expectations() -> Vec<pg_conformance_fixtures::PanglossExpectation> {
+    let path = known_divergences_path();
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: read: {e}", path.display()));
+    parse_pangloss_expectations(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// The suite records hc.dll's `expect_fail` for the four words divergence 132 is about (sillsdev/fieldworks-parser-conformance#50); once that fixture is pinned, the recorded expectations must excuse exactly those four PanGloss parses, and only on the pinned copy.
+#[test]
+fn upstream_expect_fail_rows_for_divergence_132_are_recorded_pangloss_expectations() {
+    let pinned = require_fixture(
+        "edge-cases",
+        "metathesis-deletion-restores-segment-between-switches",
+    );
+    let staged = pg_conformance_fixtures::FixtureRef {
+        root: Root::Staging,
+        ..pinned.clone()
+    };
+    let upstream = WordsYaml::from_yaml_str(include_str!(
+        "data/metathesis-match-order/upstream-pr50-words.yaml"
+    ))
+    .unwrap();
+    let grammar = pinned.load_grammar();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let replay = replay_against_oracle(&upstream, &morpher);
+    let words: Vec<&str> = replay.mismatches.iter().map(|m| m.word.as_str()).collect();
+    assert_eq!(words, ["ats", "at+s", "atsa", "at+sa"]);
+    let expectations = recorded_pangloss_expectations();
+    let id = "edge-cases/metathesis-deletion-restores-segment-between-switches";
+    for m in &replay.mismatches {
+        let i = pangloss_expectation_for(&expectations, Root::Machine, id, m);
+        assert!(i.is_some(), "no recorded expectation for {m:?}");
+        assert_eq!(expectations[i.unwrap()].divergence, "132");
+        assert_eq!(
+            pangloss_expectation_for(&expectations, Root::Staging, id, m),
+            None
+        );
+    }
+    let ours: Vec<_> = expectations
+        .iter()
+        .filter(|e| e.fixture == id)
+        .cloned()
+        .collect();
+    let all_used = vec![true; ours.len()];
+    let none_used = vec![false; ours.len()];
+    assert!(
+        pangloss_expectation_violations(&ours, &all_used, std::slice::from_ref(&pinned)).is_empty()
+    );
+    assert!(
+        pangloss_expectation_violations(&ours, &none_used, std::slice::from_ref(&staged))
+            .is_empty()
+    );
+    assert_eq!(
+        pangloss_expectation_violations(&ours, &none_used, &[pinned]).len(),
+        4,
+        "a pinned fixture that no longer shows the mismatch makes every entry stale"
+    );
+    assert_eq!(
+        pangloss_expectation_violations(&ours, &all_used, &[]).len(),
+        4,
+        "an entry naming no discovered fixture is stale"
     );
 }
 
@@ -453,7 +565,7 @@ fn staged_fixtures_carry_recognized_oracle_provenance() {
     assert!(
         missing.is_empty(),
         "fixture(s) missing a recognized `# oracle-provenance: founding-oracle|rust-only` marker \
-         in words.yaml (see CLAUDE.md's oracle hierarchy / machine/conformance/PROTOCOL.md): {missing:?}"
+         in words.yaml (see CLAUDE.md's oracle hierarchy / conformance/PROTOCOL.md): {missing:?}"
     );
 }
 
@@ -473,4 +585,152 @@ fn rust_only_oracle_provenance_backlog_does_not_grow() {
          {rust_only} — a newly staged fixture must be verified against the C# founding oracle \
          (rust/tools/oracle-conformance.ps1) before being marked rust-only"
     );
+}
+
+#[test]
+fn generated_full_material_is_not_an_absent_feature() {
+    let g = require_fixture("edge-cases", "generated-full-intermediate").load_grammar();
+    let m = Morpher::new(&g, 10_000_000);
+    let rejected = m.parse_word("iuy");
+    assert!(!rejected.capped && !rejected.timed_out && !rejected.invalid_shape);
+    assert_eq!(rejected.signature(), "-", "pinned C# rejects iuy from auua");
+    assert_ne!(
+        m.parse_word("aua").signature(),
+        "-",
+        "pinned C# accepts aua"
+    );
+}
+
+#[test]
+fn alpha_bindings_subsume_both_environment_sides_and_targets() {
+    let mut failures = Vec::new();
+    for (name, negative, positive) in [
+        ("intermediate-alpha-subsumption", "iua", "aua"),
+        ("intermediate-alpha-left", "aui", "aua"),
+        ("intermediate-alpha-target", "iia", "aii"),
+    ] {
+        let g = require_fixture("edge-cases", name).load_grammar();
+        let m = Morpher::new(&g, 10_000_000);
+        let rejected = m.parse_word(negative);
+        assert!(!rejected.capped && !rejected.timed_out && !rejected.invalid_shape);
+        if rejected.signature() != "-" {
+            failures.push(format!(
+                "{name}: accepted {negative}: {}",
+                rejected.signature()
+            ));
+        }
+        let accepted = m.parse_word(positive);
+        assert!(!accepted.capped && !accepted.timed_out && !accepted.invalid_shape);
+        if accepted.signature() == "-" {
+            failures.push(format!("{name}: missing {positive}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn mpr_wide_inventory_replays_all_csharp_statuses_and_signatures() {
+    let fixture = require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let words = fixture.load_words_yaml();
+    assert_eq!(words.words.len(), 74);
+    assert!(words.skip_in_generic_replay().is_none());
+    let grammar = fixture.load_grammar_with_settings(&words.morpher);
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    assert_eq!(
+        assert_matches_oracle(&fixture.label(), &words, &morpher),
+        74
+    );
+}
+
+#[test]
+fn mpr_wide_generation_matches_csharp_boundary_cross_product() {
+    use pg_featstruct::FeatureStruct;
+    use pg_parse::GenMorpheme;
+    let fixture = require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let ids = [63, 64, 127, 128, 255, 256, 299];
+    for (j, root) in ids.iter().enumerate() {
+        let entry = grammar
+            .entries
+            .iter()
+            .position(|e| e.authored_id == format!("e{root:03}"))
+            .unwrap();
+        for (k, rule) in ids.iter().enumerate() {
+            let rule = grammar
+                .mrules
+                .iter()
+                .position(|r| r.authored_name() == Some(format!("r{rule:03}").as_str()))
+                .unwrap();
+            let found = morpher.generate_words(
+                pg_grammar_model::model::LexEntryId(entry as u32),
+                &[GenMorpheme::Rule(pg_grammar_model::model::MRuleId(
+                    rule as u32,
+                ))],
+                FeatureStruct::EMPTY,
+            );
+            let expected = if j == k {
+                vec![format!("pa{}as{}i", "l".repeat(j), "a".repeat(k))]
+            } else {
+                vec![]
+            };
+            assert_eq!(found, expected, "root {root}, rule index {k}");
+        }
+    }
+    let root = grammar
+        .entries
+        .iter()
+        .position(|e| e.authored_id == "eBoth")
+        .unwrap();
+    let rule = grammar
+        .mrules
+        .iter()
+        .position(|r| r.authored_name() == Some("r256"))
+        .unwrap();
+    assert!(morpher
+        .generate_words(
+            pg_grammar_model::model::LexEntryId(root as u32),
+            &[GenMorpheme::Rule(pg_grammar_model::model::MRuleId(
+                rule as u32
+            ))],
+            FeatureStruct::EMPTY
+        )
+        .is_empty());
+}
+
+/// sillsdev/PanGloss#423: a derivation blocked by a stem-family relative generates the relative's word, as C# `Morpher.GenerateWords` does (machine 74ee09bf).
+#[test]
+fn family_blocked_generation_returns_the_relative_word() {
+    use pg_featstruct::FeatureStruct;
+    use pg_grammar_model::model::{LexEntryId, MRuleId};
+    use pg_parse::GenMorpheme;
+    let fixture = require_fixture("edge-cases", "family-blocked-generation");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let entry = |id: &str| {
+        LexEntryId(
+            grammar
+                .entries
+                .iter()
+                .position(|e| e.authored_id == id)
+                .unwrap() as u32,
+        )
+    };
+    let rule = MRuleId(
+        grammar
+            .mrules
+            .iter()
+            .position(|r| r.authored_name() == Some("T"))
+            .unwrap() as u32,
+    );
+    let generate = |root: &str, rules: &[GenMorpheme]| {
+        morpher.generate_words(entry(root), rules, FeatureStruct::EMPTY)
+    };
+    assert_eq!(
+        generate("eA", &[GenMorpheme::Rule(rule)]),
+        ["aat"],
+        "A+T is blocked by relative B, whose word is returned"
+    );
+    assert_eq!(generate("eB", &[]), ["aat"]);
+    assert_eq!(generate("eA", &[]), ["aa"]);
 }

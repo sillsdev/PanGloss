@@ -1,27 +1,5 @@
 use super::*;
 
-/// Every registered predicate's and grammar-wide check's own declared shape key must be a real catalog entry, or `refused`'s `expect("every capability-refusal shape must exist in the advice catalog")` is one bad key away from panicking in production.
-#[test]
-fn every_declared_shape_key_exists_in_the_advice_catalog() {
-    let catalog = builtin_catalog().expect("the embedded backend advice catalog must validate");
-    for predicate in default_registry().predicates() {
-        let key = predicate.shape_key();
-        assert!(
-            catalog.entry_for(key).is_some(),
-            "{:?} declares shape key {key:?}, which has no catalog entry",
-            predicate.id()
-        );
-    }
-    for check in default_grammar_wide_checks() {
-        let key = check.shape_key();
-        assert!(
-            catalog.entry_for(key).is_some(),
-            "{:?} declares shape key {key:?}, which has no catalog entry",
-            check.id()
-        );
-    }
-}
-
 const ADMIT_XML: &str = r#"<HermitCrabInput><Language><Name>BackendSelectionFixture</Name>
       <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
       <CharacterDefinitionTable id="t1"><Name>Main</Name>
@@ -207,4 +185,34 @@ fn best_case_confirm_only_for_recursive_compounding_grammar() {
         best_case_across_backends(&GrammarSemantics::derive(&g)),
         CompileDecision::ConfirmOnly
     );
+}
+
+#[test]
+fn alpha_environment_refuses_the_compiler_and_the_selector() {
+    let xml = include_str!("../../../pg-parse/tests/data/alpha-optional-environment.xml");
+    let grammar = pg_grammar::load(xml).expect("alpha environment fixture loads");
+    assert!(crate::emit::alpha_environment_refusal(&grammar));
+    let selection = select_backends_for_grammar(&grammar);
+    for &strategy in ALL_STRATEGIES {
+        assert!(
+            matches!(selection.decision_for(strategy), CompileDecision::Refuse(_)),
+            "{strategy:?}"
+        );
+    }
+    let tuned = crate::emit::emit_tuned_surface(&grammar);
+    assert!(matches!(
+        tuned.report.tier,
+        crate::emit::FomaTier::CannotRepresent { .. }
+    ));
+    assert!(tuned.lexc_source.is_empty());
+    assert!(matches!(
+        crate::analyzer::compile_proposer_unproven(&grammar),
+        Err(crate::analyzer::FomaError::Unsupported(_))
+    ));
+    let plain = pg_grammar::load(ADMIT_XML).expect("plain fixture loads");
+    assert!(!crate::emit::alpha_environment_refusal(&plain));
+    assert!(!matches!(
+        crate::emit::emit_tuned_surface(&plain).report.tier,
+        crate::emit::FomaTier::CannotRepresent { .. }
+    ));
 }

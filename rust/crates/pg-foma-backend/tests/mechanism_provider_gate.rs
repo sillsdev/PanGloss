@@ -1,7 +1,6 @@
 //! Providers derive from the shared `GrammarSemantics` and from nothing else. Synthetic fixtures only, built through `pg_grammar::load`.
 
 use pg_foma::capability::CharacteristicKind;
-use pg_foma::enumerate::EmissionStrategy;
 use pg_foma::grammar_semantics::GrammarSemantics;
 use pg_foma_backend::backend_mechanism::{
     ExecutionDisposition, MechanismBody, MechanismId, MechanismKind, MechanismSourceKind,
@@ -245,11 +244,7 @@ fn an_inert_reduplication_hint_creates_no_copy_process_mechanism() {
         .construct_requirements
         .contains(&CharacteristicKind::Reduplication));
     // Peel handles reduplication outside the compiled FST for every strategy alike.
-    for strategy in [
-        EmissionStrategy::PlanComposed,
-        EmissionStrategy::TunedSurfaceProbed,
-        EmissionStrategy::TemplatedUnderlyingTokens,
-    ] {
+    for &strategy in pg_foma::strategy_coverage::ALL_STRATEGIES {
         assert_eq!(
             pg_foma_backend::backend_mechanism::MechanismBinding::derive(copy, strategy)
                 .disposition(),

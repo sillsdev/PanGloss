@@ -193,5 +193,5 @@ oracle's own trace (`[mrCrossTableSwap]` for both). `words.yaml`'s header now re
 ## Graduation
 
 Not yet proposed upstream. Candidate destination:
-`machine/conformance/edge-cases/multi-table-metathesis-shared-representation/`. On acceptance,
+`conformance/edge-cases/multi-table-metathesis-shared-representation/`. On acceptance,
 delete this staged copy in the same change (graduation guard enforces this mechanically).

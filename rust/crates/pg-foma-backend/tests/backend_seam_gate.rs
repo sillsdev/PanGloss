@@ -11,16 +11,19 @@ use pg_foma_backend::backend_selection::{capability_shape_key_for_test, select_b
 
 /// `(predicate id, shape key)`, deduplicated since construct text is fixture-specific free text a pinned literal should not depend on.
 type ShapeRow = (&'static str, &'static str);
+
+/// The shape column for a refusal the advice catalog deliberately has no entry for.
+const NO_ADVICE: &str = "(no advice)";
 type PartialFixtureRow = (&'static str, &'static str, &'static str, &'static str);
 type PartialAdmissionRow = (&'static str, &'static str);
 
 const PARTIAL_CLASS_DISAGREEMENT_FIXTURES: &[&str] = &[
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-bounded-ltr-left",
-    "staging:edge-cases/partial-class-disagree-bounded-rtl-left",
-    "staging:edge-cases/partial-class-disagree-unbounded-ltr-right",
-    "staging:edge-cases/partial-class-disagree-unbounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-bounded-ltr-left",
+    "machine:edge-cases/partial-class-disagree-bounded-rtl-left",
+    "machine:edge-cases/partial-class-disagree-unbounded-ltr-right",
+    "machine:edge-cases/partial-class-disagree-unbounded-rtl-right",
 ];
 
 fn sweep_shape_keys() -> (
@@ -58,7 +61,7 @@ fn sweep_shape_keys() -> (
             }
             if let CompileDecision::Refuse(diagnostics) = report.decision() {
                 for diagnostic in diagnostics {
-                    let shape_key = capability_shape_key_for_test(diagnostic);
+                    let shape_key = capability_shape_key_for_test(diagnostic).unwrap_or(NO_ADVICE);
                     eprintln!(
                         "SEAM_ROW\t{}\t{strategy:?}\t{}\t{shape_key}",
                         fixture.label(),
@@ -86,16 +89,12 @@ fn sweep_shape_keys() -> (
     )
 }
 
-/// Which of the three dispatchers `EmissionStrategy` names today, pinned so the seam consolidation is checked against a recorded fact rather than an assumption re-derived after the change.
+/// The dispatcher `EmissionStrategy::TunedSurfaceProbed` names today, pinned so a seam change is checked against a recorded fact rather than an assumption re-derived after the change.
 fn dispatcher_for(strategy: EmissionStrategy) -> &'static str {
     match strategy {
         EmissionStrategy::TunedSurfaceProbed => {
             "emit::emit_tuned_surface_for_request -> analyzer::FomaProposer::new"
         }
-        EmissionStrategy::TemplatedUnderlyingTokens => {
-            "emit::emit_underlying_templated -> templated_compile.rs"
-        }
-        EmissionStrategy::PlanComposed => "enumerate -> build::build_controllable",
     }
 }
 
@@ -121,45 +120,14 @@ fn backend_seam_shape_key_table_is_pinned() {
     }
 
     let expected: BTreeSet<ShapeRow> = [
-        ("quantifier.bounded-expansion", "repeated-application"),
+        ("alpha-environment.tuned", NO_ADVICE),
+        ("reduplication.peel-eligible-rule-kind", NO_ADVICE),
         (
-            "reduplication.peel-eligible-rule-kind",
-            "nonregular-process-morphology",
+            "surface-probe.circumfix-zone-exclusive-allomorph",
+            NO_ADVICE,
         ),
-        (
-            "right-to-left-rewrite.faithful-reversal-construction",
-            "wide-phonology",
-        ),
-        ("simultaneous.subrule-overlap", "wide-phonology"),
-        (
-            "strategy-coverage.construct-not-representable",
-            "nonregular-process-morphology",
-        ),
-        (
-            "strategy-coverage.templated-unsupported-shape",
-            "nonregular-process-morphology",
-        ),
-        (
-            "strategy-materializer.marker-subtree-not-buildable",
-            "plan-composed-missing-subtrees",
-        ),
-        (
-            "strategy-materializer.tokenizable-root-required",
-            "nonregular-process-morphology",
-        ),
-        ("surface-probe.root-spelling-cap", "repeated-application"),
-        (
-            "templated-route.emission-uncovered",
-            "nonregular-process-morphology",
-        ),
-        (
-            "templated-route.rule-cascade-uncompilable",
-            "nonregular-process-morphology",
-        ),
-        (
-            "templated-route.tokenizable-root-shape",
-            "nonregular-process-morphology",
-        ),
+        ("surface-probe.root-spelling-cap", NO_ADVICE),
+        ("surface-probe.proposal-recall", NO_ADVICE),
     ]
     .into_iter()
     .collect();
@@ -169,60 +137,48 @@ fn backend_seam_shape_key_table_is_pinned() {
          rows above for what this fixture set now produces"
     );
 
-    let expected_ids: BTreeSet<&'static str> = expected.iter().map(|&(id, _)| id).collect();
+    let expected_ids: BTreeSet<&'static str> = [
+        "alpha-environment.tuned",
+        "reduplication.peel-eligible-rule-kind",
+        "surface-probe.circumfix-zone-exclusive-allomorph",
+        "surface-probe.root-spelling-cap",
+        "surface-probe.proposal-recall",
+    ]
+    .into_iter()
+    .collect();
     assert_eq!(
         predicate_ids, expected_ids,
         "the set of predicate ids that ever reach a Refuse diagnostic changed"
     );
 
-    let expected_partial_admissions: BTreeSet<PartialAdmissionRow> =
-        PARTIAL_CLASS_DISAGREEMENT_FIXTURES
-            .iter()
-            .flat_map(|&fixture| {
-                [
-                    EmissionStrategy::TunedSurfaceProbed,
-                    EmissionStrategy::TemplatedUnderlyingTokens,
-                ]
-                .into_iter()
-                .map(move |strategy| (fixture, strategy.label()))
-            })
-            .collect();
+    let expected_partial_admissions: BTreeSet<PartialAdmissionRow> = BTreeSet::new();
     assert_eq!(
         partial_fixture_admissions, expected_partial_admissions,
-        "partial-class fixture admission changed outside the approved TSP/TUT lowering"
+        "non-scalar partial-class bundles must refuse until a complete spelling route exists"
     );
-
     let expected_partial_refusals: BTreeSet<PartialFixtureRow> =
         PARTIAL_CLASS_DISAGREEMENT_FIXTURES
             .iter()
             .map(|&fixture| {
                 (
                     fixture,
-                    EmissionStrategy::PlanComposed.label(),
-                    "strategy-materializer.marker-subtree-not-buildable",
-                    "plan-composed-missing-subtrees",
+                    EmissionStrategy::TunedSurfaceProbed.label(),
+                    "surface-probe.proposal-recall",
+                    NO_ADVICE,
                 )
             })
             .collect();
     assert_eq!(
         partial_fixture_rows, expected_partial_refusals,
-        "partial-class fixtures must retain only their pinned PlanComposed refusal row"
+        "every named partial-class fixture must publish the shared representability refusal"
     );
 }
 
-/// Pins today's strategy-to-dispatcher table against the same static fact `dispatcher_for` names.
+/// Pins the strategy-to-dispatcher table against the same static fact `dispatcher_for` names.
 #[test]
 fn backend_seam_dispatcher_table_is_pinned() {
     assert_eq!(
         dispatcher_for(EmissionStrategy::TunedSurfaceProbed),
         "emit::emit_tuned_surface_for_request -> analyzer::FomaProposer::new"
-    );
-    assert_eq!(
-        dispatcher_for(EmissionStrategy::TemplatedUnderlyingTokens),
-        "emit::emit_underlying_templated -> templated_compile.rs"
-    );
-    assert_eq!(
-        dispatcher_for(EmissionStrategy::PlanComposed),
-        "enumerate -> build::build_controllable"
     );
 }

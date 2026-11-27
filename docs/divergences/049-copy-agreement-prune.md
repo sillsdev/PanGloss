@@ -1,35 +1,41 @@
 # 049 — Copy-agreement pruning of reduplication matches
 
-Kind: efficiency
-Status: optimized-in-rust (mirrors [Machine PR #519](https://github.com/sillsdev/machine/pull/519), open)
+Kind: efficiency (result-neutral), with one deliberate step beyond C#
+Status: permanent while the empty-copy rule differs from C#; the C# fix is proposed in sillsdev/machine#634. PanGloss issue: #235.
 
-## Sites
+## C# site
 
-- C# site: `AnalysisMorphologicalTransform.HasDisagreeingCopies`, `CopyAgreementPatternRule`, `Morpher.PruneDisagreeingCopies` (PR #519, on by default).
-- Rust site: `pg-rules/src/morph.rs::copy_agreement_refuses_match` and `ana_allomorph_matches`; `pg-rules/src/stratum.rs::AnalyzerConfig::prune_disagreeing_copies`; `pg-parse/src/morpher.rs::Morpher::with_prune_disagreeing_copies`.
+Machine master (`SIL.Machine.Morphology.HermitCrab/MorphologicalRules/AnalysisMorphologicalTransform.cs`): `HasDisagreeingCopies`, `TryGetSegmentCopies`, `CanAlign` (machine PR #519).
+
+- An affix process whose output copies the same input part more than once builds one capture group per copy (`GenerateAnalysisLhs`); nothing in the matcher ties the copies together, so the only link is the acceptance predicate `HasDisagreeingCopies`.
+- It compares every pair of copies of an unmodified part: equal length and per-position `FeatureStruct.IsUnifiable`, or, when a copy holds optional segments (an unapplied deletion), a DP alignment in which an optional segment may be passed over or absorb a segment of the other copy.
+- An empty capture is `Range.Null`, `GroupCapture.Success` is false, and `TryGetSegmentCopies` returns false: the match is kept.
+
+## Rust site
+
+`pg-rules/src/morph.rs`: `copy_agreement_refuses_match`, called from `ana_allomorph_matches` for every match of an allomorph whose output repeats a part. It compares unifiability of feature lanes (and, in a grammar with no phonological features, character identity as C# does through `StrRep`), never equality. `AnalyzerConfig::prune_disagreeing_copies` (default on) switches it off.
 
 ## Difference
 
-Unapplying an affix-process allomorph whose output copies an input part two or more times matches each copy as an independent capture, and only the first capture rebuilds the base. Both engines used to keep every split and let synthesis reject the ones whose copies differ. With pruning on (the default in both), a match is skipped when two copies of an unmodified part differ in segment count or have a segment pair that does not unify.
+1. **Empty copy (this entry's step beyond C#).** An empty capture is a zero-length copy, not an undecidable one. A part copied twice with a FieldWorks zero-or-more variable (`X => X X`) otherwise gets the spurious match "first copy = whole word, second copy = empty" at every reachable point of the unapplication tree, and the whole remaining search runs again under it. C# has the same leak (machine#634). Soundness condition: synthesis writes every copy of a part from one input, so a non-empty copy cannot equal an empty one; the rule refuses only when the two copies differ in length or fail to unify, and it is skipped whenever either copy holds an optional node (below). It removes only matches synthesis would reject, so readings are unchanged.
+2. **Optional segments (aligned, conservative).** A copy that holds optional nodes (restored deletions) is compared with the C# `CanAlign` dynamic programme: an optional node may be passed over or absorb a node of the other copy, and a pair is compared with the same unifiability (and, in a grammar without phonological features, character identity) as the plain case. PanGloss differs from C# in one respect that matters for soundness: it puts every optional node inside some capture group and enumerates one canonical tiling per run of identical optional nodes (divergence 130), while C# can also skip an optional node between groups. A verbatim port therefore refuses analyses C# keeps (it loses `ROOT+SUFFIX|ttp` in the six `conformance-staging/edge-cases/nullable-copy-partition-*` fixtures). So each copy is first extended over the unbroken run of optional nodes next to it, which makes the verdict independent of the tiling, and the match is refused only when no alignment of the extended copies exists. Two further rules keep it sound: a non-empty copy made only of optional nodes keeps the match (C# can read it as an empty capture), and an empty copy is placed next to its right neighbour (or at the word start when no optional node exists), or the part is left undecidable and kept when that place cannot be found. Synthetic syncope repro: `salumsalm` keeps 1 split instead of 8, as C# does.
 
-## Why no parse can change
-
-Synthesis writes every copy of a part from the same input, and every later change to one copy (phonology, outer affixes) is unapplied before this rule, so a non-unifiable copy pair cannot synthesize the surface. A part is never pruned when the rule modifies it, a capture failed or is zero-width, or a copy contains an optional node (an unapplied deletion), including an optional run before the capture that reaches the start of the shape. Rust compares every copy pair where C# compares each against the first; with three or more copies Rust may prune more, but only matches that synthesis would reject.
+Soundness argument: the prune refuses a match only when no tiling of the optional nodes into the two copies makes them unifiable position by position, and synthesis writes both copies from one input, so such a match cannot synthesise to the word. Every other case is kept. Readings are unchanged; the reject fixtures (`nullable-copy-partition-reject-*`) pin that C#'s own prune is semantic and still refuses what it should.
 
 ## Evidence
 
-- `pg-parse/tests/csharp_port_affix_process.rs`: `full_copy_keeps_only_the_split_whose_copies_agree`, `disagreeing_copies_are_removed_only_when_pruning`, `unifiable_distinct_segments_survive_copy_agreement_pruning`, `optional_left_prefix_keeps_copy_agreement_undecidable`, and prune-off/on variants of `reduplication_rules` and `modify_from_input_rules`. Mutants: never-prune fails the disagreeing-copies test; pruning undecidable copies fails the optional-prefix test; pruning everything fails five tests. `pg-rules/tests/stratum_gate.rs::copy_agreement_pruning_is_on_by_default` pins the default.
-- Conformance adds reduplication x phonology words (`suffixing-extension-slot-ordering`: `pambam`; `metathesis-phase-isolation`: `hasaasa`, `haasa`, `titula`, `hiasa` and negatives). At pin `f412c252` (#480 after its 2026-09-26 rebase) `-Mode conformance-test -Scope all` passes 2,728/2,728 with pruning on.
-- Release comparison, v0.3.3 vs v0.4.0 (`machine/scratchpad/review-0923/bench040`): identical analyses and unavailable lists on all 7,455 words completed by both across the five reference grammars. Aweti: 172 -> 191 completed within 20 s, 5.3x on the 172 shared words, word-list index 182 (Maxwell export) 60 s timeout -> 2.7 s. Sena, Amharic and Mbugwe measured 4-12% slower; see follow-up.
+Cebuano corpus list (live-copy grammar, work cap 20M), readings identical in every comparison below:
 
-## Allocation-free guard (after v0.4.0)
+- The empty-copy step alone (main at 73f950c0 against the same plus the step): parser work 804,685,251 to 799,096,731 (-0.69%), 1,288 words with less work, none with more.
+- Six reduplication words with the rule: 626,958 to 162,679 (-74.05%) against main at 0aab159c.
+- A 4,279-word sample with the rule: 163,593,134 to 102,729,293 (-37.20%), no word with more work.
+- Whole list, 44,833 words, work cap 20M, the grammar without the rule: 792,943,926 to 758,735,459 (-4.31%), 2,368 words with less work, none with more, 0 reading differences.
+- `Pintahag`: identical readings, work unchanged (93,068 and 92,126 on the two grammars).
 
-v0.4.0 built a `HashMap` of repeated parts for every affix allomorph match, even when no part repeats. `77aca87f` (`perf/copy-prune-no-alloc`) first runs an allocation-free scan (`has_repeated_part_action_group`) and builds the map only when a part repeats. Release binaries against v0.4.0, same settings (`AlwaysEnforceFinalTemplates` off), identical analyses on words both complete, time summed over those words:
+## Regression coverage
 
-| Grammar | Fixed / v0.4.0 | Completed (fixed vs v0.4.0) |
-|---|---|---|
-| Aweti (1 thread, 20 s cap) | 0.62, 0.64 | 190-192 vs 189 |
-| Mbugwe (8 threads, 10 s cap) | 0.97, 0.97 (a third round overlapped other builds and is excluded) | about equal |
-| Amharic (8 threads, 10 s cap) | 1.01 | equal |
-
-The 4-12% slowdown first reported for Sena, Amharic and Mbugwe was mostly machine-load noise: v0.3.3 and v0.4.0 swapped order between rounds. The C# side got the matching change in PR #519 (`19a82cc8`, `HasRepeatedParts` cached per rule). Evidence: `machine/scratchpad/review-0923/bench040/noalloc` (local).
+- `pg-parse/tests/copy_alignment_optional.rs`: the syncope reduplication (`salumsalm`) is pruned to the aligned split and keeps every reading (red without the change).
+- `pg-parse/tests/copy_agreement_featureless.rs`: `an_empty_second_copy_is_refused`, `with_optional_second_consonant`, `a_copy_of_only_an_optional_node_keeps_the_match`, `an_optional_node_that_cannot_stand_for_its_partner_refuses_the_split`.
+- `pg-parse/tests/csharp_port_affix_process.rs`: `optional_left_prefix_keeps_the_aligned_split`.
+- `pg-parse/tests/stats_collector_gate.rs`: `keadilan` pinned to the pruned counts.
+- `conformance-staging/edge-cases/nullable-copy-partition-*`: the six oracle fixtures that pin which capture partition of a nullable repeated copy reaches root lookup.

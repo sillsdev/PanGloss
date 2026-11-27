@@ -2,25 +2,485 @@
 //!
 //! Read queries live in `crate::report`; this module only knows how to get bytes in.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek};
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
-
 use crate::error::StatsError;
 use crate::model::{
-    FactRecord, FrozenRunSnapshot, FrozenWordSummary, IdentityQuality, ObjectKind, RunMetadata,
-    StructuralLocator, WordRecord,
+    FactRecord, FrozenRunSnapshot, FrozenWordSummary, GateRecord, IdentityQuality, ObjectKind,
+    RunMetadata, StructuralLocator, WordRecord,
 };
 use crate::schema;
-use crate::step_cap::StepCap;
 use crate::util::to_i64;
+use crate::work_cap::WorkCap;
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+
+mod spool;
+pub mod staged;
+use spool::Record;
 
 /// An open stats cache: one SQLite connection, WAL mode, a caller-chosen busy timeout.
 pub struct StatsCache {
     conn: Connection,
     grammar_hash: String,
+    schema_version: i64,
+}
+
+/// Keeps up to 4 MiB of compressed observations in memory by default, plus the codec buffers.
+/// No cache transaction is opened until `flush`; dropping the buffer discards all pending words.
+#[must_use = "flush the buffered stats run to persist its words"]
+pub struct StatsRunBuffer {
+    records: Option<SpoolEncoder>,
+    capacity: usize,
+    word_count: usize,
+    failed: bool,
+}
+
+type SpoolEncoder = BufWriter<zstd::stream::write::Encoder<'static, tempfile::SpooledTempFile>>;
+
+impl Default for StatsRunBuffer {
+    fn default() -> Self {
+        Self::with_capacity(4 * 1024 * 1024)
+    }
+}
+
+impl StatsRunBuffer {
+    /// Spills the compressed stream to an unnamed file after `bytes` in memory.
+    pub fn with_capacity(bytes: usize) -> Self {
+        Self {
+            records: None,
+            capacity: bytes,
+            word_count: 0,
+            failed: false,
+        }
+    }
+
+    fn encode_spool(spool: tempfile::SpooledTempFile) -> Result<SpoolEncoder, std::io::Error> {
+        let mut encoder = zstd::stream::write::Encoder::new(spool, -4)?;
+        encoder.include_checksum(true)?;
+        Ok(BufWriter::with_capacity(64 * 1024, encoder))
+    }
+
+    fn encoder(&mut self) -> Result<&mut SpoolEncoder, StatsError> {
+        if self.records.is_none() {
+            self.records = Some(Self::encode_spool(tempfile::spooled_tempfile(
+                self.capacity,
+            ))?);
+        }
+        Ok(self.records.as_mut().expect("initialized stats spool"))
+    }
+
+    pub fn write_word(&mut self, word: &WordRecord) -> Result<(), StatsError> {
+        self.append(|encoder| word.encode(encoder))
+    }
+
+    fn append(
+        &mut self,
+        encode: impl FnOnce(&mut SpoolEncoder) -> std::io::Result<()>,
+    ) -> Result<(), StatsError> {
+        if self.failed {
+            return Err(StatsError::RunWriteFailed);
+        }
+        self.failed = true;
+        encode(self.encoder()?)?;
+        self.word_count += 1;
+        self.failed = false;
+        Ok(())
+    }
+
+    /// Publishes the whole buffered run atomically; serialization or SQL errors discard it.
+    pub fn flush(
+        self,
+        cache: StatsCache,
+        run: &RunMetadata,
+    ) -> Result<(StatsCache, i64), StatsError> {
+        self.seal()?.replay(cache, run, None)
+    }
+
+    fn seal(self) -> Result<SealedRun, StatsError> {
+        if self.failed {
+            return Err(StatsError::RunWriteFailed);
+        }
+        let encoder = match self.records {
+            Some(records) => records,
+            None => Self::encode_spool(tempfile::spooled_tempfile(self.capacity))?,
+        };
+        let mut records = encoder
+            .into_inner()
+            .map_err(|error| error.into_error())?
+            .finish()?;
+        records.rewind()?;
+        Ok(SealedRun {
+            records,
+            word_count: self.word_count,
+        })
+    }
+}
+
+struct SealedRun {
+    records: tempfile::SpooledTempFile,
+    word_count: usize,
+}
+
+impl SealedRun {
+    fn replay(
+        self,
+        cache: StatsCache,
+        run: &RunMetadata,
+        chunk: Option<NonZeroUsize>,
+    ) -> Result<(StatsCache, i64), StatsError> {
+        self.replay_into(cache.into_run(run)?, run, chunk)
+    }
+
+    fn replay_into(
+        self,
+        writer: StatsRunWriter,
+        run: &RunMetadata,
+        chunk: Option<NonZeroUsize>,
+    ) -> Result<(StatsCache, i64), StatsError> {
+        let spilled = self.records.is_rolled();
+        let decoder = zstd::stream::read::Decoder::new(self.records)?;
+        replay_records(decoder, spilled, self.word_count, writer, run, chunk)
+    }
+}
+
+fn replay_records(
+    records: impl Read + Send,
+    spilled: bool,
+    word_count: usize,
+    mut writer: StatsRunWriter,
+    run: &RunMetadata,
+    chunk_size: Option<NonZeroUsize>,
+) -> Result<(StatsCache, i64), StatsError> {
+    let mut records = BufReader::new(records);
+    let mut replayed = 0;
+    let mut write = |word: WordRecord| {
+        writer.write_chunked(&word, run, chunk_size)?;
+        replayed += 1;
+        Ok::<_, StatsError>(())
+    };
+    if spilled {
+        std::thread::scope(|scope| -> Result<(), StatsError> {
+            let (send, receive) = std::sync::mpsc::sync_channel(0);
+            let decoder = std::thread::Builder::new()
+                .name("stats-spool-read".into())
+                .spawn_scoped(scope, move || -> Result<(), StatsError> {
+                    while !records.fill_buf()?.is_empty() {
+                        if send.send(WordRecord::decode(&mut records)?).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(())
+                })?;
+            for word in receive {
+                write(word)?;
+            }
+            decoder
+                .join()
+                .map_err(|_| std::io::Error::other("stats spool decoder panicked"))?
+        })?;
+    } else {
+        while !records.fill_buf()?.is_empty() {
+            write(WordRecord::decode(&mut records)?)?;
+        }
+    }
+    if replayed != word_count {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "binary stats spool word count mismatch",
+        )
+        .into());
+    }
+    writer.finish()
+}
+
+/// Owns one uncommitted run. Successful completion returns the cache for its next run.
+///
+/// Any write failure poisons the writer: it cannot commit a partial word. Dropping it closes
+/// the connection and rolls back, including on unwinding.
+#[must_use = "finish the stats run to commit its words"]
+pub struct StatsRunWriter {
+    cache: StatsCache,
+    run_id: i64,
+    interner: Interner,
+    words: u64,
+    elapsed: u64,
+    failed: bool,
+}
+
+impl StatsRunWriter {
+    /// Writes a word immediately; no reference to its facts survives this call.
+    pub fn write_word(&mut self, word: &WordRecord) -> Result<(), StatsError> {
+        if self.failed {
+            return Err(StatsError::RunWriteFailed);
+        }
+        self.failed = true;
+        write_word(
+            &self.cache.conn,
+            self.cache.schema_version,
+            &mut self.interner,
+            self.run_id,
+            word,
+        )?;
+        self.words = checked_counter_add("word_count", self.words, 1)?;
+        self.elapsed = checked_counter_add("total_elapsed_ns", self.elapsed, word.elapsed_ns)?;
+        self.failed = false;
+        Ok(())
+    }
+
+    fn write_chunked(
+        &mut self,
+        word: &WordRecord,
+        run: &RunMetadata,
+        chunk: Option<NonZeroUsize>,
+    ) -> Result<(), StatsError> {
+        if chunk.is_some_and(|size| self.words == size.get() as u64) {
+            self.next_run(run)?;
+        }
+        self.write_word(word)
+    }
+
+    fn next_run(&mut self, run: &RunMetadata) -> Result<(), StatsError> {
+        finish_run(&self.cache.conn, self.run_id, self.words, self.elapsed)?;
+        self.run_id = insert_run(
+            &self.cache.conn,
+            self.cache.schema_version,
+            &self.cache.grammar_hash,
+            run,
+        )?;
+        self.words = 0;
+        self.elapsed = 0;
+        Ok(())
+    }
+
+    /// Commits the entire run, including its final counts. Errors and abandoned writers roll back.
+    pub fn finish(self) -> Result<(StatsCache, i64), StatsError> {
+        if self.failed {
+            return Err(StatsError::RunWriteFailed);
+        }
+        finish_run(&self.cache.conn, self.run_id, self.words, self.elapsed)?;
+        self.cache.conn.execute_batch("COMMIT")?;
+        Ok((self.cache, self.run_id))
+    }
+}
+
+fn checked_counter_add(counter: &'static str, left: u64, right: u64) -> Result<u64, StatsError> {
+    let sum = left.checked_add(right).ok_or(StatsError::CounterOverflow {
+        counter,
+        value: u64::MAX,
+    })?;
+    to_i64(counter, sum)?;
+    Ok(sum)
+}
+
+fn finish_run(conn: &Connection, run_id: i64, words: u64, elapsed: u64) -> Result<(), StatsError> {
+    conn.execute(
+        "UPDATE run SET word_count = ?1, total_elapsed_ns = ?2 WHERE run_id = ?3",
+        params![
+            to_i64("word_count", words)?,
+            to_i64("total_elapsed_ns", elapsed)?,
+            run_id
+        ],
+    )?;
+    Ok(())
+}
+
+fn insert_run(
+    conn: &Connection,
+    schema_version: i64,
+    grammar_hash: &str,
+    run: &RunMetadata,
+) -> Result<i64, StatsError> {
+    crate::pack::refuse_packed_writer(conn)?;
+    let identity_engine = validate_identity(conn, schema_version, grammar_hash)?;
+    if run.grammar_hash != grammar_hash {
+        return Err(StatsError::GrammarMismatch {
+            existing: grammar_hash.to_string(),
+            requested: run.grammar_hash.clone(),
+        });
+    }
+
+    let incompatible_engine: Option<String> = conn
+        .query_row(
+            "SELECT engine FROM run WHERE engine <> ?1 LIMIT 1",
+            params![&run.engine],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(existing) = incompatible_engine {
+        return Err(StatsError::EngineMismatch {
+            existing,
+            requested: run.engine.clone(),
+        });
+    }
+    if let Some(existing) = identity_engine {
+        if existing != run.engine {
+            return Err(StatsError::EngineMismatch {
+                existing,
+                requested: run.engine.clone(),
+            });
+        }
+    } else {
+        conn.execute(
+            "UPDATE cache_identity SET engine = ?1 WHERE cache_id = 1 AND engine IS NULL",
+            params![&run.engine],
+        )?;
+    }
+
+    let work_cap_storage = run.work_cap.map(WorkCap::to_storage).transpose()?;
+    if let Some(requested_storage) = work_cap_storage {
+        if let Some(existing_storage) = conflicting_work_cap(conn, requested_storage)? {
+            return Err(work_cap_mismatch(
+                existing_storage,
+                run.work_cap
+                    .expect("work_cap_storage is only Some when run.work_cap is Some"),
+            ));
+        }
+    }
+
+    conn.execute(
+            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, work_cap)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                schema_version,
+                schema::COUNTER_SEMANTICS_VERSION,
+                run.build_info,
+                run.fwdata_path,
+                run.grammar_hash,
+                run.engine,
+                run.options_hash,
+                run.options_json,
+                run.created_utc,
+                to_i64("word_count", 0)?,
+                to_i64("total_elapsed_ns", 0)?,
+                work_cap_storage,
+            ],
+        )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Checks a handle against the identity visible inside its current transaction.
+fn validate_identity(
+    conn: &Connection,
+    schema_version: i64,
+    grammar_hash: &str,
+) -> Result<Option<String>, StatsError> {
+    let (_, version, hash, engine) =
+        schema::cache_identity(conn)?.ok_or(StatsError::CacheIdentityMissing)?;
+    if version != schema_version {
+        return Err(StatsError::SchemaMismatch {
+            existing: version,
+            requested: schema_version,
+        });
+    }
+    if hash != grammar_hash {
+        return Err(StatsError::GrammarMismatch {
+            existing: hash,
+            requested: grammar_hash.to_string(),
+        });
+    }
+    Ok(engine)
+}
+
+fn refuse_profile_change(existing_version: i64, requested_version: i64) -> Result<(), StatsError> {
+    let requested = schema::StatsProfile::from_schema_version(requested_version)?;
+    let existing = match schema::StatsProfile::including_legacy(existing_version) {
+        Ok(profile) => profile,
+        // Full writers historically recreate incompatible cache versions.
+        Err(StatsError::UnknownSchemaVersion(_)) => {
+            if requested == schema::StatsProfile::Full {
+                return Ok(());
+            }
+            return Err(StatsError::SchemaMismatch {
+                existing: existing_version,
+                requested: requested_version,
+            });
+        }
+        Err(error) => return Err(error),
+    };
+    if existing != requested {
+        return Err(StatsError::ProfileMismatch {
+            existing,
+            requested,
+        });
+    }
+    Ok(())
+}
+
+fn write_word(
+    conn: &Connection,
+    schema_version: i64,
+    interner: &mut Interner,
+    run_id: i64,
+    word: &WordRecord,
+) -> Result<(), StatsError> {
+    if schema_version == schema::WORD_ONLY_SCHEMA_VERSION {
+        if !word.facts.is_empty() || word.gates.is_some() {
+            return Err(StatsError::WordOnlyFactsUnavailable);
+        }
+        return upsert_word(conn, run_id, word);
+    }
+    upsert_word(conn, run_id, word)?;
+    let word_id = query_id_cached(
+        conn,
+        "SELECT word_id FROM word WHERE form = ?1",
+        params![word.form],
+    )?;
+    execute_cached(
+        conn,
+        "DELETE FROM fact WHERE word_id = ?1",
+        params![word_id],
+    )?;
+    execute_cached(
+        conn,
+        "UPDATE word SET gates_measured = ?2 WHERE word_id = ?1",
+        params![word_id, word.gates.is_some()],
+    )?;
+    execute_cached(conn, "DELETE FROM gate_fact WHERE word_id = ?1", [word_id])?;
+
+    let compact = schema_version == schema::COMPACT_SCHEMA_VERSION;
+    let compacted;
+    let facts = if compact {
+        compacted = compact_facts(&word.facts)?;
+        &compacted
+    } else {
+        &word.facts
+    };
+    let inserts = if compact {
+        &*COMPACT_INSERT
+    } else {
+        &*FACT_INSERT
+    };
+    inserts.write(conn, facts, |stmt, offset, fact| {
+        bind_fact(conn, interner, word_id, fact, stmt, offset)
+    })?;
+    if let Some(gates) = &word.gates {
+        GATE_INSERT.write(conn, gates, |stmt, offset, gate| {
+            let object_id = interner.object(
+                conn,
+                &gate.object_key,
+                gate.object_kind,
+                &gate.object_label,
+                gate.identity_quality,
+                gate.morpheme.as_ref(),
+            )?;
+            bind_row(
+                stmt,
+                offset,
+                params![
+                    word_id,
+                    object_id,
+                    interner.feature(conn, gate)?,
+                    to_i64("gate.passed", gate.passed)?,
+                    to_i64("gate.blocked", gate.blocked)?,
+                ],
+            )
+        })?;
+    }
+    Ok(())
 }
 
 /// Result of `StatsCache::open`: the cache, and whether opening it wiped prior data.
@@ -35,20 +495,89 @@ pub struct OpenOutcome {
 impl StatsCache {
     /// Opens (creating if absent) the cache at `cache_path` for the given grammar hash.
     ///
-    /// Wipes and recreates when the stored `grammar_hash` differs from `grammar_hash`, or when
-    /// the stored `schema_version` differs from this build's — a cache is never migrated.
+    /// Refuses a different collection profile. Within the profile, grammar or schema mismatches
+    /// wipe and recreate the cache.
     /// `cache_path` may be `crate::path::default_cache_path`'s result or a caller-supplied
     /// override; this function does not care which.
     pub fn open(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::SCHEMA_VERSION)
+    }
+
+    /// Opens compact storage for the full collection profile, wiping a non-compact full cache.
+    pub fn open_compact(cache_path: &Path, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::COMPACT_SCHEMA_VERSION)
+    }
+
+    /// Opens a cache for word measurements. Each collection profile requires its own cache path.
+    pub fn open_word_only(
+        cache_path: &Path,
+        grammar_hash: &str,
+    ) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_version(cache_path, grammar_hash, schema::WORD_ONLY_SCHEMA_VERSION)
+    }
+
+    /// Opens a batch cache, waiting for a publisher that already holds the SQLite write lock.
+    pub fn open_batch(
+        cache_path: &Path,
+        grammar_hash: &str,
+        profile: schema::StatsProfile,
+        compact: bool,
+    ) -> Result<OpenOutcome, StatsError> {
+        let version = match (profile, compact) {
+            (schema::StatsProfile::Full, false) => schema::SCHEMA_VERSION,
+            (schema::StatsProfile::Full, true) => schema::COMPACT_SCHEMA_VERSION,
+            (schema::StatsProfile::WordOnly, false) => schema::WORD_ONLY_SCHEMA_VERSION,
+            (schema::StatsProfile::WordOnly, true) => {
+                return Err(StatsError::WordOnlyFactsUnavailable)
+            }
+        };
+        staged::retry_busy(&cache_path.display(), None, || {
+            Self::open_with_timeout(cache_path, grammar_hash, version, staged::BUSY_TIMEOUT)
+        })
+    }
+
+    fn open_with_version(
+        cache_path: &Path,
+        grammar_hash: &str,
+        version: i64,
+    ) -> Result<OpenOutcome, StatsError> {
+        Self::open_with_timeout(cache_path, grammar_hash, version, Duration::from_secs(5))
+    }
+
+    fn open_with_timeout(
+        cache_path: &Path,
+        grammar_hash: &str,
+        version: i64,
+        timeout: Duration,
+    ) -> Result<OpenOutcome, StatsError> {
         if let Some(parent) = cache_path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
             }
         }
-        let conn = Connection::open(cache_path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.busy_timeout(Duration::from_secs(5))?;
-        Self::open_on(conn, grammar_hash)
+        let mut conn = Connection::open(cache_path)?;
+        conn.busy_timeout(timeout)?;
+        if crate::pack::is_packed(&conn)? {
+            if let Some((_, stored_version, _, _)) = schema::cache_identity(&conn)? {
+                refuse_profile_change(stored_version, version)?;
+            }
+            if let Some(run_version) = schema::legacy_run_version(&conn)? {
+                refuse_profile_change(run_version, version)?;
+            }
+            crate::pack::unpack_on(&mut conn)?;
+        }
+        let outcome = Self::open_on_version(conn, grammar_hash, version)?;
+        let mode: String =
+            outcome
+                .cache
+                .conn
+                .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            return Err(StatsError::PackedCache(format!(
+                "stats cache could not enter WAL journal mode (got {mode})"
+            )));
+        }
+        Ok(outcome)
     }
 
     /// Opens an in-memory cache. Test-only: a real cache is always file-backed so it survives
@@ -60,30 +589,59 @@ impl StatsCache {
         Self::open_on(conn, grammar_hash)
     }
 
-    fn open_on(mut conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+    #[cfg(test)]
+    fn open_on(conn: Connection, grammar_hash: &str) -> Result<OpenOutcome, StatsError> {
+        Self::open_on_version(conn, grammar_hash, schema::SCHEMA_VERSION)
+    }
+
+    fn open_on_version(
+        mut conn: Connection,
+        grammar_hash: &str,
+        version: i64,
+    ) -> Result<OpenOutcome, StatsError> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        crate::pack::refuse_packed_writer(&tx)?;
         let identity = schema::cache_identity(&tx)?;
         let run_table_exists = schema::has_run_table(&tx)?;
         let wiped = match identity {
             None if !run_table_exists => {
-                schema::create(&tx, Some(grammar_hash))?;
+                if version == schema::SCHEMA_VERSION {
+                    schema::create(&tx, Some(grammar_hash))?;
+                } else {
+                    schema::create_version(&tx, Some(grammar_hash), version)?;
+                };
                 false
             }
             None => {
-                schema::wipe_and_recreate(&tx, grammar_hash)?;
+                if let Some(run_version) = schema::legacy_run_version(&tx)? {
+                    refuse_profile_change(run_version, version)?;
+                }
+                if version == schema::SCHEMA_VERSION {
+                    schema::wipe_and_recreate(&tx, grammar_hash)?;
+                } else {
+                    schema::wipe_and_recreate_version(&tx, grammar_hash, version)?;
+                }
                 true
             }
             Some((_, stored_schema_version, stored_grammar_hash, _)) => {
+                refuse_profile_change(stored_schema_version, version)?;
                 let latest = schema::latest_run_signature(&tx)?;
-                let run_mismatch = latest.is_some_and(|(version, hash)| {
-                    version != schema::SCHEMA_VERSION || hash != grammar_hash
+                if let Some((run_version, _)) = &latest {
+                    refuse_profile_change(*run_version, version)?;
+                }
+                let run_mismatch = latest.is_some_and(|(run_version, hash)| {
+                    run_version != version || hash != grammar_hash
                 });
                 if !run_table_exists
-                    || stored_schema_version != schema::SCHEMA_VERSION
+                    || stored_schema_version != version
                     || stored_grammar_hash != grammar_hash
                     || run_mismatch
                 {
-                    schema::wipe_and_recreate(&tx, grammar_hash)?;
+                    if version == schema::SCHEMA_VERSION {
+                        schema::wipe_and_recreate(&tx, grammar_hash)?;
+                    } else {
+                        schema::wipe_and_recreate_version(&tx, grammar_hash, version)?;
+                    }
                     true
                 } else {
                     false
@@ -95,6 +653,7 @@ impl StatsCache {
             cache: StatsCache {
                 conn,
                 grammar_hash: grammar_hash.to_string(),
+                schema_version: version,
             },
             wiped,
         })
@@ -105,72 +664,110 @@ impl StatsCache {
         &self.conn
     }
 
+    fn with_identity<T>(
+        &self,
+        behavior: TransactionBehavior,
+        action: impl FnOnce(&Connection) -> Result<T, StatsError>,
+    ) -> Result<T, StatsError> {
+        let checked = |conn: &Connection| {
+            validate_identity(conn, self.schema_version, &self.grammar_hash)?;
+            action(conn)
+        };
+        if !self.conn.is_autocommit() {
+            return checked(&self.conn);
+        }
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, behavior)?;
+        let result = checked(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     /// Which of `forms` already have a `word` row, so a caller can skip recomputing them.
     pub fn existing_words(&self, forms: &[&str]) -> Result<HashSet<String>, StatsError> {
-        if forms.is_empty() {
-            return Ok(HashSet::new());
-        }
-        let placeholders = vec!["?"; forms.len()].join(",");
-        let sql = format!("SELECT form FROM word WHERE form IN ({placeholders})");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(forms.iter()), |row| {
-            row.get::<_, String>(0)
-        })?;
-        rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
+        self.with_identity(TransactionBehavior::Deferred, |conn| {
+            if forms.is_empty() {
+                return Ok(HashSet::new());
+            }
+            let placeholders = vec!["?"; forms.len()].join(",");
+            let sql = format!("SELECT form FROM word WHERE form IN ({placeholders})");
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(forms.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            rows.collect::<Result<HashSet<_>, _>>().map_err(Into::into)
+        })
     }
 
     /// Which requested words are still reusable under the owning run's measurement identity.
     ///
     /// A cache can accumulate words measured under different options. Reuse is therefore decided
     /// per word by joining its current owner run, never by comparing against a cache-global latest
-    /// run. Build revision remains provenance; the reusable measurement contract is options plus
-    /// counter semantics.
+    /// run. Reuse requires matching schema, options and counter semantics. Full HC measurements
+    /// additionally require feature-gate coverage.
     pub fn reusable_words(
         &self,
         forms: &[&str],
         options_hash: &str,
     ) -> Result<HashSet<String>, StatsError> {
-        const QUERY_FORM_LIMIT: usize = 500;
-        let mut reusable = HashSet::new();
-        for chunk in forms.chunks(QUERY_FORM_LIMIT) {
-            let placeholders = vec!["?"; chunk.len()].join(",");
-            let sql = format!(
-                "SELECT w.form FROM word AS w \
-                 JOIN run AS r ON r.run_id = w.run_id \
-                 WHERE w.form IN ({placeholders}) \
-                   AND r.options_hash = ? \
-                   AND r.counter_semantics = ?"
-            );
-            let mut values = chunk
-                .iter()
-                .map(|form| rusqlite::types::Value::Text((*form).to_string()))
-                .collect::<Vec<_>>();
-            values.push(rusqlite::types::Value::Text(options_hash.to_string()));
-            values.push(rusqlite::types::Value::Integer(
-                schema::COUNTER_SEMANTICS_VERSION,
-            ));
-            let mut stmt = self.conn.prepare(&sql)?;
-            let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
-                row.get::<_, String>(0)
-            })?;
-            reusable.extend(rows.collect::<Result<HashSet<_>, _>>()?);
-        }
-        Ok(reusable)
+        self.with_identity(TransactionBehavior::Deferred, |conn| {
+            const QUERY_FORM_LIMIT: usize = 500;
+            let mut reusable = HashSet::new();
+            for chunk in forms.chunks(QUERY_FORM_LIMIT) {
+                let placeholders = vec!["?"; chunk.len()].join(",");
+                let sql = format!(
+                    "SELECT w.form FROM word AS w \
+                     JOIN run AS r ON r.run_id = w.run_id \
+                     WHERE w.form IN ({placeholders}) \
+                       AND r.schema_version = ? \
+                       AND r.options_hash = ? \
+                       AND r.counter_semantics = ? \
+                       AND (r.schema_version = {} OR r.engine <> 'hc' OR w.gates_measured = 1)",
+                    schema::WORD_ONLY_SCHEMA_VERSION
+                );
+                let mut values = chunk
+                    .iter()
+                    .map(|form| rusqlite::types::Value::Text((*form).to_string()))
+                    .collect::<Vec<_>>();
+                values.push(rusqlite::types::Value::Integer(self.schema_version));
+                values.push(rusqlite::types::Value::Text(options_hash.to_string()));
+                values.push(rusqlite::types::Value::Integer(
+                    schema::COUNTER_SEMANTICS_VERSION,
+                ));
+                let mut stmt = conn.prepare(&sql)?;
+                let rows = stmt.query_map(rusqlite::params_from_iter(values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?;
+                reusable.extend(rows.collect::<Result<HashSet<_>, _>>()?);
+            }
+            Ok(reusable)
+        })
     }
 
-    /// Errors when this cache already holds a run recorded under a step cap other than
-    /// `requested`. Unlike engine or grammar hash, an absent recorded step cap imposes no
+    /// Errors when this cache already holds a run recorded under a work cap other than
+    /// `requested`. Unlike engine or grammar hash, an absent recorded work cap imposes no
     /// constraint by itself (a run that recorded none, e.g. `foma`, cannot conflict with anything)
     /// -- only two differing recorded values conflict. Call this before deciding which words to
     /// skip (`existing_words`): a cache hit produced under a different cap is not interchangeable
     /// with one produced under `requested`, since a word that hit the old cap might complete under
     /// a larger one, or vice versa.
-    pub fn refuse_if_step_cap_differs(&self, requested: StepCap) -> Result<(), StatsError> {
+    pub fn refuse_if_work_cap_differs(&self, requested: WorkCap) -> Result<(), StatsError> {
         let requested_storage = requested.to_storage()?;
-        match conflicting_step_cap(&self.conn, requested_storage)? {
-            Some(existing_storage) => Err(step_cap_mismatch(existing_storage, requested)),
+        match conflicting_work_cap(&self.conn, requested_storage)? {
+            Some(existing_storage) => Err(work_cap_mismatch(existing_storage, requested)),
             None => Ok(()),
         }
+    }
+
+    fn intern(
+        &self,
+        insert: impl FnOnce(&Connection) -> Result<i64, StatsError>,
+    ) -> Result<i64, StatsError> {
+        self.with_identity(TransactionBehavior::Immediate, |conn| {
+            crate::pack::refuse_packed_writer(conn)?;
+            schema::StatsProfile::from_schema_version(self.schema_version)?
+                .require_object_facts()?;
+            insert(conn)
+        })
     }
 
     /// Returns the stable id for `(key, kind)`, inserting a new `object` row on first sight.
@@ -184,22 +781,22 @@ impl StatsCache {
         identity_quality: IdentityQuality,
         morpheme: Option<&StructuralLocator>,
     ) -> Result<i64, StatsError> {
-        intern_object_on(&self.conn, key, kind, label, identity_quality, morpheme)
+        self.intern(|conn| intern_object_on(conn, key, kind, label, identity_quality, morpheme))
     }
 
     /// Returns the stable id for a stratum `key`, inserting a new row on first sight.
     pub fn intern_stratum(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        intern_stratum_on(&self.conn, locator)
+        self.intern(|conn| intern_stratum_on(conn, locator))
     }
 
     /// Returns the stable id for an allomorph `key`, inserting a new row on first sight.
     pub fn intern_allomorph(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        intern_allomorph_on(&self.conn, locator)
+        self.intern(|conn| intern_allomorph_on(conn, locator))
     }
 
     /// Returns the stable id for a morpheme `key`, inserting a new row on first sight.
     pub fn intern_morpheme(&self, locator: &StructuralLocator) -> Result<i64, StatsError> {
-        intern_morpheme_on(&self.conn, locator)
+        self.intern(|conn| intern_morpheme_on(conn, locator))
     }
 
     /// Writes one run's metadata and every word/fact row it produced, in a single transaction.
@@ -207,107 +804,47 @@ impl StatsCache {
     /// Word rows upsert on `form` (two runs can compute the same word concurrently); fact rows
     /// are replaced as one observation inside the same transaction. Returns the new `run_id`.
     pub fn flush(&mut self, run: &RunMetadata, words: &[WordRecord]) -> Result<i64, StatsError> {
-        let total_elapsed_ns: u64 = words.iter().map(|w| w.elapsed_ns).sum();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-
-        let Some((_, identity_schema_version, identity_grammar_hash, identity_engine)) =
-            schema::cache_identity(&tx)?
-        else {
-            return Err(StatsError::CacheIdentityMissing);
-        };
-        if identity_schema_version != schema::SCHEMA_VERSION {
-            return Err(StatsError::SchemaMismatch {
-                existing: identity_schema_version,
-                requested: schema::SCHEMA_VERSION,
-            });
-        }
-        if identity_grammar_hash != self.grammar_hash {
-            return Err(StatsError::GrammarMismatch {
-                existing: identity_grammar_hash,
-                requested: self.grammar_hash.clone(),
-            });
-        }
-        if run.grammar_hash != self.grammar_hash {
-            return Err(StatsError::GrammarMismatch {
-                existing: self.grammar_hash.clone(),
-                requested: run.grammar_hash.clone(),
-            });
-        }
-
-        let incompatible_engine: Option<String> = tx
-            .query_row(
-                "SELECT engine FROM run WHERE engine <> ?1 LIMIT 1",
-                params![&run.engine],
-                |row| row.get(0),
-            )
-            .optional()?;
-        if let Some(existing) = incompatible_engine {
-            return Err(StatsError::EngineMismatch {
-                existing,
-                requested: run.engine.clone(),
-            });
-        }
-        if let Some(existing) = identity_engine {
-            if existing != run.engine {
-                return Err(StatsError::EngineMismatch {
-                    existing,
-                    requested: run.engine.clone(),
-                });
-            }
-        } else {
-            tx.execute(
-                "UPDATE cache_identity SET engine = ?1 WHERE cache_id = 1 AND engine IS NULL",
-                params![&run.engine],
-            )?;
-        }
-
-        let step_cap_storage = run.step_cap.map(StepCap::to_storage).transpose()?;
-        if let Some(requested_storage) = step_cap_storage {
-            if let Some(existing_storage) = conflicting_step_cap(&tx, requested_storage)? {
-                return Err(step_cap_mismatch(
-                    existing_storage,
-                    run.step_cap
-                        .expect("step_cap_storage is only Some when run.step_cap is Some"),
-                ));
-            }
-        }
-
-        tx.execute(
-            "INSERT INTO run (schema_version, counter_semantics, build_info, fwdata_path, grammar_hash, engine, options_hash, options_json, created_utc, word_count, total_elapsed_ns, step_cap)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![
-                schema::SCHEMA_VERSION,
-                schema::COUNTER_SEMANTICS_VERSION,
-                run.build_info,
-                run.fwdata_path,
-                run.grammar_hash,
-                run.engine,
-                run.options_hash,
-                run.options_json,
-                run.created_utc,
-                to_i64("word_count", words.len() as u64)?,
-                to_i64("total_elapsed_ns", total_elapsed_ns)?,
-                step_cap_storage,
-            ],
-        )?;
-        let run_id = tx.last_insert_rowid();
-
+        let run_id = insert_run(&tx, self.schema_version, &self.grammar_hash, run)?;
+        let mut interner = Interner::default();
+        let mut elapsed = 0u64;
         for word in words {
-            let word_id = upsert_word(&tx, run_id, word)?;
-            tx.execute("DELETE FROM fact WHERE word_id = ?1", params![word_id])?;
-            for fact in &word.facts {
-                write_fact(&tx, word_id, fact)?;
-            }
+            write_word(&tx, self.schema_version, &mut interner, run_id, word)?;
+            elapsed = checked_counter_add("total_elapsed_ns", elapsed, word.elapsed_ns)?;
         }
-
+        finish_run(&tx, run_id, words.len() as u64, elapsed)?;
         tx.commit()?;
         Ok(run_id)
     }
 
+    /// Starts an owned, atomic run without retaining its word or fact records.
+    ///
+    /// Dropping the writer rolls back the run. Its interner holds only distinct grammar identities;
+    /// SQLite's page cache bounds resident database pages while the transaction journal is on disk.
+    pub fn into_run(self, run: &RunMetadata) -> Result<StatsRunWriter, StatsError> {
+        self.conn.execute_batch("BEGIN IMMEDIATE")?;
+        self.start_run(run)
+    }
+
+    fn start_run(self, run: &RunMetadata) -> Result<StatsRunWriter, StatsError> {
+        let run_id = insert_run(&self.conn, self.schema_version, &self.grammar_hash, run)?;
+        self.conn.set_prepared_statement_cache_capacity(32);
+        Ok(StatsRunWriter {
+            cache: self,
+            run_id,
+            interner: Interner::default(),
+            words: 0,
+            elapsed: 0,
+            failed: false,
+        })
+    }
+
     pub fn checkpoint_and_close(self) -> Result<(), StatsError> {
         let Self { conn, .. } = self;
+        // A reader's snapshot must not fail a batch whose words are already committed.
+        conn.busy_timeout(Duration::from_secs(5))?;
         let (busy, log_frames, checkpointed_frames) =
             conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?))
@@ -326,10 +863,7 @@ impl StatsCache {
         cache_path: &Path,
         expected_run_id: i64,
     ) -> Result<FrozenRunSnapshot, StatsError> {
-        let mut conn = Connection::open_with_flags(
-            cache_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let mut conn = crate::pack::open_read(cache_path)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
         let run_count: i64 = tx.query_row("SELECT COUNT(*) FROM run", [], |row| row.get(0))?;
         if run_count != 1 {
@@ -345,11 +879,11 @@ impl StatsCache {
             options_hash,
             options_json,
             word_count,
-            step_cap,
+            work_cap,
         ) = tx
             .query_row(
                 "SELECT run_id, schema_version, counter_semantics, build_info, grammar_hash, \
-                        engine, options_hash, options_json, word_count, step_cap \
+                        engine, options_hash, options_json, word_count, work_cap \
                  FROM run",
                 [],
                 |row| {
@@ -376,7 +910,7 @@ impl StatsCache {
                 requested: expected_run_id,
             });
         }
-        if schema_version != schema::SCHEMA_VERSION {
+        if !schema::supported_schema_version(schema_version) {
             return Err(StatsError::SchemaMismatch {
                 existing: schema_version,
                 requested: schema::SCHEMA_VERSION,
@@ -417,7 +951,7 @@ impl StatsCache {
         }
         let raw_words = {
             let mut statement = tx.prepare(
-                "SELECT form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape \
+                "SELECT form, elapsed_ns, passes, capped, timed_out, invalid_shape \
                  FROM word WHERE run_id = ?1 ORDER BY form",
             )?;
             let rows = statement.query_map(params![run_id], |row| {
@@ -425,10 +959,9 @@ impl StatsCache {
                     row.get::<_, String>(0)?,
                     row.get::<_, u64>(1)?,
                     row.get::<_, u64>(2)?,
-                    row.get::<_, u64>(3)?,
+                    row.get::<_, i64>(3)?,
                     row.get::<_, i64>(4)?,
                     row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
                 ))
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
@@ -442,11 +975,10 @@ impl StatsCache {
         let words = raw_words
             .into_iter()
             .map(
-                |(form, elapsed_ns, attempts, passes, capped, timed_out, invalid_shape)| {
+                |(form, elapsed_ns, passes, capped, timed_out, invalid_shape)| {
                     Ok(FrozenWordSummary {
                         form,
                         elapsed_ns,
-                        attempts,
                         passes,
                         capped: read_frozen_bool("capped", capped)?,
                         timed_out: read_frozen_bool("timed_out", timed_out)?,
@@ -461,7 +993,7 @@ impl StatsCache {
                 actual: words.len() as i64,
             })?;
         tx.commit()?;
-        conn.close().map_err(|(_, error)| error)?;
+        drop(conn);
         Ok(FrozenRunSnapshot {
             run_id,
             schema_version,
@@ -472,7 +1004,7 @@ impl StatsCache {
             options_hash,
             options_json,
             word_count,
-            step_cap: step_cap.map(crate::StepCap::from_storage),
+            work_cap: work_cap.map(crate::WorkCap::from_storage),
             words,
         })
     }
@@ -486,14 +1018,14 @@ fn read_frozen_bool(field: &'static str, value: i64) -> Result<bool, StatsError>
     }
 }
 
-fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, StatsError> {
-    tx.execute(
-        "INSERT INTO word (run_id, form, elapsed_ns, attempts, work, passes, capped, timed_out, invalid_shape)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+fn upsert_word(tx: &Connection, run_id: i64, word: &WordRecord) -> Result<(), StatsError> {
+    execute_cached(
+        tx,
+        "INSERT INTO word (run_id, form, elapsed_ns, work, passes, capped, timed_out, invalid_shape)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
          ON CONFLICT(form) DO UPDATE SET
            run_id = excluded.run_id,
            elapsed_ns = excluded.elapsed_ns,
-           attempts = excluded.attempts,
            work = excluded.work,
            passes = excluded.passes,
            capped = excluded.capped,
@@ -503,24 +1035,138 @@ fn upsert_word(tx: &Transaction, run_id: i64, word: &WordRecord) -> Result<i64, 
             run_id,
             word.form,
             to_i64("elapsed_ns", word.elapsed_ns)?,
-            to_i64("attempts", word.attempts)?,
             to_i64("work", word.work)?,
             to_i64("passes", word.passes)?,
             i64::from(word.capped),
             i64::from(word.timed_out),
             i64::from(word.invalid_shape),
         ],
-    )?;
-    tx.query_row(
-        "SELECT word_id FROM word WHERE form = ?1",
-        params![word.form],
-        |row| row.get(0),
     )
-    .map_err(Into::into)
 }
 
-fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), StatsError> {
-    let object_id = intern_object_on(
+/// Runs a statement the write loop repeats once per word, fact or intern, parsing its SQL once per connection instead of once per row.
+fn execute_cached(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<(), StatsError> {
+    conn.prepare_cached(sql)?.execute(params)?;
+    Ok(())
+}
+
+fn query_id_cached(
+    conn: &Connection,
+    sql: &str,
+    params: impl rusqlite::Params,
+) -> Result<i64, StatsError> {
+    conn.prepare_cached(sql)?
+        .query_row(params, |row| row.get(0))
+        .map_err(Into::into)
+}
+
+/// Collapse only at the persistence boundary: collection and parse outcomes are unchanged.
+fn compact_facts(facts: &[FactRecord]) -> Result<Vec<FactRecord>, StatsError> {
+    // Preserve full-writer replacement before summing; pinned by `duplicate_fact_keys_replace_all_counters` and `compact_schema_sums_match_full_replay_and_reject_missing_views`.
+    let source_key = |fact: &FactRecord| {
+        (
+            fact.object_key.clone(),
+            fact.object_kind.as_str(),
+            fact.stratum.as_ref().map(|s| s.key.clone()),
+            fact.allomorph.as_ref().map(|a| a.key.clone()),
+            fact.direction.as_str(),
+        )
+    };
+    let latest: HashMap<_, _> = facts
+        .iter()
+        .enumerate()
+        .map(|(index, fact)| (source_key(fact), index))
+        .collect();
+    let mut groups = HashMap::new();
+    let mut result: Vec<FactRecord> = Vec::new();
+    for (index, fact) in facts.iter().enumerate() {
+        if latest[&source_key(fact)] != index {
+            continue;
+        }
+        let key = (
+            &fact.object_key,
+            fact.object_kind.as_str(),
+            fact.direction.as_str(),
+        );
+        let target_index = *groups.entry(key).or_insert_with(|| {
+            let mut row = fact.clone();
+            row.stratum = None;
+            row.allomorph = None;
+            row.attempts = 0;
+            row.work = 0;
+            row.work_steps = 0;
+            row.outputs = 0;
+            row.not_applied = 0;
+            row.no_root = 0;
+            row.surface_mismatch = 0;
+            row.uses = 0;
+            row.self_time_ns = 0;
+            result.push(row);
+            result.len() - 1
+        });
+        let target = &mut result[target_index];
+        macro_rules! add {
+            ($field:ident, $value:expr) => {
+                target.$field =
+                    target
+                        .$field
+                        .checked_add($value)
+                        .ok_or(StatsError::CounterOverflow {
+                            counter: stringify!($field),
+                            value: u64::MAX,
+                        })?;
+                to_i64(stringify!($field), target.$field)?;
+            };
+        }
+        add!(attempts, fact.attempts);
+        add!(work, fact.work);
+        add!(work_steps, fact.work_steps);
+        add!(outputs, fact.outputs);
+        // Object/kind reports count only rule-level not_applied; pinned by `compact_schema_sums_match_full_replay_and_reject_missing_views`.
+        add!(
+            not_applied,
+            if fact.allomorph.is_none() {
+                fact.not_applied
+            } else {
+                0
+            }
+        );
+        add!(no_root, fact.no_root);
+        add!(surface_mismatch, fact.surface_mismatch);
+        add!(uses, fact.uses);
+        add!(self_time_ns, fact.self_time_ns);
+    }
+    result.retain(|f| {
+        [
+            f.attempts,
+            f.work,
+            f.work_steps,
+            f.outputs,
+            f.not_applied,
+            f.no_root,
+            f.surface_mismatch,
+            f.uses,
+            f.self_time_ns,
+        ]
+        .iter()
+        .any(|v| *v != 0)
+    });
+    Ok(result)
+}
+
+fn bind_fact(
+    tx: &Connection,
+    interner: &mut Interner,
+    word_id: i64,
+    fact: &FactRecord,
+    insert: &mut rusqlite::Statement<'_>,
+    offset: usize,
+) -> Result<(), StatsError> {
+    let object_id = interner.object(
         tx,
         &fact.object_key,
         fact.object_kind,
@@ -529,25 +1175,16 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
         fact.morpheme.as_ref(),
     )?;
     let stratum_id = match &fact.stratum {
-        Some(locator) => intern_stratum_on(tx, locator)?,
+        Some(locator) => interner.locator(tx, LocatorTable::Stratum, locator)?,
         None => 0,
     };
     let allomorph_id = match &fact.allomorph {
-        Some(locator) => intern_allomorph_on(tx, locator)?,
+        Some(locator) => interner.locator(tx, LocatorTable::Allomorph, locator)?,
         None => 0,
     };
-    tx.execute(
-        "INSERT INTO fact (word_id, object_id, stratum_id, allomorph_id, direction, attempts, work, outputs, not_applied, no_root, surface_mismatch, uses, self_time_ns)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-         ON CONFLICT(word_id, object_id, stratum_id, allomorph_id, direction) DO UPDATE SET
-           attempts = excluded.attempts,
-           work = excluded.work,
-           outputs = excluded.outputs,
-           not_applied = excluded.not_applied,
-           no_root = excluded.no_root,
-           surface_mismatch = excluded.surface_mismatch,
-           uses = excluded.uses,
-           self_time_ns = excluded.self_time_ns",
+    bind_row(
+        insert,
+        offset,
         params![
             word_id,
             object_id,
@@ -562,18 +1199,92 @@ fn write_fact(tx: &Transaction, word_id: i64, fact: &FactRecord) -> Result<(), S
             to_i64("surface_mismatch", fact.surface_mismatch)?,
             to_i64("uses", fact.uses)?,
             to_i64("self_time_ns", fact.self_time_ns)?,
+            to_i64("work_steps", fact.work_steps)?,
         ],
-    )?;
+    )
+}
+
+fn bind_row(
+    stmt: &mut rusqlite::Statement<'_>,
+    offset: usize,
+    values: &[&dyn rusqlite::ToSql],
+) -> Result<(), StatsError> {
+    for (column, value) in values.iter().enumerate() {
+        stmt.raw_bind_parameter(offset + column + 1, *value)?;
+    }
     Ok(())
 }
 
-/// The stored step cap of any run in `run` that differs from `requested_storage`, if any.
-fn conflicting_step_cap(
+const INSERT_ROWS: usize = 32;
+
+struct BatchInsert {
+    columns: usize,
+    statements: [(usize, String); 3],
+}
+
+impl BatchInsert {
+    fn new(table: &str, columns: usize, conflict: &str) -> Self {
+        let tuple = format!("({})", vec!["?"; columns].join(","));
+        let statements = [INSERT_ROWS, 4, 1].map(|size| {
+            let values = vec![tuple.as_str(); size].join(",");
+            (
+                size,
+                format!("INSERT INTO {table} VALUES {values} {conflict}"),
+            )
+        });
+        Self {
+            columns,
+            statements,
+        }
+    }
+
+    fn write<T>(
+        &self,
+        conn: &Connection,
+        mut rows: &[T],
+        mut bind: impl FnMut(&mut rusqlite::Statement<'_>, usize, &T) -> Result<(), StatsError>,
+    ) -> Result<(), StatsError> {
+        for (size, sql) in &self.statements {
+            if rows.len() < *size {
+                continue;
+            }
+            let mut stmt = conn.prepare_cached(sql)?;
+            let mut chunks = rows.chunks_exact(*size);
+            for chunk in &mut chunks {
+                for (index, row) in chunk.iter().enumerate() {
+                    bind(&mut stmt, index * self.columns, row)?;
+                }
+                stmt.raw_execute()?;
+            }
+            rows = chunks.remainder();
+        }
+        Ok(())
+    }
+}
+
+fn fact_insert(key: &str) -> BatchInsert {
+    let conflict = format!("ON CONFLICT({key}) DO UPDATE SET
+        attempts=excluded.attempts, work=excluded.work, outputs=excluded.outputs,
+        not_applied=excluded.not_applied, no_root=excluded.no_root, surface_mismatch=excluded.surface_mismatch,
+        uses=excluded.uses, self_time_ns=excluded.self_time_ns, work_steps=excluded.work_steps");
+    BatchInsert::new("fact (word_id,object_id,stratum_id,allomorph_id,direction,attempts,work,outputs,not_applied,no_root,surface_mismatch,uses,self_time_ns,work_steps)", 14, &conflict)
+}
+
+static FACT_INSERT: std::sync::LazyLock<BatchInsert> =
+    std::sync::LazyLock::new(|| fact_insert("word_id,object_id,stratum_id,allomorph_id,direction"));
+static COMPACT_INSERT: std::sync::LazyLock<BatchInsert> =
+    std::sync::LazyLock::new(|| fact_insert("word_id,object_id,direction"));
+static GATE_INSERT: std::sync::LazyLock<BatchInsert> = std::sync::LazyLock::new(|| {
+    BatchInsert::new("gate_fact", 5, "ON CONFLICT(word_id,object_id,feature_id) DO UPDATE SET passed=passed+excluded.passed, blocked=blocked+excluded.blocked")
+});
+
+/// The stored work cap of any run in `run` that differs from `requested_storage`, if any.
+fn conflicting_work_cap(
     conn: &Connection,
     requested_storage: i64,
 ) -> Result<Option<i64>, StatsError> {
     conn.query_row(
-        "SELECT step_cap FROM run WHERE step_cap IS NOT NULL AND step_cap <> ?1 LIMIT 1",
+        "SELECT work_cap FROM run WHERE work_cap IS NOT NULL AND work_cap <> ?1 LIMIT 1",
         params![requested_storage],
         |row| row.get(0),
     )
@@ -581,9 +1292,9 @@ fn conflicting_step_cap(
     .map_err(Into::into)
 }
 
-fn step_cap_mismatch(existing_storage: i64, requested: StepCap) -> StatsError {
-    StatsError::StepCapMismatch {
-        existing: StepCap::from_storage(existing_storage).to_string(),
+fn work_cap_mismatch(existing_storage: i64, requested: WorkCap) -> StatsError {
+    StatsError::WorkCapMismatch {
+        existing: WorkCap::from_storage(existing_storage).to_string(),
         requested: requested.to_string(),
     }
 }
@@ -601,22 +1312,110 @@ fn intern_object_on(
         Some(locator) => intern_morpheme_on(conn, locator)?,
         None => 0,
     };
-    conn.execute(
+    execute_cached(
+        conn,
         "INSERT OR IGNORE INTO object (key, kind, label, identity_quality, morpheme_id) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![key, kind.as_str(), label, identity_quality.as_str(), morpheme_id],
     )?;
-    conn.query_row(
+    query_id_cached(
+        conn,
         "SELECT object_id FROM object WHERE key = ?1 AND kind = ?2",
         params![key, kind.as_str()],
-        |row| row.get(0),
     )
-    .map_err(Into::into)
 }
 
+#[derive(Clone, Copy)]
 enum LocatorTable {
     Stratum,
     Allomorph,
     Morpheme,
+}
+
+/// Ids one flush already interned, valid because its write lock keeps them from changing; first sight still inserts, so ids and first labels are unchanged.
+#[derive(Default)]
+struct Interner {
+    objects: HashMap<&'static str, HashMap<String, i64>>,
+    features: HashMap<String, HashMap<String, HashMap<String, i64>>>,
+    strata: HashMap<String, i64>,
+    allomorphs: HashMap<String, i64>,
+    morphemes: HashMap<String, i64>,
+}
+
+impl Interner {
+    fn feature(&mut self, conn: &Connection, gate: &GateRecord) -> Result<i64, StatsError> {
+        if let Some(&id) = self
+            .features
+            .get(&gate.feature_kind)
+            .and_then(|modes| modes.get(&gate.mode))
+            .and_then(|keys| keys.get(&gate.feature_key))
+        {
+            return Ok(id);
+        }
+        execute_cached(
+            conn,
+            "INSERT OR IGNORE INTO feature (key, kind, label, mode) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                gate.feature_key,
+                gate.feature_kind,
+                gate.feature_label,
+                gate.mode
+            ],
+        )?;
+        let id = query_id_cached(
+            conn,
+            "SELECT feature_id FROM feature WHERE key=?1 AND kind=?2 AND mode=?3",
+            params![gate.feature_key, gate.feature_kind, gate.mode],
+        )?;
+        self.features
+            .entry(gate.feature_kind.clone())
+            .or_default()
+            .entry(gate.mode.clone())
+            .or_default()
+            .insert(gate.feature_key.clone(), id);
+        Ok(id)
+    }
+
+    fn object(
+        &mut self,
+        conn: &Connection,
+        key: &str,
+        kind: ObjectKind,
+        label: &str,
+        identity_quality: IdentityQuality,
+        morpheme: Option<&StructuralLocator>,
+    ) -> Result<i64, StatsError> {
+        if let Some(locator) = morpheme {
+            self.locator(conn, LocatorTable::Morpheme, locator)?;
+        }
+        if let Some(&id) = self.objects.get(kind.as_str()).and_then(|ids| ids.get(key)) {
+            return Ok(id);
+        }
+        let id = intern_object_on(conn, key, kind, label, identity_quality, morpheme)?;
+        self.objects
+            .entry(kind.as_str())
+            .or_default()
+            .insert(key.to_string(), id);
+        Ok(id)
+    }
+
+    fn locator(
+        &mut self,
+        conn: &Connection,
+        table: LocatorTable,
+        locator: &StructuralLocator,
+    ) -> Result<i64, StatsError> {
+        let ids = match table {
+            LocatorTable::Stratum => &mut self.strata,
+            LocatorTable::Allomorph => &mut self.allomorphs,
+            LocatorTable::Morpheme => &mut self.morphemes,
+        };
+        if let Some(&id) = ids.get(&locator.key) {
+            return Ok(id);
+        }
+        let id = intern_locator_on(conn, table, locator)?;
+        ids.insert(locator.key.clone(), id);
+        Ok(id)
+    }
 }
 
 fn intern_locator_on(
@@ -638,9 +1437,8 @@ fn intern_locator_on(
             "SELECT morpheme_id FROM morpheme WHERE key = ?1",
         ),
     };
-    conn.execute(insert, params![locator.key, locator.label])?;
-    conn.query_row(select, params![locator.key], |row| row.get(0))
-        .map_err(Into::into)
+    execute_cached(conn, insert, params![locator.key, locator.label])?;
+    query_id_cached(conn, select, params![locator.key])
 }
 
 fn intern_stratum_on(conn: &Connection, locator: &StructuralLocator) -> Result<i64, StatsError> {

@@ -36,6 +36,9 @@ pub(crate) fn build(
 }
 
 pub(crate) fn record_unconsidered_slots(snapshot: &Snapshot, ctx: &Ctx) {
+    if ctx.is_lean() {
+        return;
+    }
     fn walk<'a>(
         items: &'a [PartOfSpeech],
         slots: &mut Vec<&'a AffixSlot>,
@@ -240,10 +243,10 @@ fn build_template(
             let mut excl = crate::model::MprSet::EMPTY;
             for it in &infl_types_for_slot {
                 if let Some(s) = ctx.mpr.lex_entry_infl_type(&it.guid) {
-                    excl = excl.union(s);
+                    excl = excl.union(&s);
                 }
             }
-            exclude_from_rules(&rules, excl, acc);
+            exclude_from_rules(&rules, &excl, acc);
 
             // Null-affix synthesis, unless the slot is optional (an irregular form can leave it empty).
             if !affix_slot.optional {
@@ -344,7 +347,7 @@ fn build_template(
     Ok(Some(id))
 }
 
-fn exclude_from_rules(rule_ids: &[MRuleId], excl: crate::model::MprSet, acc: &mut Acc) {
+fn exclude_from_rules(rule_ids: &[MRuleId], excl: &crate::model::MprSet, acc: &mut Acc) {
     for &rid in rule_ids {
         if let MorphRuleDef::AffixProcess(def) = &mut acc.mrules[rid.0 as usize] {
             for allo in &mut def.allomorphs {
@@ -440,12 +443,15 @@ fn build_null_affix_rule(
         .push(AllomorphOwner::Affix(mrule_id, 0));
     acc.allomorph_sources.push(crate::model::AllomorphSource {
         form_guids: Vec::new(),
+        form_texts: Vec::new(),
         omitted: true,
         placement: crate::model::SourceMorphPlacement::Append,
     });
 
+    let xml_key = acc.snapshot_allomorph_key(&format!("null-affix#{}", it.guid));
     let allo = crate::model::AffixAllomorphDef {
         id: allo_id,
+        xml_key,
         environments: Vec::new(),
         co_occurrence: Vec::new(),
         required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
@@ -494,7 +500,7 @@ fn build_null_affix_rule(
 }
 
 fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
+    let shape = crate::segment::segment_load(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {

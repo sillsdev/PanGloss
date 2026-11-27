@@ -118,14 +118,14 @@ Test-Case 'the fat-LTO allowance actually narrows concurrency where the thin one
 }
 
 Test-Case 'an idle machine is NOT throttled: the gate costs nothing when memory is free' {
-    # A gate that taxes every ordinary build gets turned off and then protects nothing under real pressure.
-    $total = Get-TotalMemoryGB
-    if ($null -eq $total) { return }  # unmeasurable: nothing to calibrate against
+    # Memory is injected and sized from this host's cores-only cap, so the verdict cannot depend on the WSL memory cap or on load.
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
+    $reserve = Get-InteractiveReserveGB -TotalGB 64
     foreach ($perProc in @((Get-MemoryPerProcessGB), (Get-MemoryPerProcessGB -FatLto), $script:MemoryPerTestProcessGB)) {
-        $n = Get-MemoryProcessBudget -AvailableGB $total -PerProcessGB $perProc -MaxConcurrent 2
+        $idle = $reserve + $perProc * 2 * $cpu
+        $n = Get-MemoryProcessBudget -AvailableGB $idle -PerProcessGB $perProc -ReserveGB $reserve -MaxConcurrent 2
         $r = Resolve-ConcurrencyBudget -CpuBudget $cpu -MemoryBudget $n
-        Assert-Equal 'cpu' $r.Bound "with ${total}GB installed and nothing running, a ${perProc}GB/process budget must not narrow the cores-only cap (cpu=$cpu memory=$n)"
+        Assert-Equal 'cpu' $r.Bound "with ${idle}GB available, a ${perProc}GB/process budget must not narrow the cores-only cap (cpu=$cpu memory=$n)"
     }
 }
 
@@ -134,10 +134,10 @@ Test-Case 'a machine under real pressure IS throttled below the cores-only cap' 
     $cpu = Get-CargoJobBudget -MaxConcurrent 2
     # Pressure is relative to this machine's cores: leave room for one process fewer than they allow.
     if ($cpu -le 1) { throw "cores-only cap is $cpu, so no memory pressure can bind below it; this host cannot exercise the case" }
-    $reserve = Get-InteractiveReserveGB
+    $reserve = Get-InteractiveReserveGB -TotalGB 64
     foreach ($perProc in @((Get-MemoryPerProcessGB), (Get-MemoryPerProcessGB -FatLto), $script:MemoryPerTestProcessGB)) {
         $available = $reserve + $perProc * 2 * ($cpu - 1)
-        $n = Get-MemoryProcessBudget -AvailableGB $available -PerProcessGB $perProc -MaxConcurrent 2
+        $n = Get-MemoryProcessBudget -AvailableGB $available -PerProcessGB $perProc -ReserveGB $reserve -MaxConcurrent 2
         $r = Resolve-ConcurrencyBudget -CpuBudget $cpu -MemoryBudget $n
         Assert-Equal 'memory' $r.Bound "with only ${available}GB available, a ${perProc}GB/process budget must bind before the cores-only cap (cpu=$cpu memory=$n)"
     }

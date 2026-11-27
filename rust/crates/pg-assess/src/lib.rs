@@ -47,7 +47,9 @@ pub use handoff::{
     SourceIdKind, HANDOFF_SCHEMA, HANDOFF_SCHEMA_VERSION,
 };
 pub use jcs::{canonicalize, JcsError};
-pub use model::{model_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION};
+pub use model::{
+    model_fingerprint, snapshot_value_fingerprint, source_sha256, SourceKind, MODEL_PROJECTION,
+};
 pub use outcome::{
     derive_status, AssessmentStatus, BudgetDimension, CaseOutcome, IncompleteReason,
     NotAttemptedReason,

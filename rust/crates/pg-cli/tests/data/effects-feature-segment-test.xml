@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>partial-class-disagree-bounded-ltr-left</Name>
+    <PartsOfSpeech>
+      <PartOfSpeech id="posN">
+        <Name>n</Name>
+      </PartOfSpeech>
+    </PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featBack">
+        <Name>back</Name>
+        <Symbols>
+          <Symbol id="bkPlus">+bk</Symbol>
+          <Symbol id="bkMinus">-bk</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+      <SymbolicFeature id="featRound">
+        <Name>round</Name>
+        <Symbols>
+          <Symbol id="rdMinus">-rd</Symbol>
+          <Symbol id="rdPlus">+rd</Symbol>
+        </Symbols>
+      </SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cI">
+          <Representations>
+            <Representation>i</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cY">
+          <Representations>
+            <Representation>y</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cA">
+          <Representations>
+            <Representation>a</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cU">
+          <Representations>
+            <Representation>u</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkPlus" />
+          <FeatureValue feature="featRound" symbolValues="rdPlus" />
+        </SegmentDefinition>
+        <SegmentDefinition id="cE">
+          <Representations>
+            <Representation>e</Representation>
+          </Representations>
+          <FeatureValue feature="featBack" symbolValues="bkMinus" />
+          <FeatureValue feature="featRound" symbolValues="rdMinus" />
+        </SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncVowel"><Name>vowels</Name><Segment segment="cI" /><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="ncIU"><Name>iu</Name><Segment segment="cI" /><Segment segment="cU" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prClass"><Name>iuToA</Name>
+        <PhoneticInput><PhoneticSequence><SimpleContext naturalClass="ncIU" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cA" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+      <PhonologicalRule id="prLit"><Name>iToA</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="cI" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cA" /></PhoneticSequence></PhoneticOutput></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata>
+      <Stratum characterDefinitionTable="tbl" phonologicalRules="prClass prLit">
+        <Name>Main</Name>
+        <LexicalEntries>
+          <LexicalEntry id="eAu" partOfSpeech="posN">
+            <Allomorphs>
+              <Allomorph id="aAu">
+                <PhoneticShape>au</PhoneticShape>
+              </Allomorph>
+            </Allomorphs>
+            <MorphemeId>AU</MorphemeId>
+            <Gloss>au</Gloss>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

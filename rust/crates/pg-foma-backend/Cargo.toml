@@ -70,10 +70,6 @@ name = "typology_speedup"
 path = "tests/typology_speedup.rs"
 
 [[test]]
-name = "p6_templated_morphotactics_gate"
-path = "tests/p6_templated_morphotactics_gate.rs"
-
-[[test]]
 name = "phase_c_chain_scale"
 path = "tests/phase_c_chain_scale.rs"
 

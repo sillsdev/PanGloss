@@ -20,8 +20,8 @@ fn unmarked_fixtures_do_not_grow() {
     fixtures.extend(discover_filter_passes());
     assert!(
         !fixtures.is_empty(),
-        "no fixtures discovered at all under scope {} -- check the `machine` submodule is \
-         initialized and conformance-staging/ exists",
+        "no fixtures discovered at all under scope {} -- check that `pwsh rust/tools/conformance.ps1` \
+         fetched the suite and conformance-staging/ exists",
         scope.label()
     );
     let census = producibility_census(&fixtures);

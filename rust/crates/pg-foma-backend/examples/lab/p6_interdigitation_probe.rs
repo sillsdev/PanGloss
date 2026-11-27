@@ -6,7 +6,7 @@ use std::time::Instant;
 use foma::options::FomaOptions;
 
 use pg_foma::replace::{
-    compile_and_compose_rules, compile_rewrite_rule, is_fully_supported_shape, SegAlphabet,
+    compile_and_compose_rules_recall_safe, compile_rewrite_rule, is_fully_supported_shape,
 };
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -38,7 +38,6 @@ fn run() {
     println!("char tables: {}", g.char_tables.len());
     let table = &g.char_tables[0];
     println!("table1 segment/boundary count: {}", table.len());
-    let alphabet = SegAlphabet::new(table);
     let opts = FomaOptions::default();
 
     let mut rules_in_order: Vec<&PhonRuleDef> = Vec::new();
@@ -89,27 +88,17 @@ fn run() {
     // Full cascade compile+compose (stratum order), same call the Indonesian driver uses.
     println!("\n--- full cascade compile + compose ---");
     let t_all = Instant::now();
-    let mut skipped: Vec<String> = Vec::new();
     let mut tuple_reports: Vec<(String, Vec<pg_foma::replace::TupleReport>)> = Vec::new();
-    let composed = compile_and_compose_rules(
-        &opts,
-        &g,
-        &alphabet,
-        &rules_in_order,
-        &mut skipped,
-        &mut tuple_reports,
-    );
+    let composed =
+        compile_and_compose_rules_recall_safe(&opts, &g, &rules_in_order, &mut tuple_reports);
     let all_elapsed = t_all.elapsed();
     println!("cascade compile+compose: {all_elapsed:?}");
-    println!("skipped: {skipped:?}");
     match composed {
-        Some(net) => println!(
+        Ok(net) => println!(
             "composed net: {} states, {} arcs",
             net.statecount, net.arccount
         ),
-        None => {
-            println!("composed net: NONE (every rule was skipped or the grammar has zero prules)")
-        }
+        Err(error) => println!("cascade refused: {error}"),
     }
 
     println!("\n=== done ===");

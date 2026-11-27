@@ -131,7 +131,25 @@ pub fn canonicalize(value: &Value) -> Result<String, JcsError> {
     Ok(out)
 }
 
-fn write_value(value: &Value, out: &mut String) -> Result<(), JcsError> {
+pub(crate) trait CanonicalSink {
+    fn push_str(&mut self, text: &str);
+
+    fn push(&mut self, ch: char) {
+        self.push_str(ch.encode_utf8(&mut [0; 4]));
+    }
+}
+
+impl CanonicalSink for String {
+    fn push_str(&mut self, text: &str) {
+        String::push_str(self, text);
+    }
+
+    fn push(&mut self, ch: char) {
+        String::push(self, ch);
+    }
+}
+
+pub(crate) fn write_value(value: &Value, out: &mut impl CanonicalSink) -> Result<(), JcsError> {
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
@@ -161,7 +179,7 @@ fn write_value(value: &Value, out: &mut String) -> Result<(), JcsError> {
     Ok(())
 }
 
-fn write_object(map: &Map<String, Value>, out: &mut String) -> Result<(), JcsError> {
+fn write_object(map: &Map<String, Value>, out: &mut impl CanonicalSink) -> Result<(), JcsError> {
     // RFC 8785 §3.2.3 sorts keys by UTF-16 code units, not Rust's byte-wise UTF-8 order.
     let mut keys: Vec<&String> = map.keys().collect();
     keys.sort_by(|a, b| utf16_cmp(a, b));
@@ -183,24 +201,44 @@ fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
-fn write_string(s: &str, out: &mut String) {
+pub(crate) fn write_string(s: &str, out: &mut impl CanonicalSink) {
     out.push('"');
-    for ch in s.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+    write_string_contents(s, out);
+    out.push('"');
+}
+
+fn write_string_contents(s: &str, out: &mut impl CanonicalSink) {
+    let mut start = 0;
+    for (i, b) in s.bytes().enumerate() {
+        let escape = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            0x08 => "\\b",
+            0x0c => "\\f",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            0..0x20 => {
+                out.push_str(&s[start..i]);
+                out.push_str(&format!("\\u{b:04x}"));
+                start = i + 1;
+                continue;
             }
-            c => out.push(c),
-        }
+            _ => continue,
+        };
+        out.push_str(&s[start..i]);
+        out.push_str(escape);
+        start = i + 1;
     }
-    out.push('"');
+    out.push_str(&s[start..]);
+}
+
+pub(crate) struct StringContents<'a, W>(pub(crate) &'a mut W);
+
+impl<W: CanonicalSink> CanonicalSink for StringContents<'_, W> {
+    fn push_str(&mut self, text: &str) {
+        write_string_contents(text, self.0);
+    }
 }
 
 #[cfg(test)]

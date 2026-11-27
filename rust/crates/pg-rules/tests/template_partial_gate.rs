@@ -76,6 +76,7 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
 
 fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomorphDef {
     AffixAllomorphDef {
+        xml_key: String::new(),
         id: AllomorphId(id),
         environments: vec![],
         co_occurrence: vec![],
@@ -182,6 +183,7 @@ fn push_root_entry(g: &mut Grammar, partial: bool) -> AllomorphId {
         mpr: MprSet::EMPTY,
         partial_reason: partial.then_some(PartialMorphemeReason::StemWithoutCategory),
         allomorphs: vec![RootAllomorphDef {
+            xml_key: String::new(),
             id: allo_id,
             shape: SegmentedText {
                 text: "a".to_string(),
@@ -211,8 +213,8 @@ fn gate1_partial_word_with_applicable_template_passes_through() {
     let s = push_stratum(&mut g, MorphRuleOrder::Linear, vec![], vec![tid]);
 
     let mut input = word(&g, "a", s);
-    input.flags.is_partial = true; // the word itself is partial
-                                   // root_allomorph stays None => root_is_partial(g, input) == false => the template IS applicable.
+    input.flags.set_is_partial(true); // the word itself is partial
+                                      // root_allomorph stays None => root_is_partial(g, input) == false => the template IS applicable.
 
     let cache = RuleCache::build(&g);
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
@@ -242,7 +244,7 @@ fn gate2_partial_root_morpheme_blocks_template_application() {
 
     let mut input = word(&g, "a", s);
     input.root_allomorph = Some(root);
-    // input.flags.is_partial stays false — isolates gate 2 from gate 1.
+    // input.flags.is_partial() stays false — isolates gate 2 from gate 1.
 
     let cache = RuleCache::build(&g);
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
@@ -271,7 +273,7 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     // (A) non-partial input: the partial rule must be prohibited entirely (no candidate survives).
     let mut input_a = word(&g, "a", s);
     input_a.flags.is_last_applied_rule_final = Some(false);
-    input_a.mrule_apps = vec![Some(r)];
+    input_a.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input_a.mrule_app_index = 0;
     let out_a = synthesize_stratum(&g, s, input_a, 10_000, &cache);
     assert!(
@@ -283,8 +285,8 @@ fn gate3_partial_rule_prohibited_after_nonfinal_template_unless_input_partial() 
     // (B) already-partial input: the same rule must be allowed and produce the suffixed word.
     let mut input_b = word(&g, "a", s);
     input_b.flags.is_last_applied_rule_final = Some(false);
-    input_b.flags.is_partial = true;
-    input_b.mrule_apps = vec![Some(r)];
+    input_b.flags.set_is_partial(true);
+    input_b.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input_b.mrule_app_index = 0;
     // Applied to the rule directly: the stratum exit refuses any word still marked non-final, which is not this gate.
     let out_b = synthesize_with_policy(
@@ -320,7 +322,7 @@ fn gate4_template_rule_is_exempt_from_the_post_template_gates() {
     let mut input = word(&g, "a", s);
     input.flags.is_last_applied_rule_final = Some(false);
     // is_partial stays false -- IsTemplateRule must exempt this rule regardless.
-    input.mrule_apps = vec![Some(r)];
+    input.trail = pg_rules::trail::Trail::from_slots([(Some(r), None)]);
     input.mrule_app_index = 0;
     let out = synthesize_stratum(&g, s, input, 10_000, &cache);
     assert_eq!(

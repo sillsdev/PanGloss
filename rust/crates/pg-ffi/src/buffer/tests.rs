@@ -3,15 +3,18 @@ use super::*;
 #[test]
 fn round_trips_empty_word() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: Vec::new(),
         structured: Vec::new(),
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let bytes = encode_single(&outcome);
     let decoded = decode(&bytes).unwrap();
@@ -23,15 +26,18 @@ fn round_trips_empty_word() {
 #[test]
 fn round_trips_invalid_shape() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: Vec::new(),
         structured: Vec::new(),
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: true,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert!(decoded[0].invalid_shape);
@@ -40,6 +46,7 @@ fn round_trips_invalid_shape() {
 #[test]
 fn round_trips_analyses_in_canonical_order() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("b+c".into(), "surf".into()), ("a+c".into(), "surf".into())],
         structured: vec![
             WordAnalysis {
@@ -72,12 +79,14 @@ fn round_trips_analyses_in_canonical_order() {
             },
         ],
         capped: true,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert!(decoded[0].capped);
@@ -151,15 +160,18 @@ fn confirmed_analysis(surface: &str, morpheme_id: u32) -> ((String, String), Wor
 fn plain_format_encoder_keeps_a_non_guessed_analysis() {
     let (pair, analysis) = confirmed_analysis("kad", 7);
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![pair],
         structured: vec![analysis],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(
@@ -175,15 +187,18 @@ fn plain_format_encoder_keeps_a_non_guessed_analysis() {
 fn plain_format_encoder_refuses_to_emit_a_guessed_analysis_even_when_constructed_directly() {
     let (pair, analysis) = guessed_analysis("gag");
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![pair],
         structured: vec![analysis],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(decoded.len(), 1);
@@ -200,15 +215,18 @@ fn plain_format_encoder_filters_only_the_guessed_row_out_of_a_mixed_outcome() {
     let (guessed_pair, guessed) = guessed_analysis("gag");
     let (confirmed_pair, confirmed) = confirmed_analysis("kad", 9);
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![guessed_pair, confirmed_pair],
         structured: vec![guessed, confirmed],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode(&encode_single(&outcome)).unwrap();
     assert_eq!(decoded[0].analyses.len(), 1);
@@ -220,15 +238,18 @@ fn plain_format_encoder_filters_only_the_guessed_row_out_of_a_mixed_outcome() {
 fn batch_plain_format_encoder_also_refuses_a_guessed_analysis() {
     let (pair, analysis) = guessed_analysis("gag");
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![pair],
         structured: vec![analysis],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let outcomes = vec![BatchWordOutcome {
         outcome,
@@ -244,6 +265,7 @@ fn batch_plain_format_encoder_also_refuses_a_guessed_analysis() {
 #[test]
 fn guess_format_round_trips_a_guessed_analysis_and_carries_word_and_analysis_level_bits() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("gag".into(), "gag".into())],
         structured: vec![WordAnalysis {
             morpheme_ids: vec![u32::MAX],
@@ -260,12 +282,14 @@ fn guess_format_round_trips_a_guessed_analysis_and_carries_word_and_analysis_lev
             morpheme_roots: vec![None; 1],
         }],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: true,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode_guess(&encode_single_guess(&outcome)).unwrap();
     assert_eq!(decoded.len(), 1);
@@ -281,6 +305,7 @@ fn guess_format_round_trips_a_guessed_analysis_and_carries_word_and_analysis_lev
 #[test]
 fn guess_format_round_trips_a_non_guessed_analysis_as_false() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("KAD".into(), "kad".into())],
         structured: vec![WordAnalysis {
             morpheme_ids: vec![2],
@@ -297,12 +322,14 @@ fn guess_format_round_trips_a_non_guessed_analysis_as_false() {
             morpheme_roots: vec![None; 1],
         }],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     let decoded = decode_guess(&encode_single_guess(&outcome)).unwrap();
     assert!(!decoded[0].guessed);
@@ -313,15 +340,18 @@ fn guess_format_round_trips_a_non_guessed_analysis_as_false() {
 #[test]
 fn guess_format_and_plain_format_are_not_cross_decodable() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: Vec::new(),
         structured: Vec::new(),
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 0,
+        cost: None,
     };
     assert!(decode_guess(&encode_single(&outcome)).is_none());
     assert!(decode(&encode_single_guess(&outcome)).is_none());
@@ -335,6 +365,7 @@ fn guess_format_rejects_bad_magic() {
 #[test]
 fn guess_format_batch_preserves_original_request_order() {
     let make = |text: &str, guessed: bool| ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![(text.into(), text.into())],
         structured: vec![WordAnalysis {
             morpheme_ids: vec![0],
@@ -355,12 +386,14 @@ fn guess_format_batch_preserves_original_request_order() {
             morpheme_roots: vec![None; 1],
         }],
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 0,
         work_steps: 0,
         timed_out: false,
         guessed,
         candidates_generated: 0,
+        cost: None,
     };
     let outcomes = vec![
         BatchWordOutcome {

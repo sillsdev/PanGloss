@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "name": "grammar-optional-slot",
+  "title": "Make a required template slot optional",
+  "note": "cal-deep-template-16 slot01: required to optional; generator rust/tools/calibration/grammar-edits.py optional-slot",
+  "measuredOn": "2026-11-14",
+  "gate": false,
+  "gateNote": "model under-predicts optional-slot template search; tracked in a follow-up issue",
+  "conformance": {
+    "repo": "sillsdev/fieldworks-parser-conformance",
+    "commit": "3ba5db1b2dda50cd6ee139b8cdb815389041549f"
+  },
+  "before": {
+    "label": "before",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "d98fd53b45cb45801df959a214357660a179f6f193a482df5d2f3c0e7ba152e3",
+    "env": {}
+  },
+  "after": {
+    "label": "after",
+    "commit": "0bb22999352be36a7d38f1e9157b35d3abbb2840",
+    "binarySha256": "d98fd53b45cb45801df959a214357660a179f6f193a482df5d2f3c0e7ba152e3",
+    "env": {}
+  },
+  "collect": "cost-calibrate --counts-out counters and callgrind instructions inside cost_calibrate::parse_one; totals over the words both sides parsed that reach the work floor on either side; no word text",
+  "families": [
+    {
+      "family": "cal-deep-template-16",
+      "words": 6,
+      "before": {
+        "work": 743843,
+        "bytes": 248889540,
+        "registers": 1543186,
+        "allocations": 1511439,
+        "instructions": 802039873
+      },
+      "after": {
+        "work": 844429,
+        "bytes": 286879383,
+        "registers": 1736290,
+        "allocations": 1768430,
+        "instructions": 943118433
+      }
+    }
+  ],
+  "grammar": {
+    "family": "cal-deep-template-16",
+    "beforeSha256": "45ec5520ec9934b97f5dd274783edd34a7edac903db4e84e64b6b913bd52646b",
+    "afterSha256": "bdb74f8a2e711a384b076fc3ae6c0a06cffd4bf979b2647a0756415fb61b99be"
+  }
+}

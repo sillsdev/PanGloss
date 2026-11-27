@@ -155,7 +155,7 @@ fn reachable_variant_coverage_does_not_regress() {
     eprintln!("variant obligations: {} total; {unmet} unmet; {missing_fixture} without fixture; {missing_containment} without containment", ledger.rows.len());
     assert_eq!(
         ledger.rows.len(),
-        37,
+        29,
         "variant inventory changed; review the new obligations"
     );
     assert!(
@@ -279,125 +279,6 @@ fn circumfix_unrouted_has_a_permanent_hc_xml_only_refusal() {
     assert!(obligation_met(row), "{row:?}");
 }
 
-fn synthetic_metathesis_iteration_xml(direction: &str) -> String {
-    format!(
-        r#"<HermitCrabInput><Language><Name>MetathesisIteration</Name>
-          <PartsOfSpeech><PartOfSpeech id="posV"><Name>V</Name></PartOfSpeech></PartsOfSpeech>
-          <CharacterDefinitionTable id="t1"><Name>Main</Name>
-            <SegmentDefinitions>
-              <SegmentDefinition id="cq"><Representations><Representation>q</Representation></Representations></SegmentDefinition>
-              <SegmentDefinition id="cp"><Representations><Representation>p</Representation></Representations></SegmentDefinition>
-            </SegmentDefinitions>
-          </CharacterDefinitionTable>
-          <NaturalClasses>
-            <SegmentNaturalClass id="ncQ"><Name>Q</Name><Segment segment="cq" /></SegmentNaturalClass>
-            <SegmentNaturalClass id="ncP"><Name>P</Name><Segment segment="cp" /></SegmentNaturalClass>
-          </NaturalClasses>
-          <PhonologicalRuleDefinitions>
-            <MetathesisRule id="mrIteration" leftSwitch="swP" rightSwitch="swQ" {direction}>
-              <Name>metathesisIteration</Name>
-              <StructuralDescription><PhoneticTemplate><PhoneticSequence>
-                <OptionalSegmentSequence id="swQ" min="0" max="1">
-                  <SimpleContext naturalClass="ncQ" />
-                </OptionalSegmentSequence>
-                <SimpleContext id="swP" naturalClass="ncP" />
-              </PhoneticSequence></PhoneticTemplate></StructuralDescription>
-            </MetathesisRule>
-          </PhonologicalRuleDefinitions>
-          <Strata><Stratum characterDefinitionTable="t1" phonologicalRules="mrIteration">
-            <Name>S</Name>
-            <LexicalEntries><LexicalEntry id="e1" partOfSpeech="posV">
-              <Allomorphs><Allomorph id="e1a0"><PhoneticShape>pq</PhoneticShape></Allomorph></Allomorphs>
-              <Gloss>pq</Gloss>
-            </LexicalEntry></LexicalEntries>
-          </Stratum></Strata>
-        </Language></HermitCrabInput>"#
-    )
-}
-
-fn assert_metathesis_iteration_is_a_permanent_rust_only_refusal(
-    direction: &str,
-    variant: pg_foma::capability::ConstructVariant,
-) {
-    use pg_foma::capability::{
-        compose_envelope_for_strategy, default_registry, observed_variants, CompileDecision,
-    };
-    use pg_foma::enumerate::{enumerate_default, EmissionStrategy};
-    use pg_foma::grammar_semantics::GrammarSemantics;
-    use pg_foma::junctions::PhonologyProbe;
-    use pg_foma_backend::coverage_ledger::{build_ledger, obligation_met};
-
-    let xml = synthetic_metathesis_iteration_xml(direction);
-    let grammar = pg_grammar::load(&xml)
-        .unwrap_or_else(|error| panic!("synthetic metathesis grammar must load in Rust: {error}"));
-    let registry = default_registry();
-    let observed = observed_variants(&grammar, &registry);
-    assert_eq!(
-        observed,
-        HashSet::from([variant]),
-        "the Rust capability detector must identify exactly {}",
-        variant.id()
-    );
-
-    let rewrite_rules: Vec<_> = grammar
-        .strata
-        .iter()
-        .flat_map(|stratum| &stratum.prules)
-        .map(|rule| &grammar.prules[rule.0 as usize])
-        .collect();
-    let phonology = PhonologyProbe::new(&grammar);
-    let plan = enumerate_default(&grammar, &rewrite_rules, phonology.as_ref());
-    let semantics = GrammarSemantics::derive(&grammar);
-    let decision =
-        compose_envelope_for_strategy(&semantics, &plan, EmissionStrategy::PlanComposed, &registry);
-    let CompileDecision::Refuse(diagnostics) = decision else {
-        panic!(
-            "{} must be refused by the PlanComposed FST capability check",
-            variant.id()
-        );
-    };
-    assert_eq!(diagnostics.len(), 1, "{}: {diagnostics:?}", variant.id());
-    assert_eq!(
-        diagnostics[0].predicate,
-        "metathesis.faithful-swap-construction",
-        "{}: {diagnostics:?}",
-        variant.id()
-    );
-    assert!(
-        variant.permanent_refusal_reason().is_some(),
-        "{}",
-        variant.id()
-    );
-
-    let ledger = build_ledger(&registry, &HashSet::new());
-    let row = ledger
-        .row(variant.kind(), Some(variant.id()))
-        .expect("the variant must remain in the coverage ledger");
-    assert_eq!(
-        row.permanent_refusal.as_deref(),
-        variant.permanent_refusal_reason(),
-        "{} must stay a documented permanent refusal",
-        variant.id()
-    );
-    assert!(obligation_met(row), "{}: {row:?}", variant.id());
-}
-
-#[test]
-fn metathesis_ltr_unlowerable_is_a_documented_rust_only_refusal() {
-    assert_metathesis_iteration_is_a_permanent_rust_only_refusal(
-        "",
-        pg_foma::capability::ConstructVariant::MetathesisLtrUnlowerable,
-    );
-}
-
-#[test]
-fn metathesis_rtl_unlowerable_is_a_documented_rust_only_refusal() {
-    assert_metathesis_iteration_is_a_permanent_rust_only_refusal(
-        "multipleApplicationOrder=\"rightToLeftIterative\"",
-        pg_foma::capability::ConstructVariant::MetathesisRtlUnlowerable,
-    );
-}
-
 #[test]
 fn declared_supported_variants_are_observed_by_the_fixture_inventory() {
     use pg_foma::capability::{default_registry, observed_variants};
@@ -407,7 +288,7 @@ fn declared_supported_variants_are_observed_by_the_fixture_inventory() {
         .iter()
         .flat_map(|p| p.variants().iter().copied())
         .collect();
-    assert_eq!(declared.len(), 24);
+    assert_eq!(declared.len(), 12);
     let mut all_observed = HashSet::new();
     for fixture in discover() {
         let words = fixture.load_words_yaml();

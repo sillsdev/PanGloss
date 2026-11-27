@@ -16,6 +16,13 @@ use pg_grammar::model::{Grammar, NaturalClassKind, Pattern, PatternNode, TableId
 
 use crate::replace::SegAlphabet;
 
+mod block;
+mod insertion;
+mod intermediate;
+pub(crate) use block::{compile_block, is_block_rule, pair_filter};
+pub(crate) use insertion::{compile_fed_insertion, render_branch, replacement_rows};
+pub(crate) use intermediate::IntermediateBundles;
+
 /// Resolves exact class membership while leaving alpha-bound feature lanes for tuple binding.
 fn class_members(
     g: &Grammar,
@@ -521,7 +528,9 @@ pub(crate) fn resolve_alpha_tuples(
 
 /// Renders an already-deduplicated token set as one atom: a bare char for a singleton, or foma's own `[a | b | ...]` union syntax for two-or-more, so an aliased `Slot::Fixed` atom and an aliased-and-unioned `Slot::Union` atom look identical to a caller that never observes aliasing.
 fn format_union_tokens(chars: &[char]) -> String {
-    if chars.len() == 1 {
+    if chars.is_empty() {
+        "[0 - 0]".to_owned()
+    } else if chars.len() == 1 {
         chars[0].to_string()
     } else {
         let inner: Vec<String> = chars.iter().map(|c| c.to_string()).collect();
@@ -646,7 +655,7 @@ pub(crate) fn diagnose_unsupported(
 }
 
 /// `true` iff `nodes`, at any nesting depth through a `Quantifier`'s `children`, contains a `Context` carrying an `AlphaVar` — the pre-lowering version of `slots_contain_alpha`, letting `diagnose_unsupported_nodes`'s `Quantifier` arm check without first building `Slot`s for a subtree it may reject for a different reason.
-fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
+pub(crate) fn nodes_contain_alpha_context(nodes: &[PatternNode]) -> bool {
     nodes.iter().any(|n| match n {
         PatternNode::Context(sc) => !sc.vars.is_empty(),
         PatternNode::Quantifier { children, .. } => nodes_contain_alpha_context(children),

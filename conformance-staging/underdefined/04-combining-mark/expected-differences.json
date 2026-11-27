@@ -17,7 +17,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -29,7 +29,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -48,7 +48,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -60,7 +60,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -78,7 +78,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -90,7 +90,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãma, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -109,7 +109,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     },
     {
@@ -121,7 +121,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mãmas, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "072-provisional-letter-unit.md",
+      "ledger": "issue-32",
       "reason": "PanGloss preserves the undefined composed/decomposed extended grapheme as one provisional letter; C# segmentation throws for the missing representation."
     }
   ]

@@ -1,29 +1,45 @@
 <#
   .DESCRIPTION
-  Cut a PanGloss release locally by stamping the workspace version, refreshing Cargo.lock through
-  pg.ps1, committing the stamp, and creating an annotated vX.Y.Z tag. The script never pushes.
-  Push main and the tag together; the tag-triggered Release workflow waits for Rust CI to finish.
+  Cut a PanGloss release through a pull request, in two phases. No step commits to local main.
 
-  Preconditions:
-    - clean working tree on the current, up-to-date main branch
-    - a new numeric x.y.z version and a matching CHANGELOG.md section
-    - managed offline lock refresh and locked pg.ps1 -Mode check succeed after stamping
+  -Prepare -Version X.Y.Z   (from any clean worktree on any branch)
+    Fetches origin/main, creates branch release/vX.Y.Z from it (HEAD need not be main), makes the
+    '## X.Y.Z' section of CHANGELOG.md plus 'Released <today>.': a '## Unreleased' heading is renamed
+    to it, and the fragments in changes/unreleased/*.md (README.md excepted) are appended to it in
+    file-name order (ordinal) and deleted. An existing '## X.Y.Z' section is kept as is and fragments
+    are left in place. With no '## Unreleased' the section goes above the newest version. Stamps the workspace version, refreshes Cargo.lock through pg.ps1,
+    runs the locked managed check, commits 'release: vX.Y.Z', pushes the branch, and opens the PR
+    with gh. -NoPush stops after the local commit.
 
-  -DryRun checks the branch, tree, version, tag, and changelog without stamping or tagging.
+  -Tag -Version X.Y.Z   (after the PR is squash-merged)
+    Fetches origin/main and finds the release commit: the first-parent commit that set the
+    workspace version to X.Y.Z, provided origin/main's tip still carries that version. It then
+    requires the '## X.Y.Z' changelog section at that commit and creates the annotated tag
+    vX.Y.Z on it with no checkout. Commits that landed after the release commit are not tagged.
+    It prints 'git push origin vX.Y.Z'; -Push runs it. Pushing the tag starts the Release workflow.
+
+  -DryRun runs the preflight of either phase and changes nothing.
   CI accepts only annotated vX.Y.Z tags whose commit is on origin/main. Prereleases are not
   supported. Run workflow_dispatch with an explicit ref and version for a build-only rehearsal.
+  Test hook: PG_RELEASE_GH names the gh command (default gh).
 
   Examples:
-    rust\tools\release.ps1 -Version 0.7.0 -DryRun
-    rust\tools\release.ps1 -Version 0.7.0
+    rust\tools\release.ps1 -Prepare -Version 0.7.0
+    rust\tools\release.ps1 -Tag -Version 0.7.0 -Push
 
-  Exit codes: 30 dirty tree, 31 branch or remote-main mismatch, 32 managed check failed,
-  33 version or changelog refusal, 34 existing tag, 0 success.
+  Exit codes: 30 dirty tree, 31 branch or origin/main problem (fetch failed, release branch
+  exists), 32 managed check failed, 33 version or changelog refusal (including -Tag on a commit
+  without the version or section), 34 existing tag, 35 push, PR creation, or tag push failed,
+  0 success.
 #>
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version,
-    [switch]$DryRun,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Prepare')][switch]$Prepare,
+    [Parameter(ParameterSetName = 'Prepare')][switch]$NoPush,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Tag')][switch]$Tag,
+    [Parameter(ParameterSetName = 'Tag')][switch]$Push,
+    [Parameter(ParameterSetName = 'Prepare')][Parameter(ParameterSetName = 'Tag')][switch]$DryRun,
     [int]$MaxConcurrent = 2
 )
 
@@ -33,7 +49,8 @@ $repoRoot = (Resolve-Path (Join-Path $toolRoot '..\..')).Path
 $cargoToml = Join-Path $repoRoot 'rust\Cargo.toml'
 $cargoLock = Join-Path $repoRoot 'rust\Cargo.lock'
 $changelog = Join-Path $repoRoot 'CHANGELOG.md'
-$tag = "v$Version"
+$releaseTag = "v$Version"
+$releaseBranch = "release/$releaseTag"
 
 function Write-Refusal([string]$Gate, [string]$Reason, [int]$ExitCode) {
     Write-Host "[release] $Gate REFUSED -- $Reason" -ForegroundColor Red
@@ -148,10 +165,113 @@ function Get-LocalLockVersions([string]$LockText, [string]$PackageName) {
     return $versions
 }
 
-$branch = git -C $repoRoot branch --show-current
-if ($LASTEXITCODE -ne 0 -or $branch -cne 'main') {
-    Write-Refusal 'branch' "run this cut from main (current branch: '$branch')" 31
+function Get-WorkspaceVersionFromToml([string]$Text) {
+    $section = [regex]::Match($Text, '(?ms)^\[workspace\.package\]\r?\n(?<body>.*?)(?=^\[|\z)')
+    if (-not $section.Success) { return $null }
+    $found = [regex]::Match($section.Groups['body'].Value, '(?m)^version\s*=\s*"(?<v>[^"]+)"')
+    if ($found.Success) { return $found.Groups['v'].Value }
+    return $null
 }
+
+function Test-ChangelogSection([string]$Text, [string]$SectionVersion) {
+    # Exact line match, like CI's grep -Fx: no trailing space, no CR.
+    return (($Text -split "`n") -ccontains "## $SectionVersion")
+}
+
+function Get-FragmentName([string]$Path) {
+    # Direct children of changes/unreleased that end in .md; README.md documents the folder.
+    $m = [regex]::Match(($Path -replace '\\', '/'), '^changes/unreleased/(?<name>[^/]+\.md)$')
+    if ($m.Success -and $m.Groups['name'].Value -cne 'README.md') { return $m.Groups['name'].Value }
+    return $null
+}
+
+function Add-ChangelogFragments([string]$Text, [string]$SectionVersion, [string]$Stamp, [string]$Block) {
+    # Appends $Block to the '## X.Y.Z' section, creating it above the first version section when absent.
+    if (-not (Test-ChangelogSection $Text $SectionVersion)) {
+        $first = [regex]::Match($Text, '(?m)^## ')
+        $heading = "## $SectionVersion`n`nReleased $Stamp.`n`n"
+        $Text = if ($first.Success) { $Text.Insert($first.Index, $heading) } else { $Text.TrimEnd() + "`n`n" + $heading.TrimEnd() + "`n" }
+    }
+    $start = $Text.IndexOf("## $SectionVersion`n", [System.StringComparison]::Ordinal)
+    $next = [regex]::Match($Text.Substring($start + 3), '(?m)^## ')
+    $cut = if ($next.Success) { $start + 3 + $next.Index } else { $Text.Length }
+    $head = $Text.Substring(0, $cut).TrimEnd()
+    $tail = $Text.Substring($cut)
+    return $head + "`n`n" + $Block + "`n" + $(if ($tail) { "`n" + $tail } else { '' })
+}
+
+function Invoke-Git([string[]]$GitArguments) {
+    $output = & git -C $repoRoot @GitArguments 2>&1
+    return [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = (($output | ForEach-Object { "$_" }) -join "`n").TrimEnd() }
+}
+
+function Assert-TagFree {
+    $local = Invoke-Git @('tag', '--list', $releaseTag)
+    if ($local.ExitCode -ne 0) { Write-Refusal 'tag' 'git could not inspect local tags' 34 }
+    if ($local.Output) { Write-Refusal 'tag' "$releaseTag already exists locally" 34 }
+    $remote = Invoke-Git @('ls-remote', '--exit-code', '--tags', 'origin', "refs/tags/$releaseTag")
+    if ($remote.ExitCode -eq 0 -or $remote.Output) { Write-Refusal 'tag' "$releaseTag already exists on origin" 34 }
+    if ($remote.ExitCode -ne 2) { Write-Refusal 'tag' 'could not check origin for an existing tag' 34 }
+}
+
+function Update-OriginMain {
+    $fetch = Invoke-Git @('fetch', '--quiet', '--no-tags', 'origin', 'refs/heads/main:refs/remotes/origin/main')
+    if ($fetch.ExitCode -ne 0) {
+        Write-Refusal 'branch' 'could not fetch origin/main; the current main tip could not be verified' 31
+    }
+    return (Invoke-Git @('rev-parse', 'refs/remotes/origin/main')).Output
+}
+
+function Get-CommitFile([string]$Commit, [string]$Path) {
+    $shown = Invoke-Git @('show', "${Commit}:$Path")
+    if ($shown.ExitCode -ne 0) { return $null }
+    return $shown.Output
+}
+
+function Invoke-TagPhase {
+    $tip = Update-OriginMain
+    $tipVersion = Get-WorkspaceVersionFromToml (Get-CommitFile $tip 'rust/Cargo.toml')
+    if ($tipVersion -cne $Version) {
+        Write-Refusal 'version' "origin/main's workspace version is '$tipVersion', not $Version; merge the release PR first, or a later release has superseded it" 33
+    }
+    if ((Invoke-Git @('rev-parse', '--is-shallow-repository')).Output -ne 'false') {
+        Write-Refusal 'clone' 'this is a shallow clone (or shallowness could not be checked); the release commit cannot be found. Run git fetch --unshallow' 31
+    }
+    # The release commit is the oldest first-parent commit of the run that carries this version.
+    $release = $tip
+    foreach ($parent in (Invoke-Git @('rev-list', '--first-parent', '--skip=1', $tip)).Output -split "`n") {
+        if (-not $parent) { break }
+        $parentVersion = Get-WorkspaceVersionFromToml (Get-CommitFile $parent 'rust/Cargo.toml')
+        if ($null -eq $parentVersion) {
+            Write-Refusal 'version' "could not read the workspace version at $parent while finding the release commit" 33
+        }
+        if ($parentVersion -cne $Version) { break }
+        $release = $parent
+    }
+    $notes = Get-CommitFile $release 'CHANGELOG.md'
+    if ($null -eq $notes -or -not (Test-ChangelogSection $notes $Version)) {
+        Write-Refusal 'changelog' "the release commit $release has no '## $Version' CHANGELOG.md section" 33
+    }
+    Assert-TagFree
+    Write-Host "[release] tag preflight green: $releaseTag will name $release (origin/main tip $tip)"
+    if ($DryRun) {
+        Write-Host "[release] DRY RUN -- no tag created. Would run: git tag -a $releaseTag $release"
+        exit 0
+    }
+    $made = Invoke-Git @('tag', '-a', $releaseTag, '-m', "PanGloss $releaseTag", $release)
+    if ($made.ExitCode -ne 0) { Write-Refusal 'tag' "annotated tag creation failed: $($made.Output)" 34 }
+    if (-not $Push) {
+        Write-Host "[release] created annotated tag $releaseTag on $release. No push was run."
+        Write-Host "[release] push it to start the Release workflow: git push origin $releaseTag"
+        exit 0
+    }
+    $pushed = Invoke-Git @('push', 'origin', "refs/tags/$releaseTag")
+    if ($pushed.ExitCode -ne 0) { Write-Refusal 'push' "tag push failed: $($pushed.Output)" 35 }
+    Write-Host "[release] pushed $releaseTag; the Release workflow now waits for Rust CI on $release."
+    exit 0
+}
+
+if ($Tag) { Invoke-TagPhase }
 
 $dirty = @(git -C $repoRoot status --porcelain --untracked-files=all --ignore-submodules=all)
 if ($LASTEXITCODE -ne 0) { Write-Refusal 'tree' 'git status failed; the tree could not be verified' 30 }
@@ -159,49 +279,96 @@ if ($dirty.Count -gt 0) {
     Write-Refusal 'tree' "working tree has uncommitted changes: $($dirty -join '; ')" 30
 }
 
-git -C $repoRoot fetch --quiet --no-tags origin refs/heads/main:refs/remotes/origin/main
-if ($LASTEXITCODE -ne 0) {
-    Write-Refusal 'branch' 'could not fetch origin/main; the current main tip could not be verified' 31
+$remoteMain = Update-OriginMain
+Assert-TagFree
+if ((Invoke-Git @('show-ref', '--verify', '--quiet', "refs/heads/$releaseBranch")).ExitCode -eq 0) {
+    Write-Refusal 'branch' "local branch $releaseBranch already exists; delete it or finish that release" 31
 }
-$head = git -C $repoRoot rev-parse HEAD
-$remoteMain = git -C $repoRoot rev-parse refs/remotes/origin/main
-if ($LASTEXITCODE -ne 0 -or $head -cne $remoteMain) {
-    Write-Refusal 'branch' "local main is not up to date with origin/main (local $head, remote $remoteMain)" 31
+$remoteBranch = Invoke-Git @('ls-remote', '--exit-code', '--heads', 'origin', $releaseBranch)
+if ($remoteBranch.ExitCode -eq 0 -or $remoteBranch.Output) {
+    Write-Refusal 'branch' "$releaseBranch already exists on origin; merge or delete it first" 31
 }
+if ($remoteBranch.ExitCode -ne 2) { Write-Refusal 'branch' 'could not check origin for an existing release branch' 31 }
 
-$localTag = git -C $repoRoot tag --list $tag
-if ($LASTEXITCODE -ne 0) { Write-Refusal 'tag' 'git could not inspect local tags' 34 }
-if ($localTag) { Write-Refusal 'tag' "$tag already exists locally" 34 }
-$remoteTag = git -C $repoRoot ls-remote --exit-code --tags origin "refs/tags/$tag"
-if ($LASTEXITCODE -eq 0 -or $remoteTag) { Write-Refusal 'tag' "$tag already exists on origin" 34 }
-if ($LASTEXITCODE -notin @(0, 2)) { Write-Refusal 'tag' 'could not check origin for an existing tag' 34 }
-
-$tomlText = Get-Content -LiteralPath $cargoToml -Raw
-$workspace = [regex]::Match($tomlText, '(?ms)^\[workspace\.package\]\r?\n(?<body>.*?)(?=^\[|\z)')
-if (-not $workspace.Success) { Write-Refusal 'version' 'rust/Cargo.toml has no [workspace.package] section' 33 }
-$versionLine = [regex]::new('(?m)^(?<prefix>version\s*=\s*)"(?<version>[^"]+)"')
-$currentVersion = $versionLine.Match($workspace.Groups['body'].Value)
-if (-not $currentVersion.Success) { Write-Refusal 'version' 'rust/Cargo.toml has no workspace package version' 33 }
-if ($currentVersion.Groups['version'].Value -ceq $Version) {
+$baseToml = Get-CommitFile $remoteMain 'rust/Cargo.toml'
+if ($null -eq $baseToml) { Write-Refusal 'version' 'origin/main has no rust/Cargo.toml' 33 }
+$baseVersion = Get-WorkspaceVersionFromToml $baseToml
+if ($null -eq $baseVersion) { Write-Refusal 'version' 'rust/Cargo.toml has no workspace package version' 33 }
+if ($baseVersion -ceq $Version) {
     Write-Refusal 'version' "workspace version is already $Version; refusing to cut the same version again" 33
 }
-
-if (-not (Test-Path -LiteralPath $changelog -PathType Leaf)) {
-    Write-Refusal 'changelog' 'CHANGELOG.md is missing' 33
+$baseChangelog = Get-CommitFile $remoteMain 'CHANGELOG.md'
+if ($null -eq $baseChangelog) { Write-Refusal 'changelog' 'CHANGELOG.md is missing' 33 }
+$hasSection = Test-ChangelogSection $baseChangelog $Version
+$hasUnreleased = [bool]($baseChangelog -match '(?m)^##[ \t]+Unreleased[ \t]*\r?$')
+$baseFragments = @((Invoke-Git @('ls-tree', '-r', '--name-only', $remoteMain, '--', 'changes/unreleased')).Output -split "`n" |
+        Where-Object { $_ -and $null -ne (Get-FragmentName $_) })
+if (-not $hasSection -and -not $hasUnreleased -and $baseFragments.Count -eq 0) {
+    Write-Refusal 'changelog' "CHANGELOG.md has neither '## Unreleased' nor '## $Version' and changes/unreleased holds no fragment; author release notes before cutting" 33
 }
-$lockBefore = if (Test-Path -LiteralPath $cargoLock -PathType Leaf) { Get-LockText $cargoLock } else { $null }
-if ($null -eq $lockBefore) { Write-Refusal 'lockfile' 'rust/Cargo.lock is missing before the managed refresh' 33 }
-$changelogText = Get-Content -LiteralPath $changelog -Raw
-if ($changelogText -notmatch ('(?m)^##\s+' + [regex]::Escape($Version) + '\s*$')) {
-    Write-Refusal 'changelog' "CHANGELOG.md has no '## $Version' section; author release notes before cutting" 33
+if ($null -eq (Get-CommitFile $remoteMain 'rust/Cargo.lock')) { Write-Refusal 'lockfile' 'rust/Cargo.lock is missing before the managed refresh' 33 }
+
+$gh = if ($env:PG_RELEASE_GH) { $env:PG_RELEASE_GH } else { 'gh' }
+if (-not $NoPush -and -not (Get-Command $gh -ErrorAction SilentlyContinue)) {
+    Write-Refusal 'gh' "cannot run '$gh'; install the GitHub CLI or pass -NoPush" 35
 }
 
-Write-Host "[release] preflight green: main=$head, version $($currentVersion.Groups['version'].Value) -> $Version, changelog section present"
+$changelogPlan = if ($hasSection) { "keep '## $Version'" } elseif ($hasUnreleased) { "rename '## Unreleased' to '## $Version'" } else { "create '## $Version'" }
+if (-not $hasSection -and $baseFragments.Count -gt 0) { $changelogPlan += " and fold $($baseFragments.Count) fragment(s) from changes/unreleased" }
+Write-Host "[release] preflight green: origin/main=$remoteMain, version $baseVersion -> $Version, changelog: $changelogPlan"
 if ($DryRun) {
-    Write-Host "[release] DRY RUN -- no files, commits, or tags changed. Ready to stamp and tag $tag."
-    Write-Host "[release] push main and the tag to start Rust CI and Release: git push --atomic origin main $tag"
+    Write-Host "[release] DRY RUN -- no branch, files, or commits changed. Would branch $releaseBranch from origin/main, commit, push, and open a PR."
     exit 0
 }
+
+$previousRef = (Invoke-Git @('rev-parse', '--abbrev-ref', 'HEAD')).Output
+$switched = Invoke-Git @('switch', '--quiet', '--no-track', '-c', $releaseBranch, $remoteMain)
+if ($switched.ExitCode -ne 0) { Write-Refusal 'branch' "could not create $releaseBranch from origin/main: $($switched.Output)" 31 }
+Write-Host "[release] created $releaseBranch from origin/main ($remoteMain)"
+
+$fragmentFiles = @()
+if (-not $hasSection) {
+    $changelogText = [System.IO.File]::ReadAllText($changelog)
+    $stamp = Get-Date -Format 'yyyy-MM-dd'
+    $heading = [regex]::new('(?m)^##[ \t]+Unreleased[ \t]*(?<eol>\r?\n|\z)(?:\r?\n)?')
+    $renamed = $heading.Replace($changelogText, { param($m) $e = $m.Groups['eol'].Value; if (-not $e) { $e = "`n" }; "## $Version$e${e}Released $stamp.$e$e" }, 1)
+    $fragmentDir = Join-Path $repoRoot 'changes\unreleased'
+    if (Test-Path -LiteralPath $fragmentDir) {
+        [string[]]$names = @(Get-ChildItem -LiteralPath $fragmentDir -File | ForEach-Object { $_.Name } | Where-Object { $null -ne (Get-FragmentName "changes/unreleased/$_") })
+        [Array]::Sort($names, [System.StringComparer]::Ordinal)
+        $fragmentFiles = @($names | ForEach-Object { Join-Path $fragmentDir $_ })
+    }
+    $fragmentBullets = @()
+    $badFragment = $null
+    foreach ($file in $fragmentFiles) {
+        $bullet = ([System.IO.File]::ReadAllText($file) -replace "`r`n", "`n").Trim()
+        if (-not $bullet.StartsWith('- ', [System.StringComparison]::Ordinal)) { $badFragment = $file; break }
+        $fragmentBullets += $bullet
+    }
+    if ($badFragment) {
+        Invoke-Git @('switch', '--quiet', $previousRef) | Out-Null
+        Invoke-Git @('branch', '-D', $releaseBranch) | Out-Null
+        Write-Refusal 'changelog' "fragment $badFragment must hold one or more Markdown bullets starting with '- '" 33
+    }
+    if ($fragmentBullets.Count -gt 0) {
+        $renamed = Add-ChangelogFragments ($renamed -replace "`r`n", "`n") $Version $stamp ($fragmentBullets -join "`n")
+    }
+    if (-not (Test-ChangelogSection $renamed $Version)) {
+        # Nothing is written yet: leave the tree as found.
+        Invoke-Git @('switch', '--quiet', $previousRef) | Out-Null
+        Invoke-Git @('branch', '-D', $releaseBranch) | Out-Null
+        Write-Refusal 'changelog' "renaming '## Unreleased' did not produce an exact '## $Version' line (CI needs LF endings and no trailing spaces)" 33
+    }
+    [System.IO.File]::WriteAllText($changelog, $renamed, [System.Text.UTF8Encoding]::new($false))
+    foreach ($file in $fragmentFiles) { Remove-Item -LiteralPath $file -Force }
+    if ($fragmentFiles.Count -gt 0) { Write-Host "[release] folded $($fragmentFiles.Count) fragment(s) from changes/unreleased into '## $Version' and deleted them" }
+}
+
+$lockBefore = Get-LockText $cargoLock
+$tomlText = Get-Content -LiteralPath $cargoToml -Raw
+$workspace = [regex]::Match($tomlText, '(?ms)^\[workspace\.package\]\r?\n(?<body>.*?)(?=^\[|\z)')
+$versionLine = [regex]::new('(?m)^(?<prefix>version\s*=\s*)"(?<version>[^"]+)"')
+$currentVersion = $versionLine.Match($workspace.Groups['body'].Value)
 
 $bodyGroup = $workspace.Groups['body']
 $body = $bodyGroup.Value
@@ -263,24 +430,46 @@ if ($lockAfterCheck -cne $lockAfterRefresh) {
 }
 $postCheckDirty = @(git -C $repoRoot status --porcelain --untracked-files=all --ignore-submodules=all)
 if ($LASTEXITCODE -ne 0) { Write-Host '[release] could not verify the managed check left only release files changed' -ForegroundColor Red; exit 32 }
-$unexpectedChanges = @($postCheckDirty | Where-Object { $_ -notmatch '^\s*M\s+rust[/\\]Cargo\.(toml|lock)$' })
+$unexpectedChanges = @($postCheckDirty | Where-Object { $_ -notmatch '^\s*[MD]\s+(rust[/\\]Cargo\.(toml|lock)|CHANGELOG\.md|changes[/\\]unreleased[/\\][^/\\]+\.md)$' })
 if ($unexpectedChanges.Count -gt 0) {
-    Write-Host '[release] managed check changed files outside rust/Cargo.toml and rust/Cargo.lock; inspect the tree before retrying' -ForegroundColor Red
+    Write-Host '[release] managed check changed files outside rust/Cargo.toml, rust/Cargo.lock, CHANGELOG.md, and changes/unreleased; inspect the tree before retrying' -ForegroundColor Red
     $unexpectedChanges | ForEach-Object { Write-Host "    $_" }
     exit 32
 }
 
-git -C $repoRoot add -- rust/Cargo.toml rust/Cargo.lock
+$stagePaths = @('rust/Cargo.toml', 'rust/Cargo.lock', 'CHANGELOG.md')
+if ($fragmentFiles.Count -gt 0) { $stagePaths += 'changes/unreleased' }
+git -C $repoRoot add -A -- @stagePaths
 if ($LASTEXITCODE -ne 0) { Write-Host '[release] git add failed; version stamp is left in the tree' -ForegroundColor Red; exit 32 }
 git -C $repoRoot diff --cached --quiet
 if ($LASTEXITCODE -eq 0) { Write-Host '[release] managed version stamp produced no Cargo.toml or Cargo.lock changes' -ForegroundColor Red; exit 33 }
 if ($LASTEXITCODE -ne 1) { Write-Host '[release] could not inspect the staged version stamp' -ForegroundColor Red; exit 32 }
 
-git -C $repoRoot commit -m "release: $tag"
-if ($LASTEXITCODE -ne 0) { Write-Host '[release] version stamp commit failed; staged files are left for inspection' -ForegroundColor Red; exit 32 }
-git -C $repoRoot tag -a $tag -m "PanGloss $tag"
-if ($LASTEXITCODE -ne 0) { Write-Host "[release] annotated tag creation failed after the version commit $tag" -ForegroundColor Red; exit 34 }
+git -C $repoRoot commit -q -m "release: $releaseTag"
+if ($LASTEXITCODE -ne 0) { Write-Host '[release] release commit failed; staged files are left for inspection' -ForegroundColor Red; exit 32 }
+$sha = (Invoke-Git @('rev-parse', 'HEAD')).Output
+Write-Host "[release] committed 'release: $releaseTag' as $sha on $releaseBranch."
+if ($NoPush) {
+    Write-Host "[release] -NoPush: nothing pushed. Push and open the PR yourself: git push -u origin $releaseBranch"
+    exit 0
+}
 
-Write-Host "[release] created release commit and annotated tag $tag. No push was run."
-Write-Host "[release] push main and the tag to start Rust CI and Release: git push --atomic origin main $tag"
+$pushed = Invoke-Git @('push', '-u', 'origin', $releaseBranch)
+if ($pushed.ExitCode -ne 0) { Write-Refusal 'push' "could not push ${releaseBranch}: $($pushed.Output)" 35 }
+$prBody = @"
+Cuts $releaseTag. The branch stamps the workspace version and Cargo.lock to $Version and holds the ``## $Version`` section of CHANGELOG.md (released $(Get-Date -Format 'yyyy-MM-dd')).
+
+After a squash merge, tag the merged commit: ``pwsh -NoProfile -File rust/tools/release.ps1 -Tag -Version $Version -Push``.
+"@
+Push-Location $repoRoot
+try {
+    $prOutput = & $gh pr create --base main --head $releaseBranch --title "release: $releaseTag" --body $prBody 2>&1 | ForEach-Object { "$_" }
+    $prExit = $LASTEXITCODE
+} catch {
+    $prOutput = @("$_")
+    $prExit = 1
+} finally { Pop-Location }
+if ($prExit -ne 0) { Write-Refusal 'pr' "gh pr create failed (the branch is pushed): $($prOutput -join ' ')" 35 }
+Write-Host ($prOutput -join "`n")
+Write-Host "[release] after the PR is squash-merged, tag it: rust\tools\release.ps1 -Tag -Version $Version -Push"
 exit 0

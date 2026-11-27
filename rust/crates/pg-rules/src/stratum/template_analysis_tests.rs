@@ -72,8 +72,247 @@ fn word(g: &Grammar, text: &str) -> Word {
     Word::new(shape, StratumId(0))
 }
 
+#[test]
+fn edge_index_falls_back_for_optional_and_unknown_intermediate_edges() {
+    use pg_shape::{NodeFlags, NodeKind, ShapeBuilder, NO_CHAR_DEF};
+
+    let g = grammar();
+    let cache = RuleCache::build(&g);
+    let id = MRuleId(0);
+    let plain = word(&g, "mi").shape;
+    let matching = word(&g, "mid").shape;
+    let table = pg_grammar_model::model::TableId(0);
+    let rejects = |shape: &pg_shape::Shape| {
+        cache
+            .edge_candidates(&g, table, shape)
+            .is_some_and(|c| c.rejects(id))
+    };
+    assert!(rejects(&plain));
+    assert!(!rejects(&matching));
+    let budget = WordBudget::new(10_000);
+    let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
+    let analyzer = StratumAnalyzer::new(
+        &g,
+        StratumId(0),
+        AnalyzerConfig::default(),
+        None,
+        None,
+        Some(&cache),
+        &budget,
+        &values,
+        FinalTemplateAnalysisPolicy::default(),
+        None,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let input = word(&g, "mi");
+    let candidates = analyzer.edge_candidates(&input, [id].into_iter()).unwrap();
+    assert!(analyzer
+        .apply_one_mrule(id, &input, RuleInvocationRole::Ordinary, Some(&candidates))
+        .is_empty());
+    assert!(analyzer
+        .apply_one_mrule(id, &input, RuleInvocationRole::Ordinary, Some(&candidates))
+        .is_empty());
+    assert!(analyzer
+        .edge_candidates(&word(&g, "mid"), [id].into_iter())
+        .is_none());
+    assert_eq!(budget.work_steps(), 1);
+    let (segments, _) = morph::segs_of(&g, pg_grammar_model::model::TableId(0), &plain, false);
+    let allos = g.mrules[0].affix_allomorphs().unwrap();
+    assert!(allos.iter().all(|allo| cache
+        .allomorph(allo.id)
+        .ana_lhs
+        .as_deref()
+        .unwrap()
+        .1
+        .edge_rejects(&segments)));
+
+    let last = plain.len() - 2;
+    let lanes = plain.node_lanes(last).to_vec();
+    let mut optional = ShapeBuilder::from_shape(&plain);
+    optional.delete(last);
+    optional.insert(
+        last,
+        NodeKind::Segment,
+        plain.char_def(last),
+        NodeFlags(NodeFlags::OPTIONAL),
+        &lanes,
+    );
+    assert!(!rejects(&optional.freeze()));
+
+    let mut unknown = ShapeBuilder::from_shape(&plain);
+    unknown.delete(last);
+    unknown.insert(
+        last,
+        NodeKind::Segment,
+        NO_CHAR_DEF,
+        NodeFlags::EMPTY,
+        &lanes,
+    );
+    assert!(!rejects(&unknown.freeze()));
+}
+
+#[test]
+fn syntactic_rejection_does_not_charge_the_edge_index() {
+    let g = grammar();
+    let cache = RuleCache::build(&g);
+    let id = MRuleId(0);
+    let mut input = word(&g, "mi");
+    input.syn_fs = g.fs_interner.get(g.entries[1].syn_fs).clone();
+    let MorphRuleDef::AffixProcess(rule) = &g.mrules[id.0 as usize] else {
+        panic!("fixture must contain an affix rule");
+    };
+    assert!(morph::ana_syn_fs(&g, rule.required_syn_fs, rule.out_syn_fs, &input, None).is_none());
+    let budget = WordBudget::new(10_000);
+    let _scope = budget.enter();
+    let values = crate::shared_values::SharedValues::default();
+    let analyzer = StratumAnalyzer::new(
+        &g,
+        StratumId(0),
+        AnalyzerConfig::default(),
+        None,
+        None,
+        Some(&cache),
+        &budget,
+        &values,
+        FinalTemplateAnalysisPolicy::default(),
+        None,
+        &crate::trace::NoopSink,
+        TraceHandle::DUMMY,
+    );
+    let candidates = analyzer.edge_candidates(&input, [id].into_iter()).unwrap();
+    assert!(candidates.rejects(id));
+    assert!(analyzer
+        .apply_one_mrule(id, &input, RuleInvocationRole::Ordinary, Some(&candidates))
+        .is_empty());
+    assert_eq!(budget.work_steps(), 1);
+    assert!(
+        candidates.charge_needed(),
+        "syntactic rejection must not charge the index"
+    );
+}
+
+#[test]
+fn an_undecidable_allomorph_keeps_the_whole_rule() {
+    let second = r#"</MorphologicalSubrule>
+      <MorphologicalSubrule id="subUnknown">
+        <MorphologicalInput><PhoneticSequence id="stem"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+        <MorphologicalOutput><CopyFromInput index="stem" /></MorphologicalOutput>
+      </MorphologicalSubrule>"#;
+    let xml = XML.replacen("</MorphologicalSubrule>", second, 1);
+    let g = pg_grammar::load(&xml).unwrap();
+    let cache = RuleCache::build(&g);
+    assert!(cache
+        .edge_candidates(
+            &g,
+            pg_grammar_model::model::TableId(0),
+            &word(&g, "mi").shape
+        )
+        .is_none_or(|c| !c.rejects(MRuleId(0))));
+}
+
+#[test]
+fn featured_edge_index_prunes_incompatible_features_without_pinning_spellings() {
+    let g = pg_conformance_fixtures::require_fixture("edge-cases", "spelling-coverage-copy-slots")
+        .load_grammar();
+    let cache = RuleCache::build(&g);
+    let table = pg_grammar_model::model::TableId(0);
+    let rejects = |text: &str, rule: usize| {
+        let shape = crate::shape_feat::segment_with_features(&g, &g.char_tables[0], text).unwrap();
+        cache
+            .edge_candidates(&g, table, &shape)
+            .is_some_and(|c| c.rejects(MRuleId(rule as u32)))
+    };
+    assert!(rejects("ae", 1), "the s suffix cannot match f+ on e");
+    assert!(!rejects("as", 1), "the s suffix must remain a candidate");
+    assert!(rejects("ap", 2), "the e slot cannot match f- on p");
+    assert!(
+        !rejects("aa", 2),
+        "the e slot unifies with a's omitted g feature despite its different identity"
+    );
+    assert!(cache.edge_index_allocated_bytes() > 0);
+    assert!(
+        cache
+            .edge_candidates(&g, table, &word(&g, "ap").shape)
+            .is_none(),
+        "a bare shape has no feature evidence for an indexed exclusion"
+    );
+}
+
+#[test]
+fn indexed_feature_rejections_imply_compiled_rejections_on_intermediate_shapes() {
+    use pg_shape::{NodeFlags, ShapeBuilder, NO_CHAR_DEF};
+
+    let xml =
+        pg_conformance_fixtures::require_fixture("edge-cases", "spelling-coverage-copy-slots")
+            .load_grammar_xml();
+    for wide in [false, true] {
+        let padding = (0..65)
+            .map(|i| format!("<SegmentDefinition id=\"pad{i}\"><Representations><Representation>z{i}z</Representation></Representations></SegmentDefinition>"))
+            .collect::<String>();
+        let xml = if wide {
+            xml.replace(
+                "</SegmentDefinitions>",
+                &(padding + "</SegmentDefinitions>"),
+            )
+        } else {
+            xml.to_owned()
+        };
+        let g = pg_grammar::load(&xml).unwrap();
+        let cache = RuleCache::build(&g);
+        let table = pg_grammar_model::model::TableId(0);
+        let mut rejected = 0;
+        let mut widened_kept = 0;
+        // Keep each concrete id while changing or widening its feature lanes, as rewrite analysis can do.
+        for cd in (0..g.char_tables[0].len() as u32).chain([NO_CHAR_DEF]) {
+            for f in [1, 2, 3, u64::MAX] {
+                for h in [1, 2, 3, u64::MAX] {
+                    for optional in [false, true] {
+                        let mut lanes = g.char_tables[0]
+                            .get(pg_grammar_model::chardef::CharDefId(0))
+                            .matching_lanes();
+                        lanes[0] = f;
+                        lanes[1] = h;
+                        let mut shape = ShapeBuilder::with_features(lanes.len() as u32);
+                        shape.push_segment_with_lanes(cd, &lanes);
+                        if optional {
+                            shape.set_last_flags(NodeFlags::OPTIONAL);
+                        }
+                        let shape = shape.freeze();
+                        let candidates = cache.edge_candidates(&g, table, &shape);
+                        let (segments, _) = morph::segs_of(&g, table, &shape, false);
+                        for (r, rule) in g.mrules.iter().enumerate() {
+                            if candidates
+                                .as_ref()
+                                .is_some_and(|c| c.rejects(MRuleId(r as u32)))
+                            {
+                                rejected += 1;
+                                assert!(!optional && cd != NO_CHAR_DEF);
+                                for allo in rule.affix_allomorphs().unwrap() {
+                                    let (_, lhs) =
+                                        cache.allomorph(allo.id).ana_lhs.as_deref().unwrap();
+                                    assert!(
+                                        lhs.edge_rejects(&segments),
+                                        "indexed exclusion must imply compiled rejection"
+                                    );
+                                }
+                            } else if f == u64::MAX && h == u64::MAX {
+                                widened_kept += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(rejected > 0, "featured index must actually exclude rules");
+        assert!(widened_kept > 0, "widened edges must retain candidates");
+    }
+}
+
 fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word> {
-    let budget = StepBudget::new(usize::MAX);
+    let budget = WordBudget::new(usize::MAX);
+    let values = crate::shared_values::SharedValues::default();
     StratumAnalyzer::new(
         g,
         StratumId(0),
@@ -82,12 +321,14 @@ fn analyze_template(g: &Grammar, template: TemplateId, input: &Word) -> Vec<Word
         None,
         None,
         &budget,
+        &values,
         FinalTemplateAnalysisPolicy::default(),
         None,
         &crate::trace::NoopSink,
         TraceHandle::DUMMY,
     )
     .analyze_template(template, input)
+    .into_vec()
 }
 
 #[test]

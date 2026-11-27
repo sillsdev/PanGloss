@@ -34,19 +34,18 @@ really valid if the default's bits intersect the LHS's pinned bits — mirroring
 
 ## Scope
 
-Ported for the **Feature-kind subrule target pattern only** (`syn_feature` + `ana_feature`), the
-dispatch kind whose `UseDefaults` branch can actually influence a feature-change decision, and the
-one the conformance fixture exercises. Not yet applied:
+Rewrite environments default missing input lanes before matching, including the traversal that
+binds variables through quantified patterns. Allomorph environments retain their separate matcher
+settings. Narrow synthesis and nonempty Narrow analysis targets, and Epenthesis analysis targets,
+also use the target confirmation. Rewrite target variables bind the default when the input lacks
+their feature. The rule tests exercise these paths, alongside the existing Feature target fixture.
+Three staged `rewrite-default-*` fixtures replay environments, Narrow targets, and Epenthesis
+targets against the pinned C# engine. Each detects a difference without the fix.
 
-- **Environments.** C# applies `UseDefaults` uniformly across target + both environments (one
-  `MatcherSettings` per rule), so a pattern pinning a defaulted feature only in an environment
-  would still over-match here.
-- **`Narrow`/`Epenthesis` target patterns.** Same one-line confirm shape if ever needed.
-
-No known reference grammar or fixture exercises either gap (no grammar in the corpus has
-`defaultSymbol` at all), so these are real follow-on gaps if one ever does, not blockers on this
-port — consistent with this module's existing environment-vs-target asymmetry documented on
-`resolve_bindings`.
+The full-mask distinction is an observable remaining gap: changing the epenthesis fixture's `a`
+to explicitly specify both `nas` symbols makes C# accept `bat` as `|b[ad(aa)]t`, while this
+port treats the full mask as absent, substitutes `nas=+`, and rejects it. The staged fixture
+itself deliberately leaves `nas` absent and agrees with C#.
 
 ## Parameter shapes
 
@@ -57,3 +56,14 @@ whichever pattern the caller's `target: &Fst` was compiled from). A feature is "
 `k` iff `pattern_lanes[k][f] != full_mask(g, f)`. `target_nodes[k]` is target-pattern position `k`'s
 already-resolved shape-node index — see `resolve_bindings`'s doc for why this isn't always a
 contiguous `node_of[s+k]` slice.
+
+## Subsumption: an unspecified feature with no default (divergence 129)
+
+hc.dll's synthesis rewrite matchers keep `MatchingMethod.Subsumption` (the `MatcherSettings` default), so
+`FeatureStruct.SubsumesImpl` returns false when the node lacks a pinned feature and the feature
+declares no default; analysis matchers use `Unification`, where the unspecified feature is
+compatible. PanGloss matches through unification everywhere on purpose: a segment with no value for a
+feature satisfies a `[feature:-]` pin in synthesis targets and environments, so phonemes can build up
+features gradually. `pattern_defaults_ok` therefore only applies a declared default
+(`docs/divergences/129-unspecified-feature-satisfies-minus-pin.md`, policy "partial-feature grammars").
+v0.16.0 briefly aligned with hc.dll (#180) and the owner reverted it on 2026-11-05.

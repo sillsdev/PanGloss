@@ -9,7 +9,8 @@ use pg_foma::enumerate::{enumerate_default, CandidateRole, EmissionStrategy, Low
 use pg_foma::junctions::PhonologyProbe;
 use pg_foma_backend::backend_optimizer::Certification;
 use pg_foma_backend::backend_runtime::{
-    evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget, RuntimeEvaluation,
+    assess_accuracy_with_cache, evaluate_plans_with_cache, RunEvaluationCache, RuntimeBudget,
+    RuntimeEvaluation,
 };
 use pg_grammar::model::{Grammar, PhonRuleDef};
 
@@ -25,7 +26,7 @@ fn baseline_only(grammar: &Grammar) -> Vec<LoweredCandidate> {
     vec![LoweredCandidate {
         label: "apply-path-refusal-gate-baseline",
         plan: enumerate_default(grammar, &prules, phonology.as_ref()),
-        adapter: EmissionStrategy::PlanComposed,
+        adapter: EmissionStrategy::TunedSurfaceProbed,
         role: CandidateRole::Baseline,
     }]
 }
@@ -35,7 +36,7 @@ fn fixture(name: &str) -> FixtureRef {
         .into_iter()
         .find(|f| f.name == name)
         .unwrap_or_else(|| {
-            panic!("fixture {name} is not discoverable -- machine submodule initialized?")
+            panic!("fixture {name} is not discoverable -- fetch the suite with `pwsh rust/tools/conformance.ps1`")
         })
 }
 
@@ -104,73 +105,6 @@ fn the_two_aborting_fixtures_are_one_grammar() {
     );
 }
 
-/// Both fixtures now return a typed refusal naming the dimension, instead of aborting the process.
-#[test]
-fn both_formerly_aborting_fixtures_now_return_a_typed_apply_refusal() {
-    for name in REFUSING_FIXTURES {
-        let Some(evaluation) = evaluate(name, RuntimeBudget::default()) else {
-            panic!("{name}: oracle preparation faulted -- cannot say anything about the candidate");
-        };
-        let Some((dimension, value, limit)) = apply_refusal_dimension(&evaluation) else {
-            panic!(
-                "{name}: expected a per-word apply ResourceBreach, got {:?}",
-                evaluation.certification
-            );
-        };
-        eprintln!("{name}: REFUSED -- {dimension} value={value} limit={limit}");
-        assert_eq!(
-            limit,
-            DEFAULT_EVALUATION_APPLY_PATH_BUDGET.min(DEFAULT_EVALUATION_APPLY_CANDIDATE_BUDGET)
-                as u64,
-            "{name}: the refusal must report the calibrated default it was measured against"
-        );
-        assert_eq!(
-            value,
-            limit + 1,
-            "{name}: the apply budget is checked one past the limit (ApplyOutcome::Incomplete's own \
-             convention), so a trip always reports limit + 1"
-        );
-        assert!(
-            !evaluation.certification.selectable(),
-            "{name}: a resource refusal must never be selectable"
-        );
-    }
-}
-
-/// The magnitude that makes the refusal necessary rather than merely tidy.
-/// See `docs/research/pg-foma-apply-path-refusal-design-notes.md`, "`the_refused_magnitude_grows_with_the_word_and_not_with_the_grammar`: the over-generation magnitude".
-#[test]
-fn the_refused_magnitude_grows_with_the_word_and_not_with_the_grammar() {
-    let name = REFUSING_FIXTURES[0];
-    // Just above 12^6 = 2,985,984: the k=6 word now fits, the k=12 word cannot.
-    let budget = RuntimeBudget {
-        apply_path_budget: Some(3_000_000),
-        apply_candidate_budget: Some(3_000_000),
-        ..RuntimeBudget::default()
-    };
-    let Some(evaluation) = evaluate(name, budget) else {
-        panic!("{name}: oracle preparation faulted");
-    };
-    let Some((dimension, value, limit)) = apply_refusal_dimension(&evaluation) else {
-        panic!(
-            "{name}: at a 3,000,000 envelope the 12-x word must still be refused, got {:?}",
-            evaluation.certification
-        );
-    };
-    eprintln!("{name}: at a raised envelope -- {dimension} value={value} limit={limit}");
-    assert_eq!(limit, 3_000_000);
-    assert!(
-        dimension.contains("xxxxxxxxxxxxk"),
-        "the refusal must name the 12-x word, not the 6-x one: {dimension}"
-    );
-    assert!(
-        evaluation.score.raw_paths >= 2_985_984,
-        "the 6-x word alone yields 12^6 = 2,985,984 raw paths and must be accounted for in the \
-         score before the 12-x word trips; got {}",
-        evaluation.score.raw_paths
-    );
-}
-
 /// Both directions matter: refusing nothing would hide an inert gate; refusing everything would hide a broken one.
 #[test]
 fn an_ordinary_fixture_passes_the_default_envelope_and_trips_a_tiny_one() {
@@ -202,7 +136,7 @@ fn an_ordinary_fixture_passes_the_default_envelope_and_trips_a_tiny_one() {
     );
 }
 
-/// `None` resolves to the calibrated default, not unbounded -- the same inversion `oracle_step_cap` uses.
+/// `None` resolves to the calibrated default, not unbounded -- the same inversion `oracle_work_cap` uses.
 #[test]
 fn none_resolves_to_the_calibrated_default_and_only_usize_max_opts_out() {
     let default = RuntimeBudget::default().resolved_apply_budget();
@@ -237,4 +171,34 @@ fn none_resolves_to_the_calibrated_default_and_only_usize_max_opts_out() {
     .resolved_apply_budget();
     assert_eq!(explicit.path_cap(), Some(7));
     assert_eq!(explicit.candidate_cap(), Some(9));
+}
+
+/// An accuracy-path refusal is carried as a witness on the result, not printed and dropped.
+#[test]
+fn an_accuracy_apply_refusal_is_recorded_as_a_witness() {
+    let f = fixture(CONTROL_FIXTURE);
+    let grammar = pg_grammar::load(&f.load_grammar_xml()).expect("fixture grammar must load");
+    let words: Vec<String> = f
+        .load_words_yaml()
+        .words
+        .into_iter()
+        .map(|w| w.word)
+        .collect();
+    let budget = RuntimeBudget {
+        apply_path_budget: Some(1),
+        apply_candidate_budget: Some(1),
+        ..RuntimeBudget::default()
+    };
+    let plans = baseline_only(&grammar);
+    let mut cache = RunEvaluationCache::prepare(&grammar, &words, budget)
+        .unwrap_or_else(|_| panic!("{CONTROL_FIXTURE}: oracle preparation faulted"));
+    let assessed = assess_accuracy_with_cache(&grammar, &plans, &words, budget, &mut cache);
+    let accuracy = assessed.first().expect("one candidate in, one result out");
+    assert!(accuracy.counters.apply_refusals > 0, "{accuracy:?}");
+    assert_eq!(
+        accuracy.apply_refusal_witnesses.len() as u64,
+        accuracy.counters.apply_refusals
+    );
+    let witness = &accuracy.apply_refusal_witnesses[0];
+    assert!(words.contains(&witness.word) && witness.limit == 1 && witness.value > 1);
 }

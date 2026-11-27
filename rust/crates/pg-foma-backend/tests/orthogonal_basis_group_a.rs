@@ -48,7 +48,7 @@ const EX_TEMPLATE_SLOT_ORDER: &Exercise = &Exercise {
 
 const EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER: &Exercise = &Exercise {
     mechanism: Mechanism::TemplateOrderCoOccurrence,
-    root: Root::Machine,
+    root: Root::Staging,
     category: "languages",
     name: "prefixal-discontinuous-slot-dependency",
     independent_falsifier:
@@ -66,9 +66,9 @@ const EX_TEMPLATE_DISJUNCTIVE_SLOT_AND_ENFORCED_ORDER: &Exercise = &Exercise {
 
 const EX_CO_OCCURRENCE_ADJACENCY: &Exercise = &Exercise {
     mechanism: Mechanism::TemplateOrderCoOccurrence,
-    root: Root::Machine,
+    root: Root::Staging,
     category: "languages",
-    name: "suffixing-evidential-adjacency-chain",
+    name: "suffixing-evidential-adjacency-chain-require-rules",
     independent_falsifier:
         "an engine that collapsed `adjacentToLeft` into `somewhereToLeft` admits \
          `walaknichikwas`; one that collapsed it the other way rejects `walaknichiktan`; one that \
@@ -104,7 +104,7 @@ const EX_STRATA_CROSS_STRATUM_FEED: &Exercise = &Exercise {
 
 const EX_STRATA_PER_STRATUM_TABLE: &Exercise = &Exercise {
     mechanism: Mechanism::CascadeStrata,
-    root: Root::Machine,
+    root: Root::Staging,
     category: "edge-cases",
     name: "bistratal-overlapping-segment-representation",
     independent_falsifier:
@@ -116,7 +116,7 @@ const EX_STRATA_PER_STRATUM_TABLE: &Exercise = &Exercise {
 
 const EX_LEXICAL_CLASS_ALLOMORPH_REGIONS: &Exercise = &Exercise {
     mechanism: Mechanism::LexicalClass,
-    root: Root::Machine,
+    root: Root::Staging,
     category: "languages",
     name: "fusional-realizational-morphology",
     independent_falsifier:
@@ -130,9 +130,9 @@ const EX_LEXICAL_CLASS_ALLOMORPH_REGIONS: &Exercise = &Exercise {
 
 const EX_LEXICAL_CLASS_RULE_LEVEL: &Exercise = &Exercise {
     mechanism: Mechanism::LexicalClass,
-    root: Root::Machine,
+    root: Root::Staging,
     category: "languages",
-    name: "suffixing-extension-slot-ordering",
+    name: "suffixing-extension-slot-ordering-single-stem-name",
     independent_falsifier:
         "the class is read by the RULE (`AffixProcessRule.RequiredStemName`), a different check from \
          the allomorph-level one above -- this fixture's own grammar comment separates the two by \
@@ -158,8 +158,7 @@ const EX_ALLOMORPH_PRIORITY_EARLIER_BLOCKS: &Exercise = &Exercise {
 
 const EX_ALLOMORPH_PRIORITY_LATER_REACHABLE: &Exercise = &Exercise {
     mechanism: Mechanism::AllomorphPriority,
-    // `Root::Staging`, not `Machine`: fixture lives under `conformance-staging/edge-cases/circumfix-non-first-allomorph-selection`.
-    root: Root::Staging,
+    root: Root::Machine,
     category: "edge-cases",
     name: "circumfix-non-first-allomorph-selection",
     independent_falsifier:
@@ -171,7 +170,7 @@ const EX_ALLOMORPH_PRIORITY_LATER_REACHABLE: &Exercise = &Exercise {
 
 const EX_ZERO_MORPH_SILENT_TEMPLATE_SLOT: &Exercise = &Exercise {
     mechanism: Mechanism::ZeroMorphology,
-    root: Root::Staging,
+    root: Root::Machine,
     category: "edge-cases",
     name: "optional-template-composite",
     independent_falsifier:

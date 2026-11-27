@@ -24,7 +24,7 @@ DATA itself — the actual root/affix strings in `grammar.xml` and the words/glo
   adjacency, not a synthetic string chosen for shape alone.
 
 This fixture's character inventory is byte-identical to the graduated
-`machine/conformance/languages/metathesis-phase-isolation` grammar, which is exactly what you'd
+`conformance/languages/metathesis-phase-isolation` grammar, which is exactly what you'd
 expect if the morph strings were copied over unchanged while only the wrapper IDs were renamed.
 
 **Do not re-author this in a routine pass.** Re-deriving a 236-line hand-authored oracle
@@ -73,7 +73,7 @@ status.
 ## Clone sync after Machine 34215889 (2026-09-24)
 
 `grammar.xml` and `words.yaml` are synchronized from
-`machine/conformance/languages/metathesis-phase-isolation` at Machine commit
+`conformance/languages/metathesis-phase-isolation` at Machine commit
 `34215889c7adf3012f700c9ee1c1d6712c056d15`, changing only the language name to
 `BackendOrderedGeneric`. This keeps the staged backend-ordering workload aligned with the upstream
 fixture, including its added reduplication and phonology words.

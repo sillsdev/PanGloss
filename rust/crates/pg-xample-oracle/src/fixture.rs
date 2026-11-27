@@ -1,4 +1,4 @@
-//! Parses `phonology-mutations.yaml` (`machine/conformance/PROTOCOL.md` section 10): the small,
+//! Parses `phonology-mutations.yaml` (`conformance/PROTOCOL.md` section 10): the small,
 //! versioned manifest of scripted LibLCM phoneme-inventory mutations checked in beside a
 //! FieldWorks witness project, and each case's expectations relative to that unmodified baseline.
 //!

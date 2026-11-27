@@ -1,16 +1,18 @@
 # Grammar diagnostics
 
 `pangloss grammar-health <grammar> [<out.json>] [--fw-project <project>] [--log-guids]
-[--stored-analyses bounded|all|off]` reports problems in a grammar that its author should fix in
+[--stored-analyses bounded|all|off] [--shadowed [--include-selectable]] [--fst] [--snapshot-out <snapshot.json>]
+[--facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]]` reports problems in a grammar that its author should fix in
 FieldWorks. This document explains how each
 diagnostic's level is chosen and what the report looks like. For every code, with its level and
 fix, see the generated [grammar-diagnostics-reference.md](grammar-diagnostics-reference.md).
 
-The diagnostics come from two sources:
+The diagnostics come from grammar checks, import findings, and optional FST inspection:
 
 - **Checks** (`hc-*` codes) inspect the compiled grammar. They are ported from HermitCrab's
   `GrammarHealthChecker` (sillsdev/machine PR 475). The one change is that C#'s single
   `hc-partial-morpheme` is split into one code per reason.
+- **FST findings** (`fst.*`) with `--fst` in a `foma-tools` build reuse the compiler's typed refusals and emission decisions. They perform finite emission inspection without compiling an FST artifact.
 - **Import codes** (`fwdata.*`, `grammar.*`, `conversion.*`, and so on) are raised while a FieldWorks
   project is converted into a grammar.
 
@@ -76,7 +78,7 @@ equally known bad.
 - **One alternative is lost, others survive.** For example, one allomorph is unsegmentable but its
   siblings load. That is a warning: the morpheme still parses. It becomes an error once no allomorph
   survives (class 3).
-- **Unsupported or approximated.** Metathesis rules are skipped by the snapshot compiler, even when the importer reported an approximation. Custom strata use the default layout, and a missing morpheme-boundary marker can fall back to a null boundary. Each code explains its particular outcome.
+- **Unsupported or approximated.** A missing morpheme-boundary marker can fall back to a null boundary. Each code explains its particular outcome.
 - **Unused or compacted.** An affix that is never reachable, an ad hoc rule that is never used, or a
   natural class nothing refers to: info.
 - **Blocks compilation already.** Invalid source, duplicate or missing GUIDs, and an unresolved ad hoc
@@ -94,11 +96,46 @@ Some codes stay warnings until they are split or verified:
 - `hc-undeclared-segment` stays a warning until the parser's behaviour on an undeclared segment is
   verified.
 
+## The “blocks FST” label
+
+`blocks_fst` advises independently of `level`. A finding receives this label only when the
+converted Grammar still contains a construct without proven FST support. Both engines consume
+that same Grammar: a dropped item, unresolved source reference, collision or import approximation
+does not itself require an extra FST capability. A dropped circumfix half is therefore unlabelled.
+Errors and warnings alone do not define FST admission.
+
+Five existing codes carry the label: the four partial-morpheme codes and `hc-undeclared-segment`.
+Their levels are unchanged. The retained construct and why it blocks FST publication are recorded
+in `fst_reason`, also shown on each diagnostic page. The FST-only findings currently emitted are
+`fst.pattern-root-shape`, `fst.circumfix-no-route`, `fst.reduplication-no-route`,
+`fst.process-not-emittable` and `fst.shape-not-in-surface-table`. The last yields to an existing
+undeclared-segment finding for the same item. An unbounded affix spelling set is
+`fst.process-not-emittable`, because its output has no complete emission route; it is not a
+missing surface-table spelling. Remedies live on these pages, alongside the rest
+of grammar-health advice; compiler reports provide an aggregate count.
+
+Alpha environments are deliberately unlabelled: proposals may overgenerate and HermitCrab
+confirmation enforces the bindings. The temporary compiler refusal stays until #177 fixes
+construction containment. Quantifiers, simultaneous and right-to-left rewrites, and
+metathesis do not acquire blanket labels when the current backend has a proposal route. A
+construction work, byte or depth budget is a compiler/containment finding, not a grammar-author
+finding. A finished grammar may legitimately need those constructs.
+
+`--fst` is explicit because the compiler crates are outside the default dependency set. Without
+it, the five existing labels are still reported, but `fst_checked` is false. If finite FST
+inspection cannot complete, the report retains all findings, sets `fst_checked: false` and
+records `fst_check_error`; the command exits nonzero after writing it. No labelled findings
+is an admission answer only after a complete FST inspection and a completed compiler result.
+A labelled grammar can still be measured under containment; the labels prevent publication,
+not a contained construction attempt. The compiler's PGF0018 aggregate consumes grammar-health's
+labels after completion, replacing the separate PGF0016 partial-morpheme detector.
+
 ## Stored-analysis comparison
 
 The checks that do not parse always run to completion and are always written. The stored-analysis
 comparison does parse: it analyzes each FieldWorks wordform that has a stored analysis and reports
-`grammar.stored-analysis.no-longer-parses` for a stored analysis PanGloss no longer produces.
+`grammar.stored-analysis.no-longer-parses` for a stored analysis PanGloss no longer produces, and
+`grammar.stored-analysis.extra-reading` for a parsed Reading no stored analysis matches.
 Parsing a project's wordforms can take minutes, so `--stored-analyses` selects how much of it runs:
 
 | Value | Effect |
@@ -109,37 +146,95 @@ Parsing a project's wordforms can take minutes, so `--stored-analyses` selects h
 
 The comparison never aborts the report and never drops a wordform silently:
 
-- A wordform whose analysis reaches the per-word cap (100,000 analysis steps or 10,000,000 work
-  units) gets one `grammar.stored-analysis.incomplete` warning per stored analysis, naming the
+- A wordform whose analysis reaches the per-word cap (10,000,000 work steps) gets one `grammar.stored-analysis.incomplete` warning per stored analysis, naming the
   wordform and the cap. The other wordforms are still compared.
 - When the `bounded` budget is spent, one `grammar.stored-analysis.budget-reached` info finding
   names the first wordform not compared and how many wordforms and stored analyses remain.
 
 Both limits count deterministic parse work, never time. The default report is therefore the same
 on every machine and at every thread count. Neither finding is an error, so neither changes the exit
-status. Both codes are additive within schema version 4.
+status. Both codes are retained in schema version 5.
+
+### Extra Readings and the per-word outcome
+
+Beside the missing-Reading finding, the comparison reports the other direction. A Reading PanGloss
+parses that none of the wordform's approved analyses matches becomes one
+`grammar.stored-analysis.extra-reading` info finding, naming the wordform and the Reading's morphs.
+Matching uses the same key as the missing check (allomorph, representative MSA and inflection
+type, in order). Readings that share a key count once, because FieldWorks merges equal bundles, so
+a key is extra only when no approved analysis has it: two parses with one key against one approved
+analysis with that key give no extra, and against none give one.
+Guessed roots are never extras, and a Reading with no complete key is not compared. An extra is a
+fact, not an error: the approved set may be incomplete, the grammar may overgenerate, or a recorded
+Rust-versus-C# parser divergence may let PanGloss parse a word hc.dll does not (for example the
+metathesis entries 127, 132 and 133 in `docs/divergences`). It is reported anyway; nothing here
+matches a finding to the divergence ledger. A wordform whose comparison is `incomplete` reports no
+extras.
+
+The JSON report also carries `stored_analysis_words`, one row per compared wordform in wordform
+order, present only when at least one wordform was compared:
+
+```json
+{ "wordform": "kat", "wordform_guid": "e0000000-0000-0000-0000-000000000000",
+  "outcome": "extra", "approved": 1, "matched": 1, "missing": 0, "extra": 1 }
+```
+
+| `outcome` | Meaning |
+|---|---|
+| `same` | Every approved analysis parses and PanGloss parses nothing else. |
+| `missing` | At least one approved analysis no longer parses; no extra Reading. |
+| `extra` | Every approved analysis parses, and PanGloss parses at least one more. |
+| `missing_and_extra` | Both. |
+| `incomplete` | The wordform hit the work cap or time limit; the counts are 0. |
+
+These are #399's outcomes `same`, `missing` and `extra`. Its fourth, the same morphemes with
+different cuts, is not reported yet: it needs sound surface spans on the stored side. The key and
+the existing findings are unchanged. The addition is a new finding code and a new top-level key, so
+schema version 5 stays.
+
+## Shadowed alternates
+
+`--shadowed` adds the shadowed-alternates report under `shadowed_alternates`.
+It is off by default, needs no parse, and changes no other finding.
+
+- Each proven `shadowed` alternate (an earlier alternate of the same entry or affix is eligible wherever
+  this one is, so no word can select it) becomes one `grammar.allomorph.shadowed` warning naming the
+  alternate, the alternate that covers it and its `removableGuids`.
+- The whole report, including `maybe_shadowed` rows, the blocking alternates and `deadContinuations`,
+  is written to the JSON under the top-level key `shadowed_alternates`, with the serve op's fields.
+  `--include-selectable` also lists the `selectable` rows, as the op's `includeSelectable` does.
+- Act only on `removableGuids`. Never remove another GUID from `sourceAllomorphGuids`. `proven`
+  verdicts are not yet replayed against C# HermitCrab.
+
+```
+pangloss grammar-health project.fwdata report.json --shadowed
+```
 
 ## Report format
 
-### JSON (schema version 4)
+### JSON (schema version 5)
 
-Written to `<out.json>`, or to stdout when no output path is given. Version 4 adds PanGloss-owned advice, CommonMark help and structured subject status. Consumers must explicitly support the schema version; PanGloss's reader rejects other versions and inconsistent counts or navigation. The current producer writes `locale: en`. Readers preserve the producing tag's text and nonblank locale rather than comparing wording with their own catalog.
+Written to `<out.json>`, or to stdout when no output path is given. Version 5 adds FST labels and their retained-construct reasons to diagnostic and summary rows, plus explicit FST-inspection status. It retains version 4's owned advice and navigation. Consumers must explicitly support the schema version; PanGloss's reader rejects other versions and inconsistent counts or navigation. The current producer writes `locale: en`. Readers preserve the producing tag's text and nonblank locale rather than comparing wording with their own catalog.
 
 Illustrative excerpt (background text is abbreviated):
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
+  "fst_checked": false,
+  "fst_check_error": null,
   "locale": "en",
   "fieldworks_project": { "name": "fixture", "source": "fwdata_path" },
   "summary": [
     { "code": "grammar.msa.no-allomorphs", "group_name": "No usable entry allomorphs",
-      "level": "error", "count": 1 }
+      "level": "error", "count": 1, "blocks_fst": false, "fst_reason": null }
   ],
   "diagnostics": [
     {
       "level": "error",
       "code": "grammar.msa.no-allomorphs",
+      "blocks_fst": false,
+      "fst_reason": null,
       "group_name": "No usable entry allomorphs",
       "title": "No usable entry allomorphs",
       "origin": "import",
@@ -178,10 +273,14 @@ Illustrative excerpt (background text is abbreviated):
 |---|---|
 | `fieldworks_project.name` | Project used to build FieldWorks links: `--fw-project`, or the stem of a `.fwdata` path. `source` is `argument` or `fwdata_path`, or null when neither applies. |
 | `summary` | One row per code, with its count. |
+| `blocks_fst` | Boolean label independent of level. Motif may render it as a “blocks FST” chip; use this field rather than a consumer-owned code list. |
+| `fst_reason` | Why the unsupported construct is still present in the converted Grammar; null for unlabelled findings. Also present on summary rows. |
+| `fst_checked` | Report-level boolean: optional FST inspection finished. False without `--fst` and on incomplete inspection. |
+| `fst_check_error` | Report-level reason an attempted FST inspection could not complete; null when not requested or complete. |
 | `level` | `error`, `warning` or `info`. |
 | `code` | Stable identifier. Filter, suppress and test on this, never on `description`. |
 | `group_name` | Short, stable human label for the code. |
-| `origin` | `check` for `hc-*` codes, `import` for conversion codes. |
+| `origin` | `check` for grammar and FST checks, `import` for conversion codes. |
 | `description` | Human-readable message naming the item. Wording may change. |
 | `locale` | Language of the producer-owned text; the current catalog is `en`, and readers preserve other locales. |
 | `title` | Per-code title, also supplied as `group_name` for existing consumers. |
@@ -219,6 +318,38 @@ pangloss grammar-health: 3 error(s); fix them before parsing
 
 The report is always written in full before the command fails.
 
+## Writing the snapshot and facts from the same run
+
+A host that wants the health report, the grammar snapshot and the facts database for one project
+would otherwise run `grammar-health`, `import` and `facts`, importing and compiling the project each
+time. These flags make the one import also write the other two files (`.fwdata` and `.fwbackup`
+input only; any other input is refused before work starts):
+
+```text
+pangloss grammar-health <project.fwdata> <report.json> --snapshot-out <snapshot.json> \
+  --facts-out <facts.sqlite> --facts-context <context.json> [--facts-light]
+```
+
+- `--snapshot-out` writes the bytes `pangloss import <project> <snapshot.json>` writes.
+- `--facts-out` with `--facts-context` (required together; `--facts-light` as `facts --light`)
+  writes the file `pangloss facts <that snapshot> --out <facts.sqlite> --context <context.json>`
+  writes, built from the snapshot bytes just written, so its `source_sha256` is that file's hash and
+  a stats manifest from `pangloss batch` on `<snapshot.json>` matches it. The facts file records
+  the grammar compile this run already did instead of compiling the project again, so the run
+  imports once and compiles once. That reuse happens only when the snapshot JSON parses back to a
+  Snapshot equal to the in-memory one (checked every run) and the compile succeeded; otherwise
+  `facts` compiles for itself, with the same result. `--facts-out` needs no
+  `--snapshot-out`. Stats facts (`facts --stats`) need a batch run on the snapshot first, so
+  run `pangloss facts <snapshot.json> --stats ...` afterwards; this flag set does not write them.
+- Same refusal as `import`: when the project has fatal conversion issues, neither file is written,
+  the report still is, and the command fails. A compile refusal after a clean import still writes
+  both, as `import` and `facts` would (facts records `compileStatus: "refused"`).
+- The two files are written after the import and before the checks run, so they exist even when
+  the report has errors and the command exits non-zero. All output paths, the context and the input
+  must be different files; `--facts-out` never replaces an existing file, as with `facts`.
+- The report's JSON and the `--fst` and `--stored-analyses` behaviour are unchanged; no schema
+  version changes (health report 5, facts 9, snapshot as before).
+
 ## Changing a level
 
 - Import codes: `rust/crates/pg-snapshot/src/warning_metadata.rs`, in the exhaustive `import_warning_level` match. Every error must carry guidance.
@@ -231,9 +362,7 @@ Then run the managed `pg-grammar` checks and unit tests (`rust/tools/pg.ps1 -Mod
 shows up in the diff. The `every_registered_code_has_a_current_version_pinnable_page` test does the same for all per-code pages. Review and commit all regenerated files with the change. Update this document when a new
 class of error is introduced.
 
-This report is separate from `pangloss fst-health`, which asks whether a compiled FST may be
-published. That report blocks publication of an FST built from a grammar with partial morphemes
-(`PGF0016`) independently of these levels.
+The separate `pangloss fst-health` compiler report retains cost and containment findings. It does not own another grammar-author remedy list. FST-health schema 10 retires PGF0016 and adds the PGF0018 label aggregate; the facts SQLite schema is unchanged. Consumers that check schema equality, including Motif, must explicitly accept grammar-health 5 and FST-health 10.
 
 ## Version-pinned help
 

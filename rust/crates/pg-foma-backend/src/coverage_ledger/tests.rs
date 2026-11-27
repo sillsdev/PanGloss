@@ -160,22 +160,14 @@ fn unwitnessed_strategies_are_derived_and_the_gap_is_reported_not_hidden() {
     );
 }
 
-/// The per-row `CannotRepresent` list makes the live `PlanComposed`/`TemplatedUnderlyingTokens` x `ProcessMorphology` hole visible in the ledger, not only in the selection path.
+/// The per-row `CannotRepresent` list is empty while the only strategy represents every construct, and stays visible in the ledger if a future strategy does not.
 #[test]
-fn the_ledger_reports_the_live_whole_construct_hole() {
+fn the_ledger_reports_whole_construct_holes() {
     let ledger = build_ledger(&default_registry(), &fully_covered_constructs());
-    let row = ledger
-        .row(CharacteristicKind::ProcessMorphology, None)
-        .expect("row must exist");
-    assert_eq!(
-        row.strategies_cannot_represent,
-        vec![
-            EmissionStrategy::PlanComposed.label().to_string(),
-            EmissionStrategy::TemplatedUnderlyingTokens
-                .label()
-                .to_string(),
-        ]
-    );
+    assert!(ledger
+        .rows
+        .iter()
+        .all(|row| row.strategies_cannot_represent.is_empty()));
     assert!(
         ledger
             .row(CharacteristicKind::Affixation, None)
@@ -186,7 +178,7 @@ fn the_ledger_reports_the_live_whole_construct_hole() {
     );
 }
 
-/// `NaturalClassDefinition` is the deliberate, documented `None`; a future edit that starts returning evidence for it must be a reviewed, visible change.
+/// `NaturalClassDefinition` is the deliberate, documented `None`. The other six have no containment witness on the remaining backend; a future edit that restores or adds evidence must be a reviewed, visible change.
 #[test]
 fn every_kind_without_a_containment_witness_is_named_and_justified() {
     let missing: Vec<CharacteristicKind> = CharacteristicKind::ALL
@@ -196,7 +188,15 @@ fn every_kind_without_a_containment_witness_is_named_and_justified() {
         .collect();
     assert_eq!(
         missing,
-        vec![CharacteristicKind::NaturalClassDefinition],
+        vec![
+            CharacteristicKind::SimultaneousRewrite,
+            CharacteristicKind::RightToLeftRewrite,
+            CharacteristicKind::Metathesis,
+            CharacteristicKind::SubruleGating,
+            CharacteristicKind::NaturalClassDefinition,
+            CharacteristicKind::MultiTable,
+            CharacteristicKind::QuantifierPattern,
+        ],
         "every kind without a containment witness must be named here with a reason -- an \
          unexplained addition means somebody added a construct and skipped its witness"
     );
@@ -424,6 +424,7 @@ fn refused_variant_requires_a_documented_permanent_refusal() {
         .unwrap();
     row.conformance_status = CoverageStatus::Covered;
     row.containment = evidence;
+    row.permanent_refusal = None;
     assert!(!obligation_met(row));
     row.permanent_refusal = Some(String::new());
     assert!(!obligation_met(row));

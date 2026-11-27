@@ -18,6 +18,7 @@ test-concurrency-hook = ["pg-foma-runtime/test-concurrency-hook"]
 test-support = ["pg-foma-runtime/test-support"]
 
 [dependencies]
+pg-snapshot.workspace = true
 pg-foma-runtime.workspace = true
 # Pinned exact so a version bump is always deliberate and re-gated, not a silent float.
 # Originally validated at 0.1.1 by gate F0 (docs/fst-plan/foma-fst-plan.md); re-validated at
@@ -66,6 +67,8 @@ rayon.workspace = true
 # no new transitive dependency to that build. `cargo check -p pg-foma --target wasm32-unknown-unknown`
 # and the same for pg-wasm both stay part of this crate's gate.
 pg-parse.workspace = true
+# The gate reads a parse's cost and the work weight through pg-cost's public API.
+pg-cost.workspace = true
 
 # Native-only dependencies for FST construction and the supervised compile-worker protocol are
 # absent from the analysis-only wasm dependency graph.
@@ -74,7 +77,6 @@ pg-parse.workspace = true
 # `load_grammar_for_worker`, mirroring `pg-cli::load_grammar`'s three-way extension dispatch so the
 # worker protocol can name any of the three grammar-path shapes the CLI already accepts). Promoted
 # from dev-only (below) to a real, non-wasm dependency by this change.
-pg-snapshot.workspace = true
 pg-fwdata.workspace = true
 pg-worker-containment.workspace = true
 
@@ -136,10 +138,6 @@ name = "mbugwe_corpus_smoke_gate"
 path = "tests/mbugwe_corpus_smoke_gate.rs"
 
 [[test]]
-name = "p6_gate_parity"
-path = "tests/p6_gate_parity.rs"
-
-[[test]]
 name = "pk1_precision_recall_invariance"
 path = "tests/pk1_precision_recall_invariance.rs"
 
@@ -150,11 +148,6 @@ path = "tests/harnesses/phase_c.rs"
 # Opt in to [workspace.lints] (rustdoc::broken_intra_doc_links = deny).
 [lints]
 workspace = true
-
-[[example]]
-name = "p6_templated_q3_oracle_bounds"
-path = "examples/p6_templated_q3_oracle_bounds.rs"
-required-features = ["examples"]
 
 [[example]]
 name = "propose_parity"

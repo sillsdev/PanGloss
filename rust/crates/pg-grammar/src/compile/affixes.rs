@@ -21,6 +21,7 @@ use super::gates::{
 };
 use super::inventory::LineageTarget;
 use super::issue_codes;
+use super::reduplication;
 use super::roles;
 use super::{Acc, Ctx};
 
@@ -236,7 +237,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             if let Some(ic) = from_inflection_class {
@@ -255,7 +256,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -280,7 +281,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -310,7 +311,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: exception feature {f:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             if let Some(ic) = to_inflection_class {
@@ -329,7 +330,7 @@ pub(crate) fn build_affix_rule(
                     format!("MSA {msa_guid:?}: inflection class {ic:?} does not resolve"),
                 );
                 if let Some(s) = resolved {
-                    set = set.union(s);
+                    set = set.union(&s);
                 }
             }
             set
@@ -363,33 +364,35 @@ pub(crate) fn build_affix_rule(
 
     // A circumfix's allomorph set is the cross-product of its halves, not one def per stored form, so it is built from the whole bucket rather than per-allomorph.
     let pending_start = ctx.pending_rule_refusals.borrow().len();
-    let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> =
-        if entry.lexeme_morph_type == MorphType::Circumfix {
-            build_circumfix_allomorphs(
-                entry,
-                &rule_form_allos,
-                msa,
-                required_mpr,
-                out_mpr,
-                mrule_id,
-                ctx,
-                acc,
-            )
-        } else {
-            rule_form_allos
-                .iter()
-                .flat_map(|allo| {
-                    let placement = match shape_of(allo.morph_type) {
-                        Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
-                        _ => SourceMorphPlacement::Append,
-                    };
-                    build_affix_allomorphs_for(allo, msa, required_mpr, out_mpr, mrule_id, ctx, acc)
-                        .into_iter()
-                        .map(|def| (vec![allo.guid.clone()], placement, def))
-                        .collect::<Vec<_>>()
-                })
-                .collect()
-        };
+    let built: Vec<(Vec<String>, SourceMorphPlacement, AffixAllomorphDef)> = if entry
+        .lexeme_morph_type
+        == MorphType::Circumfix
+    {
+        build_circumfix_allomorphs(
+            entry,
+            &rule_form_allos,
+            msa,
+            &required_mpr,
+            &out_mpr,
+            mrule_id,
+            ctx,
+            acc,
+        )
+    } else {
+        rule_form_allos
+            .iter()
+            .flat_map(|allo| {
+                let placement = match shape_of(allo.morph_type) {
+                    Some(Shape::Infix) => SourceMorphPlacement::InsertBeforeLast,
+                    _ => SourceMorphPlacement::Append,
+                };
+                build_affix_allomorphs_for(allo, msa, &required_mpr, &out_mpr, mrule_id, ctx, acc)
+                    .into_iter()
+                    .map(|def| (vec![allo.guid.clone()], placement, def))
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
 
     for allo in allos {
         let was_built = built
@@ -411,23 +414,46 @@ pub(crate) fn build_affix_rule(
                 InventoryKey::object(InventoryKind::Allomorph, guid.clone()),
             );
         }
+        let source_guids_key = source_guids.join("+");
         acc.allomorph_sources.push(crate::model::AllomorphSource {
+            form_texts: source_guids
+                .iter()
+                .map(|guid| {
+                    entry
+                        .allomorphs
+                        .iter()
+                        .find(|a| a.guid == *guid)
+                        .and_then(|a| {
+                            super::source_form_text(a, ctx.default_vernacular_ws.as_deref())
+                        })
+                })
+                .collect(),
             form_guids: source_guids.into_iter().map(Some).collect(),
             omitted: false,
             placement,
         });
-        // First-wins for a circumfix, whose halves each appear in several pairings; this index only resolves ad-hoc co-occurrence references, where a miss is already a warning.
-        if let Some(guid) = acc
-            .allomorph_sources
-            .last()
-            .and_then(|source| source.form_guids.first())
-            .and_then(Option::as_deref)
-        {
+        // HCLoader registers one allomorph per (MSA, environment) pass in `m_allomorphs` (HCLoader.cs:1167-1178), so every built pass is a copy. A circumfix registers every pairing under its lexeme form (HCLoader.cs:1100-1122), never under a half.
+        let index_guid = if entry.lexeme_morph_type == MorphType::Circumfix {
+            entry.allomorphs.last().map(|lexeme| lexeme.guid.as_str())
+        } else {
+            acc.allomorph_sources
+                .last()
+                .and_then(|source| source.form_guids.first())
+                .and_then(Option::as_deref)
+        };
+        if let Some(guid) = index_guid {
+            let guid = guid.to_string();
             acc.allomorph_guid_index
-                .entry(guid.to_string())
-                .or_insert(allo_id);
+                .entry(guid)
+                .or_default()
+                .push(allo_id);
         }
-        allomorphs.push(AffixAllomorphDef { id: allo_id, ..def });
+        let xml_key = acc.snapshot_allomorph_key(&source_guids_key);
+        allomorphs.push(AffixAllomorphDef {
+            id: allo_id,
+            xml_key,
+            ..def
+        });
     }
     if allomorphs.is_empty() {
         ctx.abandon_rule_refusals_since(
@@ -460,13 +486,22 @@ pub(crate) fn build_affix_rule(
         co_occurrence: Vec::new(),
     });
 
+    let max_apps = ctx
+        .snapshot
+        .morphology
+        .parser_parameters
+        .affix_rule_max_applications
+        .iter()
+        .find(|m| m.msa.eq_ignore_ascii_case(&msa_guid))
+        // FieldWorks' HCLoader clamps to 1..=10; a hand-authored snapshot gets the same bound.
+        .map_or(1, |m| m.max_applications.clamp(1, 10) as u16);
     acc.mrules
         .push(MorphRuleDef::AffixProcess(AffixProcessRuleDef {
             morpheme,
             name: entry.citation_form.first().map(|f| f.form.clone()),
             blockable: true,
             partial_reason,
-            max_apps: 1,
+            max_apps,
             required_syn_fs,
             out_syn_fs,
             obligatory_features: Vec::new(),
@@ -490,30 +525,24 @@ pub(crate) fn build_affix_rule(
     Some(mrule_id)
 }
 
-/// Whether `mt` is a circumfix's leading half.
+/// Whether `mt` is a circumfix's leading half: HCLoader pairs only the exact prefix type (HCLoader.cs:1102).
 pub(crate) fn is_circumfix_prefix_half(mt: MorphType) -> bool {
-    matches!(
-        mt,
-        MorphType::Prefix | MorphType::PrefixingInterfix | MorphType::Proclitic
-    )
+    mt == MorphType::Prefix
 }
 
-/// Whether `mt` is a circumfix's trailing half.
+/// Whether `mt` is a circumfix's trailing half: HCLoader pairs only the exact suffix type (HCLoader.cs:1107).
 pub(crate) fn is_circumfix_suffix_half(mt: MorphType) -> bool {
-    matches!(
-        mt,
-        MorphType::Suffix | MorphType::SuffixingInterfix | MorphType::Enclitic
-    )
+    mt == MorphType::Suffix
 }
 
-/// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see docs/divergences/039.
+/// One allomorph per (prefix, prefix-env) x (suffix, suffix-env) combination, HCLoader's own cross product (HCLoader.cs:1060-1332); see retired divergence 039 (docs/divergences/README.md, Retired entries).
 #[allow(clippy::too_many_arguments)]
 fn build_circumfix_allomorphs(
     entry: &LexEntry,
     allos: &[&Allomorph],
     msa: &Msa,
-    required_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
@@ -527,6 +556,9 @@ fn build_circumfix_allomorphs(
     };
     let prefixes = halves(is_circumfix_prefix_half);
     let suffixes = halves(is_circumfix_suffix_half);
+    for half in prefixes.iter().chain(&suffixes) {
+        acc.circumfix_half_guids.insert(half.guid.clone());
+    }
 
     if prefixes.is_empty() || suffixes.is_empty() {
         let entry_name = super::entry_headword(entry, ctx.default_vernacular_ws.as_deref())
@@ -575,7 +607,7 @@ fn build_circumfix_allomorphs(
         let (prefix_infl_mpr, mut prefix_outcomes) =
             read_inflection_classes(prefix, allomorph_class_reading(msa), ctx);
         prefix_outcomes.extend(ignored_features(prefix));
-        let required_with_prefix = required_mpr.union(prefix_infl_mpr);
+        let required_with_prefix = required_mpr.union(&prefix_infl_mpr);
         for suffix in &suffixes {
             let mut suffix_outcomes = ignored_suffix_classes(suffix);
             suffix_outcomes.extend(ignored_features(suffix));
@@ -683,15 +715,16 @@ fn build_circumfix_allomorphs(
                         SourceMorphPlacement::Append,
                         AffixAllomorphDef {
                             id: AllomorphId(0),
+                            xml_key: String::new(),
                             environments,
                             co_occurrence: Vec::new(),
                             required_syn_fs: acc
                                 .fs_interner
                                 .intern(pg_featstruct::FeatureStruct::EMPTY),
                             vars: crate::model::VarTable::default(),
-                            required_mpr: required_with_prefix,
+                            required_mpr: required_with_prefix.clone(),
                             excluded_mpr: crate::model::MprSet::EMPTY,
-                            out_mpr,
+                            out_mpr: out_mpr.clone(),
                             redup_hint: ReduplicationHint::Implicit,
                             lhs: vec![Pattern { nodes: lhs_nodes }],
                             // Leading AND trailing insert around one copy: what `pg_foma::emit::classify_affix` reads as `Role::CircumfixPrefix`.
@@ -800,17 +833,8 @@ fn raw_pattern_nodes(pattern: Option<&Pattern>) -> Vec<PatternNode> {
         .collect()
 }
 
-/// Whether `form` is a reduplication/bracket-pattern affix shape rather than literal text -- shared by `is_valid_rule_form`'s rejection and by `collect_text_uses`'s substrate-usage collection, so the two classify the same shape identically.
-pub(crate) fn is_bracket_pattern_form(form: &str) -> bool {
-    form.contains('[')
-}
-
-/// Publishes literal text from every affix-shaped allomorph (concatenative, circumfix half, or an `MoAffixProcess`'s `RuleMapping::InsertSegments`); a bracket-pattern form publishes `conversion.unsupported-construct` instead.
-pub(crate) fn collect_text_uses(
-    snapshot: &Snapshot,
-    recorder: &mut SelectionRecorder,
-    issues: &mut Vec<ConversionIssue>,
-) {
+/// Publishes literal text from every affix-shaped allomorph (concatenative, circumfix half, or an `MoAffixProcess`'s `RuleMapping::InsertSegments`); a bracket-pattern form is a pattern, not literal text, so it publishes none.
+pub(crate) fn collect_text_uses(snapshot: &Snapshot, recorder: &mut SelectionRecorder) {
     let default_ws = snapshot
         .project
         .vernacular_writing_systems
@@ -849,18 +873,7 @@ pub(crate) fn collect_text_uses(
             if form.trim().is_empty() {
                 continue;
             }
-            if is_bracket_pattern_form(&form) {
-                issues.push(ConversionIssue {
-                    code: super::issues::UNSUPPORTED_CONSTRUCT,
-                    class: IssueClass::UnrepresentableForHc,
-                    source: Some(source),
-                    fatal: false,
-                    message: format!(
-                        "allomorph {:?}: reduplication/bracket-pattern affix form {form:?} is not \
-                         literal text; substrate completion cannot check or infer from it",
-                        allo.guid
-                    ),
-                });
+            if reduplication::is_bracket_form(&form) {
                 continue;
             }
             environment::collect_text_uses(
@@ -941,17 +954,23 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
         | MorphType::Proclitic
         | MorphType::Enclitic => {
             let form = literal_form(allo, ctx.default_vernacular_ws.as_deref());
-            if is_bracket_pattern_form(&form) {
+            // HCLoader.IsValidRuleForm (HCLoader.cs:571): a bracket pattern other than `[...]` needs a valid phonological environment.
+            if !form.trim().is_empty()
+                && reduplication::is_bracket_form(&form)
+                && !reduplication::is_stem_copy_form(&form)
+                && !allo.environments.iter().any(|guid| {
+                    ctx.env_by_guid.get(guid.as_str()).is_some_and(|env| {
+                        ctx.environment_resolution(env).status
+                            == environment::EnvironmentResolutionStatus::Valid
+                    })
+                })
+            {
                 ctx.selected(key.clone());
                 ctx.reject(
                     key,
-                    issue_codes::ALLOMORPH_REDUPLICATION_UNSUPPORTED,
+                    issue_codes::ALLOMORPH_NOT_RULE_FORM,
                     IssueClass::UnrepresentableForHc,
-                    format!(
-                        "unsupported: reduplication/bracket-pattern affix form {form:?} \
-                         (allomorph {:?}) not implemented; allomorph skipped",
-                        allo.guid
-                    ),
+                    format!("reduplication pattern {form:?} has no valid phonological environment"),
                 );
                 return false;
             }
@@ -976,6 +995,20 @@ fn is_valid_rule_form(allo: &Allomorph, ctx: &Ctx) -> bool {
                 issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED_AS_RULE_FORM,
                 IssueClass::UnrepresentableForHc,
                 "allomorph morph type is not a valid rule form on its own",
+            );
+            false
+        }
+        // HCLoader loads a simulfix or suprafix only as an `MoAffixProcess` (handled at the top); `IsValidRuleForm` has no case for literal text of these types and `IsValidLexEntryForm` wants a stem type, so C# skips it silently. Here it is selected then rejected with a warning, since nothing else claims it.
+        MorphType::Simulfix | MorphType::Suprafix => {
+            ctx.selected(key.clone());
+            ctx.reject(
+                key,
+                issue_codes::ALLOMORPH_MORPH_TYPE_UNSUPPORTED,
+                IssueClass::UnrepresentableForHc,
+                format!(
+                    "unsupported: {:?} allomorph {:?} is literal text; HermitCrab loads this morph type only as an affix process; skipped",
+                    allo.morph_type, allo.guid
+                ),
             );
             false
         }
@@ -1008,7 +1041,7 @@ fn read_inflection_classes(
             Err(reason) => (Effect::Ignored, Some(reason)),
             Ok(()) => match ctx.mpr.infl_class_with_descendants(class) {
                 Some(resolved) => {
-                    set = set.union(resolved);
+                    set = set.union(&resolved);
                     (Effect::Applied, None)
                 }
                 None => {
@@ -1094,8 +1127,8 @@ fn record_unbuilt_gates(allo: &Allomorph, ctx: &Ctx) {
 fn build_affix_allomorphs_for(
     allo: &Allomorph,
     msa: &Msa,
-    required_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     mrule_id: MRuleId,
     ctx: &Ctx,
     acc: &mut Acc,
@@ -1110,7 +1143,7 @@ fn build_affix_allomorphs_for(
             allo,
             process,
             required_mpr,
-            allo_infl_mpr,
+            &allo_infl_mpr,
             out_mpr,
             ctx,
             acc,
@@ -1151,10 +1184,49 @@ fn build_affix_allomorphs_for(
         .map(String::as_str)
         .collect();
 
+    // C# reads the form as written (HCLoader.cs:1493), not through `FormatForm`.
+    let raw_form = super::best_ws(&allo.forms, ctx.default_vernacular_ws.as_deref())
+        .unwrap_or("")
+        .trim();
+    let bracket_form = !matches!(shape, Shape::Infix) && reduplication::is_bracket_form(raw_form);
+
     let pending_start = ctx.pending_rule_refusals.borrow().len();
     let mut out = Vec::new();
     for pass in resolve_environments(&combined_env_guids, &allo.guid, mrule_id, ctx) {
-        match build_concatenative(&form, pass.as_ref(), shape, ctx) {
+        let built = if !bracket_form {
+            build_concatenative(&form, pass.as_ref(), shape, ctx)
+        } else if reduplication::is_stem_copy_form(raw_form) {
+            reduplication::build_stem_copy(raw_form, ctx)
+                .map(|(lhs, rhs, _)| (lhs, rhs, Vec::new()))
+        } else {
+            reduplication::validate_form(raw_form, ctx).and_then(|()| {
+                let side = |pick: fn(&environment::EnvironmentResolution) -> &Option<String>| {
+                    pass.as_ref()
+                        .and_then(|pass| pick(&pass.resolution).as_deref())
+                        .unwrap_or("")
+                };
+                let (lhs, rhs, notes) = reduplication::build(
+                    raw_form,
+                    shape,
+                    side(|r| &r.left_text),
+                    side(|r| &r.right_text),
+                    ctx,
+                )?;
+                for note in notes {
+                    ctx.note(
+                        issue_codes::ALLOMORPH_REDUPLICATION_INVALID,
+                        IssueClass::UnrepresentableForHc,
+                        SourceRef {
+                            kind: pg_snapshot::FwClass::MoForm,
+                            id: allo.guid.clone(),
+                        },
+                        format!("Allomorph '{raw_form}': {note}"),
+                    );
+                }
+                Ok((lhs, rhs, Vec::new()))
+            })
+        };
+        match built {
             Ok((lhs, rhs, environments)) => {
                 let required_syn_fs = match &allo.ms_env_features {
                     Some(fs) => match super::features::build_syn_fs(ctx.syn, None, Some(fs)) {
@@ -1196,16 +1268,26 @@ fn build_affix_allomorphs_for(
                 };
                 out.push(AffixAllomorphDef {
                     id: AllomorphId(0),
+                    xml_key: String::new(),
                     environments,
                     co_occurrence: Vec::new(),
                     required_syn_fs,
                     vars: crate::model::VarTable::default(),
-                    required_mpr: required_mpr.union(allo_infl_mpr),
+                    required_mpr: required_mpr.union(&allo_infl_mpr),
                     excluded_mpr: crate::model::MprSet::EMPTY,
-                    out_mpr,
+                    out_mpr: out_mpr.clone(),
+                    // The reduplication branch sets no hint; `[...]` and literal forms set it from the morph type.
                     redup_hint: match allo.morph_type {
-                        MorphType::Prefix => ReduplicationHint::Prefix,
-                        MorphType::Suffix => ReduplicationHint::Suffix,
+                        MorphType::Prefix
+                            if !bracket_form || reduplication::is_stem_copy_form(raw_form) =>
+                        {
+                            ReduplicationHint::Prefix
+                        }
+                        MorphType::Suffix
+                            if !bracket_form || reduplication::is_stem_copy_form(raw_form) =>
+                        {
+                            ReduplicationHint::Suffix
+                        }
                         _ => ReduplicationHint::Implicit,
                     },
                     lhs,
@@ -1213,6 +1295,15 @@ fn build_affix_allomorphs_for(
                     properties: Vec::new(),
                 });
             }
+            Err(error) if bracket_form => ctx.note(
+                issue_codes::ALLOMORPH_REDUPLICATION_INVALID,
+                IssueClass::UnrepresentableForHc,
+                SourceRef {
+                    kind: pg_snapshot::FwClass::MoForm,
+                    id: allo.guid.clone(),
+                },
+                format!("Allomorph '{raw_form}' has an invalid reduplication pattern ({error}); skipped."),
+            ),
             Err(_) => ctx.note(
                 issue_codes::ALLOMORPH_ENVIRONMENT_BUILD_FAILED,
                 IssueClass::UnrepresentableForHc,
@@ -1369,8 +1460,8 @@ fn build_concatenative(
     }
 }
 
-fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
-    let shape = crate::segment::segment(ctx.table, text).map_err(|e| e.to_string())?;
+pub(super) fn insert_segments(text: &str, ctx: &Ctx) -> Result<OutputAction, String> {
+    let shape = crate::segment::segment_load(ctx.table, text).map_err(|e| e.to_string())?;
     Ok(OutputAction::InsertSegments {
         table: ctx.table_id,
         shape: crate::model::SegmentedText {
@@ -1400,7 +1491,7 @@ fn defer_environment_issue(
             fatal,
             message: message.into(),
         },
-        mrule,
+        vec![mrule],
     );
 }
 
@@ -1490,9 +1581,9 @@ fn resolve_environments(
 fn build_process_allomorph(
     allo: &Allomorph,
     process: &pg_snapshot::lexicon::AffixProcess,
-    required_mpr: crate::model::MprSet,
-    allo_infl_mpr: crate::model::MprSet,
-    out_mpr: crate::model::MprSet,
+    required_mpr: &crate::model::MprSet,
+    allo_infl_mpr: &crate::model::MprSet,
+    out_mpr: &crate::model::MprSet,
     ctx: &Ctx,
     acc: &mut Acc,
 ) -> Result<AffixAllomorphDef, String> {
@@ -1502,6 +1593,10 @@ fn build_process_allomorph(
             PhonContext::Variable => environment::any_star(ctx),
             other => phon_context_nodes(other, ctx)?,
         };
+        // HCLoader erases a word boundary inside a sequence but rejects a part left with no nodes (HCLoader.cs:1407, 2397).
+        if nodes.is_empty() {
+            return Err("input part has no pattern nodes".to_string());
+        }
         lhs.push(Pattern { nodes });
     }
 
@@ -1525,7 +1620,12 @@ fn build_process_allomorph(
                 }
                 OutputAction::Copy(PartRef::Input((*part - 1) as u16))
             }
-            RuleMapping::InsertSegments { text } => insert_segments(text.trim(), ctx)?,
+            RuleMapping::InsertSegments { text } => {
+                if text.trim().is_empty() {
+                    return Err("insert-phones step has no representation".to_string());
+                }
+                insert_segments(text.trim(), ctx)?
+            }
             RuleMapping::ModifyFromInput {
                 part,
                 natural_class,
@@ -1557,13 +1657,14 @@ fn build_process_allomorph(
 
     Ok(AffixAllomorphDef {
         id: AllomorphId(0),
+        xml_key: String::new(),
         environments: Vec::new(),
         co_occurrence: Vec::new(),
         required_syn_fs: acc.fs_interner.intern(pg_featstruct::FeatureStruct::EMPTY),
         vars: crate::model::VarTable::default(),
         required_mpr: required_mpr.union(allo_infl_mpr),
         excluded_mpr: crate::model::MprSet::EMPTY,
-        out_mpr,
+        out_mpr: out_mpr.clone(),
         redup_hint,
         lhs,
         rhs,
@@ -1587,6 +1688,10 @@ pub(crate) fn phon_context_nodes(
         }
         PhonContext::Iteration { min, max, member } => {
             let children = phon_context_nodes(member, ctx)?;
+            // A failed member drops out of a sequence in HCLoader; only the top-level check rejects.
+            if children.is_empty() {
+                return Ok(Vec::new());
+            }
             Ok(vec![PatternNode::Quantifier {
                 min: (*min).max(0) as u32,
                 max: if *max < 0 { None } else { Some(*max as u32) },

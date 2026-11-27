@@ -24,7 +24,7 @@ The row schema is [fieldworks-parse-analysis-v1.schema.json](fieldworks-parse-an
 | --- | --- |
 | `index`, `word` | Zero-based batch case and exact input text. An index identifies a request occurrence, not a FieldWorks wordform. |
 | `elapsedMs` | Nonnegative elapsed parsing time for the case, identical to its TSV timing. |
-| `capped` | The per-word step budget interrupted the search. |
+| `capped` | The per-word work cap interrupted the search. |
 | `timedOut` | The per-word time budget interrupted the search. |
 | `invalidShape` | Input could not be segmented. Both limit flags are false and both result arrays are empty. |
 | `analyses` | Successfully projected readings, retaining multiplicity. Morph order is significant. |
@@ -41,6 +41,64 @@ This shape follows FieldWorks `ParseAnalysis` / `ParseMorph` and the morphology 
 Projection follows `HCParser.GetMorphs`: omit synthetic null-affixes, retain circumfix halves, suppress repeated ordinary annotations for one morpheme, and place infixes before the preceding output morph. Source metadata is preserved during `.fwdata` compilation. XML-authored IDs do not establish FieldWorks provenance, even when GUID-shaped, so direct XML inputs remain explicitly unavailable in this profile.
 
 Runtime fabricated roots without authored Form/MSA identities are unavailable. Guessed text cannot create or replace those identities. The wire supports conditional guessed text when authoritative source references exist; it does not promise that every parser result can currently be projected.
+
+## Morph spans (opt-in)
+
+`pangloss batch ... --analyses analyses.jsonl --morph-spans` adds `morphSpans` to every reading in `analyses`, beside `morphs`. Without the flag the field is absent and rows are unchanged; the flag is refused without `--analyses` and with `--stats`, `--partials`, `--engine fst`, `--prefilter` or a diagnostic run. A consumer that rejects unknown members must accept `morphSpans` before it passes the flag.
+
+```json
+{"morphs":[...],"morphSpans":{"surface":"mentanukam","segmentCount":10,"morphemes":[{"item":0,"spans":[{"segments":[0,3],"offsets":[0,3],"text":"men"}],"reason":null,"rule":null}],"unattributed":[]}}
+```
+
+The spans come from the synthesized word that verified the reading, through the same function as `serve generate` (`morphSpans` in `docs/formats/serve-protocol.md`, "Morpheme spans"), so shape, units and reasons are the same.
+
+| Field | Meaning |
+| --- | --- |
+| `surface` | The surface in NFD and lower case, which can differ from `word`; `offsets` index it. Read `text` and do not slice `word`. |
+| `segmentCount` | Segments of the surface, as `match` counts them. |
+| `morphemes` | One entry per element of the reading's `morphs`, in order; `item` is that index. |
+| `morphemes[].spans` | Runs `{segments, offsets, text}`: half-open segment indexes, half-open UTF-8 byte offsets into `surface`, and `surface[offsets]`. An infix or circumfix gives several runs; an empty list means no segment is left. `null` when no sound span exists. |
+| `morphemes[].reason`, `rule` | Set exactly when `spans` is `null`: `span_lost_by_rule` (with `rule`), `span_unknown_truncation`, `span_ambiguous_copy`, `nested_morph`, `compound_unsupported`, `repeated_morpheme`, `morph_not_recorded`, `segments_not_aligned`. |
+| `unattributed` | Runs `{segments, offsets, text, reason, rule}` no morph claims (`inserted_by_rule` for epenthesis, `no_morph_owner`, `unrequested_morpheme`, or the reason of a null morph whose segments are in doubt). With the morph runs they tile `[0, segmentCount)`. |
+| `text` | `null` when `offsets` is `null`. |
+
+`morphSpans` is `null` for a reading with no span answer. A wrong span is worse than none, so a null is always preferred to a guess:
+
+- The two halves of a circumfix (one morpheme, two projected morphs with the same morpheme id) each get their own run, e.g. `kabutangan` is `ka|butang|an`.
+- `repeated_morpheme` applies only where the records cannot be told apart: a morpheme the reading applied more than twice, or a morph whose records belong to another morpheme. A morpheme applied twice with one form is folded into one morph in `morphs`, and its span is the union of its runs.
+- A null affix FieldWorks omits from `morphs` has no item; any segment it owns is `unrequested_morpheme`.
+- A word with a truncation, an ambiguous reduplication copy or a compound has every morph null with the reason above.
+- Readings under `unavailable` have no spans.
+
+## Query fields (opt-in)
+
+`pangloss batch ... --analyses analyses.jsonl --query-fields` adds members for corpus queries. Without the flag they are absent and rows keep their exact bytes; the flag is refused without `--analyses` and with `--engine fst`. A consumer that rejects unknown members must accept them before it passes the flag. They combine with `--morph-spans`.
+
+```json
+{"schema":"fieldworks-parse-analysis/v1","index":0,"word":"kad","elapsedMs":3,"capped":false,"timedOut":false,"invalidShape":false,"analyses":[{"morphs":[{"form":"...","msa":"...","inflType":null,"guessedString":null,"entry":"<entry guid>","signature":"<entry guid>:<msa guid>"}],"signature":"<entry guid>:<msa guid>"}],"unavailable":[],"readingCount":1,"failure":null}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `readingCount` | Row. `analyses` plus `unavailable`: every reading the parser returned, projected or not. |
+| `failure` | Row. `null` when `readingCount` is above 0; otherwise `{status, workSteps, workCap}` for a word with no reading. |
+| `failure.status` | `noParse` (the search finished inside its budget and found nothing; the TSV says `ok` with signature `-`), `workCap` (stopped at `--work-cap`), `captureCap` (stopped at `--capture-cap-mib`), `memoryCap` (stopped at `--word-mem-cap-mib`), `timeout` (`--word-timeout-ms`), `invalidShape` (the word did not segment). Checked in the order `invalidShape`, `timeout`, `memoryCap`, `captureCap`, `workCap`, `noParse`. A capped or timed-out word that still has a reading has `failure: null`; read `capped` and `timedOut`. |
+| `failure.workSteps`, `workCap` | Work steps spent, and the cap in force (`null` when unbounded). `workSteps` is `null` for `timeout`, which depends on the clock. |
+| `morphs[].entry` | The source LexEntry guid of the morph's lexical entry, `null` for a morph with no lexical entry. For a variant, `entry` is the variant's own entry, while `msa` belongs to the main entry, which is also a dependency of the reading: a consumer that retires or edits the main entry must treat variant readings as depending on it. |
+| `morphs[].signature` | `entry:msa`, or `entry:msa:inflType` for a variant-specific morph; `-` stands for a missing entry. |
+| `signature` | Reading. The morph signatures joined by `+`, in morph order. |
+
+**Stable.** A signature is built only from source guids, never from compiler ordinals, spelling, `form` or search order. It is therefore identical across re-runs, thread counts, work caps and any grammar edit that does not delete or re-create that entry or MSA object. The `form` guid is deliberately left out, so two allomorphs of one entry give one signature, and an entry whose form is edited keeps its signature. A reading's signature depends on morph order, which is significant. Two readings with the same signature are duplicates for counting. A guessed morph carries the entry and MSA of the lexical pattern that guessed it.
+
+## Result cache (opt-in)
+
+`--result-cache <dir|auto>` replays rows instead of parsing a word again. It needs `--analyses`; `auto` is `$XDG_CACHE_HOME`, else `~/.cache`, else `%LOCALAPPDATA%`, then `pangloss/batch-results`. The whole cache directory is bounded by `--result-cache-max-mib N` (default 256 MiB): after each run the least recently used grammar directories are removed until it fits, and a run whose new rows would push its own grammar past the bound stores nothing. The key is the grammar's bytes, the crate version, the SHA-256 of the running executable and every option token except the three paths, `--threads`, `--no-flush` and the cache flags, so a rebuilt or locally modified binary starts a new key. A grammar that changes while a run is in flight stores nothing. A failed cache write warns and the outputs are still written. `.tmp` segments left by a killed run are removed after an hour.
+
+- **Key.** SHA-256 over the grammar file's bytes, the PanGloss version and the running executable's SHA-256 (the executable hash), and every command-line option except the three paths, `--threads`, `--no-flush` and the cache flags. A new key is a miss; one changed option, one changed byte of the grammar or a new build misses every word. The grammar path and its mtime play no part.
+- **Rows.** The stored TSV row (with its `elapsed_ms` as first measured) and the sidecar row, replayed with the new index. A word that appears twice is parsed once. A `timedOut` row is returned but never stored.
+- **Differences from an uncached run.** No `STARTED` lines, no `LOADTIME`, no grammar load when every word hits, and `elapsedMs` is the first run's. A line `RESULTCACHE hit_rows=.. parsed_rows=..` goes to stderr.
+- **Bound.** Each grammar-and-options key is a directory of segment files; after a run the least recently used key directories are removed until the cache fits, never the one just used. A run whose new rows would push its own key over the bound is not stored.
+- **Refused with.** `--stats`, `--cache`, `--partials`, `--start`, `--prefilter`, `--engine`, `--cost-column`, `--phase-marks` and `--trace-*`.
 
 ## Comparison and provenance
 

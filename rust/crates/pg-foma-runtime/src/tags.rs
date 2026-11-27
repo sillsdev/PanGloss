@@ -67,6 +67,7 @@
 //!      escaped form decodes back to.
 
 use pg_grammar::model::MorphemeId;
+use std::ops::ControlFlow;
 
 /// The glyph substituted for every ASCII `'0'` digit in a tag's numeral text (module doc point 3).
 /// Never `'0'` itself — the whole point is that no tag numeral this module emits ever contains a
@@ -209,10 +210,8 @@ fn collapse_adjacent_repeats(path: &RawPath) -> RawPath {
     out
 }
 
-/// Splits one decoded path into one `Candidate` per `<R:...>` occurrence: 0 or 1 roots yields exactly one candidate; 2+ roots (a compound) yields one candidate per root position, ascending, each sharing the same full morpheme sequence -- headedness is left for confirm to resolve.
-pub fn to_candidates(path: &RawPath) -> Vec<Candidate> {
-    let path = collapse_adjacent_repeats(path);
-    let path = &path;
+/// One `Candidate` per root position of `path` (one candidate for zero or one roots); headedness is left to confirmation.
+fn candidates_of(path: &[(bool, MorphemeId)]) -> Vec<Candidate> {
     let morphemes: Vec<MorphemeId> = path.iter().map(|&(_, m)| m).collect();
     let root_indices: Vec<usize> = path
         .iter()
@@ -234,6 +233,134 @@ pub fn to_candidates(path: &RawPath) -> Vec<Candidate> {
             root_index: i as i32,
         })
         .collect()
+}
+
+/// The legacy candidates for one decoded path: adjacent equal tags collapsed, then one candidate per root position. This is the identity set the tags carry when every repeat is one reuse of one allomorph; `visit_candidate_superset` is the complete relation and always contains it.
+pub fn to_candidates(path: &RawPath) -> Vec<Candidate> {
+    candidates_of(&collapse_adjacent_repeats(path))
+}
+
+/// Whether a visited candidate is the legacy normalization of its path or an alternative only the repeat-ambiguity relation adds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandidateOrigin {
+    /// Equal to an element of `to_candidates(path)`; visited first.
+    Legacy,
+    /// Produced by merging or keeping a different subset of repeated tags.
+    Recovered,
+}
+
+/// The repeat-ambiguity relation: visits every candidate of every distinct order-preserving subsequence `Q` of `path` that keeps each distinct tag at least once, the legacy candidates first.
+///
+/// Why this shape: one entry with two root allomorphs `A`/`B` writes the same `<R:m>` for both, so the tag path for "reuse `A` twice" (HC identity `[m]`) and "`A` then `B`" (HC identity `[m, m]`) is identical, and an affix reused across other tags is a repeat that adjacency does not see. The tag path therefore cannot say which repeats HC counts once; the relation offers every merge and confirmation, which re-parses with HC itself, keeps only the identities HC produces. HC keeps the first occurrence of each allomorph, so its projected sequence is a subsequence of the path that still contains every distinct tag, which is why the relation contains it. It decides no allomorph and parses no text.
+///
+/// A path whose tags are all distinct has exactly one `Q` (itself) and visits exactly the legacy candidates. The traversal is depth-first over leftmost embeddings, so each distinct `Q` is reached once, every partial sequence extends to a complete one (bounded delay between visits) and nothing materializes the powerset. `visit` returns `Break` to stop; that `Break` is returned so a caller can stop before more work is spent.
+pub fn visit_candidate_superset(
+    path: &RawPath,
+    mut visit: impl FnMut(Candidate, CandidateOrigin) -> ControlFlow<()>,
+) -> ControlFlow<()> {
+    let legacy_seq = collapse_adjacent_repeats(path);
+    for candidate in candidates_of(&legacy_seq) {
+        visit(candidate, CandidateOrigin::Legacy)?;
+    }
+
+    let mut distinct: Vec<(bool, MorphemeId)> = Vec::new();
+    for tag in path {
+        if !distinct.contains(tag) {
+            distinct.push(*tag);
+        }
+    }
+    if distinct.len() == path.len() {
+        return ControlFlow::Continue(());
+    }
+    let tags: Vec<usize> = path
+        .iter()
+        .map(|tag| {
+            distinct
+                .iter()
+                .position(|d| d == tag)
+                .expect("tag is distinct-listed")
+        })
+        .collect();
+    let mut last = vec![0usize; distinct.len()];
+    for (i, &t) in tags.iter().enumerate() {
+        last[t] = i;
+    }
+    let legacy_tags: Vec<usize> = legacy_seq
+        .iter()
+        .map(|tag| {
+            distinct
+                .iter()
+                .position(|d| d == tag)
+                .expect("legacy tag is distinct-listed")
+        })
+        .collect();
+    let mut walk = SubsequenceWalk {
+        tags: &tags,
+        last: &last,
+        distinct: &distinct,
+        legacy: &legacy_tags,
+        chosen: Vec::new(),
+        taken: vec![0usize; distinct.len()],
+        covered: 0,
+    };
+    walk.descend(0, &mut visit)
+}
+
+struct SubsequenceWalk<'a> {
+    tags: &'a [usize],
+    last: &'a [usize],
+    distinct: &'a [(bool, MorphemeId)],
+    legacy: &'a [usize],
+    chosen: Vec<usize>,
+    taken: Vec<usize>,
+    covered: usize,
+}
+
+impl SubsequenceWalk<'_> {
+    /// Visits `chosen` once it holds every distinct tag, then extends it with each tag's leftmost occurrence from `start`.
+    fn descend(
+        &mut self,
+        start: usize,
+        visit: &mut impl FnMut(Candidate, CandidateOrigin) -> ControlFlow<()>,
+    ) -> ControlFlow<()> {
+        if self.covered == self.distinct.len() && self.chosen != self.legacy {
+            let sequence: Vec<(bool, MorphemeId)> =
+                self.chosen.iter().map(|&t| self.distinct[t]).collect();
+            for candidate in candidates_of(&sequence) {
+                visit(candidate, CandidateOrigin::Recovered)?;
+            }
+        }
+        // No position past an absent tag's last occurrence can be taken without losing that tag.
+        let bound = (0..self.distinct.len())
+            .filter(|&t| self.taken[t] == 0)
+            .map(|t| self.last[t])
+            .min()
+            .unwrap_or(usize::MAX);
+        let mut offered = vec![false; self.distinct.len()];
+        for j in start..self.tags.len() {
+            if j > bound {
+                break;
+            }
+            let t = self.tags[j];
+            if offered[t] {
+                continue;
+            }
+            offered[t] = true;
+            self.chosen.push(t);
+            if self.taken[t] == 0 {
+                self.covered += 1;
+            }
+            self.taken[t] += 1;
+            let flow = self.descend(j + 1, visit);
+            self.taken[t] -= 1;
+            if self.taken[t] == 0 {
+                self.covered -= 1;
+            }
+            self.chosen.pop();
+            flow?;
+        }
+        ControlFlow::Continue(())
+    }
 }
 
 #[cfg(test)]

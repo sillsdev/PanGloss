@@ -71,7 +71,7 @@ fn local_scope_reaches_no_upstream_fixture() {
 #[test]
 fn require_fixture_finds_an_upstream_fixture_whatever_the_claimed_scope_is() {
     // A named pin makes no coverage claim, so scope must not hide a healthy upstream fixture.
-    let found = require_fixture("edge-cases", "loader-isactive");
+    let found = require_fixture("edge-cases", "loader-pattern-shapes");
     assert_eq!(found.root, Root::Machine);
     assert!(found.grammar_path().is_file());
 }
@@ -121,7 +121,7 @@ fn graduation_guard_flags_same_key_both_roots() {
             root: Root::Machine,
             category: "edge-cases".into(),
             name: "foo".into(),
-            dir: PathBuf::from("machine/conformance/edge-cases/foo"),
+            dir: PathBuf::from("conformance/edge-cases/foo"),
         },
         FixtureRef {
             root: Root::Staging,
@@ -387,7 +387,7 @@ fn words_and_parses_require_nonempty_schema_values_and_reject_unknown_fields() {
         ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: [\"\"]\n", "rules[0] must be nonempty"),
         ("    note: valid\n    unknown_word_field: true\n", "unknown field `unknown_word_field`"),
         ("    note: valid\n    parses:\n      - signature: OK|foo\n        rules: []\n        unknown_parse_field: true\n", "unknown field `unknown_parse_field`"),
-        ("    note: valid\n    claimed_cells: [{cell: key, unknown_claim_field: true}]\n", "unknown field `unknown_claim_field`"),
+        ("    note: valid\n    claims: [{cell: key, unknown_claim_field: true}]\n", "unknown field `unknown_claim_field`"),
     ] {
         let doc = format!("language: Test\nrequires: [morpher-settings]\nwords:\n  - word: foo\n{word_fields}variants:\n  - name: strict\n    morpher: {{GuessRoots: false}}\n    words:\n      - word: foo\n        note: control\n        expect_fail: true\n");
         let error = serde_yaml::from_str::<WordsYaml>(&doc)
@@ -462,7 +462,7 @@ fn variants_require_valid_unique_names_nonempty_known_settings_and_identical_inp
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        blocked_by: [rule]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        neutralizes: [rule]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        exercises: [rule]\n", "may not declare blocked_by"),
-        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        claimed_cells: [{cell: key}]\n", "may not declare blocked_by"),
+        ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        expect_fail: true\n        claims: [{cell: key}]\n", "may not declare blocked_by"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n            rules: []\n            exercises: [rule]\n", "exercises must be empty"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: \"\"\n            rules: []\n", "signature must be nonempty"),
         ("variants:\n  - name: one\n    morpher: {DelReapps: 0}\n    words:\n      - word: foo\n        note: Variant result.\n        parses:\n          - signature: FOO|foo\n", "missing field `rules`"),
@@ -714,7 +714,7 @@ fn incomplete_replay_cannot_pass_as_an_expected_zero_analysis() {
     words.words[0].expect_fail = true;
     words.words[0].parses.clear();
     let grammar = fixture.load_grammar();
-    let morpher = pg_parse::Morpher::new(&grammar, 0).with_work_cap(0);
+    let morpher = pg_parse::Morpher::new(&grammar, 0);
     let outcome = morpher.parse_word(&words.words[0].word);
     assert!(
         outcome.capped,
@@ -752,4 +752,270 @@ fn a_variant_with_no_visible_words_is_not_reported_as_exercised() {
     assert_eq!(runs[1].replay.checked, 0);
     assert!(runs[1].name.ends_with("#variant=legacy-guesses"));
     assert!(runs[1].replay.mismatches.iter().any(|m| m.word == "<run>"));
+}
+
+fn loader_pattern_shapes_fixture() -> FixtureRef {
+    FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".to_string(),
+        name: "loader-pattern-shapes".to_string(),
+        dir: Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/data/edge-cases/loader-pattern-shapes"),
+    }
+}
+
+#[test]
+fn replay_treats_bracketed_class_members_as_a_set() {
+    let fixture = loader_pattern_shapes_fixture();
+    let words = fixture.load_words_yaml();
+    let grammar = fixture.load_grammar();
+    let replay = replay_against_oracle(&words, &pg_parse::Morpher::new(&grammar, usize::MAX));
+    assert!(replay.mismatches.is_empty(), "{:?}", replay.mismatches);
+    assert!(replay.checked > 0);
+}
+
+#[test]
+fn class_order_normalization_sorts_members_and_keeps_negation_and_other_text() {
+    assert_eq!(normalize_class_order("A+B|b[ea]t"), "A+B|b[ae]t");
+    assert_eq!(normalize_class_order("|b[^ea]t[ou]"), "|b[^ae]t[ou]");
+    assert_eq!(normalize_class_order("|bat"), "|bat");
+    assert_eq!(normalize_class_order("|b[ea"), "|b[ea");
+}
+
+#[test]
+fn signatures_equal_ignores_class_member_order_but_not_members_or_negation() {
+    assert!(signatures_equal("|b[ae]t", "|b[ea]t"));
+    assert!(signatures_equal("X|a;Y|b[ae]t", "Y|b[ea]t;X|a"));
+    assert!(signatures_equal("-", "-"));
+    assert!(!signatures_equal("|b[ae]t", "|b[ao]t"));
+    assert!(!signatures_equal("|b[^ae]t", "|b[ae]t"));
+    assert!(!signatures_equal("|b[ae]t", "|b[ae]t;|b[ae]t"));
+    assert!(!signatures_equal("-", "|b[ae]t"));
+}
+
+fn temp_suite(tag: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("pg-calibration-guard-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn write_fixture(root: &Path, category: &str, name: &str, words_yaml: &str) {
+    let dir = root.join(category).join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("grammar.xml"), "<x/>").unwrap();
+    std::fs::write(dir.join("words.yaml"), words_yaml).unwrap();
+}
+
+const CALIBRATION_HEADER_LINE: &str =
+    "# kind: calibration (CALIBRATION ONLY: never run in conformance or engine test runs; see calibration/README.md)\n";
+
+#[test]
+fn no_discovered_fixture_is_calibration_material() {
+    // Both roots, whatever scope the run claimed: the suite at its pin and the staged fixtures.
+    let all = discover_scoped(ConformanceScope::All);
+    assert!(!all.is_empty());
+    let leaks = calibration_leaks(&all);
+    assert!(
+        leaks.is_empty(),
+        "calibration reached enumeration: {leaks:#?}"
+    );
+    let staged = all_staged_fixtures();
+    let leaks = calibration_leaks(&staged);
+    assert!(leaks.is_empty(), "calibration staged: {leaks:#?}");
+}
+
+#[test]
+fn the_scan_never_descends_into_a_calibration_folder() {
+    let suite = temp_suite("folder");
+    write_fixture(&suite, "calibration", "cal-big", CALIBRATION_HEADER_LINE);
+    write_fixture(&suite, "edge-cases", "plain", "language: x\n");
+    let mut out = Vec::new();
+    scan_one_root(&suite, Root::Machine, &mut out);
+    let leaks = calibration_leaks(&out);
+    std::fs::remove_dir_all(&suite).unwrap();
+    assert_eq!(
+        out.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(),
+        ["plain"]
+    );
+    assert!(leaks.is_empty());
+}
+
+#[test]
+fn a_cal_named_fixture_or_a_calibration_header_is_a_leak() {
+    let suite = temp_suite("leak");
+    write_fixture(&suite, "edge-cases", "cal-sneaked", "language: x\n");
+    write_fixture(&suite, "edge-cases", "headed", CALIBRATION_HEADER_LINE);
+    write_fixture(
+        &suite,
+        "languages",
+        "plain",
+        "# kind: stress (not calibration)\nlanguage: x\n",
+    );
+    let mut out = Vec::new();
+    scan_one_root(&suite, Root::Machine, &mut out);
+    assert_eq!(out.len(), 3);
+    let leaks = calibration_leaks(&out);
+    std::fs::remove_dir_all(&suite).unwrap();
+    assert_eq!(leaks.len(), 2, "{leaks:#?}");
+    assert!(leaks.iter().any(|l| l.contains("cal-sneaked")));
+    assert!(leaks.iter().any(|l| l.contains("headed")));
+}
+
+#[test]
+fn only_a_leading_comment_makes_a_words_file_a_calibration_file() {
+    assert!(words_yaml_declares_calibration(CALIBRATION_HEADER_LINE));
+    assert!(words_yaml_declares_calibration(
+        "\n# CALIBRATION ONLY\nlanguage: x\n"
+    ));
+    assert!(!words_yaml_declares_calibration(
+        "language: x\n# CALIBRATION ONLY\n"
+    ));
+    assert!(!words_yaml_declares_calibration(
+        "# kind: stress\nlanguage: x\n"
+    ));
+}
+
+#[test]
+fn upstream_line_forms() {
+    let pr = "upstream: https://github.com/sillsdev/fieldworks-parser-conformance/pull/";
+    assert!(staging_md_has_upstream_line(&format!("{pr}12")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}0")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}012")));
+    assert!(!staging_md_has_upstream_line(&format!("{pr}1x")));
+    assert!(staging_md_has_upstream_line(
+        "x\nupstream: not-producible: row 22 no such shape\n"
+    ));
+    for bad in [
+        "upstream: not-producible:",
+        "upstream: not-producible: TBD",
+        "upstream: not-producible: row 22",
+        "upstream: not-producible: row 0 reason",
+        "upstream: not-producible: row 07 reason",
+        "Upstream PR: not opened",
+        "upstream: https://github.com/x/y/pull/1",
+    ] {
+        assert!(!staging_md_has_upstream_line(bad), "{bad}");
+    }
+}
+
+fn staged(dir: &Path, name: &str, staging_md: Option<&str>) -> FixtureRef {
+    let d = dir.join("edge-cases").join(name);
+    std::fs::create_dir_all(&d).unwrap();
+    if let Some(s) = staging_md {
+        std::fs::write(d.join("STAGING.md"), s).unwrap();
+    }
+    FixtureRef {
+        root: Root::Staging,
+        category: "edge-cases".into(),
+        name: name.into(),
+        dir: d,
+    }
+}
+
+#[test]
+fn staging_upstream_gate_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ok_md = "upstream: https://github.com/sillsdev/fieldworks-parser-conformance/pull/7\n";
+    let clean = vec![
+        staged(tmp.path(), "has-line", Some(ok_md)),
+        staged(tmp.path(), "old", None),
+    ];
+    let baseline = parse_upstream_baseline("# c\nedge-cases/old\n");
+    assert!(staging_upstream_violations(&clean, &baseline).is_empty());
+
+    let unbaselined = vec![staged(tmp.path(), "new", Some("Upstream PR: pending\n"))];
+    let v = staging_upstream_violations(&unbaselined, &Default::default());
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].0, "edge-cases/new");
+    assert!(v[0].1.contains("missing"));
+
+    let gained = vec![staged(tmp.path(), "gained", Some(ok_md))];
+    let b = parse_upstream_baseline("edge-cases/gained");
+    let v = staging_upstream_violations(&gained, &b);
+    assert_eq!(v.len(), 1);
+    assert!(v[0].1.contains("remove it from the baseline"));
+
+    let stale = parse_upstream_baseline("edge-cases/gone");
+    let v = staging_upstream_violations(&[], &stale);
+    assert_eq!(
+        v,
+        vec![(
+            "edge-cases/gone".to_string(),
+            "baseline entry has no staged fixture; remove it".to_string()
+        )]
+    );
+
+    // STAGING.md that is a directory is an I/O error, not a missing line.
+    let bad = staged(tmp.path(), "unreadable", None);
+    std::fs::create_dir(bad.staging_md_path()).unwrap();
+    let v = staging_upstream_violations(&[bad], &Default::default());
+    assert!(v[0].1.starts_with("cannot read STAGING.md"), "{v:?}");
+}
+
+fn staging_expectation(fixture: &str) -> PanglossExpectation {
+    PanglossExpectation {
+        fixture: fixture.to_string(),
+        word: "aat".into(),
+        upstream: "[\"B|aat\", \"B|aat\"]".into(),
+        pangloss: "[\"B|aat\"]".into(),
+        divergence: "134".into(),
+        note: String::new(),
+    }
+}
+
+fn staging_mismatch() -> OracleMismatch {
+    OracleMismatch {
+        word: "aat".into(),
+        what: "analysis multiset mismatch",
+        got: "[\"B|aat\"]".into(),
+        expected: "[\"B|aat\", \"B|aat\"]".into(),
+    }
+}
+
+fn family_fixture(root: Root) -> FixtureRef {
+    FixtureRef {
+        root,
+        category: "edge-cases".into(),
+        name: "family-blocked-generation".into(),
+        dir: PathBuf::new(),
+    }
+}
+
+#[test]
+fn a_staging_key_matches_only_the_staging_root() {
+    let id = "edge-cases/family-blocked-generation";
+    let staged = [staging_expectation(&format!("staging:{id}"))];
+    let m = staging_mismatch();
+    assert_eq!(
+        pangloss_expectation_for(&staged, Root::Staging, id, &m),
+        Some(0)
+    );
+    assert_eq!(
+        pangloss_expectation_for(&staged, Root::Machine, id, &m),
+        None
+    );
+    let plain = [staging_expectation(id)];
+    assert_eq!(
+        pangloss_expectation_for(&plain, Root::Staging, id, &m),
+        None
+    );
+}
+
+#[test]
+fn an_unused_staging_key_is_stale_only_against_its_staged_fixture() {
+    let staged = [staging_expectation(
+        "staging:edge-cases/family-blocked-generation",
+    )];
+    let stale = |fixtures: &[FixtureRef], used: bool| {
+        pangloss_expectation_violations(&staged, &[used], fixtures).len()
+    };
+    assert_eq!(stale(&[family_fixture(Root::Staging)], false), 1);
+    assert_eq!(stale(&[family_fixture(Root::Staging)], true), 0);
+    assert_eq!(
+        stale(&[family_fixture(Root::Machine)], false),
+        1,
+        "a suite fixture never satisfies a staging key"
+    );
 }

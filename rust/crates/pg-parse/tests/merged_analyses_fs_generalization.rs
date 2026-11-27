@@ -110,6 +110,17 @@ fn parse_word_merged_equivalent_analyses_canonical_fs_covers_every_alternative_r
 }
 
 #[test]
+fn repeated_words_do_not_share_root_search_state() {
+    let grammar = build_category_change_grammar("r0 r1 r2");
+    let morpher = Morpher::new(&grammar, usize::MAX);
+    let first = morpher.parse_word("zudzit");
+    let second = morpher.parse_word("zudzit");
+    assert_eq!(first.signature(), second.signature());
+    assert_eq!(first.work_steps, second.work_steps);
+    assert!(first.work_steps > 0);
+}
+
+#[test]
 fn parse_word_merged_equivalent_analyses_canonical_fs_covers_every_alternative_r2_first() {
     let g = build_category_change_grammar("r2 r0 r1");
     let m = Morpher::new(&g, usize::MAX);

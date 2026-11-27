@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<HermitCrabInput>
+  <Language>
+    <Name>Attack</Name>
+    <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem>
+      <SymbolicFeature id="featBack"><Name>back</Name><Symbols><Symbol id="bkPlus">+</Symbol><Symbol id="bkMinus">-</Symbol></Symbols></SymbolicFeature>
+      <SymbolicFeature id="featRound"><Name>round</Name><Symbols><Symbol id="rdPlus">+</Symbol><Symbol id="rdMinus">-</Symbol></Symbols></SymbolicFeature>
+    </PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions>
+      <SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+      <SegmentDefinition id="cY"><Representations><Representation>y</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkMinus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+      <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdMinus" /></SegmentDefinition>
+      <SegmentDefinition id="cU"><Representations><Representation>u</Representation></Representations><FeatureValue feature="featBack" symbolValues="bkPlus" /><FeatureValue feature="featRound" symbolValues="rdPlus" /></SegmentDefinition>
+      </SegmentDefinitions>
+      <BoundaryDefinitions><BoundaryDefinition id="bPlus"><Representations><Representation>+</Representation></Representations></BoundaryDefinition></BoundaryDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cI" /><Segment segment="cY" /><Segment segment="cA" /><Segment segment="cU" /></SegmentNaturalClass>
+      <FeatureNaturalClass id="ncBack"><Name>Bk</Name><FeatureValue feature="featBack" symbolValues="bkPlus" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncRound"><Name>Rd</Name><FeatureValue feature="featRound" symbolValues="rdPlus" /></FeatureNaturalClass>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+    </NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <PhonologicalRule id="prX" multipleApplicationOrder="leftToRightIterative"><Name>prX</Name>
+        <PhoneticInput><PhoneticSequence><Segment segment="cU" /></PhoneticSequence></PhoneticInput>
+        <PhonologicalSubrules><PhonologicalSubrule><PhoneticOutput><PhoneticSequence><Segment segment="cI" /></PhoneticSequence></PhoneticOutput><Environment><LeftEnvironment><PhoneticTemplate><PhoneticSequence><Segment segment="cU" /></PhoneticSequence></PhoneticTemplate></LeftEnvironment></Environment></PhonologicalSubrule></PhonologicalSubrules>
+      </PhonologicalRule>
+    </PhonologicalRuleDefinitions>
+    <Strata><Stratum characterDefinitionTable="tbl" phonologicalRules="prX"><Name>Main</Name><LexicalEntries><LexicalEntry id="e0" partOfSpeech="posN"><Allomorphs><Allomorph id="a0"><PhoneticShape>uuu</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R0</MorphemeId><Gloss>r0</Gloss></LexicalEntry><LexicalEntry id="e1" partOfSpeech="posN"><Allomorphs><Allomorph id="a1"><PhoneticShape>uuuu</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R1</MorphemeId><Gloss>r1</Gloss></LexicalEntry><LexicalEntry id="e2" partOfSpeech="posN"><Allomorphs><Allomorph id="a2"><PhoneticShape>iuu</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R2</MorphemeId><Gloss>r2</Gloss></LexicalEntry><LexicalEntry id="e3" partOfSpeech="posN"><Allomorphs><Allomorph id="a3"><PhoneticShape>ia</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R3</MorphemeId><Gloss>r3</Gloss></LexicalEntry><LexicalEntry id="e4" partOfSpeech="posN"><Allomorphs><Allomorph id="a4"><PhoneticShape>aa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R4</MorphemeId><Gloss>r4</Gloss></LexicalEntry><LexicalEntry id="e5" partOfSpeech="posN"><Allomorphs><Allomorph id="a5"><PhoneticShape>aaa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R5</MorphemeId><Gloss>r5</Gloss></LexicalEntry><LexicalEntry id="e6" partOfSpeech="posN"><Allomorphs><Allomorph id="a6"><PhoneticShape>aaaa</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R6</MorphemeId><Gloss>r6</Gloss></LexicalEntry><LexicalEntry id="e7" partOfSpeech="posN"><Allomorphs><Allomorph id="a7"><PhoneticShape>ua</PhoneticShape></Allomorph></Allomorphs><MorphemeId>R7</MorphemeId><Gloss>r7</Gloss></LexicalEntry></LexicalEntries></Stratum></Strata>
+  </Language>
+</HermitCrabInput>

@@ -1,13 +1,13 @@
 name: Rust gates
 
-# The fmt, clippy and test gates shared by Rust CI and Release, so the two cannot drift. Release adds
+# The fmt, clippy, docs and test gates shared by Rust CI and Release, so the two cannot drift. Release adds
 # its version preflight and extra gates through `include_release_gates`.
 
 on:
   workflow_call:
     inputs:
       include_release_gates:
-        description: Include release version, documentation, hygiene, and conformance gates.
+        description: Include release version, WordMaker parity, and conformance gates.
         required: false
         default: false
         type: boolean
@@ -30,6 +30,11 @@ on:
         description: Require source_tag to be an annotated tag naming source_sha.
         required: false
         default: false
+        type: boolean
+      run_gates:
+        description: Run the fmt, clippy, docs and test jobs. Rust CI passes false for a draft or docs-only pull request; every job then reports skipped.
+        required: false
+        default: true
         type: boolean
       timeout_minutes:
         description: Maximum time allowed for the test job.
@@ -160,7 +165,7 @@ jobs:
   fmt:
     name: fmt --check
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -176,7 +181,7 @@ jobs:
   clippy:
     name: clippy
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,6 +189,8 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -192,12 +199,30 @@ jobs:
           workspaces: rust
       # Examples are behind each crate's `examples` feature so test builds skip them; lint them anyway.
       - working-directory: rust
-        run: cargo clippy --all-targets --features pg-cli/examples --locked -- -D warnings
+        run: cargo clippy --all-targets --features pg-cli/examples,pg-cli/cost-calibration --locked -- -D warnings
+
+  # Every PR and every release. Cheap: no test binaries, only a doc build. One script defines it.
+  docs:
+    name: comment hygiene + rustdoc
+    needs: preflight
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: comment hygiene + rustdoc (-D warnings)
+        run: bash rust/tools/ci-doc-gate.sh
 
   test:
     name: build + test
     needs: preflight
-    if: ${{ !failure() && !cancelled() }}
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.timeout_minutes }}
     # Fixture discovery refuses an unclaimed run; claim both roots, as `pg.ps1 -Mode test` does.
@@ -209,18 +234,106 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - working-directory: rust
-        run: cargo test --profile pg-test-opt --no-fail-fast --locked
+      # Pinned; the same version `rust/README.md` tells contributors to install.
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        with:
+          tool: nextest@0.9.100
+      - name: nextest (ci profile)
+        working-directory: rust
+        run: cargo nextest run --profile ci --cargo-profile pg-test-opt --no-fail-fast --locked
+      # nextest does not run doctests.
+      - name: doctests
+        working-directory: rust
+        run: cargo test --doc --profile pg-test-opt --no-fail-fast --locked
+      - name: Upload JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nextest-junit
+          path: rust/target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+
+  fst-test:
+    name: FST build + test (required)
+    needs: preflight
+    if: ${{ !failure() && !cancelled() && inputs.run_gates }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      PANGLOSS_CONFORMANCE_SCOPE: all
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+          submodules: true
+          fetch-depth: 0
+      - name: Select FST-relevant changes
+        id: changes
+        shell: bash
+        env:
+          FST_RELEASE: ${{ inputs.include_release_gates }}
+          FST_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [[ "$FST_RELEASE" != true && -n "$FST_BASE" ]] && git cat-file -e "$FST_BASE^{commit}" 2>/dev/null; then
+            # Include all Rust dependencies and build inputs; unknown bases conservatively run.
+            if git diff --quiet "$FST_BASE" HEAD -- rust/ conformance-staging/ conformance.commit machine \
+              .github/workflows/ .github/actions/conformance-suite/ .cargo/ rust-toolchain rust-toolchain.toml \
+              docs/ .claude/ CLAUDE.md openspec/ samples/ tools/underdefined-identity-capture/; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "FST tests selected: $run (release=$FST_RELEASE, base=$FST_BASE)"
+      - name: Fetch the conformance suite
+        if: steps.changes.outputs.run == 'true'
+        uses: ./.github/actions/conformance-suite
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changes.outputs.run == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          workspaces: rust
+          key: fst
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          tool: nextest@0.9.100
+      # Explicit packages: the three FST crates are outside default-members. pg-cli owns foma-tools.
+      - name: FST nextest (ci profile)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: rust
+        run: >-
+          cargo nextest run --profile ci --cargo-profile pg-test-opt --no-fail-fast --locked
+          -p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli --features pg-cli/foma-tools
+      - name: FST doctests
+        if: steps.changes.outputs.run == 'true'
+        working-directory: rust
+        run: >-
+          cargo test --doc --profile pg-test-opt --no-fail-fast --locked
+          -p pg-foma -p pg-foma-runtime -p pg-foma-backend -p pg-cli --features pg-cli/foma-tools
+      - name: Upload FST JUnit report
+        if: ${{ !cancelled() && steps.changes.outputs.run == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fst-nextest-junit
+          path: rust/target/nextest/ci/junit.xml
+          if-no-files-found: error
 
   release-extras:
-    name: release gates (hygiene, rustdoc, conformance)
+    name: release gates (WordMaker parity, conformance)
     needs: preflight
     if: ${{ inputs.include_release_gates && !failure() && !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: ${{ inputs.timeout_minutes }}
     env:
       PANGLOSS_CONFORMANCE_SCOPE: all
@@ -230,23 +343,43 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
           submodules: true
           fetch-depth: 0
+      - name: Fetch the conformance suite
+        uses: ./.github/actions/conformance-suite
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: comment hygiene
-        working-directory: rust
-        run: cargo run --locked -p pg-comment-hygiene -- --repo-root .. --list
-      - name: rustdoc
-        working-directory: rust
-        env:
-          RUSTDOCFLAGS: -D warnings
-        run: cargo doc --no-deps --locked
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: |
+            8.0.x
             10.0.x
+      - name: Check out pinned LibLCM oracle source
+        uses: actions/checkout@v4
+        with:
+          repository: sillsdev/liblcm
+          ref: d564a719b1cce16c25ebea53a537393cb757f5d1
+          path: .tmp/wordmaker-liblcm
+      - name: Check out pinned WordMaker Machine source
+        uses: actions/checkout@v4
+        with:
+          repository: sillsdev/machine
+          ref: 4d9b454d42a0da35e058641a65596339a79d115b
+          path: .tmp/wordmaker-machine
+      - name: Verify fresh WordMaker reference
+        env:
+          LIBLCM_REVISION: d564a719b1cce16c25ebea53a537393cb757f5d1
+          MACHINE_REVISION: 4d9b454d42a0da35e058641a65596339a79d115b
+          DOTNET_ROLL_FORWARD: Major
+        run: |
+          test "$(git -C .tmp/wordmaker-machine rev-parse HEAD)" = "$MACHINE_REVISION"
+          sudo apt-get update
+          sudo apt-get install -y libicu70 icu-devtools
+          sudo mkdir -p /usr/lib/fieldworks/icu-bin /usr/lib/fieldworks/lib
+          sudo ln -s "$(command -v gennorm2)" /usr/lib/fieldworks/icu-bin/gennorm2
+          dotnet build rust/dotnet-harness/WordMakerParity/WordMakerParity.csproj -p:LibLcmRoot="$PWD/.tmp/wordmaker-liblcm" -p:MachineRoot="$PWD/.tmp/wordmaker-machine" -p:DisableGitVersionTask=true
+          python3 rust/dotnet-harness/WordMakerParity/smoke.py rust/dotnet-harness/WordMakerParity/bin/Debug/net8.0/WordMakerParity.dll
       - name: conformance suite (the contract)
         run: |
           set +e

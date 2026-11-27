@@ -102,11 +102,15 @@ pub(crate) fn snapshot_environment_source(
 ) -> EnvironmentSource {
     EnvironmentSource {
         id: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
+        guid: (!env.guid.trim().is_empty()).then(|| env.guid.clone()),
         text: (!env.representation.trim().is_empty()).then(|| env.representation.clone()),
     }
 }
 
 pub(crate) fn record_unattempted(snapshot: &pg_snapshot::Snapshot, ctx: &Ctx) {
+    if ctx.is_lean() {
+        return;
+    }
     for environment in &snapshot.phonology.environments {
         let key = InventoryKey::object(InventoryKind::Environment, environment.guid.clone());
         if ctx.has_load_decision(&key) {
@@ -429,7 +433,19 @@ fn nodes_from_spanned(
         match chars.next() {
             Some('#') => {}
             Some('[') => {
-                let name = tok[1..tok.len() - 1].trim();
+                let token_name = tok[1..tok.len() - 1].trim();
+                // `[C^1]` names class `C` (reduplication index, HCLoader.cs:1262-1267); the recognizer accepts only digits after `^`.
+                let name = match token_name.split_once('^') {
+                    Some((class, index))
+                        if !index.is_empty() && index.chars().all(|c| c.is_ascii_digit()) =>
+                    {
+                        class.trim()
+                    }
+                    Some(_) => {
+                        return Err(format!("wedge used as part of a class name: {token_name}"))
+                    }
+                    None => token_name,
+                };
                 let nc = ctx.natclass_by_name.get(name).copied();
                 let natural_class_guid = nc
                     .and_then(|id| ctx.natural_class_defs.get(id.0 as usize))
@@ -474,7 +490,7 @@ fn nodes_from_spanned(
             }
             Some(_) => {
                 let text = tok.trim();
-                let shape = crate::segment::segment_phonemes_only(ctx.table, text)
+                let shape = crate::segment::segment_phonemes_only_load(ctx.table, text)
                     .map_err(|e| e.to_string())?;
                 out.push(PatternNode::Segments {
                     table: ctx.table_id,

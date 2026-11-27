@@ -95,9 +95,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// This schema's own version, written into every `HealthReport`. Bump only on a
 /// wire-incompatible change to this module's types.
-///
-/// Bumped to 8 when the partial-morpheme production-policy code and its metric were registered.
-pub const HEALTH_SCHEMA_VERSION: u32 = 8;
+pub const HEALTH_SCHEMA_VERSION: u32 = 10;
 
 // Severity + payload-size threshold
 
@@ -229,8 +227,10 @@ pub enum Metric {
     CompositeRulePairCount,
     /// Required grammar constructs or plan subtrees the named backend cannot represent completely.
     BackendCoverageGapCount,
-    /// Partial lexical entries plus partial affix-process rules the compiled grammar declares.
-    PartialMorphemeCount,
+    /// Labelled grammar-health findings on the compiled Grammar.
+    GrammarHealthBlockingCount,
+    /// Bytes accumulated while enumerating representation alternatives.
+    RepresentationEnumerationBytes,
 }
 
 /// Whether a `HealthFinding`'s `MetricValue` is a heuristic estimate, a trustworthy proof, or
@@ -282,13 +282,14 @@ pub enum FindingCode {
     BuildProcessFailed,
     /// A backend is known to omit or reject one or more required grammar constructs.
     BackendCoverageIncomplete,
+    /// Some backends decline the grammar while at least one other backend offers a path.
+    BackendCoveragePartial,
     /// An exact, already-computed morphological x phonological rule-count product is large.
     /// Distinct from [`FindingCode::UnknownUnboundedConstruct`]: this cost IS bounded ahead of
     /// time, just large.
     RuleInteractionProduct,
-    /// A completed FST was built from a grammar declaring partial morphemes. HermitCrab semantics
-    /// are unaffected and the compile itself is not blocked; only publication is.
-    PartialMorphemeProductionPolicy,
+    /// Grammar-health labels keep a completed FST from publication; construction is still permitted.
+    GrammarHealthBlocksFst,
 }
 
 /// Which of the three independent admission questions a `FindingCode` answers. A finding never
@@ -321,7 +322,8 @@ impl FindingCode {
         FindingCode::BuildProcessFailed,
         FindingCode::BackendCoverageIncomplete,
         FindingCode::RuleInteractionProduct,
-        FindingCode::PartialMorphemeProductionPolicy,
+        FindingCode::GrammarHealthBlocksFst,
+        FindingCode::BackendCoveragePartial,
     ];
 
     /// The current `PGFdddd` wire code. Exhaustive match, no catch-all arm — adding a variant
@@ -335,7 +337,8 @@ impl FindingCode {
             FindingCode::BuildProcessFailed => "PGF0012",
             FindingCode::BackendCoverageIncomplete => "PGF0013",
             FindingCode::RuleInteractionProduct => "PGF0015",
-            FindingCode::PartialMorphemeProductionPolicy => "PGF0016",
+            FindingCode::GrammarHealthBlocksFst => "PGF0018",
+            FindingCode::BackendCoveragePartial => "PGF0017",
         }
     }
 
@@ -364,13 +367,15 @@ impl FindingCode {
                 "A backend is known to omit or reject required grammar constructs and therefore \
                  cannot produce a complete artifact."
             }
+            FindingCode::BackendCoveragePartial => {
+                "Some backends decline the grammar while at least one other backend offers a path."
+            }
             FindingCode::RuleInteractionProduct => {
                 "An exact morphological x phonological rule-count product is large; this cost is \
                  bounded ahead of time, not unknown."
             }
-            FindingCode::PartialMorphemeProductionPolicy => {
-                "A completed FST was built from a grammar containing partial morphemes and is not \
-                 eligible for production publication."
+            FindingCode::GrammarHealthBlocksFst => {
+                "Grammar-health reports labelled findings that block FST publication."
             }
         }
     }
@@ -387,13 +392,14 @@ impl FindingCode {
     pub const fn class(self) -> FindingClass {
         match self {
             FindingCode::BackendCoverageIncomplete => FindingClass::Representability,
+            FindingCode::BackendCoveragePartial => FindingClass::Representability,
             FindingCode::PayloadSizeBand => FindingClass::Readiness,
             FindingCode::UnknownUnboundedConstruct => FindingClass::Readiness,
             FindingCode::ResourceBudgetReached => FindingClass::Containment,
             FindingCode::BackendCompilationFailed => FindingClass::Process,
             FindingCode::BuildProcessFailed => FindingClass::Process,
             FindingCode::RuleInteractionProduct => FindingClass::Readiness,
-            FindingCode::PartialMorphemeProductionPolicy => FindingClass::Readiness,
+            FindingCode::GrammarHealthBlocksFst => FindingClass::Readiness,
         }
     }
 }

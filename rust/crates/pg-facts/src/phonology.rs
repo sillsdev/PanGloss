@@ -17,6 +17,7 @@ use crate::features::FeatureStructureIds;
 use crate::lexicon::reads_positions;
 use crate::load::subject_key;
 use crate::morphology::checked_guid;
+use crate::owner_loads::OwnerLoads;
 use crate::FactsError;
 
 const COMPILE_CONTEXT: &str = "production";
@@ -66,6 +67,7 @@ pub(crate) fn insert_authored(
     feature_structures: &FeatureStructureIds,
     environment_resolutions: &[EnvironmentResolution],
     decisions: &[LoadDecision],
+    owner_loads: &OwnerLoads<'_>,
     grammar: Option<&pg_grammar::model::Grammar>,
 ) -> Result<(), FactsError> {
     insert_phoneme_set(tx, snapshot)?;
@@ -75,7 +77,13 @@ pub(crate) fn insert_authored(
     insert_feature_constraints(tx, snapshot)?;
     insert_environments(tx, snapshot, environment_resolutions)?;
     insert_allomorph_environments(tx, snapshot)?;
-    insert_environment_usage(tx, snapshot, environment_resolutions, decisions)?;
+    insert_environment_usage(
+        tx,
+        snapshot,
+        environment_resolutions,
+        decisions,
+        owner_loads,
+    )?;
     insert_effective_members(tx, snapshot, grammar)?;
     insert_environment_sides(tx, snapshot, environment_resolutions, grammar)?;
     insert_phonological_rules(tx, snapshot, grammar)?;
@@ -91,7 +99,8 @@ fn insert_phoneme_set(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(), F
         .as_deref()
         .map(|value| checked_guid(value, "phonology.phonemeSet"))
         .transpose()?;
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO phoneme_set(singleton, guid) VALUES (1, ?1)",
         [guid],
     )?;
@@ -108,12 +117,14 @@ fn insert_phonemes(
         let fs_id = feature_structures
             .get(&("phoneme".into(), guid.clone(), "features".into()))
             .copied();
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO phoneme(guid, feature_structure_id, name, basic_ipa_symbol) VALUES (?1, ?2, ?3, ?4)",
             params![guid, fs_id, phoneme.name, phoneme.basic_ipa_symbol],
         )?;
         for (ordinal, form) in phoneme.representations.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO phoneme_grapheme(phoneme_guid, ordinal, writing_system, grapheme) VALUES (?1, ?2, ?3, ?4)",
                 params![guid, ordinal as i64, form.ws, form.form],
             )?;
@@ -125,12 +136,14 @@ fn insert_phonemes(
 fn insert_boundaries(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(), FactsError> {
     for boundary in &snapshot.phonology.boundary_markers {
         let guid = checked_guid(&boundary.guid, "phonology.boundaryMarker.guid")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO boundary_marker(guid, name) VALUES (?1, ?2)",
             params![guid, boundary.name],
         )?;
         for (ordinal, form) in boundary.representations.iter().enumerate() {
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO boundary_grapheme(boundary_guid, ordinal, writing_system, grapheme) VALUES (?1, ?2, ?3, ?4)",
                 params![guid, ordinal as i64, form.ws, form.form],
             )?;
@@ -153,12 +166,14 @@ fn insert_natural_classes(
                 phonemes,
                 ..
             } => {
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO natural_class(guid, kind, name, display_name, feature_structure_id) VALUES (?1, 'segments', ?2, ?3, NULL)",
                     params![guid, name, display_name],
                 )?;
                 for (ordinal, phoneme_guid) in phonemes.iter().enumerate() {
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO natural_class_member(natural_class_guid, ordinal, phoneme_guid) VALUES (?1, ?2, ?3)",
                         params![guid, ordinal as i64, phoneme_guid],
                     )?;
@@ -175,7 +190,8 @@ fn insert_natural_classes(
                             "feature class {guid} has no feature-structure projection"
                         ))
                     })?;
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO natural_class(guid, kind, name, display_name, feature_structure_id) VALUES (?1, 'features', ?2, ?3, ?4)",
                     params![guid, name, display_name, fs_id],
                 )?;
@@ -188,7 +204,8 @@ fn insert_natural_classes(
 fn insert_feature_constraints(tx: &Transaction<'_>, snapshot: &Snapshot) -> Result<(), FactsError> {
     for constraint in &snapshot.phonology.feature_constraints {
         let guid = checked_guid(&constraint.guid, "phonology.featureConstraint.guid")?;
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO feature_constraint(guid, feature_guid) VALUES (?1, ?2)",
             params![guid, constraint.feature],
         )?;
@@ -216,7 +233,8 @@ fn insert_environments(
             .unwrap_or("not_attempted");
         let error = resolution.and_then(|value| value.error.as_deref());
         let error_code = resolution.and_then(|value| value.error_code.as_deref());
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO environment(guid, name, representation, parse_status, parse_error_code, parse_error_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 guid,
@@ -234,7 +252,8 @@ fn insert_environments(
                 } else {
                     "unresolved"
                 };
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO environment_natural_class(environment_guid, compile_context_key, side, token_path, token_text, source_start, source_end, natural_class_guid, result) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![
                         guid,
@@ -266,7 +285,8 @@ fn insert_allomorph_environments(
                 ("position", &allomorph.positions),
             ] {
                 for (ordinal, environment_guid) in environments.iter().enumerate() {
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO allomorph_environment(allomorph_guid, role, ordinal, environment_guid) VALUES (?1, ?2, ?3, ?4)",
                         params![allomorph_guid, role, ordinal as i64, environment_guid],
                     )?;
@@ -282,6 +302,7 @@ fn insert_environment_usage(
     snapshot: &Snapshot,
     resolutions: &[EnvironmentResolution],
     decisions: &[LoadDecision],
+    owner_loads: &OwnerLoads<'_>,
 ) -> Result<(), FactsError> {
     let edges = EnvironmentEdges::new(snapshot, resolutions);
     for entry in &snapshot.lexicon.entries {
@@ -292,10 +313,16 @@ fn insert_environment_usage(
             ] {
                 let consumed = role == "phone" || reads_positions(allomorph);
                 for (ordinal, environment_guid) in guids.iter().enumerate() {
-                    let edge =
-                        edges.outcome(&allomorph.guid, environment_guid, consumed, decisions)?;
+                    let edge = edges.outcome(
+                        &allomorph.guid,
+                        environment_guid,
+                        consumed,
+                        decisions,
+                        owner_loads,
+                    )?;
                     let link = edge.decision.map(load_decision_link).transpose()?;
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO environment_usage(allomorph_guid, role, ordinal, compile_context_key, environment_guid, resolved_environment_guid, compiled, result, load_subject_kind, load_subject_key, load_pipeline_stage, load_context_key, load_decision_ordinal) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                         params![
                             allomorph.guid,
@@ -365,6 +392,7 @@ impl<'a> EnvironmentEdges<'a> {
         environment_guid: &str,
         consumed: bool,
         decisions: &'a [LoadDecision],
+        owner_loads: &OwnerLoads<'_>,
     ) -> Result<EdgeOutcome<'a>, FactsError> {
         let attachment = InventoryKey::attachment(
             InventoryKind::Environment,
@@ -377,7 +405,7 @@ impl<'a> EnvironmentEdges<'a> {
         let owner_decision = latest_decision(decisions, &owner_key);
         let owner_loaded = owner_decision
             .and_then(|value| value.loaded)
-            .or_else(|| inventory_owner_loaded(&owner_key, decisions));
+            .or_else(|| owner_loads.loaded(&owner_key));
         let outcome = environment_usage_outcome(
             self.exists(environment_guid),
             self.resolved.get(environment_guid).copied(),
@@ -480,17 +508,6 @@ fn latest_decision<'a>(
             decision.subject == *subject && decision.pipeline_stage == LoadPipelineStage::Compile
         })
         .max_by_key(|decision| decision.decision_ordinal)
-}
-
-pub(crate) fn inventory_owner_loaded(
-    subject: &InventoryKey,
-    decisions: &[LoadDecision],
-) -> Option<bool> {
-    let value = decisions
-        .iter()
-        .filter(|decision| decision.subject == *subject)
-        .max_by_key(|decision| decision.decision_ordinal)?;
-    value.loaded
 }
 
 type LoadDecisionLink = (String, String, String, String, i64);
@@ -667,7 +684,8 @@ fn insert_effective_members(
                 } else {
                     "sourceGuid"
                 };
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO natural_class_effective_member(natural_class_guid, table_key, member_key, phoneme_guid, identity_quality, match_kind, match_basis) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         class.xml_id,
@@ -735,7 +753,8 @@ fn insert_environment_sides(
             let encoded = serde_json::to_string(&tokens)
                 .map_err(|error| FactsError::Serialization(error.to_string()))?;
             let shape = side_shape(&elements);
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO environment_side(environment_guid, side, canonical_key, shape) VALUES (?1, ?2, ?3, ?4)",
                 params![
                     environment,
@@ -746,7 +765,8 @@ fn insert_environment_sides(
             )?;
             if matches!(shape, "single_segment" | "word_boundary") {
                 for member in side_members(&elements, table, grammar, &sources)? {
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO environment_side_member(environment_guid, side, member_kind, member_key, phoneme_guid, boundary_guid) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                         params![
                             environment,
@@ -962,7 +982,8 @@ fn insert_phonological_rules(
     if let Some(grammar) = grammar {
         for (stratum_ordinal, stratum) in grammar.strata.iter().enumerate() {
             let key = stratum_key(stratum_ordinal);
-            tx.execute(
+            crate::sql::execute(
+                tx,
                 "INSERT INTO stratum(stratum_key, ordinal, name, table_key) VALUES (?1, ?2, ?3, ?4)",
                 params![key, stratum_ordinal as i64, stratum.name, format!("table#{}", stratum.table.0)],
             )?;
@@ -979,7 +1000,8 @@ fn insert_phonological_rules(
             PhonologicalRule::Rewrite(rule) => &rule.name,
             PhonologicalRule::Metathesis(rule) => &rule.name,
         };
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO phonological_rule(guid, name, kind, direction, order_index, effective_stratum_key) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![guid, name, kind, direction, ordinal as i64, stratum],
         )?;
@@ -987,18 +1009,21 @@ fn insert_phonological_rules(
             for (variable_ordinal, feature_constraint_guid) in
                 rewrite.feature_constraint_variables.iter().enumerate()
             {
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO phonological_rule_variable(rule_guid, ordinal, feature_constraint_guid) VALUES (?1, ?2, ?3)",
                     params![guid, variable_ordinal as i64, feature_constraint_guid],
                 )?;
             }
             for (rhs_ordinal, rhs) in rewrite.right_hand_sides.iter().enumerate() {
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO rewrite_rhs(rule_guid, ordinal) VALUES (?1, ?2)",
                     params![guid, rhs_ordinal as i64],
                 )?;
                 for (pos_ordinal, pos_guid) in rhs.required_parts_of_speech.iter().enumerate() {
-                    tx.execute(
+                    crate::sql::execute(
+                        tx,
                         "INSERT INTO rewrite_rhs_pos(rule_guid, rhs_ordinal, ordinal, category_guid) VALUES (?1, ?2, ?3, ?4)",
                         params![guid, rhs_ordinal as i64, pos_ordinal as i64, pos_guid],
                     )?;
@@ -1008,7 +1033,8 @@ fn insert_phonological_rules(
                     ("excluded", &rhs.excluded_rule_features),
                 ] {
                     for (target_ordinal, target_guid) in targets.iter().enumerate() {
-                        tx.execute(
+                        crate::sql::execute(
+                            tx,
                             "INSERT INTO rewrite_rhs_rule_feature(rule_guid, rhs_ordinal, polarity, ordinal, target_guid, target_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                             params![
                                 guid,
@@ -1031,7 +1057,8 @@ fn insert_phonological_rules(
                 let Some(PhonRuleDef::Rewrite(compiled)) = grammar.prules.get(id.0 as usize) else {
                     continue;
                 };
-                tx.execute(
+                crate::sql::execute(
+                    tx,
                     "INSERT INTO rule_stratum(rule_guid, stratum_key, ordinal) VALUES (?1, ?2, ?3)",
                     params![canonical_key(&compiled.xml_id), key, rule_ordinal as i64],
                 )?;
@@ -1356,7 +1383,8 @@ fn link_rhs_root(
     column: &str,
     root_id: i64,
 ) -> Result<(), FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         &format!("UPDATE rewrite_rhs SET {column} = ?1 WHERE rule_guid = ?2 AND ordinal = ?3"),
         params![root_id, rule_guid, rhs_ordinal as i64],
     )?;
@@ -1432,7 +1460,8 @@ fn insert_variables(
     variables: &[String],
 ) -> Result<(), FactsError> {
     for (ordinal, feature_constraint_guid) in variables.iter().enumerate() {
-        tx.execute(
+        crate::sql::execute(
+            tx,
             "INSERT INTO pattern_variable(node_id, polarity, ordinal, feature_constraint_guid) VALUES (?1, ?2, ?3, ?4)",
             params![node_id, polarity, ordinal as i64, feature_constraint_guid],
         )?;
@@ -1471,7 +1500,8 @@ impl<'a> PatternNodeRow<'a> {
 }
 
 fn insert_pattern_node(tx: &Transaction<'_>, row: PatternNodeRow<'_>) -> Result<i64, FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO pattern_node(root_id, parent_node_id, ordinal, kind, min, max, phoneme_guid, natural_class_guid, boundary_guid, token_text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             row.root_id,
@@ -1497,7 +1527,8 @@ pub(crate) fn insert_pattern_root(
     ordinal: usize,
     source_kind: &str,
 ) -> Result<i64, FactsError> {
-    tx.execute(
+    crate::sql::execute(
+        tx,
         "INSERT INTO pattern_root(owner_kind, owner_guid, role, ordinal, source_kind) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![owner_kind, owner_guid, role, ordinal as i64, source_kind],
     )?;

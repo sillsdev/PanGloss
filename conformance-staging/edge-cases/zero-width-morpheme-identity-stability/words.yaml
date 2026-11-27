@@ -13,7 +13,7 @@
 # run produced the identical multiset for every word, matching every `parses:` list below exactly,
 # INCLUDING sagui's forward-synthesized (oracle-disagreeing) answer. No PanGloss code change was
 # required. So: this fixture is RED against hc.dll by design (see above) and was already GREEN
-# against PanGloss on first measurement -- see docs/divergences/036-zero-width-morpheme-identity.md's
+# against PanGloss on first measurement -- see retired divergence 036 (docs/divergences/README.md, Retired entries)'s
 # 2026-09-15 section for the full measurement (per-word signatures, in-process and cross-process
 # determinism check) and the mechanism (pg-rules/src/morph.rs's `attribute_morphs`: a zero-width
 # affix that contributes no output-side material is recorded as a `MorphStatus::Floating` marker at

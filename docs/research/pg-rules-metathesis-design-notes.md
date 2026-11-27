@@ -66,10 +66,12 @@ C# `SynthesisMetathesisRuleSpec.ApplyRhs`/`MoveNodesAfter` is ported literally r
 own captured range does not itself move (C#: `if (node.Type() == HCFeatureSystem.Segment) {
 Remove; AddAfter; }`), but the loop's cursor still advances past it (`cur = node`, unconditional)
 — so a segment captured later in the same multi-node range anchors off that boundary's original
-position, not off wherever an earlier segment of the same range ended up. This only matters for a
-switch range wider than one node, which no grammar the real C# engine can load actually produces
-— kept general anyway since the C# source itself is written generally and the algorithm is no
-harder to get right in general form than to special-case down to width 1.
+position, not off wherever an earlier segment of the same range ended up. This matters whenever a
+switch range is wider than one node, which happens on every swap across a boundary: C#
+`TraversalMethodBase.Advance` gives a skipped optional boundary to the group of the node matched
+just before it, so a group can be `[s, +]`. Before the splice, `ApplyRhs` (lines 103-109) swaps the
+two groups so that the later-starting one goes first; a rule whose `leftSwitch` names the earlier
+node (which FieldWorks never writes) is reordered the same way.
 
 `left`/`right` are the two switch ranges as `ms.nodes` index lists, already resolved from the match
 before any mutation, mirroring the C# implementation's own discipline: resolve everything to
@@ -227,3 +229,8 @@ Whether `node` lowers to a `NodeKind::Boundary` shape node at segmentation time 
 natural class). Used by `build_analysis_pattern` to decide whether a middle node between the two
 switches must be dropped (a boundary, transparent to analysis matching either way) or preserved (a
 real segment, required for a faithful round-trip with `synthesis_reorder`).
+
+hc.dll's `AnalysisMetathesisRuleSpec` drops every middle node (`TakeWhile(!Group)` from each end), so
+for a middle segment it never un-applies synthesis's own output. That is a C# defect
+(sillsdev/machine#619); PanGloss keeps the middle segment and differs from hc.dll until it is fixed
+(divergence 127, staged fixture `metathesis-middle-context`).

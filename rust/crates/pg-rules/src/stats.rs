@@ -1,4 +1,4 @@
-//! The per-word `--stats` collector: seven `u64` counters per `(object, stratum, allomorph,
+//! The per-word `--stats` collector: `u64` counters per `(object, stratum, allomorph,
 //! direction)` row, gated behind `Option<&StatsCollector>` so an ordinary parse allocates nothing.
 //!
 //! Two storage shapes, because one does not fit both: **dense** `Vec<Cell<Counters>>` for
@@ -9,6 +9,7 @@
 //! sparse rows sorted by `(kind, stratum, object_index, allomorph, direction)` for a deterministic,
 //! golden-testable order.
 
+pub use crate::gates::{mpr_check, mpr_check_observed, GateFeature, GateRow};
 use std::cell::{Cell, RefCell};
 
 use pg_grammar_model::model::{Grammar, LexEntryId, MRuleId, PRuleId, StratumId};
@@ -20,7 +21,39 @@ use rustc_hash::FxHashMap as HashMap;
 pub const ALLOMORPH_NONE: u32 = 0;
 
 /// Counter meaning and instrumentation support recorded by each statistics run.
-pub const COUNTER_SEMANTICS_VERSION: i64 = 5;
+pub const COUNTER_SEMANTICS_VERSION: i64 = 8;
+
+/// Parser-owned reservation sites, persisted as synthetic objects.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ParserWork {
+    /// Expansion of analysis and synthesis candidates.
+    CandidateExpansion,
+    /// Moving a candidate between strata.
+    StratumTransition,
+    /// Comparing a synthesized candidate with the surface form.
+    SurfaceMatch,
+}
+
+impl ParserWork {
+    pub const ALL: [Self; 3] = [
+        Self::CandidateExpansion,
+        Self::StratumTransition,
+        Self::SurfaceMatch,
+    ];
+    pub fn index(self) -> u32 {
+        self as u32
+    }
+    pub fn from_index(index: u32) -> Option<Self> {
+        Self::ALL.get(index as usize).copied()
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::CandidateExpansion => "candidate_expansion",
+            Self::StratumTransition => "stratum_transition",
+            Self::SurfaceMatch => "surface_match",
+        }
+    }
+}
 
 /// Which pass produced a fact row: unapplying the surface form toward a root (`Analysis`), or
 /// reapplying rules forward to build/confirm a surface form (`Synthesis`). Part of the fact key
@@ -51,6 +84,7 @@ pub enum ObjectKind {
     Guesser,
     /// The runtime supplied-root overlay: no grammar-resident object, one pseudo-row per grammar.
     Overlay,
+    Parser,
 }
 
 /// Whether this object kind has an actual `StatsCollector::time_enter` instrumentation boundary.
@@ -65,26 +99,44 @@ pub fn self_time_supported(kind: ObjectKind) -> bool {
             | ObjectKind::RootIndex
             | ObjectKind::Guesser
             | ObjectKind::Overlay
+            | ObjectKind::Parser
     )
 }
 
 /// Timing support for a direction, independent of whether that path fired in a word.
 pub fn self_time_supported_in_direction(kind: ObjectKind, direction: Direction) -> bool {
     match kind {
-        ObjectKind::MorphRule | ObjectKind::PhonRule => true,
-        ObjectKind::LexEntry
-        | ObjectKind::RootIndex
-        | ObjectKind::Guesser
-        | ObjectKind::Overlay => direction == Direction::Analysis,
+        ObjectKind::MorphRule | ObjectKind::PhonRule | ObjectKind::LexEntry => true,
+        ObjectKind::RootIndex | ObjectKind::Guesser | ObjectKind::Overlay => {
+            direction == Direction::Analysis
+        }
+        ObjectKind::Parser => true,
     }
 }
 
-/// The seven counters for one `(object, stratum, allomorph)` row.
+/// Directional timing support as recorded by the producing counter-semantics version.
+pub fn self_time_supported_in_direction_for_semantics(
+    kind: ObjectKind,
+    direction: Direction,
+    semantics: i64,
+) -> bool {
+    if semantics < 8 && kind == ObjectKind::Parser {
+        return false;
+    }
+    if semantics < 7 && kind == ObjectKind::LexEntry && direction == Direction::Synthesis {
+        return false;
+    }
+    self_time_supported_in_direction(kind, direction)
+}
+
+/// Counters for one `(object, stratum, allomorph)` row.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Counters {
-    /// Rule-level only: one unit per `StepBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
+    /// Rule-level only: one unit per `WordBudget` tick, regardless of how many allomorphs were tried; every allomorph-dimension row (`allomorph != ALLOMORPH_NONE`) carries `attempts == 0`.
     pub attempts: u64,
     pub work: u64,
+    /// Successful reservations made in this object's scope, excluding nested object scopes.
+    pub work_steps: u64,
     pub outputs: u64,
     /// Both rule-level (the `ALLOMORPH_NONE` row, one per invocation) and per-allomorph (one per failing try); a per-object report must sum only the former to stay comparable with `attempts`.
     pub not_applied: u64,
@@ -241,6 +293,7 @@ pub fn summarize_kind(rows: &[StatsRow], kind: ObjectKind) -> Counters {
     for row in rows.iter().filter(|row| row.kind == kind) {
         total.attempts += row.counters.attempts;
         total.work += row.counters.work;
+        total.work_steps += row.counters.work_steps;
         total.outputs += row.counters.outputs;
         if row.allomorph == ALLOMORPH_NONE {
             total.not_applied += row.counters.not_applied;
@@ -383,6 +436,9 @@ impl<'a> MRuleStatsCtx<'a> {
 struct ObjTimeFrame {
     start: web_time::Instant,
     nested_ns: u64,
+    budget: Option<pg_fst::work::WorkBudget>,
+    work_start: usize,
+    nested_work: usize,
     kind: ObjectKind,
     stratum: StratumId,
     object_index: u32,
@@ -403,9 +459,12 @@ impl Drop for ObjectTimeGuard<'_> {
     }
 }
 
-/// The per-word collector. Constructed once per `parse_word` call, alongside its `StepBudget`,
+type GateTable = HashMap<(ObjectKind, u32, GateFeature), (u64, u64)>;
+
+/// The per-word collector. Constructed once per `parse_word` call, alongside its `WordBudget`,
 /// and threaded down by `Option<&StatsCollector>` so every instrumentation site is one branch.
 pub struct StatsCollector {
+    gates: RefCell<GateTable>,
     morph: DenseTable,
     phon: DenseTable,
     sparse: RefCell<HashMap<SparseKey, Counters>>,
@@ -416,8 +475,65 @@ pub struct StatsCollector {
 }
 
 impl StatsCollector {
+    pub fn record_gate(&self, kind: ObjectKind, object: u32, feature: GateFeature, passed: bool) {
+        let mut gates = self.gates.borrow_mut();
+        let counts = gates.entry((kind, object, feature)).or_default();
+        if passed {
+            counts.0 += 1;
+        } else {
+            counts.1 += 1;
+        }
+    }
+
+    pub fn gate_rows(&self) -> Vec<GateRow> {
+        let mut rows: Vec<_> = self
+            .gates
+            .borrow()
+            .iter()
+            .map(
+                |(&(kind, object_index, feature), &(passed, blocked))| GateRow {
+                    kind,
+                    object_index,
+                    feature,
+                    passed,
+                    blocked,
+                },
+            )
+            .collect();
+        rows.sort_by_key(|r| (r.kind, r.object_index, r.feature));
+        rows
+    }
+
+    /// Attribute parser orchestration to a stable named synthetic category.
+    pub fn time_parser(
+        &self,
+        category: ParserWork,
+        stratum: StratumId,
+        direction: Direction,
+    ) -> ObjectTimeGuard<'_> {
+        self.time_enter(
+            ObjectKind::Parser,
+            stratum,
+            category.index(),
+            ALLOMORPH_NONE,
+            direction,
+        )
+    }
+
+    /// Reserve one step under a parser category, preserving the work budget's return value.
+    pub fn consume_parser(
+        &self,
+        category: ParserWork,
+        stratum: StratumId,
+        direction: Direction,
+    ) -> bool {
+        let _owner = self.time_parser(category, stratum, direction);
+        pg_fst::work::consume()
+    }
+
     pub fn new(g: &Grammar) -> Self {
         StatsCollector {
+            gates: RefCell::new(HashMap::default()),
             morph: DenseTable::new(g.strata.len(), g.mrules.len()),
             phon: DenseTable::new(g.strata.len(), g.prules.len()),
             sparse: RefCell::new(HashMap::default()),
@@ -523,9 +639,20 @@ impl StatsCollector {
         allomorph: u32,
         direction: Direction,
     ) -> ObjectTimeGuard<'_> {
-        self.obj_time_stack.borrow_mut().push(ObjTimeFrame {
+        let budget = pg_fst::work::active_budget();
+        let mut stack = self.obj_time_stack.borrow_mut();
+        if let Some(parent) = stack.last() {
+            assert!(
+                same_budget(&parent.budget, &budget),
+                "nested stats scopes must share a work budget"
+            );
+        }
+        stack.push(ObjTimeFrame {
             start: web_time::Instant::now(),
             nested_ns: 0,
+            work_start: budget.as_ref().map_or(0, |b| b.used()),
+            budget,
+            nested_work: 0,
             kind,
             stratum,
             object_index,
@@ -547,18 +674,28 @@ impl StatsCollector {
     }
 
     fn time_exit(&self) {
-        let (self_ns, kind, stratum, object_index, allomorph, direction) = {
+        let (self_ns, self_work, kind, stratum, object_index, allomorph, direction) = {
             let mut stack = self.obj_time_stack.borrow_mut();
             let frame = stack
                 .pop()
                 .expect("StatsCollector::time_enter/time_exit must be LIFO");
             let elapsed_ns = frame.start.elapsed().as_nanos() as u64;
             let self_ns = elapsed_ns.saturating_sub(frame.nested_ns);
+            assert!(
+                same_budget(&frame.budget, &pg_fst::work::active_budget()),
+                "stats scope must exit under its work budget"
+            );
+            let elapsed_work = frame.budget.as_ref().map_or(0, |b| b.used()) - frame.work_start;
+            let self_work = elapsed_work
+                .checked_sub(frame.nested_work)
+                .expect("nested work exceeds parent work");
             if let Some(parent) = stack.last_mut() {
                 parent.nested_ns += elapsed_ns;
+                parent.nested_work += elapsed_work;
             }
             (
                 self_ns,
+                self_work as u64,
                 frame.kind,
                 frame.stratum,
                 frame.object_index,
@@ -569,12 +706,14 @@ impl StatsCollector {
         match kind {
             ObjectKind::MorphRule if allomorph == ALLOMORPH_NONE => {
                 self.morph.with_row(direction, stratum, object_index, |c| {
-                    c.self_time_ns += self_ns
+                    c.self_time_ns += self_ns;
+                    c.work_steps += self_work;
                 });
             }
             ObjectKind::PhonRule if allomorph == ALLOMORPH_NONE => {
                 self.phon.with_row(direction, stratum, object_index, |c| {
-                    c.self_time_ns += self_ns
+                    c.self_time_ns += self_ns;
+                    c.work_steps += self_work;
                 });
             }
             _ => {
@@ -586,7 +725,10 @@ impl StatsCollector {
                         allomorph,
                         direction,
                     },
-                    |c| c.self_time_ns += self_ns,
+                    |c| {
+                        c.self_time_ns += self_ns;
+                        c.work_steps += self_work;
+                    },
                 );
             }
         }
@@ -906,6 +1048,17 @@ impl StatsCollector {
     }
 }
 
+fn same_budget(
+    left: &Option<pg_fst::work::WorkBudget>,
+    right: &Option<pg_fst::work::WorkBudget>,
+) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.same_as(right),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 /// The `(kind, counter)` pairs this collector actually populates today -- the single source of
 /// truth for which measurements reports may expose, kept next to the recording methods above so
 /// wiring and this list cannot drift apart; pinned by
@@ -1013,10 +1166,11 @@ pub fn counter_support_for_semantics(
     semantics: i64,
 ) -> Result<CounterSupport, i64> {
     match semantics {
+        3 | 5 | 6 | 7 if kind == ObjectKind::Parser => Ok(CounterSupport::NotWired),
         3 if kind == ObjectKind::PhonRule && matches!(counter, "uses" | "no_root") => {
             Ok(CounterSupport::NotWired)
         }
-        3 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
+        3 | 5 | 6 | 7 | COUNTER_SEMANTICS_VERSION => Ok(counter_support(kind, counter)),
         unsupported => Err(unsupported),
     }
 }

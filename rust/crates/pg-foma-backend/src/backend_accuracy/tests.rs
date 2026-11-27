@@ -33,7 +33,7 @@ fn a_proposed_key_for_every_oracle_analysis_is_no_loss_and_the_check_fires() {
         "the check must actually execute once per required key"
     );
     assert_eq!(counters.confirmation_calls, 0);
-    assert_eq!(counters.confirmation_steps, 0);
+    assert_eq!(counters.confirmation_work, 0);
     assert_eq!(verdict_from(&counters, misses), AccuracyVerdict::NoLoss);
 }
 

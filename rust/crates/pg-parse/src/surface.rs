@@ -58,7 +58,12 @@ fn kind_matches(node: NodeKind, cd: &CharDef) -> bool {
 }
 
 /// The representations of every char-def whose feature struct unifies with the node at `i` (C# `CharacterDefinitionTable.GetMatchingStrReps`). `nfd = true` selects NFD-normalized representations (for `is_match`); `false` the as-authored ones (for `to_regex_display`). Order = table document order, then representation order within a char-def. Delegates to `matching_reps_for_node`, the node-view-generalized core.
-fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -> Vec<String> {
+fn matching_str_reps<'t>(
+    table: &'t CharDefTable,
+    shape: &Shape,
+    i: usize,
+    nfd: bool,
+) -> Vec<&'t str> {
     let node_kind = shape.kind(i);
     // Boundaries carry no phonological features and would trivially unify with every boundary char-def, so the Rust `StrRep` analog is the node's own `char_def`: a boundary renders exactly its authored representation (`+` -> `+?`).
     if node_kind == NodeKind::Boundary {
@@ -93,24 +98,25 @@ fn matching_str_reps(table: &CharDefTable, shape: &Shape, i: usize, nfd: bool) -
 /// concrete-singleton identity (a boundary's own representation, or a segment's own char-def);
 /// `char_def == NO_CHAR_DEF` defers to `cd_set` (`CdSet::Unrestricted`/`Members`), mirroring
 /// `Shape::node_cd_set`'s convention and `root_trie.rs::edge_matches`'s same shape of predicate.
-pub(crate) fn matching_reps_for_node(
-    table: &CharDefTable,
+pub(crate) fn matching_reps_for_node<'t>(
+    table: &'t CharDefTable,
     kind: NodeKind,
     char_def: u32,
     cd_set: &pg_shape::CdSet,
     lanes: &[u64],
     nfd: bool,
-) -> Vec<String> {
-    let reps_of = |cd: &CharDef| -> Vec<String> {
-        if nfd {
-            cd.representations_nfd().to_vec()
+) -> Vec<&'t str> {
+    let reps_of = |cd: &'t CharDef| -> std::iter::Map<std::slice::Iter<'t, String>, fn(&'t String) -> &'t str> {
+        let reps = if nfd {
+            cd.representations_nfd()
         } else {
-            cd.representations().to_vec()
-        }
+            cd.representations()
+        };
+        reps.iter().map(String::as_str as fn(&'t String) -> &'t str)
     };
     if kind == NodeKind::Boundary {
         if char_def != NO_CHAR_DEF && (char_def as usize) < table.len() {
-            return reps_of(table.get(CharDefId(char_def)));
+            return reps_of(table.get(CharDefId(char_def))).collect();
         }
         return Vec::new();
     }
@@ -118,6 +124,14 @@ pub(crate) fn matching_reps_for_node(
     let feature_bearing_table = char_def != NO_CHAR_DEF
         && (char_def as usize) < table.len()
         && table.unifiable_cds(CharDefId(char_def)).is_some();
+    if char_def != NO_CHAR_DEF && !feature_bearing_table && (char_def as usize) < table.len() {
+        let cd = table.get(CharDefId(char_def));
+        return if kind_matches(kind, cd) && flat_unifiable(lanes, &cd.literal_constraint_lanes()) {
+            reps_of(cd).collect()
+        } else {
+            Vec::new()
+        };
+    }
     let mut out = Vec::new();
     for (id, cd) in table.iter() {
         if !kind_matches(kind, cd) {
@@ -149,6 +163,44 @@ pub(crate) fn matching_reps_for_node(
 /// `Shape.ToRegexString(table, displayFormat: true)` (HermitCrabExtensions.cs:209). See module docs.
 pub fn to_regex_display(table: &CharDefTable, shape: &Shape) -> String {
     let mut sb = String::new();
+    render_regex_display(table, shape, &mut sb).expect("string writes cannot fail");
+    sb
+}
+
+pub(crate) fn to_regex_display_bounded(
+    table: &CharDefTable,
+    shape: &Shape,
+    limit: usize,
+) -> Option<String> {
+    struct BoundedString {
+        text: String,
+        limit: usize,
+    }
+
+    impl std::fmt::Write for BoundedString {
+        fn write_str(&mut self, text: &str) -> std::fmt::Result {
+            if text.len() > self.limit - self.text.len() {
+                return Err(std::fmt::Error);
+            }
+            self.text.push_str(text);
+            Ok(())
+        }
+    }
+
+    let mut out = BoundedString {
+        text: String::new(),
+        limit,
+    };
+    render_regex_display(table, shape, &mut out).ok()?;
+    Some(out.text)
+}
+
+#[inline]
+fn render_regex_display(
+    table: &CharDefTable,
+    shape: &Shape,
+    sb: &mut impl std::fmt::Write,
+) -> std::fmt::Result {
     for i in 0..shape.len() {
         let kind = shape.kind(i);
         if kind != NodeKind::Segment && kind != NodeKind::Boundary {
@@ -160,26 +212,26 @@ pub fn to_regex_display(table: &CharDefTable, shape: &Shape) -> String {
         }
         let multi = reps.len() > 1;
         if multi {
-            sb.push('[');
+            sb.write_char('[')?;
         }
         for r in &reps {
             let multichar = r.chars().count() > 1;
             if multichar {
-                sb.push('(');
+                sb.write_char('(')?;
             }
-            sb.push_str(r);
+            sb.write_str(r)?;
             if multichar {
-                sb.push(')');
+                sb.write_char(')')?;
             }
         }
         if multi {
-            sb.push(']');
+            sb.write_char(']')?;
         }
         if shape.flags(i).is_optional() {
-            sb.push('?');
+            sb.write_char('?')?;
         }
     }
-    sb
+    Ok(())
 }
 
 /// `IEnumerable<ShapeNode>.ToString(table, includeBdry)` (HermitCrabExtensions.cs:251-269). See
@@ -187,8 +239,19 @@ pub fn to_regex_display(table: &CharDefTable, shape: &Shape) -> String {
 /// (Morpher.cs:222); the parameter exists for fidelity to the (unused-elsewhere-in-this-port)
 /// two-arity C# signature, not because a second caller needs `true`.
 pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: bool) -> String {
+    to_plain_string_range(table, shape, include_boundaries, 0..shape.len())
+}
+
+/// [`to_plain_string`] over the shape nodes whose indices lie in `nodes` (anchors included in the
+/// index space, never rendered).
+pub fn to_plain_string_range(
+    table: &CharDefTable,
+    shape: &Shape,
+    include_boundaries: bool,
+    nodes: std::ops::Range<usize>,
+) -> String {
     let mut sb = String::new();
-    for i in 0..shape.len() {
+    for i in nodes.start.min(shape.len())..nodes.end.min(shape.len()) {
         let kind = shape.kind(i);
         if kind != NodeKind::Segment && kind != NodeKind::Boundary {
             continue; // C# iterates ShapeNodes only; frozen shapes have no deletes.
@@ -198,7 +261,7 @@ pub fn to_plain_string(table: &CharDefTable, shape: &Shape, include_boundaries: 
         }
         // C# takes GetMatchingStrReps(node).FirstOrDefault(), the single first representation, not the full alternation to_regex_display brackets.
         if let Some(first) = matching_str_reps(table, shape, i, false).into_iter().next() {
-            sb.push_str(&first);
+            sb.push_str(first);
         }
     }
     sb
@@ -236,7 +299,7 @@ pub(crate) fn to_diagnostic_string(
 pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
     let input: String = word.nfd().collect();
     // Per-node candidate representations + optionality; nodes with zero matching reps contribute the empty string in the C# regex, modelled by dropping them here.
-    let mut nodes: Vec<(Vec<String>, bool)> = Vec::new();
+    let mut nodes: Vec<(Vec<&str>, bool)> = Vec::with_capacity(shape.len());
     for i in 0..shape.len() {
         let kind = shape.kind(i);
         if kind != NodeKind::Segment && kind != NodeKind::Boundary {
@@ -252,7 +315,7 @@ pub fn is_match(table: &CharDefTable, shape: &Shape, word: &str) -> bool {
 }
 
 /// Backtracking anchored match of `input[ipos..]` against `nodes[npos..]`.
-fn match_nodes(input: &[u8], nodes: &[(Vec<String>, bool)], ipos: usize, npos: usize) -> bool {
+fn match_nodes(input: &[u8], nodes: &[(Vec<&str>, bool)], ipos: usize, npos: usize) -> bool {
     if !pg_fst::work::consume() {
         return false;
     }

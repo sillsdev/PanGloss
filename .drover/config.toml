@@ -19,3 +19,17 @@ high_risk_model = "opus-5.5"
 [land]
 policy = "batch"
 push = false
+
+[cleanup]
+disposable = [
+  "rust/target",
+  "rust/crates/*/target",
+  "rust/examples/native-abi/csharp/bin",
+  "rust/examples/native-abi/csharp/obj",
+  "tools/xample-projector/bin",
+  "tools/xample-projector/obj",
+  "**/.venv",
+  "**/.pytest_cache",
+  "**/__pycache__",
+  "**/node_modules",
+]

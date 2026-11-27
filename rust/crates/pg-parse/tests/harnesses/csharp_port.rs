@@ -1,6 +1,8 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../adjacent_copy_captures.rs"]
+mod adjacent_copy_captures;
 #[path = "../csharp_port_affix_process.rs"]
 mod csharp_port_affix_process;
 #[path = "../csharp_port_affix_template.rs"]
@@ -17,3 +19,5 @@ mod csharp_port_metathesis;
 mod csharp_port_morpher;
 #[path = "../csharp_port_rewrite.rs"]
 mod csharp_port_rewrite;
+#[path = "../optional_run_tilings.rs"]
+mod optional_run_tilings;

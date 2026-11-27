@@ -13,7 +13,7 @@ use pg_grammar_model::model::{
     StratumId, TableId, VarTable,
 };
 use pg_rules::stratum::{
-    analyze_stratum, analyze_stratum_filtered, AnalyzerConfig, NonHeadRootFilter, StepBudget,
+    analyze_stratum, analyze_stratum_filtered, AnalyzerConfig, NonHeadRootFilter, WordBudget,
 };
 use pg_rules::Word;
 use pg_shape::{NodeKind, Shape, ShapeBuilder};
@@ -86,7 +86,7 @@ fn push_stratum(g: &mut Grammar, mrules: Vec<MRuleId>) -> StratumId {
 fn compound_rule_with(
     g: &Grammar,
     non_head_required_syn_fs: FsId,
-    non_head_prod_restrictions_mpr: MprSet,
+    non_head_prod_restrictions_mpr: &MprSet,
 ) -> MorphRuleDef {
     MorphRuleDef::Compounding(CompoundingRuleDef {
         xml_id: "c".into(),
@@ -98,7 +98,7 @@ fn compound_rule_with(
         non_head_required_syn_fs,
         out_syn_fs: FsId(0),
         head_prod_restrictions_mpr: MprSet::EMPTY,
-        non_head_prod_restrictions_mpr,
+        non_head_prod_restrictions_mpr: non_head_prod_restrictions_mpr.clone(),
         output_prod_restrictions_mpr: MprSet::EMPTY,
         obligatory_features: vec![],
         subrules: vec![CompoundingSubruleDef {
@@ -117,7 +117,7 @@ fn compound_rule_with(
 }
 
 /// Pushes a lexicon entry, also registering a real `MorphemeInfo` at `StratumId(0)`: non-head resolution reads `entry.morpheme` back through `g.morphemes[..].stratum`, so an unregistered id would panic.
-fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
+fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: &MprSet) -> LexEntryId {
     let morpheme = MorphemeId(g.morphemes.len() as u32);
     g.morphemes.push(MorphemeInfo {
         xml_key: format!("m{}", morpheme.0),
@@ -137,7 +137,7 @@ fn push_entry(g: &mut Grammar, syn_fs: FsId, mpr: MprSet) -> LexEntryId {
         source_guid: None,
         morpheme,
         syn_fs,
-        mpr,
+        mpr: mpr.clone(),
         partial_reason: None,
         allomorphs: vec![],
         family: None,
@@ -151,6 +151,7 @@ fn push_allomorph(g: &mut Grammar, entry: LexEntryId, text: &str) {
     g.entries[entry.0 as usize]
         .allomorphs
         .push(RootAllomorphDef {
+            xml_key: String::new(),
             id: AllomorphId(300),
             shape: SegmentedText {
                 text: text.to_string(),
@@ -187,9 +188,9 @@ fn syn_fs(bit: u32) -> pg_featstruct::FeatureStruct {
 #[test]
 fn split_survives_when_non_head_is_a_lexicon_root() {
     let mut g = load_alpha_grammar();
-    let entry = push_entry(&mut g, FsId(0), MprSet::EMPTY);
+    let entry = push_entry(&mut g, FsId(0), &MprSet::EMPTY);
     push_allomorph(&mut g, entry, "ka");
-    let rule = compound_rule_with(&g, FsId(0), MprSet::EMPTY);
+    let rule = compound_rule_with(&g, FsId(0), &MprSet::EMPTY);
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
@@ -208,7 +209,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(
@@ -222,7 +223,7 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
 #[test]
 fn split_dropped_when_non_head_is_not_a_root() {
     let mut g = load_alpha_grammar();
-    let rule = compound_rule_with(&g, FsId(0), MprSet::EMPTY);
+    let rule = compound_rule_with(&g, FsId(0), &MprSet::EMPTY);
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
@@ -236,7 +237,7 @@ fn split_dropped_when_non_head_is_not_a_root() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(
@@ -255,11 +256,11 @@ fn split_dropped_when_non_head_is_not_a_root() {
 fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     let mut g = load_alpha_grammar();
     // The entry carries no MPR features at all.
-    let entry = push_entry(&mut g, FsId(0), MprSet::EMPTY);
+    let entry = push_entry(&mut g, FsId(0), &MprSet::EMPTY);
     // The rule requires one — `CompoundMprFeaturesMatch` needs a nonempty intersection.
     let mut restriction = MprSet::EMPTY;
     restriction.insert(MprId(0));
-    let rule = compound_rule_with(&g, FsId(0), restriction);
+    let rule = compound_rule_with(&g, FsId(0), &restriction);
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
@@ -278,7 +279,7 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(
         !has_apa_ka_split(&g, &out.words),
@@ -292,9 +293,9 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
 fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     let mut g = load_alpha_grammar();
     let entry_syn_fs = g.fs_interner.intern(syn_fs(1)); // e.g. "Verb"
-    let entry = push_entry(&mut g, entry_syn_fs, MprSet::EMPTY);
+    let entry = push_entry(&mut g, entry_syn_fs, &MprSet::EMPTY);
     let required_syn_fs = g.fs_interner.intern(syn_fs(0)); // e.g. "Noun" — disjoint bit
-    let rule = compound_rule_with(&g, required_syn_fs, MprSet::EMPTY);
+    let rule = compound_rule_with(&g, required_syn_fs, &MprSet::EMPTY);
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
@@ -313,7 +314,7 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
         &AnalyzerConfig::default(),
         Some(filter),
         Some(&cache),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(
         !has_apa_ka_split(&g, &out.words),
@@ -330,7 +331,7 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
     // Same restriction as the MPR-mismatch test above, but with no filter wired in this time.
     let mut restriction = MprSet::EMPTY;
     restriction.insert(MprId(0));
-    let rule = compound_rule_with(&g, FsId(0), restriction);
+    let rule = compound_rule_with(&g, FsId(0), &restriction);
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
@@ -339,7 +340,7 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
         s,
         word(&g, "apaka", s),
         &AnalyzerConfig::default(),
-        &StepBudget::new(usize::MAX),
+        &WordBudget::new(usize::MAX),
     );
     assert!(!out.capped);
     assert!(

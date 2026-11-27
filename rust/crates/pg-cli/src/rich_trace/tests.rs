@@ -17,15 +17,18 @@ fn details_requires_trace_and_json() {
 #[test]
 fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("root+past".into(), "sagd".into())],
         structured: Vec::new(),
         capped: false,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 17,
         work_steps: 41,
         timed_out: false,
         guessed: false,
         candidates_generated: 1,
+        cost: None,
     };
     let rows = vec![
         StatsRow {
@@ -36,6 +39,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
             direction: Direction::Synthesis,
             counters: Counters {
                 attempts: 2,
+                work_steps: 5,
                 not_applied: 1,
                 self_time_ns: 11,
                 ..Counters::default()
@@ -49,6 +53,7 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
             direction: Direction::Synthesis,
             counters: Counters {
                 not_applied: 2,
+                work_steps: 7,
                 self_time_ns: 7,
                 ..Counters::default()
             },
@@ -118,11 +123,12 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
         .expect("rich envelope serializes"),
     )
     .expect("rich envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v3");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v5");
     assert_eq!(value["trace"], tree);
     assert_eq!(value["search"]["completed"], true);
-    assert_eq!(value["search"]["steps"], 17);
     assert_eq!(value["search"]["workSteps"], 41);
+    assert_eq!(value["categories"]["morphRule"]["work_steps"], 12);
+    assert_eq!(value["categories"]["unattributed"]["work_steps"], 29);
     assert_eq!(value["result"]["signature"], "root+past|sagd");
     assert_eq!(value["categories"]["morphRule"]["selfElapsedNs"], 18);
     assert_eq!(value["categories"]["morphRule"]["analysisSelfElapsedNs"], 0);
@@ -163,15 +169,18 @@ fn envelope_keeps_tree_result_and_unmeasured_timing_explicit() {
 #[test]
 fn v2_retains_analysis_when_projection_is_unavailable() {
     let outcome = ParseOutcome {
+        partials: Vec::new(),
         analyses: vec![("root".into(), "sagd".into())],
         structured: Vec::new(),
         capped: true,
+        capture_capped: false,
+        word_mem_capped: false,
         invalid_shape: false,
-        steps: 99,
         work_steps: 0,
         timed_out: false,
         guessed: false,
         candidates_generated: 1,
+        cost: None,
     };
     let value: serde_json::Value = serde_json::from_str(
         &render_envelope_v2(
@@ -191,7 +200,7 @@ fn v2_retains_analysis_when_projection_is_unavailable() {
         .expect("v2 envelope serializes"),
     )
     .expect("v2 envelope is JSON");
-    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v3");
+    assert_eq!(value["schemaVersion"], "pangloss.trace-details.v5");
     assert_eq!(value["provenance"]["grammar"]["name"], "Test");
     assert_eq!(
         value["provenance"]["grammar"]["grammarHashSemantics"],
@@ -229,11 +238,12 @@ fn rich_tree_preserves_nodes_beyond_default_json_parse_depth() {
         &rows,
         Duration::ZERO,
         &TraceMetadata::default(),
+        None,
     )
     .unwrap();
     assert_eq!(rich.matches("\"type\":").count(), sink.len());
     assert_eq!(ordinary.matches("\"type\":").count(), sink.len());
-    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v3\""));
+    assert!(rich.contains("\"schemaVersion\":\"pangloss.trace-details.v5\""));
 }
 
 #[test]
@@ -252,6 +262,7 @@ fn authored_morph_keeps_lexeme_headword_when_citation_is_absent() {
     let form_id = lexeme.guid.clone();
     let expected = lexeme.forms[0].form.clone();
     let msa_id = entry.msas[0].guid().to_string();
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let morph = super::rich_morph(
         &super::RichCtx::new(Some(&snapshot)),
         &pg_parse::ParseMorph {
@@ -291,9 +302,12 @@ fn trace_details_for_grammar(
         "rich tracing must preserve the complete parse identity multiset"
     );
     assert_eq!(outcome.signature(), plain.signature());
+    let comparison_sink = pg_rules::trace::TreeTraceSink::with_failure_context();
+    let traced_without_stats = morpher.parse_word_traced(word, opts, &comparison_sink);
+    assert_eq!(outcome.work_steps, traced_without_stats.work_steps);
     assert!(!outcome.capped && !outcome.timed_out && !outcome.invalid_shape);
     assert!(!plain.capped && !plain.timed_out && !plain.invalid_shape);
-    serde_json::from_str(
+    let details: serde_json::Value = serde_json::from_str(
         &super::render(
             grammar,
             &sink,
@@ -303,10 +317,43 @@ fn trace_details_for_grammar(
             &rows,
             Duration::ZERO,
             &TraceMetadata::default(),
+            None,
         )
         .unwrap(),
     )
-    .unwrap()
+    .unwrap();
+    let total: u64 = details["categories"]
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|category| category["work_steps"].as_u64().unwrap())
+        .sum();
+    assert_eq!(total, details["search"]["workSteps"].as_u64().unwrap());
+    details
+}
+
+#[test]
+fn alpha_allomorph_environment_preserves_work_category_total() {
+    use pg_grammar::model::{EnvironmentDef, PhonRuleDef};
+    let mut grammar = pg_grammar::load(include_str!(
+        "../../../pg-parse/tests/data/alpha-optional-environment.xml"
+    ))
+    .unwrap();
+    let PhonRuleDef::Rewrite(rule) = &grammar.prules[0] else {
+        panic!("expected the alpha rewrite rule");
+    };
+    let pattern = rule.subrules[0].right_env.clone().unwrap();
+    grammar.entries[0].allomorphs[0]
+        .environments
+        .push(EnvironmentDef::new(false, None, Some(pattern)));
+    // The helper asserts that every category, including unattributed work, sums to workSteps.
+    let details = trace_details_for_grammar(&grammar, "bg", &pg_parse::ParseOptions::default());
+    assert!(
+        details["categories"]["lexEntry"]["work_steps"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
 }
 
 #[test]
@@ -737,6 +784,45 @@ fn morpheme_co_occurrence_rejection_preserves_the_ordered_partner_list() {
     }
 }
 
+#[test]
+fn a_blocked_allomorph_names_both_allomorphs_in_the_evidence() {
+    for (xml, word) in [
+        (
+            include_str!("../../tests/data/trace-allomorph-blocked.xml"),
+            "wakta",
+        ),
+        (
+            std::fs::read_to_string(
+                pg_conformance_fixtures::suite_root()
+                    .join("edge-cases/disjunctive-folded-env-blocks/grammar.xml"),
+            )
+            .expect("conformance suite fixture")
+            .as_str(),
+            "banku",
+        ),
+    ] {
+        let details = trace_details_for(xml, word);
+        let mut failed = Vec::new();
+        nodes_of_type(&details["trace"], "Failed", &mut failed);
+        let nodes: Vec<_> = failed
+            .into_iter()
+            .filter(|node| node["failureReason"] == "DisjunctiveAllomorph")
+            .collect();
+        assert!(!nodes.is_empty(), "{word}");
+        for node in nodes {
+            assert_eq!(node["failureContext"]["status"], "captured", "{word}");
+            let evidence = &node["failureContext"]["evidence"];
+            assert_eq!(evidence["kind"], "allomorphBlocked", "{word}");
+            assert_eq!(evidence["failedObject"]["kind"], "allomorph", "{word}");
+            assert_eq!(evidence["blocker"]["kind"], "allomorph", "{word}");
+            assert_ne!(
+                evidence["failedObject"]["id"], evidence["blocker"]["id"],
+                "{word}: an allomorph cannot block itself"
+            );
+        }
+    }
+}
+
 #[path = "tests/prerelease_evidence_tests.rs"]
 mod prerelease_evidence_tests;
 
@@ -745,8 +831,9 @@ fn render_indexes_resolve_the_first_linear_match() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../pg-fwdata/tests/data/fixture.fwdata");
     let (snapshot, _) = pg_fwdata::import_file(&path).unwrap();
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let ctx = super::RichCtx::new(Some(&snapshot));
-    let entries = &snapshot.lexicon.entries;
+    let entries = &snapshot.entries;
     let mut checked = 0;
     for allomorph in entries.iter().flat_map(|entry| &entry.allomorphs) {
         let (entry, found) = entries
@@ -817,8 +904,9 @@ fn render_indexes_keep_first_match_on_duplicates() {
     empty.senses.clear();
     snapshot.lexicon.entries = vec![first, second, empty];
 
+    let snapshot = super::TraceSnapshot::from(snapshot);
     let ctx = super::RichCtx::new(Some(&snapshot));
-    let entries = &snapshot.lexicon.entries;
+    let entries = &snapshot.entries;
     for allomorph in entries.iter().flat_map(|e| &e.allomorphs) {
         let (entry, found) = entries
             .iter()

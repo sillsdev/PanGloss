@@ -23,82 +23,24 @@ CREATE TABLE IF NOT EXISTS run (
   created_utc         TEXT    NOT NULL,
   word_count          INTEGER NOT NULL,
   total_elapsed_ns    INTEGER NOT NULL,
-  -- `--step-cap`'s storage form: NULL when this run recorded no cap (an engine that has no such
+  -- `--work-cap`'s storage form: NULL when this run recorded no cap (an engine that has no such
   -- concept, e.g. `foma`); -1 is the `usize::MAX` ("unbounded") sentinel, since that value does
   -- not fit i64's positive range. Only non-NULL values are ever compared for a compatibility check.
-  step_cap            INTEGER
+  work_cap            INTEGER
 );
-
-CREATE TABLE IF NOT EXISTS object (
-  object_id        INTEGER PRIMARY KEY,
-  key              TEXT NOT NULL,
-  kind             TEXT NOT NULL,
-  label            TEXT NOT NULL,
-  identity_quality TEXT NOT NULL,
-  -- The morpheme a `lex_entry` object realizes, so the `morpheme` orientation can group scattered
-  -- entries/allomorphs back to one row; 0 (the `morpheme` sentinel) for every other kind.
-  morpheme_id      INTEGER NOT NULL DEFAULT 0
-);
-CREATE UNIQUE INDEX IF NOT EXISTS object_key_kind ON object(key, kind);
-
--- Locator table for the morpheme dimension, mirroring `stratum`/`allomorph` below.
-CREATE TABLE IF NOT EXISTS morpheme (
-  morpheme_id INTEGER PRIMARY KEY,
-  key         TEXT,
-  label       TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS morpheme_key ON morpheme(key);
-
--- The unique indexes make interning race-safe across processes, not merely within one
--- transaction: two concurrent runs interning the same key must converge on one row, or their fact
--- rows split across duplicate ids and every SUM double-counts. The sentinel rows carry a NULL key,
--- which SQLite exempts from uniqueness.
-CREATE TABLE IF NOT EXISTS stratum (
-  stratum_id INTEGER PRIMARY KEY,
-  key        TEXT,
-  label      TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS stratum_key ON stratum(key);
-
-CREATE TABLE IF NOT EXISTS allomorph (
-  allomorph_id INTEGER PRIMARY KEY,
-  key          TEXT,
-  label        TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS allomorph_key ON allomorph(key);
 
 CREATE TABLE IF NOT EXISTS word (
   word_id       INTEGER PRIMARY KEY,
   run_id        INTEGER NOT NULL,
   form          TEXT    NOT NULL,
   elapsed_ns    INTEGER NOT NULL,
-  -- `attempts` is the word's analysis attempts (`steps`); `work` is its total work-budget
-  -- reservations (`work_steps`), the deterministic parse cost. `fact.work` is a different unit
-  -- (shape segments examined per object), so a word's fact rows never sum to `word.work`.
-  attempts      INTEGER NOT NULL,
+  -- `work` is the word's total work steps (`work_steps`), the deterministic parse cost. `fact.work` is a different unit
+  -- (shape segments examined per object), so a word's `fact.work` values do not sum to `word.work`; its `fact.work_steps` values do.
   work          INTEGER NOT NULL,
   passes        INTEGER NOT NULL,
   capped        INTEGER NOT NULL,
   timed_out     INTEGER NOT NULL,
+  gates_measured INTEGER NOT NULL DEFAULT 0,
   invalid_shape INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS word_form ON word(form);
-
--- `direction` is 'analysis' | 'synthesis', never a foreign key: unlike stratum/allomorph it has no
--- structural locator or label to intern, just a fixed two-value tag, so it is stored inline.
-CREATE TABLE IF NOT EXISTS fact (
-  word_id          INTEGER NOT NULL,
-  object_id        INTEGER NOT NULL,
-  stratum_id       INTEGER NOT NULL,
-  allomorph_id     INTEGER NOT NULL,
-  direction        TEXT    NOT NULL,
-  attempts         INTEGER NOT NULL,
-  work             INTEGER NOT NULL,
-  outputs          INTEGER NOT NULL,
-  not_applied      INTEGER NOT NULL,
-  no_root          INTEGER NOT NULL,
-  surface_mismatch INTEGER NOT NULL,
-  uses             INTEGER NOT NULL,
-  self_time_ns     INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (word_id, object_id, stratum_id, allomorph_id, direction)
-) WITHOUT ROWID;

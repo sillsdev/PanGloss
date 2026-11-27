@@ -1,16 +1,16 @@
 param(
-	[string]$MachineDir,
+	[string]$SuiteDir,
 	[string]$ProjectorExe,
 	[string]$ProjectName = 'DeepOptionalAffixNesting'
 )
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($MachineDir)) {
-	$MachineDir = if ([string]::IsNullOrWhiteSpace($env:PANGLOSS_MACHINE_DIR)) {
-		'C:\Users\johnm\Documents\repos\machine'
+if ([string]::IsNullOrWhiteSpace($SuiteDir)) {
+	$SuiteDir = if ([string]::IsNullOrWhiteSpace($env:HC_CONFORMANCE_SUITE)) {
+		Join-Path $PSScriptRoot '..\..\conformance'
 	} else {
-		$env:PANGLOSS_MACHINE_DIR
+		$env:HC_CONFORMANCE_SUITE
 	}
 }
 if ([string]::IsNullOrWhiteSpace($ProjectorExe)) {
@@ -28,7 +28,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectName) -or
 	throw "ProjectName must be one valid filename segment"
 }
 
-$fixtureRoot = Join-Path $MachineDir 'conformance\edge-cases\deep-optional-affix-nesting'
+$fixtureRoot = Join-Path $SuiteDir 'edge-cases\deep-optional-affix-nesting'
 $grammarPath = Join-Path $fixtureRoot 'grammar.xml'
 $witnessDir = Join-Path $fixtureRoot 'fieldworks'
 if (-not (Test-Path -LiteralPath $ProjectorExe -PathType Leaf)) {

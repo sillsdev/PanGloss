@@ -36,7 +36,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws on undefined x and drops the mux root; PanGloss completes the selected literal and preserves its root key."
     },
     {
@@ -48,7 +48,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, mux, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws on undefined x and drops the mux root; PanGloss completes the selected literal and preserves its root key."
     },
     {
@@ -67,7 +67,7 @@
         "csharp_error": null,
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws on undefined x and drops the mux root; PanGloss completes the selected literal and preserves its root key."
     },
     {
@@ -79,7 +79,7 @@
         "csharp_error": "SIL.Machine.Morphology.HermitCrab.InvalidShapeException: The shape, muxs, contains an undefined phoneme at 2.",
         "pangloss_invalid_shape": false
       },
-      "ledger": "075-provisional-definitions-always-on.md",
+      "ledger": "issue-32",
       "reason": "C# throws on undefined x and drops the mux root; PanGloss completes the selected literal and preserves its root key."
     }
   ]

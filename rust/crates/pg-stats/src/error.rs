@@ -7,8 +7,38 @@ use thiserror::Error;
 /// Everything that can go wrong opening, writing, or reading the stats cache.
 #[derive(Debug, Error)]
 pub enum StatsError {
+    #[error("stats run cannot commit after a failed word write")]
+    RunWriteFailed,
+
+    #[error("{0}")]
+    IncompatibleRunOptions(String),
+
+    #[error("packed stats cache: {0}")]
+    PackedCache(String),
+
+    #[error("stats cache busy: {operation} at {path}")]
+    CacheBusy {
+        operation: &'static str,
+        path: PathBuf,
+    },
+
+    #[error("compact stats cache: allomorph breakdown and stratum filters are unavailable; record a full cache without --stats-compact")]
+    CompactViewUnavailable,
+
+    #[error("word-only stats cache: per-object and feature-gate facts were not collected. Record a full cache with --stats-profile full")]
+    WordOnlyFactsUnavailable,
+
+    #[error("stats cache has the {existing} profile, requested {requested}. Use a different --cache path for the requested profile")]
+    ProfileMismatch {
+        existing: crate::StatsProfile,
+        requested: crate::StatsProfile,
+    },
+
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+
+    #[error("buffered stats record: {0}")]
+    BufferedRecord(#[from] serde_json::Error),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -28,13 +58,16 @@ pub enum StatsError {
     GrammarMismatch { existing: String, requested: String },
 
     #[error(
-        "stats cache already holds runs at step cap {existing}; a report cannot span two step \
-         caps -- point --cache at another path for a step cap {requested} run"
+        "stats cache already holds runs at work cap {existing}; a report cannot span two work \
+         caps -- point --cache at another path for a work cap {requested} run"
     )]
-    StepCapMismatch { existing: String, requested: String },
+    WorkCapMismatch { existing: String, requested: String },
 
     #[error("stats cache schema version {existing} is incompatible with {requested}")]
     SchemaMismatch { existing: i64, requested: i64 },
+
+    #[error("unknown stats cache schema version {0}")]
+    UnknownSchemaVersion(i64),
 
     #[error("stats cache has no cache identity row")]
     CacheIdentityMissing,
@@ -92,4 +125,11 @@ pub enum StatsError {
         #[source]
         source: std::io::Error,
     },
+}
+
+impl StatsError {
+    pub(crate) fn is_busy(&self) -> bool {
+        matches!(self, Self::Sqlite(error)
+            if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy))
+    }
 }

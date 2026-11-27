@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE HermitCrabInput SYSTEM "HermitCrabInput.dtd">
+<!-- Synthetic. A metathesis rule between FEATURELESS phonemes: no PhonologicalFeatureSystem
+     content, every segment is just its representation. The rule is a left environment and two
+     switches, a t k -> a k t, written the way FieldWorks' StrucChange "0 2 -1 1 -1" is exported.
+     leftSwitch names the group that ends up on the LEFT after the swap (k), the same convention as
+     languages/metathesis-phase-isolation. Roots: atka, itka, tika. Surface akta comes from atka. -->
+<HermitCrabInput>
+  <Language>
+    <Name>MetathesisFeatureless</Name>
+    <PartsOfSpeech><PartOfSpeech id="posN"><Name>n</Name></PartOfSpeech></PartsOfSpeech>
+    <PhonologicalFeatureSystem></PhonologicalFeatureSystem>
+    <CharacterDefinitionTable id="tbl"><Name>Main</Name><SegmentDefinitions><SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="cI"><Representations><Representation>i</Representation></Representations></SegmentDefinition><SegmentDefinition id="cT"><Representations><Representation>t</Representation></Representations></SegmentDefinition><SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition><SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable>
+    <NaturalClasses><SegmentNaturalClass id="ncA"><Name>a</Name><Segment segment="cA" /></SegmentNaturalClass><SegmentNaturalClass id="ncI"><Name>i</Name><Segment segment="cI" /></SegmentNaturalClass><SegmentNaturalClass id="ncT"><Name>t</Name><Segment segment="cT" /></SegmentNaturalClass><SegmentNaturalClass id="ncK"><Name>k</Name><Segment segment="cK" /></SegmentNaturalClass></NaturalClasses>
+    <PhonologicalRuleDefinitions>
+      <MetathesisRule id="mt" leftSwitch="x2" rightSwitch="x1"><Name>mt</Name><StructuralDescription><PhoneticTemplate><PhoneticSequence><SimpleContext id="x0" naturalClass="ncA" /><SimpleContext id="x1" naturalClass="ncT" /><SimpleContext id="x2" naturalClass="ncK" /></PhoneticSequence></PhoneticTemplate></StructuralDescription></MetathesisRule>
+    </PhonologicalRuleDefinitions>
+    <Strata><Stratum characterDefinitionTable="tbl" morphologicalRuleOrder="unordered" phonologicalRules="mt"><Name>Main</Name><LexicalEntries><LexicalEntry id="eatka" partOfSpeech="posN"><Allomorphs><Allomorph id="aatka"><PhoneticShape>atka</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ATKA</MorphemeId><Gloss>atka</Gloss></LexicalEntry><LexicalEntry id="eitka" partOfSpeech="posN"><Allomorphs><Allomorph id="aitka"><PhoneticShape>itka</PhoneticShape></Allomorph></Allomorphs><MorphemeId>ITKA</MorphemeId><Gloss>itka</Gloss></LexicalEntry><LexicalEntry id="etika" partOfSpeech="posN"><Allomorphs><Allomorph id="atika"><PhoneticShape>tika</PhoneticShape></Allomorph></Allomorphs><MorphemeId>TIKA</MorphemeId><Gloss>tika</Gloss></LexicalEntry></LexicalEntries></Stratum></Strata>
+  </Language>
+</HermitCrabInput>

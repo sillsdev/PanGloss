@@ -1,0 +1,18 @@
+# oracle-provenance: founding-oracle machine-commit=4d9b454d42a0da35e058641a65596339a79d115b
+language: AnchoredExpansion
+inspired_by: ["word-edge vowel lengthening"]
+sources: ["read-only review of 0627ce48"]
+requires: [phonology]
+fieldworks_producible: true
+words:
+  - word: aa
+    note: "The single vowel matches the word-edge environment and lengthens."
+    parses:
+      - signature: "ROOT|aa"
+        rules: [rExpand]
+  - word: a
+    note: "The sole target must lengthen."
+    expect_fail: true
+  - word: aaa
+    note: "No recursive rewriting of output segments."
+    expect_fail: true

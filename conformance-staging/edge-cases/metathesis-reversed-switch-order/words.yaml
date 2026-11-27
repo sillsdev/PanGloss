@@ -1,0 +1,178 @@
+# oracle-provenance: founding-oracle machine-commit=1ddef2bd verified-date=2026-11-19
+language: MetathesisReversedSwitchOrder
+requires: [phonology]
+fieldworks_producible: false
+fieldworks_producible_notes: "row 5 of fieldworks-cannot-say.md: a metathesis whose leftSwitch names the earlier group, which HCLoader does not write"
+words:
+  - word: "s"
+    note: >-
+      R2 is underlying s; nothing swaps: C# gives R2|s.
+    parses:
+      - signature: "R2|s"
+        rules: []
+  - word: "ps"
+    note: >-
+      R0 is underlying ps; nothing swaps: C# gives R0|ps.
+    parses:
+      - signature: "R0|ps"
+        rules: []
+  - word: "sa"
+    note: >-
+      R2+SUF1 is underlying s+a; nothing swaps: C# gives R2+SUF1|s+?a.
+    parses:
+      - signature: "R2+SUF1|s+?a"
+        rules: [SUF1]
+  - word: "ts"
+    note: >-
+      R2+SUF0 is underlying s+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2|t+?s.
+    parses:
+      - signature: "SUF0+R2|t+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "t+s"
+    note: >-
+      R2+SUF0 is underlying s+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2|t+?s.
+    parses:
+      - signature: "SUF0+R2|t+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "tsa"
+    note: >-
+      R2+SUF0+SUF1 is underlying s+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2+SUF1|t+?s+?a.
+    parses:
+      - signature: "SUF0+R2+SUF1|t+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "t+sa"
+    note: >-
+      R2+SUF0+SUF1 is underlying s+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2+SUF1|t+?s+?a.
+    parses:
+      - signature: "SUF0+R2+SUF1|t+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "ts+a"
+    note: >-
+      R2+SUF0+SUF1 is underlying s+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2+SUF1|t+?s+?a.
+    parses:
+      - signature: "SUF0+R2+SUF1|t+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "t+s+a"
+    note: >-
+      R2+SUF0+SUF1 is underlying s+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives SUF0+R2+SUF1|t+?s+?a.
+    parses:
+      - signature: "SUF0+R2+SUF1|t+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pts"
+    note: >-
+      R0+SUF0 is underlying ps+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R0+SUF0|pt+?s.
+    parses:
+      - signature: "R0+SUF0|pt+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pt+s"
+    note: >-
+      R0+SUF0 is underlying ps+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R0+SUF0|pt+?s.
+    parses:
+      - signature: "R0+SUF0|pt+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pats"
+    note: >-
+      R1+SUF0 is underlying pas+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R1+SUF0|pat+?s.
+    parses:
+      - signature: "R1+SUF0|pat+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pat+s"
+    note: >-
+      R1+SUF0 is underlying pas+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R1+SUF0|pat+?s.
+    parses:
+      - signature: "R1+SUF0|pat+?s"
+        rules: [SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "asts"
+    note: >-
+      PRE0+R2+SUF0 is underlying as+s+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives PRE0+SUF0+R2|as+?t+?s.
+    parses:
+      - signature: "PRE0+SUF0+R2|as+?t+?s"
+        rules: [PRE0, SUF0, pr1]
+        exercises: ["MetathesisRule"]
+      - signature: "PRE0+SUF0+R2|as+?t+?s"
+        rules: [PRE0, SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "as+t+s"
+    note: >-
+      PRE0+R2+SUF0 is underlying as+s+t; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives PRE0+SUF0+R2|as+?t+?s.
+    parses:
+      - signature: "PRE0+SUF0+R2|as+?t+?s"
+        rules: [PRE0, SUF0, pr1]
+        exercises: ["MetathesisRule"]
+      - signature: "PRE0+SUF0+R2|as+?t+?s"
+        rules: [PRE0, SUF0, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "ptsa"
+    note: >-
+      R0+SUF0+SUF1 is underlying ps+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R0+SUF0+SUF1|pt+?s+?a.
+    parses:
+      - signature: "R0+SUF0+SUF1|pt+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "pt+s+a"
+    note: >-
+      R0+SUF0+SUF1 is underlying ps+t+a; leftSwitch names the earlier node s, so C# swaps the two groups and the later t goes first; only segments move, so s and t trade places and the boundary stays where it was: C# gives R0+SUF0+SUF1|pt+?s+?a.
+    parses:
+      - signature: "R0+SUF0+SUF1|pt+?s+?a"
+        rules: [SUF0, SUF1, pr1]
+        exercises: ["MetathesisRule"]
+  - word: "st"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "s+t"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "+st"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "+st+a"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "+sta"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "as++st"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "as+p+st"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "as+p+sta"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "pst"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]
+  - word: "p+st"
+    note: >-
+      C# rejects it: the swap puts t before s, never s before t.
+    expect_fail: true
+    exercises: ["MetathesisRule"]

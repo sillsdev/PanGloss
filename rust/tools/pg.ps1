@@ -6,7 +6,7 @@
 
   This is the ONE place that decides target-dir redirection, sccache wiring, the worktree
   base-commit check, disk/build-slot gates, the fail-closed corpus contract (corpus-test), and the
-  fail-closed `machine` conformance-submodule contract (test/corpus-test). rust/tools/build.ps1 and
+  fail-closed `conformance` suite contract (test/corpus-test). rust/tools/build.ps1 and
   rust/tools/test.ps1 are thin front ends that translate their existing parameters into a call
   here, so there is exactly one place that policy is decided rather than two copies that can drift.
 
@@ -40,14 +40,15 @@
     test          the fast suite, built with the pg-test-opt profile (release-derived, thin/no
                   LTO -- see rust/Cargo.toml's comment) instead of full release, unless
                   -DebugProfile. Prefers cargo-nextest when installed, like test.ps1 always has.
-                  Refuses BEFORE cargo starts (exit $script:ExitCodeConformanceSubmoduleMissing,
-                  18) if the `machine` conformance submodule can't be auto-initialized --
+                  Refuses BEFORE cargo starts (exit $script:ExitCodeConformanceSuiteMissing,
+                  18) if `conformance/` can't be brought to the commit named in `conformance.commit` --
                   conformance_fixtures_gate is part of this ordinary suite, not #[ignore]d, so a
                   fresh worktree that skipped this would fail minutes into a build with a
-                  confusing panic instead. See Initialize-ConformanceSubmodule in _common.ps1 (or
-                  run rust/tools/conformance.ps1 standalone) for what "auto-initialize" means: a
-                  sparse, path-scoped checkout of machine/conformance ONLY (~1MB), never the
-                  ~415MB full `machine` checkout, because that's the only subtree this suite reads.
+                  confusing panic instead. See Sync-ConformanceSuite in _common.ps1 (or
+                  run rust/tools/conformance.ps1 standalone) for what that means: a filtered
+                  clone of the suite at exactly that commit, moved when the pin moves.
+                  HC_CONFORMANCE_SUITE=<path> uses a local copy and skips the pin check. The `machine`
+                  submodule is not initialized: nothing the managed modes run reads its working tree.
     corpus-test   like test, but ALSO refuses BEFORE cargo starts if any required corpus-manifest
                   file is absent, sets PANGLOSS_CORPUS_REQUIRED=1 so pg_conformance_fixtures::corpus
                   panics rather than skips on a missing input, and fails afterward if cargo
@@ -55,13 +56,13 @@
     conformance-test
                   the same suite `test` runs, but it MUST be told which fixtures it covers:
                   -Scope local (conformance-staging/** only, this repo's own fixtures) or
-                  -Scope all (those plus machine/conformance/**). There is NO default -- an
+                  -Scope all (those plus conformance/**). There is NO default -- an
                   unclaimed run exits $script:ExitCodeConformanceScopeUnclaimed (20) before
                   taking a build slot or starting cargo, because "green" over the staged
                   fixtures alone and "green" over those plus every upstream fixture are
                   different claims and nothing here should guess which one you meant. The
                   claim reaches the fixture walker as PANGLOSS_CONFORMANCE_SCOPE and is
-                  printed. -Scope local needs no submodule, so it skips that init entirely.
+                  printed. -Scope local needs no suite, so it skips that fetch entirely.
                   `test` and `corpus-test` claim `all` explicitly and print it too.
     release       cargo build --release -- the actual fat-LTO deliverable profile, for optimized
                   binaries and production-equivalent perf measurements. On success it COPIES the
@@ -69,8 +70,8 @@
                   build produced nothing to copy: the target dir is a cache gc may reclaim, so a
                   deliverable left only there is not a deliverable.
     doctor        prints the preflight record and exits non-zero on an unsafe/incomplete
-                  environment -- including the `machine` conformance-submodule state (attempts the
-                  same auto-init test/corpus-test do, since it's cheap and idempotent once already
+                  environment -- including the `conformance` suite state (attempts the
+                  same fetch test/corpus-test do, since it's cheap and idempotent once already
                   present; folded into the unsafe/exit-code decision, unlike the exhaustion history
                   below, because it describes the environment RIGHT NOW rather than a past,
                   already-recovered-from event). Runs no cargo command at all. Also reports
@@ -145,6 +146,14 @@
   -BuildSlotTimeoutSeconds (default 1800 = 30 minutes): long enough that a normal queued build never
   trips it, short enough that a genuinely wedged holder (crashed mid-build without releasing) is
   reported rather than blocking every other worktree's build silently forever.
+
+  Host admission: every heavy mode (check quick build test corpus-test conformance-test release doc
+  preland, and `run -Heavy`) first waits for `stile admit --jobs <n>` to exit 0, BEFORE taking a slot,
+  so a queued build holds nothing while the host is loaded. Exit 29: stile failed with anything but
+  0 or 10 (fail closed). Exit 30: still told to wait after -AdmitTimeoutSeconds (default 3600).
+  -ReleaseBlocker '<reason>' is passed to `stile admit --release-blocker`. Skipped, with one visible
+  line, when stile is not on PATH (CI) or PANGLOSS_SKIP_ADMIT=1; PANGLOSS_ADMITTED=1 (set after
+  admission) stops preland's child pg.ps1 runs from waiting again.
 #>
 # PositionalBinding = $false is a CORRECTNESS gate, not style. Without it every string parameter
 # below is implicitly positional, so a stray or misplaced cargo flag is silently absorbed as the
@@ -186,6 +195,9 @@ param(
     [switch]$TestOptBuild,
     [switch]$HygieneBootstrap,
     [switch]$NoNextest,
+    # test only: run just the tests of crates changed since -AffectedBase (and the crates depending on them); shared paths fall back to the full suite.
+    [switch]$Affected,
+    [string]$AffectedBase = 'origin/main',
     # Stop at the first failing test. Off by default -- see the header block.
     [switch]$FailFast,
     [int]$MaxConcurrent = 2,
@@ -199,6 +211,10 @@ param(
     [ValidateSet('Idle', 'BelowNormal', 'Normal')][string]$Priority = 'BelowNormal',
     # 30 minutes: long enough not to trip on a normal queue, short enough to report a genuinely wedged holder.
     [int]$BuildSlotTimeoutSeconds = 1800,
+    # Heavy modes wait for `stile admit` (host load gate) before any slot or cargo; exit 30 when this many seconds pass still told to wait. See Wait-StileAdmission.
+    [int]$AdmitTimeoutSeconds = 3600,
+    # Passed to `stile admit --release-blocker`: for work that blocks the release queue.
+    [string]$ReleaseBlocker = '',
     [switch]$NoSccache,
     [ValidateSet('strict', 'development', 'off')][string]$BaseMode = 'development',
     [switch]$Apply,
@@ -224,6 +240,10 @@ if ($TestOptBuild -and ($Mode -ne 'build' -or $DebugProfile)) {
     Write-Host '[pg] -TestOptBuild applies to -Mode build only, and not with -DebugProfile.' -ForegroundColor Red
     exit 2
 }
+if ($Affected -and ($Mode -ne 'test' -or $Package -or $TestTarget -or $Filter)) {
+    Write-Host '[pg] -Affected applies to plain -Mode test only (not with -Package, -TestTarget or -Filter).' -ForegroundColor Red
+    exit 2
+}
 if ($All -and $Mode -ne 'preland') {
     Write-Host '[pg] -All applies to -Mode preland only.' -ForegroundColor Red
     exit 2
@@ -245,11 +265,11 @@ if ($HygieneBootstrap -and ($Mode -ne 'build' -or $Package -ne 'pg-comment-hygie
     exit 2
 }
 
-# Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no submodule fetch.
+# Refuse an unclaimed scope before ANY work -- no build slot, no cargo, no suite fetch.
 if ($Mode -eq 'conformance-test' -and [string]::IsNullOrWhiteSpace($Scope)) {
     Write-Host "[pg] conformance-test requires -Scope, and has no default." -ForegroundColor Red
     Write-Host "     -Scope local  conformance-staging/** only (this repo's own fixtures)"
-    Write-Host "     -Scope all    those plus machine/conformance/** (every upstream fixture)"
+    Write-Host "     -Scope all    those plus conformance/** (every upstream fixture)"
     Write-Host "     A green conformance run has to say what it covered, so this will not guess."
     exit $script:ExitCodeConformanceScopeUnclaimed
 }
@@ -263,14 +283,18 @@ if ($Scope -and $Mode -ne 'conformance-test') {
 # Dispatched before any slot is taken: preland runs child pg.ps1 calls that each take their own.
 if ($Mode -eq 'preland') {
     if ($ExtraArgs.Count -gt 0) {
-        Write-Host "[pg] -Mode preland takes only -Base and -All; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
+        Write-Host "[pg] -Mode preland takes only -Base, -All and -Jobs; it would ignore: $($ExtraArgs -join ' ')" -ForegroundColor Red
         exit 2
     }
+    $admitCode = Wait-StileAdmission -Jobs ([Math]::Max(1, $Jobs)) -Mode $Mode -MaxWaitSeconds $AdmitTimeoutSeconds -ReleaseBlocker $ReleaseBlocker
+    if ($admitCode -ne 0) { exit $admitCode }
     $prelandArgs = @()
+    if ($Jobs -gt 0) { $prelandArgs += @('-Jobs', "$Jobs") }
     if ($Base) { $prelandArgs += @('-Base', $Base) }
     if ($All) { $prelandArgs += '-All' }
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs
-    exit $LASTEXITCODE
+    try { & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'preland.ps1') @prelandArgs; $prelandCode = $LASTEXITCODE }
+    finally { Clear-StileAdmissionMarker }
+    exit $prelandCode
 }
 
 # The thin-LTO profile rust/Cargo.toml declares as `[profile.pg-test-opt]`; see that file's comment for why.
@@ -321,16 +345,16 @@ if ($Mode -eq 'new-worktree') {
     Write-Host "[pg] requested '$($meta.requested_revision)' -> resolved $($meta.resolved_object_id)" -ForegroundColor DarkGray
     Write-Host '[pg] NOTE: private corpora under samples/data/ are gitignored and are NOT copied into a new worktree. Corpus-backed suites there will refuse under -Mode corpus-test until you populate it or set PANGLOSS_CORPUS_ROOT.' -ForegroundColor Yellow
 
-    # Born ready: initializes the machine conformance submodule now rather than leaving every fresh worktree to fail it later.
-    $conformanceResult = Initialize-ConformanceSubmodule -RepoRoot $newRoot
+    # Born ready: fetches the suite now rather than leaving every fresh worktree to fail it later.
+    $conformanceResult = Sync-ConformanceSuite -RepoRoot $newRoot
     if ($conformanceResult.Ok) {
-        Write-Host "[pg] conformance submodule ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
+        Write-Host "[pg] conformance suite ($($conformanceResult.Mode)): $($conformanceResult.Detail)" -ForegroundColor Green
     } else {
-        Write-Host "[pg] conformance submodule initialization FAILED: $($conformanceResult.Detail)" -ForegroundColor Red
+        Write-Host "[pg] conformance suite fetch FAILED: $($conformanceResult.Detail)" -ForegroundColor Red
         if ($conformanceResult.RecoveryCommand) {
             Write-Host "[pg] the worktree was created; run this by hand once fixed: $($conformanceResult.RecoveryCommand)" -ForegroundColor Yellow
         }
-        exit $script:ExitCodeConformanceSubmoduleMissing
+        exit $script:ExitCodeConformanceSuiteMissing
     }
     exit 0
 }
@@ -421,7 +445,10 @@ $testThreadsExplicit = ($TestThreads -gt 0)
 $testThreadsBudget = Resolve-ConcurrencyBudget -CpuBudget (Get-CargoJobBudget -MaxConcurrent 1 -RunSlots 0) `
     -MemoryBudget (Get-MemoryProcessBudget -AvailableGB $availableMemGB -PerProcessGB $script:MemoryPerTestProcessGB -MaxConcurrent 1) `
     -Explicit:$testThreadsExplicit
-if (-not $testThreadsExplicit) { $TestThreads = $testThreadsBudget.Value }
+if (-not $testThreadsExplicit) {
+    $TestThreads = $testThreadsBudget.Value
+    if ($TestThreads -gt $script:MaxTestThreads) { $TestThreads = $script:MaxTestThreads }
+}
 
 $targetDir = Resolve-TargetDir -RustRoot $rustRoot
 if ($targetDir) { $env:CARGO_TARGET_DIR = $targetDir }
@@ -505,8 +532,8 @@ if ($Mode -eq 'corpus-test') {
 # Not computed for build/release/gc/run: those modes never reach conformance_fixtures_gate, so even a fast-path Test-Path is an avoidable tax.
 $conformanceCheck = $null
 if ($Mode -eq 'test' -or $Mode -eq 'corpus-test' -or $Mode -eq 'doctor' -or ($Mode -eq 'conformance-test' -and $Scope -ne 'local')) {
-    # -Scope local reads conformance-staging/** only, so it does not need the submodule at all.
-    $conformanceCheck = Initialize-ConformanceSubmodule -RepoRoot $repoRoot
+    # -Scope local reads conformance-staging/** only, so it does not need the suite at all.
+    $conformanceCheck = Sync-ConformanceSuite -RepoRoot $repoRoot
 }
 
 function Invoke-CommentHygieneReport {
@@ -639,7 +666,7 @@ if (-not $diskCheck.Ok) {
         }
         if ($stale.Count -gt 8) { Write-Host "  ... and $($stale.Count - 8) more" -ForegroundColor Yellow }
         Write-Host '[pg] remove one with: pg.ps1 -Mode remove-worktree -Path <path> -- it also reclaims that worktree''s target dirs, which hold far more than the checkout does.' -ForegroundColor Yellow
-        Write-Host '[pg] NOT `git worktree remove`: it refuses outright on a worktree holding a submodule, and new-worktree initializes `machine` in every one it creates.' -ForegroundColor Yellow
+        Write-Host '[pg] plain `git worktree remove` would leave the managed target dirs behind, which hold far more than the checkout does.' -ForegroundColor Yellow
         Write-Host '[pg] the branch outlives the worktree either way, so committed work stays recoverable by checkout.' -ForegroundColor Yellow
         Write-Host '[pg] a worktree holding ANY uncommitted or untracked file is never listed above; decide those by hand.' -ForegroundColor Yellow
     }
@@ -689,11 +716,11 @@ if ($Mode -eq 'corpus-test' -and -not $corpusState.Ok) {
 
 # Same fail-closed shape as the corpus-missing gate above: conformance_fixtures_gate is part of the ordinary suite.
 if (($Mode -in @('test', 'corpus-test', 'conformance-test')) -and $conformanceCheck -and -not $conformanceCheck.Ok) {
-    Write-Host "[pg] conformance submodule unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
+    Write-Host "[pg] conformance suite unavailable BEFORE starting cargo: $($conformanceCheck.Detail)" -ForegroundColor Red
     if ($conformanceCheck.RecoveryCommand) {
         Write-Host "[pg] recovery: $($conformanceCheck.RecoveryCommand)  (or: pwsh -File rust\tools\conformance.ps1)" -ForegroundColor Yellow
     }
-    exit $script:ExitCodeConformanceSubmoduleMissing
+    exit $script:ExitCodeConformanceSuiteMissing
 }
 
 if ($Mode -eq 'doctor') {
@@ -856,6 +883,10 @@ if ($Mode -ne 'run') {
 
 # build / test / corpus-test / release all run cargo from here.
 $useNextest = ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and (-not $NoNextest) -and (Get-Command cargo-nextest -ErrorAction SilentlyContinue)
+if (($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) -and -not $useNextest) {
+    if ($NoNextest) { Write-Host '[pg] -NoNextest: running plain `cargo test`.' -ForegroundColor DarkGray }
+    else { Write-Host '[pg] cargo-nextest is not installed; falling back to plain `cargo test` (slower, no per-test timeout). Install: see "Testing" in rust/README.md.' -ForegroundColor Yellow }
+}
 
 $cargoArgs = @()
 # A test file absorbed into a consolidated harness is still addressable by its own stem, in every mode.
@@ -866,6 +897,32 @@ if ($TestTarget -and $Package) {
         Write-Host "[pg] -TestTarget $TestTarget lives in harness '$($absorbed.Target)'; running only its '$($absorbed.Module)::' tests." -ForegroundColor DarkGray
         $TestTarget = $absorbed.Target
         $harnessModule = $absorbed.Module
+    }
+}
+$doctestPackages = @()
+$doctestScoped = $false
+if ($Affected) {
+    try {
+        $wsPackages = @(Get-WorkspacePackages -RustRoot $rustRoot -RepoRoot $repoRoot)
+        $affScope = Get-AffectedScope -ChangedPaths @(Get-ChangedPaths -RepoRoot $repoRoot -Base $AffectedBase) -Packages $wsPackages
+    } catch {
+        Write-Host "[pg] -Affected: $_ -- running the full suite." -ForegroundColor Yellow
+        $affScope = $null
+    }
+    if ($affScope -and $affScope.Global) {
+        Write-Host "[pg] -Affected: $($affScope.Reason); running the full suite." -ForegroundColor Yellow
+    } elseif ($affScope -and $affScope.Changed.Count -eq 0) {
+        Write-Host "[pg] -Affected: no Rust crate changed since $AffectedBase; nothing to run." -ForegroundColor Green
+        exit 0
+    } elseif ($affScope) {
+        Write-Host "[pg] -Affected: changed $($affScope.Changed -join ', '); testing $($affScope.Closure.Count) crate(s) via rdeps." -ForegroundColor Cyan
+        if ($useNextest) {
+            $ExtraArgs = @($ExtraArgs) + @('-E', (($affScope.Changed | ForEach-Object { "rdeps($_)" }) -join ' | '))
+            $doctestScoped = $true
+            $doctestPackages = @($wsPackages | Where-Object { $affScope.Closure -contains $_.Name -and $_.HasLib } | ForEach-Object { $_.Name })
+        } else {
+            Write-Host '[pg] -Affected needs nextest; running the full suite.' -ForegroundColor Yellow
+        }
     }
 }
 if ($Mode -in @('quick', 'test', 'corpus-test', 'conformance-test')) {
@@ -943,8 +1000,16 @@ if ($Mode -ne 'run' -and -not $runnerLabel) {
 $slotPool = if ($Mode -eq 'run' -and -not $Heavy) { 'run' } else { 'build' }
 $slotLimit = if ($slotPool -eq 'run') { $runSlots } else { $MaxConcurrent }
 $script:CurrentPgMode = $Mode
+# Heavy modes wait for host admission before taking a slot, after every refusal above so a refused run never waits.
+if ($Mode -in @('check', 'quick', 'build', 'test', 'corpus-test', 'conformance-test', 'release', 'doc') -or ($Mode -eq 'run' -and $Heavy)) {
+    # A non-cargo heavy mode (`run -Exe`) compiles nothing: one job.
+    $admitJobs = if ($Mode -eq 'run' -and $Exe) { 1 } else { $Jobs }
+    $admitCode = Wait-StileAdmission -Jobs $admitJobs -Mode $Mode -MaxWaitSeconds $AdmitTimeoutSeconds -ReleaseBlocker $ReleaseBlocker
+    if ($admitCode -ne 0) { exit $admitCode }
+}
 $sem = Enter-ResourceSlot -Pool $slotPool -MaxConcurrent $slotLimit -TimeoutSeconds $BuildSlotTimeoutSeconds
 if (-not $sem) {
+    Clear-StileAdmissionMarker
     Write-Host "[pg] timed out after ${BuildSlotTimeoutSeconds}s waiting for a $slotPool slot (max $slotLimit concurrent across all worktrees) -- another worktree is holding them all." -ForegroundColor Red
     exit $script:ExitCodeBuildSlotTimeout
 }
@@ -953,6 +1018,7 @@ if (-not $sem) {
 $memCheckNow = Test-MemoryReserve -AvailableGB (Get-AvailableMemoryGB)
 if (-not $memCheckNow.Ok) {
     Exit-ResourceSlot -Slot $sem
+    Clear-StileAdmissionMarker
     Write-Host "[pg] memory dropped below the reserve while waiting for a $slotPool slot: $($memCheckNow.Detail)" -ForegroundColor Red
     Write-Host '[pg] nothing was started. Re-run when the build that was ahead of this one has finished.' -ForegroundColor Yellow
     exit $script:ExitCodeLowMemory
@@ -1045,6 +1111,24 @@ try {
         }
         if ($null -ne $linuxHostProof) { $invokeArgs['HostCgroupProof'] = $linuxHostProof }
         $code = Invoke-ManagedProcess @invokeArgs
+        # nextest does not run doctests; without this step they would silently stop being tested.
+        if ($code -eq 0 -and $useNextest -and $Mode -eq 'test' -and -not $TestTarget) {
+            $skipDoc = $false
+            if ($doctestScoped -and $doctestPackages.Count -eq 0) { $skipDoc = $true }
+            if ($Package -and -not $doctestScoped) {
+                # A bin-only package has no doctests, and `cargo test --doc -p` on it is an error.
+                $libs = @(Get-WorkspacePackages -RustRoot $rustRoot -RepoRoot $repoRoot | Where-Object { $_.Name -eq $Package -and $_.HasLib })
+                if ($libs.Count -eq 0) { $skipDoc = $true; Write-Host "[pg] $Package has no library target; no doctests to run." -ForegroundColor DarkGray }
+            }
+            if (-not $skipDoc) {
+                $docArgs = Get-DoctestInvocation -DebugProfile:$DebugProfile -TestThreads $TestThreads `
+                    -Package $Package -Packages $doctestPackages -Filter $Filter -FailFast:$FailFast -ExtraArgs $ExtraArgs
+                Write-Host "[pg] cargo $($docArgs -join ' ')  (doctests; nextest does not run them)" -ForegroundColor Cyan
+                $docInvoke = $invokeArgs.Clone()
+                $docInvoke['CmdArgs'] = $docArgs
+                $code = Invoke-ManagedProcess @docInvoke
+            }
+        }
         if ($code -eq 0 -and (Test-BackendCardRegenerationScope -BuildMode $Mode -BuildPackage $Package)) {
             $releaseBuild = ($Mode -eq 'release') -or (($Mode -eq 'build') -and (-not $DebugProfile) -and (-not $TestOptBuild))
             $code = Invoke-BackendCardRegeneration -RustRoot $rustRoot -ReleaseBuild:$releaseBuild `
@@ -1052,6 +1136,7 @@ try {
         }
     }
 } finally {
+    Clear-StileAdmissionMarker
     if ($HygieneBootstrap) { $env:PANGLOSS_HYGIENE_BUILD_FINGERPRINT = $hygienePreviousStamp }
     Exit-ResourceSlot -Slot $sem
     # Post-run disk check: preflight runs BEFORE cargo and cannot see space consumed during the build itself.

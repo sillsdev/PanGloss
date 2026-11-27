@@ -1,0 +1,10 @@
+$ pangloss import flagged/project.fwdata flagged/snapshot.json
+entries excluded by DoNotUseForParsing: 1
+import warnings (0):
+validate warnings (0):
+import complete: 0 lex entries, 3 phonemes -> flagged/snapshot.json
+$ pangloss parse flagged/snapshot.json pat
+pat	-
+$ pangloss batch flagged/snapshot.json words.txt flagged/batch.tsv
+batch complete: 1 words parsed (0 skipped), 0 hit a search cap, 0 timed out [threads=8]
+0	pat	0	ok	-

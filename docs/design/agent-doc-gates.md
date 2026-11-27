@@ -20,11 +20,16 @@ contains a separator, has no space, is longer than three characters, does not st
 
 That is still not enough. The first version flagged twenty false positives against four real
 findings — `sillsdev/machine` (a GitHub slug), `perf/pr494-priority-union` (a git branch),
-`languages/bantu-verbal` (relative to the conformance submodule), `recipes/schema.json` (relative to
+`languages/bantu-verbal` (relative to the conformance suite), `recipes/schema.json` (relative to
 a skill's own directory) — and twenty-to-four is the ratio at which a gate gets muted rather than
 fixed. So only a token rooted at a known top-level directory is checked: `rust/`, `docs/`,
-`.claude/`, `conformance-staging/`, `machine/`, `samples/`, `openspec/`. Tokens containing `:`, `*`
-or `<` are skipped as absolute Windows paths, globs, and placeholders respectively.
+`.claude/`, `conformance/`, `conformance-staging/`, `machine/`, `samples/`, `openspec/`. Tokens
+containing `:`, `*` or `<` are skipped as absolute Windows paths, globs, and placeholders
+respectively. Two of those roots are not in the tree and are treated differently on purpose: `conformance/`
+is checked, because `pg.ps1` fetches it (at the commit `conformance.commit` pins) before any test runs, while `machine/` and `samples/` are
+absent by design in an ordinary worktree (`pg.ps1` never initializes `machine`), so a path under them
+is not resolved. `languages/bantu-verbal` above is written without the `conformance/` prefix for the
+same reason it was before: a bare relative name is not rooted, so it is not checked.
 
 Bare symbol names are deliberately out of scope: resolving those needs a compiler, and a regex that
 guessed would fire on prose and then get muted — the same failure the root allowlist prevents.

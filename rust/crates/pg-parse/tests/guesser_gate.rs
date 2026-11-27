@@ -137,7 +137,6 @@ fn guessing_without_a_lexical_pattern_changes_nothing() {
         let guessing = m.parse_word_opts(word, &on);
         assert_eq!(guessing.signature(), off.signature(), "{word}");
         assert_eq!(guessing.work_steps, off.work_steps, "{word}");
-        assert_eq!(guessing.steps, off.steps, "{word}");
         assert!(!guessing.guessed, "{word}");
     }
 }

@@ -1,30 +1,87 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../partials_preservation.rs"]
+mod partials_preservation;
+
+#[path = "../metathesis_after_deletion.rs"]
+mod metathesis_after_deletion;
+
+#[path = "../metathesis_allomorph_env_extent.rs"]
+mod metathesis_allomorph_env_extent;
+
+#[path = "../metathesis_prefix_right_env.rs"]
+mod metathesis_prefix_right_env;
+
+#[path = "../metathesis_match_order.rs"]
+mod metathesis_match_order;
+
+#[path = "../adhoc_affix_copies.rs"]
+mod adhoc_affix_copies;
+#[path = "../adhoc_allomorph_copies.rs"]
+mod adhoc_allomorph_copies;
+#[path = "../adhoc_fieldworks_witnesses.rs"]
+mod adhoc_fieldworks_witnesses;
+#[path = "../adhoc_morpheme_variant_copies.rs"]
+mod adhoc_morpheme_variant_copies;
+#[path = "../analysis_order_gate.rs"]
+mod analysis_order_gate;
 #[path = "../batch_determinism.rs"]
 mod batch_determinism;
+#[path = "../batch_morph_spans.rs"]
+mod batch_morph_spans;
+#[path = "../bracket_pattern_affix_form.rs"]
+mod bracket_pattern_affix_form;
 #[path = "../cd_set_gate.rs"]
 mod cd_set_gate;
 #[path = "../clitic_template_state_gate.rs"]
 mod clitic_template_state_gate;
 #[path = "../conformance_fixtures_gate.rs"]
 mod conformance_fixtures_gate;
+#[path = "../copy_agreement_featureless.rs"]
+mod copy_agreement_featureless;
+#[path = "../copy_alignment_optional.rs"]
+mod copy_alignment_optional;
 #[path = "../cross_table_metathesis_surface_match_gate.rs"]
 mod cross_table_metathesis_surface_match_gate;
 #[path = "../disjunctive_recheck_gate.rs"]
 mod disjunctive_recheck_gate;
+#[path = "../do_not_parse.rs"]
+mod do_not_parse;
+#[path = "../early_root_lookup_gate.rs"]
+mod early_root_lookup_gate;
+#[path = "../edge_prefilter_gate.rs"]
+mod edge_prefilter_gate;
 #[path = "../effective_analysis_target.rs"]
 mod effective_analysis_target;
 #[path = "../exact_analysis_fs_recall.rs"]
 mod exact_analysis_fs_recall;
+#[path = "../featureless_modify_from_input.rs"]
+mod featureless_modify_from_input;
+#[path = "../featureless_wide_class_rewrite.rs"]
+mod featureless_wide_class_rewrite;
+#[path = "../final_template_partial_root_gate.rs"]
+mod final_template_partial_root_gate;
+#[path = "../final_template_pruning_gate.rs"]
+mod final_template_pruning_gate;
 #[path = "../free_fluctuation_gate.rs"]
 mod free_fluctuation_gate;
+#[path = "../fw_metathesis.rs"]
+mod fw_metathesis;
+#[path = "../generate_morph_spans.rs"]
+mod generate_morph_spans;
+#[path = "../guess_only_orchestration_gate.rs"]
+mod guess_only_orchestration_gate;
 #[path = "../guesser_gate.rs"]
 mod guesser_gate;
+#[path = "../lexical_lookup_matched_allomorph.rs"]
+mod lexical_lookup_matched_allomorph;
 #[path = "../lexical_pattern_trie_exclusion_gate.rs"]
 mod lexical_pattern_trie_exclusion_gate;
 #[path = "../loader_n3_pattern_shapes_gate.rs"]
 mod loader_n3_pattern_shapes_gate;
+#[path = "../lookup_replay_gate.rs"]
+mod lookup_replay_gate;
 #[path = "../merge_msas_conformance.rs"]
 mod merge_msas_conformance;
 #[path = "../merged_analyses_fs_generalization.rs"]
@@ -33,8 +90,14 @@ mod merged_analyses_fs_generalization;
 mod phonology_gate;
 #[path = "../reduplication_gate.rs"]
 mod reduplication_gate;
+#[path = "../required_slot_shadow_gate.rs"]
+mod required_slot_shadow_gate;
+#[path = "../restricted_parse_gate.rs"]
+mod restricted_parse_gate;
 #[path = "../root_trie_gate.rs"]
 mod root_trie_gate;
+#[path = "../shadowed_allomorphs_gate.rs"]
+mod shadowed_allomorphs_gate;
 #[path = "../stats_collector_gate.rs"]
 mod stats_collector_gate;
 #[path = "../supplied_overlay.rs"]
@@ -49,6 +112,12 @@ mod trace_phon_gate;
 mod trace_rule_sequence_gate;
 #[path = "../trace_template_outcomes.rs"]
 mod trace_template_outcomes;
+#[path = "../truncate_morphotactic_identity.rs"]
+mod truncate_morphotactic_identity;
+#[path = "../why_not_fieldworks_guids.rs"]
+mod why_not_fieldworks_guids;
+#[path = "../work_cap_getter.rs"]
+mod work_cap_getter;
 #[path = "../xample_migration_differential_gate.rs"]
 mod xample_migration_differential_gate;
 #[path = "../zero_width_morph_identity.rs"]

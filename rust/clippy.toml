@@ -1,0 +1,2 @@
+# ShapeData stores its content hash lazily in an atomic; that cell is derived from the columns, excluded from equality, and never changes what the type hashes or compares as.
+ignore-interior-mutability = ["pg_shape::ShapeData"]
