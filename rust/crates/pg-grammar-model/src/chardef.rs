@@ -62,6 +62,8 @@ pub struct CharDef {
     /// Per-feature symbolic bits; absent values use full masks, with Type pinned to segment or boundary.
     feature_lanes: Vec<u64>,
     defaulted_feature_lanes: Vec<bool>,
+    /// Features authored with every symbol, which a full-mask lane alone cannot tell from an absent feature; C# keeps them present, so `UseDefaults` must not replace them.
+    explicit_full_features: Box<[u32]>,
     has_authored_features: bool,
     provisional: bool,
 }
@@ -132,10 +134,28 @@ impl CharDef {
         &self.feature_lanes
     }
 
+    /// Features authored with their full symbol set, ascending.
+    #[inline]
+    pub fn explicit_full_features(&self) -> &[u32] {
+        &self.explicit_full_features
+    }
+
     /// Whether a lane retained its full-mask default during compilation. Explicit assignments and
     /// the compiler-pinned Type lane are not defaulted, even when their bits equal the full mask.
     pub fn feature_is_defaulted(&self, feature: FlatIndex) -> bool {
         self.defaulted_feature_lanes[feature.0 as usize]
+    }
+}
+
+/// The segmentation lookup plus its longest key; `Debug` shows only the map so the Grammar dump is unchanged.
+struct Lookup {
+    map: HashMap<String, CharDefId>,
+    max_rep_chars: usize,
+}
+
+impl std::fmt::Debug for Lookup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.map.fmt(f)
     }
 }
 
@@ -150,7 +170,7 @@ pub struct CharDefTable {
     source_guid: Option<String>,
     defs: Vec<CharDef>,
     /// NFD-normalized representation -> owning char def, the exact lookup `CharacterDefinitionTable._charDefLookup` performs.
-    lookup: HashMap<String, CharDefId>,
+    lookup: Lookup,
     /// Static segment unifiability closure; absent for zero-feature grammars, with boundary rows empty.
     unif_closure: Option<Vec<CdBits>>,
 }
@@ -179,6 +199,7 @@ impl CharDefTable {
     ) -> Result<Self, ModelError> {
         let mut defs = Vec::with_capacity(raw_defs.len());
         let mut lookup: HashMap<String, CharDefId> = HashMap::with_capacity(raw_defs.len() * 2);
+        let mut max_rep_chars = 0usize;
 
         for raw in raw_defs {
             let representations_nfd: Vec<String> =
@@ -212,8 +233,18 @@ impl CharDefTable {
             };
             defaulted_feature_lanes[type_idx] = false;
 
+            let explicit_full_features: Box<[u32]> = (0..feat_sys.len())
+                .filter(|&i| {
+                    !defaulted_feature_lanes[i]
+                        && i != type_idx
+                        && feature_lanes[i] == feat_sys.mask(FlatIndex(i as u32))
+                })
+                .map(|i| i as u32)
+                .collect();
+
             let id = CharDefId(defs.len() as u32);
             for norm in &representations_nfd {
+                max_rep_chars = max_rep_chars.max(norm.chars().count());
                 lookup.insert(norm.clone(), id);
             }
             defs.push(CharDef {
@@ -226,6 +257,7 @@ impl CharDefTable {
                 representations_nfd,
                 feature_lanes,
                 defaulted_feature_lanes,
+                explicit_full_features,
             });
         }
 
@@ -258,7 +290,10 @@ impl CharDefTable {
             type_feature: feat_sys.type_flat(),
             source_guid: None,
             defs,
-            lookup,
+            lookup: Lookup {
+                map: lookup,
+                max_rep_chars,
+            },
             unif_closure,
         })
     }
@@ -335,7 +370,13 @@ impl CharDefTable {
     /// The segmentation lookup: NFD-normalized representation -> owning char def, exactly
     /// `CharacterDefinitionTable.TryGetValue` (representations are normalized before matching).
     pub fn lookup_nfd(&self, nfd_rep: &str) -> Option<CharDefId> {
-        self.lookup.get(nfd_rep).copied()
+        self.lookup.map.get(nfd_rep).copied()
+    }
+
+    /// The most `char`s any NFD representation in the segmentation lookup has; no longer candidate can match.
+    #[inline]
+    pub fn max_rep_chars(&self) -> usize {
+        self.lookup.max_rep_chars
     }
 
     /// Iterates character definitions in table order.

@@ -186,7 +186,7 @@ pub fn classify(
         let produced = morpher.synthesize_resolved_stem_bounded(
             &request.stem,
             resolved.syn_fs,
-            resolved.mpr,
+            &resolved.mpr,
             resolved.stratum,
             &work.rules,
             &engine_budget,
@@ -252,7 +252,7 @@ pub fn classify(
 fn engine_truncation(budget: &SynthesisBudget) -> Option<TruncationReason> {
     if budget.timed_out() {
         Some(TruncationReason::TimeLimit)
-    } else if budget.step_capped() {
+    } else if budget.work_capped() {
         Some(TruncationReason::StepLimit)
     } else if budget.candidate_capped() {
         Some(TruncationReason::CandidateLimit)

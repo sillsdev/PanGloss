@@ -37,6 +37,10 @@
 //! later split the notion of "unconstrained" between `u64::MAX` and `full_mask(count)`.
 #![forbid(unsafe_code)]
 
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use pg_featstruct::Interner;
 use smallvec::SmallVec;
 
@@ -189,10 +193,19 @@ impl NodeFlags {
     }
 }
 
-/// A frozen phonetic shape: parallel SoA columns, bracketed by anchor nodes. Cheap to clone as an
-/// interned `ShapeId`; direct `Clone` here is a column copy (used only by the builder).
+/// A frozen phonetic shape: parallel SoA columns, bracketed by anchor nodes. The columns are immutable once
+/// frozen (every edit goes through [`ShapeBuilder::from_shape`] and a fresh freeze), so `Clone` shares them
+/// through one reference count instead of copying each column.
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Default)]
 pub struct Shape {
+    data: Arc<ShapeData>,
+}
+
+#[derive(Default)]
+#[doc(hidden)]
+pub struct ShapeData {
+    /// Hash of every column below, stored the first time the shape is hashed (0 = not yet). `Hash` feeds only this value, so hashing a shared `Shape` walks the columns once, not once per dedup lookup; shapes that are frozen and never hashed pay nothing. Not part of equality.
+    content_hash: AtomicU64,
     kinds: Box<[NodeKind]>,
     /// Index into the grammar's character-definition table, or `NO_CHAR_DEF` for anchors.
     char_defs: Box<[u32]>,
@@ -201,11 +214,209 @@ pub struct Shape {
     feat_width: u32,
     /// SoA feature matrix: node `i`'s lanes are `feat_lanes[i*feat_width .. (i+1)*feat_width]`.
     feat_lanes: Box<[u64]>,
-    /// Explicit char-def-set per node, consulted only when `char_defs[i] == NO_CHAR_DEF`; `CdSet::Unrestricted` for every node whose producer doesn't set one (concrete nodes ignore this column entirely).
-    cd_sets: Box<[CdSet]>,
+    /// Explicit char-def-sets, consulted only when `char_defs[i] == NO_CHAR_DEF`. Sparse: ascending `(node, set)` pairs for the nodes whose producer set a restriction; every other node is `CdSet::Unrestricted` (concrete nodes ignore this column entirely), so the common shape stores nothing here.
+    cd_sets: Box<[(u32, CdSet)]>,
+    /// Sparse (node, feature) pairs for present full sets created by rewriting.
+    generated_full: Box<[(u32, u32)]>,
+    /// Features retaining unresolved variables from analysis.
+    unresolved_variables: Box<[(u32, u32)]>,
+}
+
+/// What a `Shape` weighed while it held its seven columns inline. Byte-budget arithmetic (the root cache's table sizing, `Word` capture estimates) keeps using this figure so eviction, cache hits and capture ceilings do not move now that a `Shape` is one shared pointer.
+pub const INLINE_COLUMNS_BYTES: usize = 120;
+
+/// Bytes the stored content hash adds to `ShapeData` beyond [`INLINE_COLUMNS_BYTES`].
+const CONTENT_HASH_BYTES: usize = std::mem::size_of::<u64>();
+
+const _: () = assert!(std::mem::size_of::<Shape>() == std::mem::size_of::<usize>());
+// The columns now live behind the pointer in `ShapeData`; on 64-bit targets the figure above is exactly their inline size (wasm32 pointers are half as wide, so it only holds there), so adding or widening a column fails the build here instead of silently shifting the budgets.
+#[cfg(target_pointer_width = "64")]
+const _: () =
+    assert!(std::mem::size_of::<ShapeData>() == INLINE_COLUMNS_BYTES + CONTENT_HASH_BYTES);
+
+/// The columns only: the lazily stored hash is not printed, so output does not depend on whether the shape was hashed.
+impl std::fmt::Debug for ShapeData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShapeData")
+            .field("kinds", &self.kinds)
+            .field("char_defs", &self.char_defs)
+            .field("flags", &self.flags)
+            .field("feat_width", &self.feat_width)
+            .field("feat_lanes", &self.feat_lanes)
+            .field("cd_sets", &self.dense_cd_sets())
+            .field("generated_full", &self.generated_full)
+            .field("unresolved_variables", &self.unresolved_variables)
+            .finish()
+    }
+}
+
+impl PartialEq for ShapeData {
+    fn eq(&self, other: &Self) -> bool {
+        self.feat_width == other.feat_width
+            && self.kinds == other.kinds
+            && self.char_defs == other.char_defs
+            && self.flags == other.flags
+            && self.feat_lanes == other.feat_lanes
+            && self.cd_sets == other.cd_sets
+            && self.generated_full == other.generated_full
+            && self.unresolved_variables == other.unresolved_variables
+    }
+}
+
+impl Eq for ShapeData {}
+
+impl ShapeData {
+    /// The per-node view of the sparse set column, for diagnostics.
+    fn dense_cd_sets(&self) -> Vec<&CdSet> {
+        let mut sparse = self.cd_sets.iter().peekable();
+        (0..self.kinds.len())
+            .map(
+                |node| match sparse.next_if(|(at, _)| *at as usize == node) {
+                    Some((_, set)) => set,
+                    None => &CdSet::Unrestricted,
+                },
+            )
+            .collect()
+    }
+
+    fn column_hash(&self) -> u64 {
+        let mut hasher = rustc_hash::FxHasher::default();
+        self.kinds.hash(&mut hasher);
+        self.char_defs.hash(&mut hasher);
+        self.flags.hash(&mut hasher);
+        self.feat_width.hash(&mut hasher);
+        self.feat_lanes.hash(&mut hasher);
+        // Feeds exactly what the dense per-node column fed (length, then every node's set), so the stored hash does not move.
+        self.kinds.len().hash(&mut hasher);
+        let mut sparse = self.cd_sets.iter().peekable();
+        for node in 0..self.kinds.len() {
+            match sparse.next_if(|(at, _)| *at as usize == node) {
+                Some((_, set)) => set.hash(&mut hasher),
+                None => CdSet::Unrestricted.hash(&mut hasher),
+            }
+        }
+        self.generated_full.hash(&mut hasher);
+        self.unresolved_variables.hash(&mut hasher);
+        // 0 marks "not computed yet".
+        hasher.finish().max(1)
+    }
+}
+
+impl Hash for ShapeData {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut h = self.content_hash.load(Ordering::Relaxed);
+        if h == 0 {
+            h = self.column_hash();
+            self.content_hash.store(h, Ordering::Relaxed);
+        }
+        state.write_u64(h);
+    }
+}
+
+impl std::ops::Deref for Shape {
+    type Target = ShapeData;
+    #[inline]
+    fn deref(&self) -> &ShapeData {
+        &self.data
+    }
 }
 
 impl Shape {
+    /// Whether the two shapes are one allocation, which equal shapes need not be.
+    #[inline]
+    pub fn same_allocation(&self, other: &Shape) -> bool {
+        Arc::ptr_eq(&self.data, &other.data)
+    }
+
+    /// Work units for hashing and comparing every component of this shape.
+    pub fn key_work(&self) -> usize {
+        self.cd_sets.iter().fold(
+            self.len()
+                .saturating_mul(3 + self.feat_width as usize)
+                .saturating_add(self.generated_full.len())
+                .saturating_add(self.unresolved_variables.len()),
+            |total, (_, set)| match set {
+                CdSet::Members(bits) => total.saturating_add(bits.0.len()),
+                CdSet::Unrestricted => total,
+            },
+        )
+    }
+
+    /// Identifies the shared allocation: equal for clones of one shape, distinct for live shapes that are merely equal.
+    pub fn allocation_id(&self) -> usize {
+        Arc::as_ptr(&self.data) as usize
+    }
+
+    /// Heap bytes this shape's allocations take: the shared block, each non-empty column and each spilled set, rounded as a 64-bit glibc chunk (8-byte header, 16-byte steps, 32 minimum). Never below the allocator's chunks and at most one 16-byte step per column above them, unlike the loose [`Shape::heap_bytes_upper_bound`]; counts the shared block in full even when other shapes point at it.
+    pub fn heap_bytes(&self) -> usize {
+        fn chunk(bytes: usize) -> usize {
+            if bytes == 0 {
+                0
+            } else {
+                (bytes.saturating_add(8 + 15) & !15).max(32)
+            }
+        }
+        // A column shrunk in place by `into_boxed_slice` can keep up to one 16-byte step more, so each is charged that slack.
+        fn column<T>(len: usize) -> usize {
+            match chunk(len.saturating_mul(std::mem::size_of::<T>())) {
+                0 => 0,
+                bytes => bytes + 16,
+            }
+        }
+        let spilled = self.cd_sets.iter().fold(0, |total, (_, set)| match set {
+            CdSet::Members(bits) if bits.0.spilled() => {
+                total + chunk(bits.0.capacity() * std::mem::size_of::<u64>())
+            }
+            _ => total,
+        });
+        chunk(2 * std::mem::size_of::<usize>() + std::mem::size_of::<ShapeData>())
+            + column::<NodeKind>(self.kinds.len())
+            + column::<u32>(self.char_defs.len())
+            + column::<NodeFlags>(self.flags.len())
+            + column::<u64>(self.feat_lanes.len())
+            + column::<(u32, CdSet)>(self.cd_sets.len())
+            + column::<(u32, u32)>(self.generated_full.len())
+            + column::<(u32, u32)>(self.unresolved_variables.len())
+            + spilled
+    }
+
+    /// Conservative heap allocation charge for a cloned shape, including allocator overhead.
+    pub fn heap_bytes_upper_bound(&self) -> usize {
+        fn allocation(bytes: usize) -> usize {
+            if bytes == 0 {
+                0
+            } else {
+                bytes.saturating_mul(2).saturating_add(4096)
+            }
+        }
+        let columns = allocation(self.kinds.len() * std::mem::size_of::<NodeKind>())
+            .saturating_add(allocation(
+                self.char_defs.len() * std::mem::size_of::<u32>(),
+            ))
+            .saturating_add(allocation(
+                self.flags.len() * std::mem::size_of::<NodeFlags>(),
+            ))
+            .saturating_add(allocation(
+                self.feat_lanes.len() * std::mem::size_of::<u64>(),
+            ))
+            .saturating_add(allocation(self.kinds.len() * std::mem::size_of::<CdSet>()));
+        let columns = columns.saturating_add(allocation(
+            self.generated_full.len() * std::mem::size_of::<(u32, u32)>(),
+        ));
+        let columns = columns.saturating_add(allocation(
+            self.unresolved_variables.len() * std::mem::size_of::<(u32, u32)>(),
+        ));
+        self.cd_sets
+            .iter()
+            .fold(columns, |total, (_, set)| match set {
+                CdSet::Members(bits) if bits.0.spilled() => {
+                    total.saturating_add(allocation(bits.0.capacity() * std::mem::size_of::<u64>()))
+                }
+                _ => total,
+            })
+    }
+
     /// Number of nodes, **including the two anchors**.
     #[inline]
     pub fn len(&self) -> usize {
@@ -246,6 +457,20 @@ impl Shape {
         &self.feat_lanes[i * w..i * w + w]
     }
 
+    /// Feature indexes whose full values were produced by a rewrite on this node.
+    pub fn generated_full_features(&self, i: usize) -> impl Iterator<Item = u32> + '_ {
+        self.generated_full
+            .iter()
+            .filter_map(move |&(node, feature)| (node as usize == i).then_some(feature))
+    }
+
+    /// Feature indices whose symbolic values remain unresolved.
+    pub fn unresolved_variable_features(&self, i: usize) -> impl Iterator<Item = u32> + '_ {
+        self.unresolved_variables
+            .iter()
+            .filter_map(move |&(node, feature)| (node as usize == i).then_some(feature))
+    }
+
     /// The effective char-def-set identity of node `i` (plan §13.1 Tier-1 #3): a concrete node
     /// (`char_def != NO_CHAR_DEF`) is an implicit singleton of its own identity; an underspecified
     /// node (natural-class insertion) uses its stored `CdSet`. See `EffectiveCdSet`.
@@ -255,9 +480,13 @@ impl Shape {
         if cd != NO_CHAR_DEF {
             return EffectiveCdSet::Singleton(cd);
         }
-        match &self.cd_sets[i] {
-            CdSet::Unrestricted => EffectiveCdSet::Unrestricted,
-            CdSet::Members(b) => EffectiveCdSet::Members(b),
+        let at = i as u32;
+        match self.cd_sets.binary_search_by_key(&at, |(node, _)| *node) {
+            Ok(k) => match &self.cd_sets[k].1 {
+                CdSet::Unrestricted => EffectiveCdSet::Unrestricted,
+                CdSet::Members(b) => EffectiveCdSet::Members(b),
+            },
+            Err(_) => EffectiveCdSet::Unrestricted,
         }
     }
 
@@ -299,7 +528,10 @@ pub struct ShapeBuilder {
     flags: Vec<NodeFlags>,
     feat_width: u32,
     feat_lanes: Vec<u64>,
-    cd_sets: Vec<CdSet>,
+    /// Ascending `(node, set)` pairs, never `Unrestricted`; see `ShapeData::cd_sets`.
+    cd_sets: Vec<(u32, CdSet)>,
+    generated_full: Vec<(u32, u32)>,
+    unresolved_variables: Vec<(u32, u32)>,
 }
 
 impl ShapeBuilder {
@@ -327,7 +559,9 @@ impl ShapeBuilder {
             flags: Vec::with_capacity(cap + 2),
             feat_width,
             feat_lanes: Vec::with_capacity((cap + 2) * w),
-            cd_sets: Vec::with_capacity(cap + 2),
+            cd_sets: Vec::new(),
+            generated_full: Vec::new(),
+            unresolved_variables: Vec::new(),
         };
         b.push(NodeKind::LeftAnchor, NO_CHAR_DEF, NodeFlags::EMPTY);
         b
@@ -343,6 +577,21 @@ impl ShapeBuilder {
             feat_width: src.feat_width,
             feat_lanes: src.feat_lanes.to_vec(),
             cd_sets: src.cd_sets.to_vec(),
+            generated_full: src.generated_full.to_vec(),
+            unresolved_variables: src.unresolved_variables.to_vec(),
+        }
+    }
+
+    /// Records node `index`'s char-def-set, keeping the column sparse: `Unrestricted` is the absence of an entry.
+    fn set_cd_set(&mut self, index: usize, cd_set: CdSet) {
+        let at = index as u32;
+        match self.cd_sets.binary_search_by_key(&at, |(node, _)| *node) {
+            Ok(k) if cd_set == CdSet::Unrestricted => {
+                self.cd_sets.remove(k);
+            }
+            Ok(k) => self.cd_sets[k].1 = cd_set,
+            Err(_) if cd_set == CdSet::Unrestricted => {}
+            Err(k) => self.cd_sets.insert(k, (at, cd_set)),
         }
     }
 
@@ -358,7 +607,6 @@ impl ShapeBuilder {
         self.char_defs.push(char_def);
         self.flags.push(flags);
         self.feat_lanes.extend_from_slice(lanes);
-        self.cd_sets.push(CdSet::Unrestricted);
     }
 
     /// Append a node, defaulting its `feat_width` lanes to `u64::MAX` ("unconstrained").
@@ -369,7 +617,6 @@ impl ShapeBuilder {
         self.flags.push(flags);
         self.feat_lanes
             .resize(self.feat_lanes.len() + self.feat_width as usize, u64::MAX);
-        self.cd_sets.push(CdSet::Unrestricted);
     }
 
     /// Append a segment node referencing character definition `char_def`, with default
@@ -404,7 +651,7 @@ impl ShapeBuilder {
     /// natural class's real membership instead of the default `CdSet::Unrestricted`.
     pub fn push_segment_with_lanes_and_set(&mut self, lanes: &[u64], cd_set: CdSet) {
         self.push_with_lanes(NodeKind::Segment, NO_CHAR_DEF, NodeFlags::EMPTY, lanes);
-        *self.cd_sets.last_mut().expect("just pushed") = cd_set;
+        self.set_cd_set(self.kinds.len() - 1, cd_set);
     }
 
     /// OR `bits` into the most-recently-pushed node's flags (audit C finding N3: the
@@ -457,14 +704,30 @@ impl ShapeBuilder {
             index >= 1 && index < self.kinds.len(),
             "insert index must be interior (between the anchors)"
         );
+        for (node, _) in self
+            .generated_full
+            .iter_mut()
+            .chain(&mut self.unresolved_variables)
+        {
+            if *node as usize >= index {
+                *node += 1;
+            }
+        }
         self.kinds.insert(index, kind);
         self.char_defs.insert(index, char_def);
         self.flags.insert(index, flags);
         let w = self.feat_width as usize;
-        for (k, &v) in lanes.iter().enumerate() {
-            self.feat_lanes.insert(index * w + k, v);
+        // One tail shift for the whole row, not one per lane.
+        let at = index * w;
+        let old = self.feat_lanes.len();
+        self.feat_lanes.resize(old + w, 0);
+        self.feat_lanes.copy_within(at..old, at + w);
+        self.feat_lanes[at..at + w].copy_from_slice(lanes);
+        for (node, _) in &mut self.cd_sets {
+            if *node as usize >= index {
+                *node += 1;
+            }
         }
-        self.cd_sets.insert(index, CdSet::Unrestricted);
     }
 
     /// [`insert`](Self::insert) with an explicit char-def-set on the new (always `NO_CHAR_DEF`,
@@ -479,7 +742,7 @@ impl ShapeBuilder {
         cd_set: CdSet,
     ) {
         self.insert(index, NodeKind::Segment, NO_CHAR_DEF, flags, lanes);
-        self.cd_sets[index] = cd_set;
+        self.set_cd_set(index, cd_set);
     }
 
     /// Delete the node at position `index`, shifting nodes after it down by one (models C#
@@ -490,15 +753,54 @@ impl ShapeBuilder {
             self.kinds[index] != NodeKind::LeftAnchor && self.kinds[index] != NodeKind::RightAnchor,
             "cannot delete an anchor node"
         );
+        self.generated_full
+            .retain(|(node, _)| *node as usize != index);
+        self.unresolved_variables
+            .retain(|(node, _)| *node as usize != index);
+        for (node, _) in self
+            .generated_full
+            .iter_mut()
+            .chain(&mut self.unresolved_variables)
+        {
+            if *node as usize > index {
+                *node -= 1;
+            }
+        }
         self.kinds.remove(index);
         self.char_defs.remove(index);
         self.flags.remove(index);
         let w = self.feat_width as usize;
-        // Draining from the tail forward keeps the remaining indices valid across removals.
-        for k in (0..w).rev() {
-            self.feat_lanes.remove(index * w + k);
+        // One tail shift for the whole row, not one per lane.
+        let at = index * w;
+        let old = self.feat_lanes.len();
+        self.feat_lanes.copy_within(at + w..old, at);
+        self.feat_lanes.truncate(old - w);
+        self.cd_sets.retain(|(node, _)| *node as usize != index);
+        for (node, _) in &mut self.cd_sets {
+            if *node as usize > index {
+                *node -= 1;
+            }
         }
-        self.cd_sets.remove(index);
+    }
+
+    /// Set the rewrite-produced full feature values for a node.
+    pub fn set_generated_full(&mut self, index: usize, features: &[u32]) {
+        assert!(index < self.kinds.len());
+        self.generated_full
+            .retain(|(node, _)| *node as usize != index);
+        self.generated_full
+            .extend(features.iter().map(|&f| (index as u32, f)));
+        self.generated_full.sort_unstable();
+    }
+
+    /// Set unresolved symbolic feature indices for a node.
+    pub fn set_unresolved_variables(&mut self, index: usize, features: &[u32]) {
+        assert!(index < self.kinds.len());
+        self.unresolved_variables
+            .retain(|(node, _)| *node as usize != index);
+        self.unresolved_variables
+            .extend(features.iter().map(|&f| (index as u32, f)));
+        self.unresolved_variables.sort_unstable();
     }
 
     /// Feature-change: replace node `index`'s lanes with `lanes` (`lanes.len()` must be
@@ -548,14 +850,18 @@ impl ShapeBuilder {
             self.feat_lanes.len(),
             self.kinds.len() * self.feat_width as usize
         );
-        debug_assert_eq!(self.cd_sets.len(), self.kinds.len());
         Shape {
-            kinds: self.kinds.into_boxed_slice(),
-            char_defs: self.char_defs.into_boxed_slice(),
-            flags: self.flags.into_boxed_slice(),
-            feat_width: self.feat_width,
-            feat_lanes: self.feat_lanes.into_boxed_slice(),
-            cd_sets: self.cd_sets.into_boxed_slice(),
+            data: Arc::new(ShapeData {
+                content_hash: AtomicU64::new(0),
+                kinds: self.kinds.into_boxed_slice(),
+                char_defs: self.char_defs.into_boxed_slice(),
+                flags: self.flags.into_boxed_slice(),
+                feat_width: self.feat_width,
+                feat_lanes: self.feat_lanes.into_boxed_slice(),
+                cd_sets: self.cd_sets.into_boxed_slice(),
+                generated_full: self.generated_full.into_boxed_slice(),
+                unresolved_variables: self.unresolved_variables.into_boxed_slice(),
+            }),
         }
     }
 }

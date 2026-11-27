@@ -13,8 +13,7 @@
 //! **zero** of: `RealizationalRule`, `StemName`, `Family` (with entries),
 //! `MorphemeCoOccurrenceRule`, `AllomorphCoOccurrenceRule`, `FootFeatures`. `FootFeatures`
 //! (language-level) lints as unsupported-v1 → managed fallback (the plan's pre-agreed §5.7 cut
-//! line), never a silent wrong parse. Also linted: >64 symbols in any symbolic feature, >64 MPR
-//! features, `AlphaVariable` in an allomorph environment (C# would throw KeyNotFound there too —
+//! line), never a silent wrong parse. Also linted: >63 symbols in any symbolic feature, `AlphaVariable` in an allomorph environment (C# would throw KeyNotFound there too —
 //! the per-environment variable scope is always empty in `LoadAllomorphEnvironment`).
 //!
 //! `MetathesisRule` (phase 2, W4), `MorphemeCoOccurrenceRule`/`AllomorphCoOccurrenceRule`
@@ -106,10 +105,7 @@ pub struct TableId(pub u16);
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
 pub struct VarId(pub u16);
 
-/// Bit position in an `MprSet` (max 6 MPR features across the reference grammars; the
-/// loader lints >64).
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
-pub struct MprId(pub u8);
+pub use crate::mpr::{MprId, MprIds, MprSet};
 
 /// Stable authored identity and current display label for one MPR feature. Indexed in the same
 /// order as `Grammar::mpr_names`, so `MprId` remains the compact hot-path representation.
@@ -119,49 +115,8 @@ pub struct MprFeatureDef {
     pub name: String,
 }
 
-/// A set of morphological/phonological rule (MPR) features as a bitset (C# `HashSet<MprFeature>`); sets here are tiny (≤6 members).
-#[derive(
-    Copy, Clone, PartialEq, Eq, Hash, Debug, Default, serde::Serialize, serde::Deserialize,
-)]
-pub struct MprSet(pub u64);
-
-impl MprSet {
-    pub const EMPTY: MprSet = MprSet(0);
-    #[inline]
-    pub fn insert(&mut self, id: MprId) {
-        self.0 |= 1u64 << id.0;
-    }
-    #[inline]
-    pub fn contains(self, id: MprId) -> bool {
-        self.0 & (1u64 << id.0) != 0
-    }
-    /// C# `HashSet.Overlaps`.
-    #[inline]
-    pub fn overlaps(self, other: MprSet) -> bool {
-        self.0 & other.0 != 0
-    }
-    /// C# `HashSet.IsSubsetOf` (self ⊆ other).
-    #[inline]
-    pub fn is_subset_of(self, other: MprSet) -> bool {
-        self.0 & !other.0 == 0
-    }
-    #[inline]
-    pub fn union(self, other: MprSet) -> MprSet {
-        MprSet(self.0 | other.0)
-    }
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.0 == 0
-    }
-    /// C# `MprFeatureSet.CompoundMprFeaturesMatch` (`MprFeatureSet.cs:98-101`): `self` (a rule's
-    /// productivity-restriction set) is satisfied by `stem` (a candidate stem's MPR features) when
-    /// `self` declares no restriction at all, or `self` and `stem` share at least one feature
-    /// (`Count == 0 || this.Intersect(stemMprFeatures).Any()`).
-    #[inline]
-    pub fn compound_match(self, stem: MprSet) -> bool {
-        self.is_empty() || self.overlaps(stem)
-    }
-}
+#[cfg(test)]
+mod mpr_set_tests;
 
 // --- Syntactic feature system ----------------------------------------------------------------
 
@@ -350,6 +305,8 @@ pub enum PartRef {
 pub struct NaturalClass {
     pub xml_id: String,
     pub name: Option<String>,
+    /// The class's full Name in the analysis writing system, when the source keeps one apart from `name`; `None` otherwise.
+    pub full_name: Option<String>,
     pub kind: NaturalClassKind,
 }
 
@@ -391,6 +348,8 @@ impl std::fmt::Debug for EnvironmentDef {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvironmentSource {
     pub id: Option<String>,
+    /// The FieldWorks `PhEnvironment` guid; set only by the snapshot compiler, never from HC XML, whose `id` is not a FieldWorks identity.
+    pub guid: Option<String>,
     pub text: Option<String>,
 }
 
@@ -437,6 +396,18 @@ pub enum Dir {
 pub enum PhonRuleDef {
     Rewrite(RewriteRuleDef),
     Metathesis(MetathesisRuleDef),
+}
+
+/// A source phonological rule that is not in `Grammar::prules`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedPhonRule {
+    pub guid: String,
+    pub name: Option<String>,
+    /// `rewrite` or `metathesis`.
+    pub kind: &'static str,
+    /// `not_compiled` (the build failed) or `disabled` (the loader does not load it).
+    pub status: &'static str,
+    pub reason: String,
 }
 
 /// `<PhonologicalRule>` → C# `RewriteRule`.
@@ -518,7 +489,7 @@ pub struct MetathesisRuleDef {
     /// `pg_rules::metathesis::synthesize`'s own `synthesis_reorder`/`move_nodes_after` algorithm).
     /// Every attested grammar tags the physically-last of the two `left_switch` — the only
     /// convention any real HermitCrab fixture this repo has seen uses, e.g.
-    /// `machine/conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`
+    /// `conformance/languages/metathesis-phase-isolation`'s `mrSimpleMeta`/`mrComplexMeta`
     /// — so there tag order and physical order agree. They do NOT agree under the reverse tagging
     /// (`left_switch` physically first), which is DTD-legal and reachable via
     /// `pg_grammar_gen::build::metathesis::build`'s own recipe; see
@@ -582,6 +553,8 @@ pub enum SourceMorphPlacement {
 pub struct AllomorphSource {
     /// Authoritative FieldWorks `MoForm.Guid` values; other XML identities are not substitutes.
     pub form_guids: Vec<Option<String>>,
+    /// The authored form text of each slot of `form_guids`, with the affix marker its morph type implies (`-ak`, `ta-`); `None` when the source has no text. Words a report for an author; never an id.
+    pub form_texts: Vec<Option<String>>,
     /// A null-affix rule is intentionally omitted by FieldWorks' `GetMorphs` projection.
     pub omitted: bool,
     pub placement: SourceMorphPlacement,
@@ -607,6 +580,8 @@ pub struct MorphemeCoOccurrenceRuleDef {
     pub require: bool,
     pub others: Vec<MorphemeId>,
     pub adjacency: CoOccurrenceAdjacency,
+    /// The FieldWorks `MoAdhocProhib` guid, when the rule came from a snapshot; `None` for HC XML, which gives these rules no id.
+    pub source_guid: Option<String>,
 }
 
 /// `<AllomorphCoOccurrenceRule>` → C# `AllomorphCoOccurrenceRule` (`MorphCoOccurrenceRule<Allomorph>`).
@@ -620,6 +595,8 @@ pub struct AllomorphCoOccurrenceRuleDef {
     pub require: bool,
     pub others: Vec<AllomorphId>,
     pub adjacency: CoOccurrenceAdjacency,
+    /// The FieldWorks `MoAdhocProhib` guid, when the rule came from a snapshot; `None` for HC XML, which gives these rules no id.
+    pub source_guid: Option<String>,
 }
 
 #[derive(Debug)]
@@ -696,8 +673,8 @@ impl MorphRuleDef {
 /// `<RealizationalRule>` → C# `RealizationalAffixProcessRule` (W5). Unlike `AffixProcessRuleDef`,
 /// there is no `partial`/`max_apps`/`out_syn_fs`/`obligatory_features`/`is_template_rule` — none of
 /// those C# fields exist on `RealizationalAffixProcessRule` (verified against the class itself and
-/// its `Synthesis`/`AnalysisRealizationalAffixProcessRule` companions: no `MaxApplicationCount`
-/// gate, no `IsPartial`/`IsLastAppliedRuleFinal` interaction, no `ObligatorySyntacticFeatures`, no
+/// its `Synthesis`/`AnalysisRealizationalAffixProcessRule` companions: synthesis caps the rule at
+/// one application per word; there is no `IsPartial`/`IsLastAppliedRuleFinal` interaction, no `ObligatorySyntacticFeatures`, no
 /// `OutMprFeatures` application on synthesis either — see `pg_rules::morph`'s realizational doc for
 /// the citation-by-citation diff against the regular affix path).
 #[derive(Debug)]
@@ -767,6 +744,8 @@ impl AffixProcessRuleDef {
 pub struct AffixAllomorphDef {
     /// Registry id (co-occurrence rules and morph records reference allomorphs).
     pub id: AllomorphId,
+    /// The `<MorphologicalSubrule id="...">` attribute; empty when the XML carries none. From an XML grammar this is the grammar.xml id. A grammar compiled from a snapshot has no XML, so its keys are opaque (form guid(s) plus an occurrence count) and valid only within that one compiled grammar; never store them. Read it through `Grammar::allomorph_xml_key`.
+    pub xml_key: String,
     pub environments: Vec<EnvironmentDef>,
     /// `<AllomorphCoOccurrenceRule>`s whose `primaryAllomorph` is this subrule's allomorph
     /// (plan W6; the XML id C#'s `_allomorphs` dict keys AffixProcessAllomorphs by is the
@@ -893,6 +872,30 @@ pub struct LexEntryDef {
     pub family: Option<FamilyId>,
 }
 
+impl Grammar {
+    /// Reduces excess capacity in the large, long-lived lexical registries and their rows.
+    ///
+    /// This preserves all values and IDs; it is intended for use once grammar assembly is complete.
+    pub fn shrink_to_fit(&mut self) {
+        self.morphemes.shrink_to_fit();
+        self.allomorph_owners.shrink_to_fit();
+        self.allomorph_sources.shrink_to_fit();
+        self.entries.shrink_to_fit();
+        for entry in &mut self.entries {
+            entry.allomorphs.shrink_to_fit();
+            for allomorph in &mut entry.allomorphs {
+                allomorph.environments.shrink_to_fit();
+                allomorph.co_occurrence.shrink_to_fit();
+                allomorph.properties.shrink_to_fit();
+            }
+        }
+        for morpheme in &mut self.morphemes {
+            morpheme.properties.shrink_to_fit();
+            morpheme.co_occurrence.shrink_to_fit();
+        }
+    }
+}
+
 impl LexEntryDef {
     pub fn is_partial(&self) -> bool {
         self.partial_reason.is_some()
@@ -903,6 +906,8 @@ impl LexEntryDef {
 #[derive(Debug)]
 pub struct RootAllomorphDef {
     pub id: AllomorphId,
+    /// The `<Allomorph id="...">` attribute; empty when the XML carries none. From an XML grammar this is the grammar.xml id. A grammar compiled from a snapshot has no XML, so its keys are opaque (form guid plus an occurrence count) and valid only within that one compiled grammar; never store them. Read it through `Grammar::allomorph_xml_key`.
+    pub xml_key: String,
     /// The `<PhoneticShape>` segmented against the owning stratum's table at load
     /// (`Segments(table, str, true)`; an all-boundary shape throws `InvalidShape` in C# and
     /// drops the allomorph via the error handler).
@@ -933,6 +938,7 @@ pub struct RootAllomorphDef {
 /// top doc).
 #[derive(Debug)]
 pub struct StemNameDef {
+    pub xml_id: String,
     pub name: Option<String>,
     /// At least one region (C# ctor throws `ArgumentException` on an empty region list; the
     /// loader always supplies `<Regions><Region+>`, so this is never empty in practice).
@@ -972,22 +978,27 @@ pub struct MprGroup {
     pub members: MprSet,
 }
 
-/// Partitions `test`'s bits into per-`MprGroup` buckets plus an ungrouped remainder.
-/// See `docs/research/mpr-group-bucket-partition.md` for why this mirrors C#'s `GroupBy` and the deliberate first-group-wins simplification.
-fn mpr_group_buckets(
-    groups: &[MprGroup],
-    test: MprSet,
-) -> (MprSet, Vec<(MprGroupMatchType, MprSet)>) {
+// See `docs/research/mpr-group-bucket-partition.md` for ordering and first-group ownership.
+fn mpr_group_buckets<'a>(
+    groups: &'a [MprGroup],
+    test: &'a MprSet,
+) -> (
+    MprSet,
+    impl Iterator<Item = (usize, MprGroupMatchType, MprSet)> + 'a,
+) {
+    let ungrouped = groups.iter().fold(test.clone(), |remaining, group| {
+        remaining.difference(&group.members)
+    });
     let mut owned = MprSet::EMPTY;
-    let mut buckets = Vec::new();
-    for group in groups {
-        let bucket = MprSet(test.0 & group.members.0 & !owned.0);
-        if !bucket.is_empty() {
-            buckets.push((group.match_type, bucket));
-            owned = owned.union(bucket);
+    let buckets = groups.iter().enumerate().filter_map(move |(index, group)| {
+        let bucket = test.intersection(&group.members).difference(&owned);
+        if bucket.is_empty() {
+            None
+        } else {
+            owned = owned.union(&bucket);
+            Some((index, group.match_type, bucket))
         }
-    }
-    let ungrouped = MprSet(test.0 & !owned.0);
+    });
     (ungrouped, buckets)
 }
 
@@ -997,36 +1008,90 @@ fn mpr_group_buckets(
 /// member present. Every bucket (there is always at most one "ungrouped" bucket plus one per
 /// distinct group actually referenced) is ANDed together, matching C#'s `foreach` loop returning
 /// `false` on the first failing group.
-pub fn mpr_required_ok(groups: &[MprGroup], required: MprSet, have: MprSet) -> bool {
-    if required.is_empty() {
-        return true;
-    }
-    let (ungrouped, buckets) = mpr_group_buckets(groups, required);
-    if !ungrouped.is_subset_of(have) {
-        return false;
-    }
-    buckets.into_iter().all(|(mt, bucket)| match mt {
-        MprGroupMatchType::All => bucket.is_subset_of(have),
-        MprGroupMatchType::Any => bucket.overlaps(have),
-    })
+pub fn mpr_required_ok(groups: &[MprGroup], required: &MprSet, have: &MprSet) -> bool {
+    mpr_match(
+        groups,
+        required,
+        have,
+        false,
+        None::<fn(Option<usize>, MprSet, MprSet)>,
+    )
 }
 
 /// C# `MprFeatureSet.IsMatchExcluded` (`MprFeatureSet.cs:72-96`): the dual of
-/// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be *absent*; an
-/// `Any`-type group only needs one member absent (fails only when every member of that group is
-/// present).
-pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> bool {
-    if excluded.is_empty() {
+/// `mpr_required_ok` — ungrouped features and `All`-type group members must ALL be absent; an
+/// `Any`-type group only needs one member absent (fails only when every member is present).
+pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: &MprSet, have: &MprSet) -> bool {
+    mpr_match(
+        groups,
+        excluded,
+        have,
+        true,
+        None::<fn(Option<usize>, MprSet, MprSet)>,
+    )
+}
+
+/// Observe only evaluated buckets. For an All bucket, `blocked` contains the failing members;
+/// for an Any bucket, every member shares the collective decision. The callback never decides admission.
+pub fn mpr_match_observed(
+    groups: &[MprGroup],
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    mut observe: impl FnMut(MprSet, MprSet),
+) -> bool {
+    mpr_match_grouped_observed(groups, test, have, excluded, |_, bucket, blocked| {
+        observe(bucket, blocked);
+    })
+}
+
+/// Report each evaluated bucket with the index of its owning group, or `None` for ungrouped features.
+pub fn mpr_match_grouped_observed(
+    groups: &[MprGroup],
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    observe: impl FnMut(Option<usize>, MprSet, MprSet),
+) -> bool {
+    mpr_match(groups, test, have, excluded, Some(observe))
+}
+
+fn mpr_match(
+    groups: &[MprGroup],
+    test: &MprSet,
+    have: &MprSet,
+    excluded: bool,
+    mut observe: Option<impl FnMut(Option<usize>, MprSet, MprSet)>,
+) -> bool {
+    if test.is_empty() {
         return true;
     }
-    let (ungrouped, buckets) = mpr_group_buckets(groups, excluded);
-    if ungrouped.overlaps(have) {
+    let (ungrouped, mut buckets) = mpr_group_buckets(groups, test);
+    let mut evaluate = |group, mt, bucket: MprSet| {
+        let passed = match (mt, excluded) {
+            (MprGroupMatchType::All, false) => bucket.is_subset_of(have),
+            (MprGroupMatchType::All, true) => !bucket.overlaps(have),
+            (MprGroupMatchType::Any, false) => bucket.overlaps(have),
+            (MprGroupMatchType::Any, true) => !bucket.is_subset_of(have),
+        };
+        if let Some(observe) = observe.as_mut() {
+            let blocked = if passed {
+                MprSet::EMPTY
+            } else {
+                match (mt, excluded) {
+                    (MprGroupMatchType::All, false) => bucket.difference(have),
+                    (MprGroupMatchType::All, true) => bucket.intersection(have),
+                    (MprGroupMatchType::Any, _) => bucket.clone(),
+                }
+            };
+            observe(group, bucket, blocked);
+        }
+        passed
+    };
+    if !evaluate(None, MprGroupMatchType::All, ungrouped) {
         return false;
     }
-    buckets.into_iter().all(|(mt, bucket)| match mt {
-        MprGroupMatchType::All => !bucket.overlaps(have),
-        MprGroupMatchType::Any => !bucket.is_subset_of(have),
-    })
+    buckets.all(|(index, mt, bucket)| evaluate(Some(index), mt, bucket))
 }
 
 /// C# `MprFeatureSet.AddOutput` (`MprFeatureSet.cs:29-44`): group-aware MPR output accumulation.
@@ -1035,16 +1100,16 @@ pub fn mpr_excluded_ok(groups: &[MprGroup], excluded: MprSet, have: MprSet) -> b
 /// `current` first; only then is `output` unioned in. `Append`-policy groups (and any group
 /// `output` doesn't touch at all) are pure union, same as ungrouped features — matching every
 /// reference-grammar allomorph today (singleton groups, so Overwrite-vs-Append is unobservable
-/// there; this is exactly the W3.1 gap).
-pub fn mpr_add_output(groups: &[MprGroup], current: MprSet, output: MprSet) -> MprSet {
+/// there).
+pub fn mpr_add_output(groups: &[MprGroup], current: &MprSet, output: &MprSet) -> MprSet {
     if output.is_empty() {
-        return current;
+        return current.clone();
     }
-    let mut result = current;
+    let mut result = current.clone();
     for group in groups {
         if group.output == MprGroupOutput::Overwrite && group.members.overlaps(output) {
-            let to_remove = MprSet(group.members.0 & !output.0);
-            result = MprSet(result.0 & !to_remove.0);
+            let to_remove = group.members.difference(output);
+            result = result.difference(&to_remove);
         }
     }
     result.union(output)
@@ -1055,13 +1120,13 @@ impl Grammar {
     /// `requiredMPRFeatures`/`excludedMPRFeatures` check (`AffixProcessAllomorph`,
     /// `CompoundingSubrule`, `RewriteSubrule` — every C# call site that dispatches through
     /// `IsMatchRequired`/`IsMatchExcluded`, never `CompoundMprFeaturesMatch`).
-    pub fn mpr_group_ok(&self, required: MprSet, excluded: MprSet, have: MprSet) -> bool {
+    pub fn mpr_group_ok(&self, required: &MprSet, excluded: &MprSet, have: &MprSet) -> bool {
         mpr_required_ok(&self.mpr_groups, required, have)
             && mpr_excluded_ok(&self.mpr_groups, excluded, have)
     }
 
     /// See the free function `mpr_add_output` (this grammar's own `mpr_groups`).
-    pub fn mpr_add_output(&self, current: MprSet, output: MprSet) -> MprSet {
+    pub fn mpr_add_output(&self, current: &MprSet, output: &MprSet) -> MprSet {
         mpr_add_output(&self.mpr_groups, current, output)
     }
 }
@@ -1134,6 +1199,8 @@ pub struct Grammar {
     /// Source MoForm identities parallel to `allomorph_owners`.
     pub allomorph_sources: Vec<AllomorphSource>,
     pub prules: Vec<PhonRuleDef>,
+    /// Phonological rules of the source that never became a `prules` entry, so a reader of the grammar can see what is absent.
+    pub skipped_prules: Vec<SkippedPhonRule>,
     pub mrules: Vec<MorphRuleDef>,
     pub templates: Vec<AffixTemplateDef>,
     pub entries: Vec<LexEntryDef>,
@@ -1155,7 +1222,52 @@ pub struct Grammar {
     pub guess_roots: bool,
 }
 
+/// Why [`Grammar::allomorph_by_xml_key`] found no single allomorph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllomorphKeyError {
+    /// No allomorph carries the key (an empty key is never carried).
+    Missing,
+    /// Several allomorphs carry the key, in registry order; the loader's own index keeps only the last.
+    Duplicate(Vec<AllomorphId>),
+}
+
 impl Grammar {
+    /// The XML id of allomorph `id`: the author's grammar.xml id for an XML grammar, an opaque per-grammar key for a snapshot-compiled one (never store it). `None` when `id` is not in the registry or its XML carried no `id`.
+    pub fn allomorph_xml_key(&self, id: AllomorphId) -> Option<&str> {
+        let key = match *self.allomorph_owners.get(id.0 as usize)? {
+            AllomorphOwner::Root(entry, i) => {
+                &self
+                    .entries
+                    .get(entry.0 as usize)?
+                    .allomorphs
+                    .get(i as usize)?
+                    .xml_key
+            }
+            AllomorphOwner::Affix(rule, i) => {
+                &self
+                    .mrules
+                    .get(rule.0 as usize)?
+                    .affix_allomorphs()?
+                    .get(i as usize)?
+                    .xml_key
+            }
+        };
+        (!key.is_empty()).then_some(key.as_str())
+    }
+
+    /// The allomorph whose XML id is `key` (opaque and per-grammar for a snapshot-compiled grammar); a key shared by several allomorphs is an error, not a pick.
+    pub fn allomorph_by_xml_key(&self, key: &str) -> Result<AllomorphId, AllomorphKeyError> {
+        let hits: Vec<AllomorphId> = (0..self.allomorph_owners.len() as u32)
+            .map(AllomorphId)
+            .filter(|&id| self.allomorph_xml_key(id) == Some(key))
+            .collect();
+        match hits.as_slice() {
+            [] => Err(AllomorphKeyError::Missing),
+            [one] => Ok(*one),
+            _ => Err(AllomorphKeyError::Duplicate(hits)),
+        }
+    }
+
     /// The MSA guid FieldWorks loads in place of `msa_guid` (`ParseAnalysis.RepresentativeMSA`), itself when none.
     pub fn representative_msa<'a>(&'a self, msa_guid: &'a str) -> &'a str {
         self.representative_msas
@@ -1774,7 +1886,7 @@ impl Grammar {
             let _ = writeln!(
                 out,
                 "  group[{i}] name={:?} match={:?} output={:?} members={:#b}",
-                g.name, g.match_type, g.output, g.members.0
+                g.name, g.match_type, g.output, g.members
             );
         }
 

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use serde::Serialize;
 
 /// One flag a subcommand's hand-rolled parser recognizes.
-#[derive(Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub(crate) struct FlagSpec {
     pub(crate) name: &'static str,
     pub(crate) takes_value: bool,
@@ -60,17 +60,49 @@ fn dispatch(
     match f(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{}", crate::compile_failure::command_error(name, &e));
+            if e.starts_with(crate::diagnostic::ERROR_PREFIX) {
+                eprintln!("{e}");
+            } else {
+                eprintln!("{}", crate::compile_failure::command_error(name, &e));
+            }
             ExitCode::FAILURE
         }
     }
 }
 
+fn dispatch_analyze_text(args: &[String]) -> ExitCode {
+    dispatch(
+        "analyze-text",
+        args,
+        crate::analyze_text_cmd::run_analyze_text,
+    )
+}
 fn dispatch_batch(args: &[String]) -> ExitCode {
     dispatch("batch", args, crate::run_batch)
 }
+fn dispatch_cost_compare(args: &[String]) -> ExitCode {
+    dispatch("cost-compare", args, crate::cost_compare::run_cost_compare)
+}
+fn dispatch_readings_histogram(args: &[String]) -> ExitCode {
+    dispatch(
+        "readings-histogram",
+        args,
+        crate::readings_histogram::run_readings_histogram,
+    )
+}
+#[cfg(feature = "cost-calibration")]
+fn dispatch_cost_calibrate(args: &[String]) -> ExitCode {
+    dispatch(
+        "cost-calibrate",
+        args,
+        crate::cost_calibrate::run_cost_calibrate,
+    )
+}
 fn dispatch_generate(args: &[String]) -> ExitCode {
     dispatch("generate", args, crate::run_generate)
+}
+fn dispatch_why_not(args: &[String]) -> ExitCode {
+    dispatch("why-not", args, crate::why_not_cmd::run_why_not)
 }
 fn dispatch_parse(args: &[String]) -> ExitCode {
     dispatch("parse", args, crate::run_parse)
@@ -87,6 +119,10 @@ fn dispatch_facts(args: &[String]) -> ExitCode {
 #[cfg(feature = "foma-tools")]
 fn dispatch_fst_health(args: &[String]) -> ExitCode {
     dispatch("fst-health", args, crate::fst_health::run_fst_health)
+}
+#[cfg(feature = "foma-tools")]
+fn dispatch_fst_verify(args: &[String]) -> ExitCode {
+    dispatch("fst-verify", args, crate::fst_verify::run_fst_verify)
 }
 fn dispatch_grammar_health(args: &[String]) -> ExitCode {
     dispatch(
@@ -107,8 +143,24 @@ fn dispatch_plan_diagram(args: &[String]) -> ExitCode {
 fn dispatch_make_report(args: &[String]) -> ExitCode {
     dispatch("make-report", args, crate::make_report::run_make_report)
 }
+fn dispatch_stats_cache(args: &[String]) -> ExitCode {
+    dispatch("stats-cache", args, crate::stats_cmd::run_stats_cache)
+}
 fn dispatch_stats(args: &[String]) -> ExitCode {
-    dispatch("stats", args, crate::stats_cmd::run_stats)
+    match crate::stats_cmd::run_stats(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("pangloss stats: {error}");
+            if matches!(
+                error,
+                crate::stats_cmd::StatsCommandError::MissingObjectFacts
+            ) {
+                ExitCode::from(3)
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+    }
 }
 fn dispatch_phonology_examples(args: &[String]) -> ExitCode {
     dispatch(
@@ -180,12 +232,43 @@ pub(crate) const DESCRIBE_SCHEMA_VERSION: u32 = 1;
 struct InterfacesDescribe {
     serve_protocol: u32,
     batch_tsv: u32,
+    diagnostic: serde_json::Value,
+    why_not: WhyNotDescribe,
+    serve_ops: serde_json::Value,
+}
+
+/// The why-not capability. A binary without the `whyNot` key (or without the `why-not` command row) cannot answer why-not and a host must refuse; `ids` says every id in a report is a `grammar.xml` id or a typed absence, which is a promise earlier why-not builds did not make.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WhyNotDescribe {
+    schema: &'static str,
+    ids: &'static str,
+    suite_rows: bool,
+    /// `--expect-json` accepts a choice that carries only a `guid`, so a host can refuse on a build that needs a morpheme id.
+    expect_guid_choices: bool,
+    /// The failure kinds answered today; any other kind is `unknown`.
+    kinds: Vec<String>,
 }
 
 fn interfaces() -> InterfacesDescribe {
     InterfacesDescribe {
         serve_protocol: crate::serve::SERVE_PROTOCOL_VERSION,
         batch_tsv: crate::BATCH_TSV_VERSION,
+        diagnostic: crate::diagnostic::describe(),
+        why_not: WhyNotDescribe {
+            schema: pg_parse::why_not::SCHEMA,
+            ids: "grammar-xml",
+            suite_rows: true,
+            expect_guid_choices: true,
+            kinds: pg_parse::why_not::FailureKind::answered(),
+        },
+        serve_ops: serde_json::json!({
+            "parse": crate::serve::describe_parse(),
+            "generate": crate::serve_generate::describe(),
+            "effects": crate::serve_effects::describe(),
+            "inventory": crate::serve_inventory::describe(),
+            "match": crate::serve_match::describe(),
+        }),
     }
 }
 
@@ -220,21 +303,72 @@ pub(crate) fn run_describe(_args: &[String]) -> ExitCode {
     }
 }
 
-const BATCH_FLAGS: &[FlagSpec] = &[
+const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
-        name: "--step-cap",
+        name: "--profile",
         takes_value: true,
-        summary: "N or \"unbounded\"; bound morphological analysis attempts per word (default: 50000000)",
+        summary: "the Segmentation profile: a writing-system .ldml or a JSON profile (required)",
+    },
+    FlagSpec {
+        name: "--pack",
+        takes_value: true,
+        summary: "<language>=<grammar>: a Language Pack to check every Occurrence against; repeatable, one per language",
     },
     FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
+        summary: "N or \"unbounded\"; the work steps one word may spend in each pack (default: 5000000000)",
     },
     FlagSpec {
         name: "--word-timeout-ms",
         takes_value: true,
-        summary: "wall-clock deadline per word, independent of --step-cap",
+        summary: "wall-clock deadline per word and pack; a search it stops is reported incomplete",
+    },
+    FlagSpec {
+        name: "--max-checked-occurrences",
+        takes_value: true,
+        summary: "check at most N Occurrences over all texts; the rest are reported unattempted",
+    },
+    FlagSpec {
+        name: "--max-alternatives",
+        takes_value: true,
+        summary: "Segmentation alternatives kept per Occurrence (default: 16); more is reported incomplete",
+    },
+    FlagSpec {
+        name: "--all-readings",
+        takes_value: false,
+        summary: "also enumerate alternatives for an Occurrence whose primary split is already analysed",
+    },
+];
+
+const BATCH_FLAGS: &[FlagSpec] = &[
+    crate::diagnostic::FLAGS[0],
+    crate::diagnostic::FLAGS[1],
+    crate::diagnostic::FLAGS[2],
+    crate::diagnostic::FLAGS[3],
+    crate::diagnostic::FLAGS[4],
+
+    FlagSpec {
+        name: "--engine",
+        takes_value: true,
+        summary: "hc|fst (default hc); adds JSON completion metadata; fst needs foma-tools, --threads 1, --work-cap unbounded, --word-mem-cap-mib 0 and --capture-cap-mib unbounded; no fallback; FST has no per-word deadline or process RSS bound: use an external watchdog with a deadline and memory ceiling",
+    },
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded); writes MEMCAP when reached" },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N or \"unbounded\"; the work steps one word may spend in analysis (default: 5000000000); confirmation may spend one sixteenth more",
+    },
+    FlagSpec {
+        name: "--capture-cap-mib",
+        takes_value: true,
+        summary: "N or \"unbounded\"; MiB of affix-matching capture state one word may hold at once (default: 256); a word that reaches it writes a MEMCAP row",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "wall-clock deadline per word, independent of --work-cap",
     },
     FlagSpec {
         name: "--threads",
@@ -252,20 +386,84 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         summary: "write FieldWorks ParseAnalysis JSONL rows to this sidecar path",
     },
     FlagSpec {
+        name: "--morph-spans",
+        takes_value: false,
+        summary: "add per-morph surface spans (morphSpans) to each --analyses reading; requires --analyses, off the prefilter, stats and fst paths",
+    },
+    FlagSpec {
+        name: "--retire",
+        takes_value: true,
+        summary: "comma-separated entry or allomorph guids: what-if-retire; parse with them deleted in memory and write one pangloss-retire/v1 row per word to --retire-out; needs a .fwdata, .fwbackup or snapshot .json grammar",
+    },
+    FlagSpec {
+        name: "--retire-out",
+        takes_value: true,
+        summary: "the pangloss-retire/v1 JSONL report path for --retire; <out.tsv> is not written",
+    },
+    FlagSpec {
+        name: "--without",
+        takes_value: true,
+        summary: "comma-separated guids of lexical entries, allomorphs, phonological rules, compound rules, affix templates or ad hoc co-occurrence rules to leave out: parse as if they were deleted from the grammar; a template slot or any other object, or an unknown guid, is an error naming its kind; needs a .fwdata, .fwbackup or snapshot .json grammar",
+    },
+    FlagSpec {
+        name: "--query-fields",
+        takes_value: false,
+        summary: "add readingCount, a typed failure, and per-morph entry and signature (plus a reading signature) to each --analyses row; requires --analyses",
+    },
+    FlagSpec {
+        name: "--result-cache",
+        takes_value: true,
+        summary: "<dir>|auto: replay rows of an unchanged grammar, options and word from a size-capped cache; requires --analyses, refuses --stats, --cache, --partials, --start, --prefilter, --engine, --cost-column, --phase-marks and --trace-*; refuses an <out.tsv> or --analyses path that is the grammar or word list; keyed by the grammar bytes and the running executable's bytes",
+    },
+    FlagSpec {
+        name: "--result-cache-max-mib",
+        takes_value: true,
+        summary: "cache size bound in MiB (default 256); least recently used grammars are evicted",
+    },
+    FlagSpec {
         name: "--guess",
         takes_value: false,
         summary: "retry an out-of-lexicon empty analysis via the lexical-pattern guesser; =false turns it off; overrides the project's <HC><GuessRoots> (default true), which applies when the flag is absent",
     },
     FlagSpec {
+        name: "--partials",
+        takes_value: true,
+        summary: "append up to K same-pass rejection summaries as JSON (K=1..3); requires --prefilter off",
+    },
+    FlagSpec {
         name: "--work-columns",
         takes_value: false,
-        summary: "append each word's steps and work_steps (deterministic parser work) to its TSV row",
+        summary: "append each word's work_steps (its deterministic work) to its TSV row",
+    },
+    FlagSpec {
+        name: "--cost-column",
+        takes_value: false,
+        summary: "append each word's work_steps and then its fixed-weight parse cost, the last field; compare two runs with cost-compare",
+    },
+    FlagSpec {
+        name: "--no-flush",
+        takes_value: false,
+        summary: "with --threads 1, keep rows buffered instead of flushing after each word; same file at exit, no crash-resume; for instruction counting",
+    },
+    FlagSpec {
+        name: "--phase-marks",
+        takes_value: false,
+        summary: "with --threads 1, start and join a spinning thread before the first word and after the last, so a PMC trace can count the parse apart from the grammar load; for instruction-compare",
+    },
+    #[cfg(feature = "cost-calibration")]
+    FlagSpec {
+        name: "--word-phase-marks",
+        takes_value: false,
+        summary: "with --phase-marks, mark each parse/prefilter call instead of the whole batch; needs --threads 1, --start 0 and no --stats; report-only calibration PMC counts",
     },
     FlagSpec {
         name: "--stats",
         takes_value: false,
-        summary: "additionally record per-object statistics into the stats cache",
+        summary: "record batch statistics in the stats cache (full profile by default)",
     },
+    FlagSpec { name: "--stats-profile", takes_value: true, summary: "full|word-only (requires --stats); word-only records per-word timing, work and outcomes, omitting object, gate and prune counters" },
+    FlagSpec { name: "--cache-pack", takes_value: false, summary: "compress facts at rest, leaving word rows directly readable (requires full stats)" },
+    FlagSpec { name: "--stats-compact", takes_value: false, summary: "retain object totals without allomorph/stratum dimensions (requires full stats)" },
     FlagSpec {
         name: "--cache",
         takes_value: true,
@@ -281,29 +479,80 @@ const BATCH_FLAGS: &[FlagSpec] = &[
         takes_value: false,
         summary: "enforce template order even where partial-rule rescue would allow interleaving; =false turns it off; overrides the project's <HC><MakePartialsFinal>, which applies when the flag is absent",
     },
+    FlagSpec {
+        name: "--prefilter",
+        takes_value: true,
+        summary: "auto|on|off (default off); on is a verification and measurement mode: no warm-up, calibration, budget or minimum batch length, every stage that is valid for the grammar runs on every word (a stage that is not valid is off with its reason) and the whole construction is paid whatever the batch length; auto lets a load-time calibration decide whether a rule-admission filter and a tiled whole-word test, built from the grammar, narrow each word's parse; needs the foma-tools build feature (auto and on); refused with --stats and --word-timeout-ms; --work-columns and --cost-column give the work the selected pipeline spent; prints PREFILTER and PREFILTER-TOTAL lines on stderr; the gate prices parses in full parser work (auto and on turn the cost meter on, with or without --cost-column, so the decision line is the same either way; auto turns it off again after the calibration unless --cost-column is given); analyses equal off on every word whose parse completes in both modes, and a word that is incomplete in either mode (work cap, capture cap) can have a different partial list; batches under 512 words stay plain",
+    },
 ];
 
-const GENERATE_FLAGS: &[FlagSpec] = &[FlagSpec {
-    name: "--request",
-    takes_value: true,
-    summary: "versioned exact FieldWorks entry/MSA JSON request; v1 refuses formGuid selection",
-}];
+const WHY_NOT_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--expect",
+        takes_value: true,
+        summary: "one candidate, repeatable: grammar.xml morpheme ids (NCNames, so no `,`, `|` or `@`) in surface order, `,` between positions, `|` between choices at a position; an id several morphemes share is refused, use --expect-guid",
+    },
+    FlagSpec {
+        name: "--allomorphs",
+        takes_value: true,
+        summary: "pin allomorphs by grammar.xml allomorph id: `a1,,a3|a4` gives one id per choice of the preceding --expect, an empty token leaving that choice unpinned",
+    },
+    FlagSpec {
+        name: "--expect-guid",
+        takes_value: true,
+        summary: "one candidate by FieldWorks identity, repeatable: entryGuid:msaGuid per choice, same `,` and `|` shape",
+    },
+    FlagSpec {
+        name: "--expect-json",
+        takes_value: true,
+        summary: "file or - : a JSON array of candidates, each an array of positions, each an array of {morpheme, guid?} choices",
+    },
+    FlagSpec {
+        name: "--json",
+        takes_value: false,
+        summary: "write the pangloss.whynot.v1 report (docs/formats/why-not.md)",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "N|unbounded: bound the parser work spent on each concrete morph sequence; a hit answers unknown with stop work_cap",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "bound the time spent on each concrete morph sequence; a hit answers unknown with stop deadline",
+    },
+];
+
+const GENERATE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--request",
+        takes_value: true,
+        summary: "versioned exact FieldWorks entry/MSA JSON request; a formGuid on the root or a stem morpheme runs only the seeds using that form, on an affix it is refused",
+    },
+    FlagSpec {
+        name: "--requests",
+        takes_value: true,
+        summary: "JSONL file of `serve` generate requests (`-` reads stdin); one response row per line on stdout, in order; a bad line is an error row and the batch continues",
+    },
+    FlagSpec {
+        name: "--attested",
+        takes_value: true,
+        summary: "with --requests: a word list, one word per line; every surface in every row gets attested true/false (NFD comparison) unless the row sends its own attestedWords or attestedWordsFile",
+    },
+];
 
 const SERVE_FLAGS: &[FlagSpec] = &[
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--project",
         takes_value: true,
         summary: "the .fwdata project or pg-snapshot .json to load and compile once (required)",
     },
     FlagSpec {
-        name: "--step-cap",
-        takes_value: true,
-        summary: "N|unbounded; bound HC analysis attempts per word (default 50000000)",
-    },
-    FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work per word",
+        summary: "N|unbounded; the work steps one word may spend in analysis (default 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -325,14 +574,21 @@ const SERVE_FLAGS: &[FlagSpec] = &[
 
 const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
-        name: "--step-cap",
+        name: "--without",
         takes_value: true,
-        summary: "N|unbounded; bound HC analysis attempts (default 50000000)",
+        summary: "comma-separated guids of lexical entries, allomorphs, phonological rules, compound rules, affix templates or ad hoc co-occurrence rules to leave out: parse as if they were deleted from the grammar; a template slot or any other object, or an unknown guid, is an error naming its kind; needs a .fwdata, .fwbackup or snapshot .json grammar",
     },
+    crate::diagnostic::FLAGS[0],
+    crate::diagnostic::FLAGS[1],
+    crate::diagnostic::FLAGS[2],
+    crate::diagnostic::FLAGS[3],
+    crate::diagnostic::FLAGS[4],
+
+    FlagSpec { name: "--word-mem-cap-mib", takes_value: true, summary: "counted MiB of retained per-word parser state (default 100; 0 unbounded)" },
     FlagSpec {
         name: "--work-cap",
         takes_value: true,
-        summary: "N|unbounded; bound inner search and confirmation work (default: 100 x step cap, saturating; unbounded derives unbounded)",
+        summary: "N|unbounded; the work steps one word may spend in analysis (default 5000000000); confirmation may spend one sixteenth more",
     },
     FlagSpec {
         name: "--word-timeout-ms",
@@ -348,6 +604,11 @@ const PARSE_FLAGS: &[FlagSpec] = &[
         name: "--trace-format",
         takes_value: true,
         summary: "text|json (default text)",
+    },
+    FlagSpec {
+        name: "--rule-costs",
+        takes_value: true,
+        summary: "[=N]; print a ruleCosts: JSON line after the parse line: the N (default 8) objects that reserved the most work steps, so a word the parser stops on shows which rule spent the budget",
     },
     FlagSpec {
         name: "--trace-details",
@@ -402,6 +663,12 @@ const FACTS_FLAGS: &[FlagSpec] = &[
         summary: "manifest for the exact frozen batch stats run (requires --stats)",
     },
     FlagSpec {
+        name: "--light",
+        takes_value: false,
+        summary:
+            "omit the tables and rows Motif does not read, and declare each omission in the file",
+    },
+    FlagSpec {
         name: "--json",
         takes_value: false,
         summary: "write one machine-readable result object to stdout",
@@ -410,7 +677,101 @@ const FACTS_FLAGS: &[FlagSpec] = &[
 #[cfg(feature = "foma-tools")]
 const FST_HEALTH_FLAGS: &[FlagSpec] = &[];
 
+#[cfg(feature = "foma-tools")]
+const FST_VERIFY_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "per-word TSV output (default stdout)",
+    },
+    FlagSpec {
+        name: "--json",
+        takes_value: true,
+        summary: "JSON totals, identities and per-word verdicts",
+    },
+    FlagSpec {
+        name: "--work-cap",
+        takes_value: true,
+        summary: "same per-word parser work allowance as batch",
+    },
+    FlagSpec {
+        name: "--word-timeout-ms",
+        takes_value: true,
+        summary: "per-word deadline; stopped words are incomparable",
+    },
+    FlagSpec {
+        name: "--word-mem-cap-mib",
+        takes_value: true,
+        summary: "parser retained-state allowance, 0 disables",
+    },
+    FlagSpec {
+        name: "--capture-cap-mib",
+        takes_value: true,
+        summary: "matcher capture allowance, or unbounded",
+    },
+    FlagSpec {
+        name: "--apply-path-cap",
+        takes_value: true,
+        summary: "FST proposal path allowance (default 1000000)",
+    },
+    FlagSpec {
+        name: "--apply-candidate-cap",
+        takes_value: true,
+        summary: "FST candidate allowance (default 1000000)",
+    },
+    FlagSpec {
+        name: "--always-enforce-final-templates",
+        takes_value: false,
+        summary: "enforce final templates on both parsers; optional =true|false",
+    },
+    FlagSpec {
+        name: "--fst-strategy",
+        takes_value: true,
+        summary: "surface-enum, factored or auto",
+    },
+    FlagSpec {
+        name: "--fst-auto-order",
+        takes_value: true,
+        summary: "ordered comma-separated construction strategies",
+    },
+    FlagSpec {
+        name: "--fst-closure-work",
+        takes_value: true,
+        summary: "construction closure work allowance",
+    },
+    FlagSpec {
+        name: "--fst-structural-work",
+        takes_value: true,
+        summary: "structural closure work allowance",
+    },
+    FlagSpec {
+        name: "--fst-structural-bytes",
+        takes_value: true,
+        summary: "structural closure retained-byte allowance",
+    },
+    FlagSpec {
+        name: "--fst-closure-depth",
+        takes_value: true,
+        summary: "construction closure depth allowance",
+    },
+    FlagSpec {
+        name: "--fst-derivation-depth",
+        takes_value: true,
+        summary: "construction derivation depth allowance",
+    },
+    FlagSpec {
+        name: "--fst-compound-depth",
+        takes_value: true,
+        summary: "construction compound depth allowance",
+    },
+];
+
 const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--fst",
+        takes_value: false,
+        summary: "include FST-blocking grammar findings (requires foma-tools); finite inspection reports incomplete checks explicitly.",
+    },
     FlagSpec {
         name: "--fw-project",
         takes_value: true,
@@ -422,9 +783,39 @@ const GRAMMAR_HEALTH_FLAGS: &[FlagSpec] = &[
         summary: "append each item's FieldWorks GUID to its human-readable log title.",
     },
     FlagSpec {
+        name: "--shadowed",
+        takes_value: false,
+        summary: "add the shadowed-alternates report: a grammar.allomorph.shadowed warning per proven alternate and the whole report under `shadowed_alternates`; act only on its removableGuids.",
+    },
+    FlagSpec {
+        name: "--include-selectable",
+        takes_value: false,
+        summary: "with --shadowed, also list the selectable alternates (and live dead-continuation rows).",
+    },
+    FlagSpec {
         name: "--stored-analyses",
         takes_value: true,
-        summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison.",
+        summary: "bounded (default): compare FieldWorks stored analyses until a fixed work budget is spent; all: compare every wordform; off: skip the comparison. It reports missing and extra Readings, with a per-wordform outcome under `stored_analysis_words`.",
+    },
+    FlagSpec {
+        name: "--snapshot-out",
+        takes_value: true,
+        summary: "also write the grammar snapshot `import` would write (byte-identical) from the same import; .fwdata/.fwbackup input only.",
+    },
+    FlagSpec {
+        name: "--facts-out",
+        takes_value: true,
+        summary: "also write the facts database `facts <that snapshot> --out --context` would write; needs --facts-context.",
+    },
+    FlagSpec {
+        name: "--facts-context",
+        takes_value: true,
+        summary: "the facts context JSON, as `facts --context`; needs --facts-out.",
+    },
+    FlagSpec {
+        name: "--facts-light",
+        takes_value: false,
+        summary: "write a light facts database, as `facts --light`; needs --facts-out.",
     },
 ];
 
@@ -494,11 +885,29 @@ const MAKE_REPORT_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+const STATS_CACHE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--cache",
+        takes_value: true,
+        summary: "statistics cache path",
+    },
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "write an unpacked copy, leaving the source unchanged",
+    },
+];
+
 const STATS_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--stats-profile",
+        takes_value: true,
+        summary: "full|word-only, selects the default cache file when --cache is omitted",
+    },
     FlagSpec {
         name: "--group",
         takes_value: true,
-        summary: "word|object|allomorph|morpheme|group|never-fires (default: object)",
+        summary: "word|object|allomorph|morpheme|group|never-fires|gate (default: object)",
     },
     FlagSpec {
         name: "--kind",
@@ -543,7 +952,7 @@ const STATS_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--wide",
         takes_value: false,
-        summary: "append work/not_applied/no_root/surface_mismatch/identity_quality columns",
+        summary: "append work (and, with --group object, work_steps)/not_applied/no_root/surface_mismatch/identity_quality columns; --group object|allomorph always ends with words, the distinct words with at least one use (uses counts appearances)",
     },
     FlagSpec {
         name: "--by-kind",
@@ -610,9 +1019,9 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
         summary: "Budget::reserve; must not exceed --elapsed-ns",
     },
     FlagSpec {
-        name: "--oracle-step-cap",
+        name: "--oracle-work-cap",
         takes_value: true,
-        summary: "RuntimeBudget::oracle_step_cap override (default: RuntimeBudget's own default)",
+        summary: "RuntimeBudget::oracle_work_cap override (default: RuntimeBudget's own default)",
     },
     FlagSpec {
         name: "--oracle-liveness-net-ms",
@@ -636,7 +1045,41 @@ const RECIPE_OPTIMIZE_FLAGS: &[FlagSpec] = &[
     },
 ];
 
+const READINGS_HISTOGRAM_FLAGS: &[FlagSpec] = &[FlagSpec {
+    name: "--json",
+    takes_value: false,
+    summary: "print the histogram as one JSON object",
+}];
+
+const COST_COMPARE_FLAGS: &[FlagSpec] = &[FlagSpec {
+    name: "--json",
+    takes_value: false,
+    summary: "print the comparison as one JSON object",
+}];
+
+#[cfg(feature = "cost-calibration")]
+const COST_CALIBRATE_FLAGS: &[FlagSpec] = &[
+    FlagSpec {
+        name: "--words",
+        takes_value: true,
+        summary: "how many evenly spaced words to measure (default 40)",
+    },
+    FlagSpec {
+        name: "--targets",
+        takes_value: true,
+        summary: "fit idx<TAB>instructions rows instead of wall time",
+    },
+];
+
 pub(crate) const COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "analyze-text",
+        summary: "Segment text files and report per-Occurrence Language Pack evidence and per-text and corpus counts as JSON (docs/text-analysis-format.md).",
+        hidden: false,
+        positionals: &["text-file..."],
+        flags: ANALYZE_TEXT_FLAGS,
+        handler: dispatch_analyze_text,
+    },
     CommandSpec {
         name: "batch",
         summary: "Parse every word in a word list against a grammar and write a batch TSV.",
@@ -646,8 +1089,33 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         handler: dispatch_batch,
     },
     CommandSpec {
+        name: "cost-compare",
+        summary: "Compare two `batch --cost-column` runs of one word list: better, worse or no clear change, independent of machine load.",
+        hidden: false,
+        positionals: &["before.tsv", "after.tsv"],
+        flags: COST_COMPARE_FLAGS,
+        handler: dispatch_cost_compare,
+    },
+    CommandSpec {
+        name: "readings-histogram",
+        summary: "Count the words of a `batch` TSV by how many Readings each has (0, 1, 2, ...); words that did not finish ok are counted apart.",
+        hidden: false,
+        positionals: &["batch.tsv"],
+        flags: READINGS_HISTOGRAM_FLAGS,
+        handler: dispatch_readings_histogram,
+    },
+    #[cfg(feature = "cost-calibration")]
+    CommandSpec {
+        name: "cost-calibrate",
+        summary: "Suggest new fixed cost weights from per-word timing or instruction counts.",
+        hidden: true,
+        positionals: &["grammar", "words.txt"],
+        flags: COST_CALIBRATE_FLAGS,
+        handler: dispatch_cost_calibrate,
+    },
+    CommandSpec {
         name: "generate",
-        summary: "Generate from HC XML MorphemeId selectors or an exact FieldWorks entry/MSA request; a request lists morphemes in generation order, not surface order.",
+        summary: "Generate from HC XML MorphemeId selectors, an exact FieldWorks entry/MSA request, or a JSONL batch of such requests (`--requests`); a request lists morphemes in generation order, not surface order.",
         hidden: false,
         positionals: &["grammar", "root-morpheme-id", "other-morpheme-id..."],
         flags: GENERATE_FLAGS,
@@ -660,6 +1128,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "word"],
         flags: PARSE_FLAGS,
         handler: dispatch_parse,
+    },
+    CommandSpec {
+        name: "why-not",
+        summary: "Explain why a word is not parsed along given morph candidates: the first failing constraint, typed; or run a JSONL suite of such queries (`why-not <grammar> <queries.jsonl> <output.jsonl>`).",
+        hidden: false,
+        positionals: &["grammar", "word|queries.jsonl", "output.jsonl?"],
+        flags: WHY_NOT_FLAGS,
+        handler: dispatch_why_not,
     },
     CommandSpec {
         name: "serve",
@@ -693,6 +1169,15 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "out.json?"],
         flags: FST_HEALTH_FLAGS,
         handler: dispatch_fst_health,
+    },
+    #[cfg(feature = "foma-tools")]
+    CommandSpec {
+        name: "fst-verify",
+        summary: "Compare each word's complete FST and plain HC-Rust analysis sets.",
+        hidden: false,
+        positionals: &["grammar", "words"],
+        flags: FST_VERIFY_FLAGS,
+        handler: dispatch_fst_verify,
     },
     CommandSpec {
         name: "grammar-health",
@@ -729,6 +1214,14 @@ pub(crate) const COMMANDS: &[CommandSpec] = &[
         positionals: &["grammar", "out.md"],
         flags: MAKE_REPORT_FLAGS,
         handler: dispatch_make_report,
+    },
+    CommandSpec {
+        name: "stats-cache",
+        summary: "Pack statistics at rest or unpack for direct fact queries.",
+        hidden: false,
+        positionals: &["pack|unpack"],
+        flags: STATS_CACHE_FLAGS,
+        handler: dispatch_stats_cache,
     },
     CommandSpec {
         name: "stats",
