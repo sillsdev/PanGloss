@@ -487,7 +487,10 @@ fn describe_matches_what_the_op_emits() {
 
     let project = Project::new("kat2.fwdata", &two_allomorph_fwdata());
     let mut server = Server::start(&project);
-    let r = server.generate(&[AFFIX], json!({"trace": true}));
+    let r = server.generate(
+        &[AFFIX],
+        json!({"trace": true, "attestedWords": ["rannas"]}),
+    );
     let keys = |value: &Value| -> Vec<String> {
         let mut keys: Vec<String> = value.as_object().unwrap().keys().cloned().collect();
         keys.sort();
@@ -733,4 +736,209 @@ fn requests_batch_gives_an_error_row_for_an_oversize_and_a_non_utf8_line() {
     assert_eq!(rows[2]["line"], 3);
     assert_eq!(rows[3]["id"], "e");
     assert_eq!(rows[3]["line"], 5);
+}
+
+fn seed_form_guids(result: &Value) -> Vec<(String, Value)> {
+    result["seeds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|seed| {
+            (
+                seed["seedKey"].as_str().unwrap().to_string(),
+                seed["allomorphs"][0]["formGuid"].clone(),
+            )
+        })
+        .collect()
+}
+
+/// `ROOT` with a `formGuid` added.
+fn root_with_form(form: &str) -> String {
+    ROOT.replace(
+        r#""msaClass""#,
+        &format!(r#""formGuid":"{form}","msaClass""#),
+    )
+}
+
+fn generate_with_root(server: &mut Server, root: &str, extra: Value) -> Value {
+    let request: Value = serde_json::from_str(&format!(
+        r#"{{"schemaVersion":1,"root":{root},"morphemes":[{AFFIX}]}}"#
+    ))
+    .unwrap();
+    let mut message = json!({"id": "f", "op": "generate", "request": request});
+    for (key, value) in extra.as_object().unwrap() {
+        message[key] = value.clone();
+    }
+    server.ask(message)
+}
+
+#[test]
+fn a_root_form_guid_runs_only_that_forms_seeds_and_the_forms_together_equal_the_unforced_run() {
+    let project = Project::new("kat2.fwdata", &two_allomorph_fwdata());
+    let mut server = Server::start(&project);
+    let all = server.generate(&[AFFIX], json!({}));
+    let forms = seed_form_guids(&all);
+    assert_eq!(forms.len(), 2, "{all}");
+    let mut union: Vec<Value> = Vec::new();
+    for (key, form) in &forms {
+        let form = form.as_str().expect("the fixture authors each root form");
+        let forced = generate_with_root(&mut server, &root_with_form(form), json!({}));
+        assert_eq!(forced["complete"], true, "{forced}");
+        let seeds = forced["seeds"].as_array().unwrap();
+        assert_eq!(seeds.len(), 1, "only the forced form's seed runs: {forced}");
+        assert_eq!(
+            seeds[0]["seedKey"], *key,
+            "a forced seed keeps its unforced key"
+        );
+        assert_eq!(forced["seedChoices"], 1);
+        let unforced = all["seeds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|seed| seed["seedKey"] == *key)
+            .unwrap();
+        assert_eq!(
+            seeds[0], *unforced,
+            "a forced seed equals the unforced seed"
+        );
+        union.push(seeds[0].clone());
+    }
+    let mut expected: Vec<Value> = all["seeds"].as_array().unwrap().clone();
+    union.sort_by_key(|seed| seed["seedKey"].as_str().unwrap().to_string());
+    expected.sort_by_key(|seed| seed["seedKey"].as_str().unwrap().to_string());
+    assert_eq!(
+        union, expected,
+        "the forms together give the unforced seeds, keys and surfaces"
+    );
+}
+
+#[test]
+fn an_unknown_root_form_guid_is_unknown_form_and_an_affix_form_stays_refused() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let mut server = Server::start(&project);
+    let stranger = generate_with_root(
+        &mut server,
+        &root_with_form("00000000-0000-0000-0000-0000000000ee"),
+        json!({}),
+    );
+    assert_eq!(stranger["type"], "error", "{stranger}");
+    assert_eq!(stranger["code"], "unknown_form", "{stranger}");
+    let affix_form = AFFIX.replace(
+        r#""msaClass""#,
+        r#""formGuid":"00000000-0000-0000-0000-000000000051","msaClass""#,
+    );
+    let refused = server.generate(&[&affix_form], json!({}));
+    assert_eq!(refused["code"], "unsupported_form_selection", "{refused}");
+}
+
+#[test]
+fn attested_marks_each_surface_against_an_inline_list_and_adds_nothing_without_one() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let mut server = Server::start(&project);
+    let plain = server.generate(&[AFFIX], json!({}));
+    assert!(
+        plain["seeds"][0]["surfaces"][0].get("attested").is_none(),
+        "no list, no attested field: {plain}"
+    );
+    let yes = server.generate(&[AFFIX], json!({"attestedWords": ["rannas", "other"]}));
+    assert_eq!(yes["seeds"][0]["surfaces"][0]["attested"], true, "{yes}");
+    let no = server.generate(&[AFFIX], json!({"attestedWords": ["other"]}));
+    assert_eq!(no["seeds"][0]["surfaces"][0]["attested"], false, "{no}");
+    let mut stripped = yes.clone();
+    for seed in stripped["seeds"].as_array_mut().unwrap() {
+        for surface in seed["surfaces"].as_array_mut().unwrap() {
+            surface.as_object_mut().unwrap().remove("attested");
+        }
+    }
+    assert_eq!(stripped, plain, "attested is the only difference");
+}
+
+#[test]
+fn attested_reads_a_file_and_refuses_both_sources_or_a_bad_type() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let mut server = Server::start(&project);
+    let dir = tempfile::tempdir().unwrap();
+    let list = dir.path().join("words.txt");
+    std::fs::write(&list, "\nother\nrannas\n").unwrap();
+    let r = server.generate(
+        &[AFFIX],
+        json!({"attestedWordsFile": list.to_str().unwrap()}),
+    );
+    assert_eq!(r["seeds"][0]["surfaces"][0]["attested"], true, "{r}");
+
+    let both = server.generate(
+        &[AFFIX],
+        json!({"attestedWords": [], "attestedWordsFile": list.to_str().unwrap()}),
+    );
+    assert_eq!(both["code"], "bad_request", "{both}");
+    let typed = server.generate(&[AFFIX], json!({"attestedWords": [1]}));
+    assert_eq!(typed["code"], "bad_request", "{typed}");
+    let missing = server.generate(
+        &[AFFIX],
+        json!({"attestedWordsFile": dir.path().join("none.txt").to_str().unwrap()}),
+    );
+    assert_eq!(missing["code"], "bad_request", "{missing}");
+}
+
+#[test]
+fn requests_batch_attested_flag_marks_rows_and_a_row_list_overrides_it() {
+    let project = Project::new("kat.fwdata", FWDATA);
+    let dir = tempfile::tempdir().unwrap();
+    let list = dir.path().join("words.txt");
+    std::fs::write(&list, "rannas\n").unwrap();
+    let requests = dir.path().join("requests.jsonl");
+    std::fs::write(
+        &requests,
+        [
+            batch_line("a", &[AFFIX], json!({})),
+            batch_line("b", &[AFFIX], json!({"attestedWords": ["zzz"]})),
+        ]
+        .join("\n")
+            + "\n",
+    )
+    .unwrap();
+    let output = Command::new(BIN)
+        .arg("generate")
+        .arg(&project.path)
+        .arg("--requests")
+        .arg(&requests)
+        .arg("--attested")
+        .arg(&list)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let rows: Vec<Value> = String::from_utf8(output.stdout)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        rows[0]["seeds"][0]["surfaces"][0]["attested"], true,
+        "{}",
+        rows[0]
+    );
+    assert_eq!(
+        rows[1]["seeds"][0]["surfaces"][0]["attested"], false,
+        "{}",
+        rows[1]
+    );
+
+    let missing = Command::new(BIN)
+        .arg("generate")
+        .arg(&project.path)
+        .arg("--requests")
+        .arg(&requests)
+        .arg("--attested")
+        .arg(dir.path().join("none.txt"))
+        .output()
+        .unwrap();
+    assert!(!missing.status.success(), "an unreadable list is exit 1");
+    let single = Command::new(BIN)
+        .arg("generate")
+        .arg(&project.path)
+        .arg("--attested")
+        .arg(&list)
+        .output()
+        .unwrap();
+    assert!(!single.status.success());
 }

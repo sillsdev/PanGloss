@@ -575,7 +575,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss analyze-text --profile <qaa.ldml|profile.json> --pack <language>=<grammar> [--pack ...] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--max-checked-occurrences N] [--max-alternatives N] [--all-readings] <text-file>...\n\
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss readings-histogram <batch.tsv> [--json]\n\
-         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json>\n\
+         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json> | pangloss generate <snapshot|project> --requests <requests.jsonl|-> [--attested <words.txt>]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
@@ -2845,9 +2845,9 @@ fn run_batch_impl(
     Ok(())
 }
 
-/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot; `generate <grammar> --requests <file.jsonl|->` answers a JSONL batch of `serve` `generate` requests.
+/// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot; `generate <grammar> --requests <file.jsonl|-> [--attested <words.txt>]` answers a JSONL batch of `serve` `generate` requests, marking each surface attested or not against the word list.
 fn run_generate(args: &[String]) -> Result<(), String> {
-    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|->";
+    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|-> [--attested <words.txt>]";
     let Some(grammar_path) = args.first() else {
         return Err(USAGE.into());
     };
@@ -2857,6 +2857,9 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     }
     if args.iter().skip(1).any(|arg| arg == "--requests") {
         return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
+    }
+    if args.iter().skip(1).any(|arg| arg == "--attested") {
+        return Err("--attested applies only to generate --requests".to_string());
     }
 
     if args.get(1).is_some_and(|arg| arg == "--request") {
@@ -2914,13 +2917,16 @@ fn run_generate(args: &[String]) -> Result<(), String> {
 
 /// `generate <grammar> --requests <file.jsonl|->`: one `serve` `generate` request per input line, one `serve` response per output line on stdout, in input order. A bad line is an error row and the batch goes on; the exit status is 0 once every line is answered, and 1 only for a bad argument, an unreadable input, a grammar that fails to load or a failed write.
 fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), String> {
-    let [source] = rest else {
-        return Err(if rest.is_empty() {
-            "--requests requires a path to a JSONL file, or - for stdin".to_string()
-        } else {
-            generate_request::GenerateRequestError::MixedSelectors.to_string()
-        });
+    let (source, attested_path) = match rest {
+        [] => return Err("--requests requires a path to a JSONL file, or - for stdin".to_string()),
+        [source] => (source, None),
+        [source, flag, path] if flag == "--attested" => (source, Some(path)),
+        [flag, path, source] if flag == "--attested" => (source, Some(path)),
+        _ => return Err(generate_request::GenerateRequestError::MixedSelectors.to_string()),
     };
+    let attested = attested_path
+        .map(|path| serve_generate::load_attested_file(path))
+        .transpose()?;
     // Open the input before loading, so a missing file fails fast.
     let input: Box<dyn std::io::BufRead> = if source == "-" {
         Box::new(std::io::BufReader::new(std::io::stdin()))
@@ -2939,8 +2945,9 @@ fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), Stri
         None,
     );
     let stdout = std::io::stdout();
-    let summary = generate_batch::run_requests(&grammar, &morpher, input, stdout.lock())
-        .map_err(|e| format!("generate --requests: {e}"))?;
+    let summary =
+        generate_batch::run_requests(&grammar, &morpher, attested.as_ref(), input, stdout.lock())
+            .map_err(|e| format!("generate --requests: {e}"))?;
     if summary.errors > 0 {
         eprintln!(
             "generate --requests: {} of {} requests were refused; see the error rows",

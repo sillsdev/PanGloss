@@ -2364,6 +2364,32 @@ fn visit_permute_rules(
     }
 }
 
+/// Which allomorphs a generation may use: the root's, and each requested morpheme's by position. `None` admits every allomorph, which is what `Morpher.GenerateWords` does. A filter only skips seeds; a seed it admits is synthesized exactly as the unfiltered run does.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AllomorphFilter {
+    /// Admitted root allomorphs; `None` admits all.
+    pub root: Option<Vec<AllomorphId>>,
+    /// Aligned with the `others` slice; a missing or `None` slot admits all. Only a `NonHead` slot is consulted.
+    pub others: Vec<Option<Vec<AllomorphId>>>,
+}
+
+impl AllomorphFilter {
+    fn admits_root(&self, allomorph: AllomorphId) -> bool {
+        self.root
+            .as_ref()
+            .is_none_or(|admitted| admitted.contains(&allomorph))
+    }
+
+    fn admits(&self, selection: &[PermItem]) -> bool {
+        selection.iter().enumerate().all(|(index, item)| {
+            match (item, self.others.get(index).and_then(Option::as_ref)) {
+                (PermItem::NonHead(allomorph), Some(admitted)) => admitted.contains(allomorph),
+                _ => true,
+            }
+        })
+    }
+}
+
 /// Seed product size; rules add one choice, zero stays zero, and overflow returns `None`.
 fn generation_seed_product(
     g: &Grammar,
@@ -2501,6 +2527,17 @@ impl<'g> Morpher<'g> {
         others: &[GenMorpheme],
         real_fs: FeatureStruct,
     ) -> GenerateWordsOutcome {
+        self.generate_words_bounded_filtered(root, others, real_fs, &AllomorphFilter::default())
+    }
+
+    /// `Self::generate_words_bounded` over only the seeds `filter` admits; the seed product is still the unfiltered one, so the budget check is the same.
+    pub fn generate_words_bounded_filtered(
+        &self,
+        root: LexEntryId,
+        others: &[GenMorpheme],
+        real_fs: FeatureStruct,
+        filter: &AllomorphFilter,
+    ) -> GenerateWordsOutcome {
         let g = self.g;
         let n_allomorphs = g.entries[root.0 as usize].allomorphs.len();
         let limit = self.generation_cap;
@@ -2531,7 +2568,13 @@ impl<'g> Morpher<'g> {
         let mut selected = Vec::with_capacity(others.len());
         let mut seed_choices = 0usize;
         for allo_idx in 0..n_allomorphs {
+            if !filter.admits_root(g.entries[root.0 as usize].allomorphs[allo_idx].id) {
+                continue;
+            }
             let keep_going = visit_permute_rules(g, others, &mut selected, &mut |perm| {
+                if !filter.admits(perm) {
+                    return true;
+                }
                 if !pg_fst::work::consume() {
                     return false;
                 }

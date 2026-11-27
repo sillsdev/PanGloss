@@ -8,6 +8,7 @@ use pg_parse::Morpher;
 use serde_json::{json, Value};
 
 use crate::serve::{error_response, generate_response, request_envelope, MAX_REQUEST_BYTES};
+use crate::serve_generate::AttestedSet;
 
 /// What a finished batch counted: the rows written and how many of them were error rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,7 +48,12 @@ fn read_line(input: &mut impl BufRead) -> std::io::Result<Option<Line>> {
 }
 
 /// The response row for one non-blank line: the serve `generate` answer, or an error row.
-fn answer(grammar: &Grammar, morpher: &Morpher<'_>, line: Line) -> Value {
+fn answer(
+    grammar: &Grammar,
+    morpher: &Morpher<'_>,
+    attested: Option<&AttestedSet>,
+    line: Line,
+) -> Value {
     let bytes = match line {
         Line::Text(bytes) => bytes,
         Line::TooLarge => {
@@ -70,7 +76,7 @@ fn answer(grammar: &Grammar, morpher: &Morpher<'_>, line: Line) -> Value {
         Err(row) => return row,
     };
     match object.get("op").and_then(Value::as_str) {
-        Some("generate") => generate_response(grammar, morpher, id, &object),
+        Some("generate") => generate_response(grammar, morpher, id, &object, attested),
         Some(other) => error_response(
             &id,
             "unknown_op",
@@ -80,10 +86,11 @@ fn answer(grammar: &Grammar, morpher: &Morpher<'_>, line: Line) -> Value {
     }
 }
 
-/// Answers every non-blank line of `input` in order, writing one JSON row per answered line, each with `line`, its 1-based input line number (batch only; `serve` rows have none). A bad line is an error row and the batch goes on; only an I/O failure stops it.
+/// Answers every non-blank line of `input` in order, writing one JSON row per answered line, each with `line`, its 1-based input line number (batch only; `serve` rows have none). A bad line is an error row and the batch goes on; only an I/O failure stops it; `attested` is the list a row is marked against unless it names its own.
 pub(crate) fn run_requests(
     grammar: &Grammar,
     morpher: &Morpher<'_>,
+    attested: Option<&AttestedSet>,
     mut input: impl BufRead,
     mut out: impl Write,
 ) -> std::io::Result<BatchSummary> {
@@ -95,7 +102,7 @@ pub(crate) fn run_requests(
         {
             continue;
         }
-        let mut row = answer(grammar, morpher, line);
+        let mut row = answer(grammar, morpher, attested, line);
         row["line"] = json!(line_number);
         serde_json::to_writer(&mut out, &row)?;
         out.write_all(b"\n")?;

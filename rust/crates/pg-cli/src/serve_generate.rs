@@ -1,6 +1,7 @@
 //! `pangloss serve`'s `generate` op: authored-identity generation with a per-seed rule trace.
 //! Protocol: `docs/formats/serve-protocol.md`.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use pg_grammar::model::Grammar;
@@ -9,6 +10,7 @@ use pg_parse::morpher::{
     SpanReason, StepRule, TracedGenerateLimits, TracedGenerateOutcome, TracedStopReason,
 };
 use serde_json::{json, Map, Value};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::generate_request::{self, GenerateRequestError};
 
@@ -21,6 +23,28 @@ pub(crate) const DEFAULT_MAX_SEEDS: usize = 10_000;
 pub(crate) const MAX_MAX_SEEDS: usize = 1_000_000;
 pub(crate) const DEFAULT_MAX_TRACE_STEPS: usize = 50_000;
 pub(crate) const MAX_MAX_TRACE_STEPS: usize = 5_000_000;
+/// Most words an attested list may hold, inline or in a file.
+pub(crate) const MAX_ATTESTED_WORDS: usize = 1_000_000;
+
+/// A set of attested words, each in NFD so a composed and a decomposed spelling of one word agree.
+pub(crate) type AttestedSet = HashSet<String>;
+
+/// Reads a word list, one word per line, blank lines skipped, into an [`AttestedSet`].
+pub(crate) fn load_attested_file(path: &str) -> Result<AttestedSet, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read word list {path}: {e}"))?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let mut set = AttestedSet::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        if set.len() >= MAX_ATTESTED_WORDS && !set.contains(&line.nfd().collect::<String>()) {
+            return Err(format!(
+                "word list {path} has more than {MAX_ATTESTED_WORDS} words"
+            ));
+        }
+        set.insert(line.nfd().collect());
+    }
+    Ok(set)
+}
 
 /// Every `stopReason` the op can emit, in the order `--describe` lists them.
 pub(crate) const STOP_REASONS: [&str; 5] = [
@@ -47,7 +71,7 @@ pub(crate) const SPAN_REASONS: [&str; 11] = [
 ];
 
 /// Every error code the op can emit for a request that never ran.
-pub(crate) const ERROR_CODES: [&str; 11] = [
+pub(crate) const ERROR_CODES: [&str; 12] = [
     "bad_request",
     "request_too_large",
     "authored_identity_unavailable",
@@ -57,6 +81,7 @@ pub(crate) const ERROR_CODES: [&str; 11] = [
     "ambiguous_identity",
     "unsupported_msa_class",
     "unsupported_form_selection",
+    "unknown_form",
     "unsupported_schema_version",
     "internal",
 ];
@@ -68,7 +93,9 @@ pub(crate) fn describe() -> Value {
         "trace": true,
         "requestSchema": REQUEST_SCHEMA_VERSION,
         "requestFields": {
-            "request": "the generate --request v1 object",
+            "request": "the generate --request v1 object; a root or stem morpheme may carry formGuid to run only the seeds that use that form (an affix may not)",
+            "attestedWords": "array of strings; each surface then carries attested, true when its NFD form is in the list",
+            "attestedWordsFile": "path to a word list, one word per line; as attestedWords. At most one of the two",
             "trace": "boolean, default false; true records each surface's rule steps",
             "maxSeeds": "integer >= 1",
             "maxTraceSteps": "integer >= 1; counts retained trace nodes across every seed",
@@ -84,7 +111,7 @@ pub(crate) fn describe() -> Value {
         "errorCodes": ERROR_CODES,
         "resultFields": ["complete", "stopReason", "workUnits", "seedChoices", "traceSteps", "limits", "seeds"],
         "seedFields": ["seedKey", "allomorphs", "surfaces", "traceTruncated"],
-        "surfaceFields": ["surface", "derivations", "steps", "stepsUnresolved", "alternatives", "normalized", "morphSpans"],
+        "surfaceFields": ["surface", "derivations", "attested", "steps", "stepsUnresolved", "alternatives", "normalized", "morphSpans"],
         "morphSpanFields": ["derivations", "segmentCount", "morphemes", "unattributed"],
         "morphemeSpanFields": ["item", "spans", "reason", "rule"],
         "spanFields": ["segments", "offsets"],
@@ -105,6 +132,8 @@ struct Options {
     max_trace_steps: usize,
     max_work: usize,
     timeout: Option<Duration>,
+    /// The list each surface is marked against; `None` adds no `attested` field.
+    attested: Option<AttestedSet>,
 }
 
 fn bad(message: impl Into<String>) -> OpError {
@@ -132,8 +161,48 @@ fn bounded_count(
     }
 }
 
-fn parse_options(object: &Map<String, Value>) -> Result<Options, OpError> {
-    const KNOWN: [&str; 8] = [
+fn parse_attested(
+    object: &Map<String, Value>,
+    default: Option<&AttestedSet>,
+) -> Result<Option<AttestedSet>, OpError> {
+    match (object.get("attestedWords"), object.get("attestedWordsFile")) {
+        (Some(_), Some(_)) => Err(bad(
+            "send at most one of \"attestedWords\" and \"attestedWordsFile\"",
+        )),
+        (Some(words), None) => {
+            let words = words
+                .as_array()
+                .ok_or_else(|| bad("\"attestedWords\" must be an array of strings"))?;
+            if words.len() > MAX_ATTESTED_WORDS {
+                return Err(bad(format!(
+                    "\"attestedWords\" holds at most {MAX_ATTESTED_WORDS} words"
+                )));
+            }
+            words
+                .iter()
+                .map(|word| {
+                    word.as_str()
+                        .map(|w| w.nfd().collect::<String>())
+                        .ok_or_else(|| bad("\"attestedWords\" must be an array of strings"))
+                })
+                .collect::<Result<AttestedSet, _>>()
+                .map(Some)
+        }
+        (None, Some(path)) => {
+            let path = path
+                .as_str()
+                .ok_or_else(|| bad("\"attestedWordsFile\" must be a path string"))?;
+            load_attested_file(path).map(Some).map_err(bad)
+        }
+        (None, None) => Ok(default.cloned()),
+    }
+}
+
+fn parse_options(
+    object: &Map<String, Value>,
+    default_attested: Option<&AttestedSet>,
+) -> Result<Options, OpError> {
+    const KNOWN: [&str; 10] = [
         "id",
         "op",
         "request",
@@ -142,6 +211,8 @@ fn parse_options(object: &Map<String, Value>) -> Result<Options, OpError> {
         "maxTraceSteps",
         "maxWork",
         "wordTimeoutMs",
+        "attestedWords",
+        "attestedWordsFile",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
         return Err(bad(format!("unknown generate field: {unknown}")));
@@ -177,6 +248,7 @@ fn parse_options(object: &Map<String, Value>) -> Result<Options, OpError> {
             1,
         )?,
         timeout,
+        attested: parse_attested(object, default_attested)?,
     })
 }
 
@@ -187,6 +259,7 @@ fn request_error(error: GenerateRequestError) -> OpError {
         GenerateRequestError::UnsupportedSchemaVersion { .. } => "unsupported_schema_version",
         GenerateRequestError::UnsupportedMsaClass { .. } => "unsupported_msa_class",
         GenerateRequestError::UnsupportedFormSelection { .. } => "unsupported_form_selection",
+        GenerateRequestError::UnknownForm { .. } => "unknown_form",
         GenerateRequestError::AuthoredIdentityUnavailable => "authored_identity_unavailable",
         GenerateRequestError::UnknownEntry { .. } => "unknown_entry",
         GenerateRequestError::UnknownMsa { .. } => "unknown_msa",
@@ -202,23 +275,32 @@ pub(crate) fn run(
     grammar: &Grammar,
     morpher: &Morpher<'_>,
     object: &Map<String, Value>,
+    default_attested: Option<&AttestedSet>,
 ) -> Result<Value, OpError> {
-    let options = parse_options(object)?;
+    let options = parse_options(object, default_attested)?;
     let request = object
         .get("request")
         .ok_or_else(|| bad("\"request\" is required"))?;
     let bytes = serde_json::to_vec(request).map_err(|e| bad(e.to_string()))?;
     let validated = generate_request::parse_request_json(&bytes).map_err(request_error)?;
-    let (root, others) =
-        generate_request::resolve_request(grammar, &validated).map_err(request_error)?;
+    let generate_request::ResolvedRequest {
+        root,
+        others,
+        filter,
+    } = generate_request::resolve_request(grammar, &validated).map_err(request_error)?;
     let limits = TracedGenerateLimits {
         work_limit: options.max_work,
         timeout: options.timeout.or(morpher.word_timeout()),
         max_seeds: options.max_seeds,
         max_trace_nodes: options.trace.then_some(options.max_trace_steps),
     };
-    let outcome =
-        morpher.generate_words_traced(root, &others, pg_featstruct::FeatureStruct::EMPTY, &limits);
+    let outcome = morpher.generate_words_traced_filtered(
+        root,
+        &others,
+        pg_featstruct::FeatureStruct::EMPTY,
+        &limits,
+        &filter,
+    );
     Ok(render(&options, &outcome))
 }
 
@@ -266,6 +348,10 @@ fn render_rule(rule: &StepRule) -> Value {
 
 fn render_surface(options: &Options, surface: &SeedSurface) -> Value {
     let mut value = json!({"surface": surface.surface, "derivations": surface.derivations});
+    if let Some(attested) = &options.attested {
+        value["attested"] =
+            Value::Bool(attested.contains(&surface.surface.nfd().collect::<String>()));
+    }
     if options.trace {
         value["steps"] = render_steps(&surface.steps);
         value["stepsUnresolved"] = Value::Bool(surface.steps_unresolved);
@@ -353,6 +439,51 @@ mod tests {
             .collect();
         names.sort();
         names
+    }
+
+    #[test]
+    fn attested_compares_composed_and_decomposed_spellings_as_one_word() {
+        let mut object = Map::new();
+        object.insert("attestedWords".into(), json!(["cafe\u{301}"]));
+        let attested = parse_attested(&object, None).unwrap();
+        let options = Options {
+            trace: false,
+            max_seeds: 1,
+            max_trace_steps: 1,
+            max_work: 1,
+            timeout: None,
+            attested,
+        };
+        let surface = |text: &str| SeedSurface {
+            surface: text.into(),
+            steps: Vec::new(),
+            derivations: 1,
+            steps_unresolved: false,
+            alternatives: Vec::new(),
+            morph_spans: Vec::new(),
+            normalized: None,
+        };
+        assert_eq!(
+            render_surface(&options, &surface("caf\u{e9}"))["attested"],
+            true
+        );
+        assert_eq!(
+            render_surface(&options, &surface("cafe\u{301}"))["attested"],
+            true
+        );
+        assert_eq!(
+            render_surface(&options, &surface("cafes"))["attested"],
+            false
+        );
+    }
+
+    #[test]
+    fn a_word_list_file_ignores_a_leading_byte_order_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("words.txt");
+        std::fs::write(&path, "\u{feff}rannas\nother\n").unwrap();
+        let set = load_attested_file(path.to_str().unwrap()).unwrap();
+        assert!(set.contains("rannas") && set.contains("other"), "{set:?}");
     }
 
     #[test]
