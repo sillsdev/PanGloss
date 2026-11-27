@@ -248,6 +248,54 @@ impl Drop for RetainedCharge {
 /// Start positions already seeded in one `run`; a cheap hash, since nothing here needs the standard hasher's flooding resistance.
 type InitAnns = HashSet<usize, FxBuildHasher>;
 
+/// Buffers one `run` reuses across its start positions. Each is cleared before use and nothing in it outlives the run, so no start position reads what an earlier one left.
+#[derive(Default)]
+struct Scratch {
+    init_registers: Vec<Packed>,
+    stack: Vec<Inst>,
+    continuations: Vec<Inst>,
+    found: Found,
+    /// The emptied plain visited set kept between start positions for its allocation.
+    seen: PlainSet,
+}
+
+/// Where `check_accepting` puts what it finds.
+#[derive(Default)]
+struct Found {
+    /// The results of the current start position.
+    results: Vec<FstResult>,
+    /// The registers copied while the finisher commands run.
+    packed: Vec<Packed>,
+}
+
+/// What one `run` derives from the FST and anchors alone, the same at every start position.
+struct RunPlan {
+    /// The initializer commands that copy registers (Fst.cs:376-387); those with `dest == 0` instead write the start position.
+    cmds: Vec<Cmd>,
+    /// Whether an initializer writes register 0.
+    sets_origin: bool,
+    /// Under an end anchor, `Transduce::required_suffix_counts`.
+    required_after: Option<Vec<u32>>,
+}
+
+impl RunPlan {
+    fn new(t: &Transduce<'_>) -> Self {
+        let fst = t.fst;
+        let max_hops = fst.max_hops_to_accept();
+        RunPlan {
+            cmds: fst
+                .initializers
+                .iter()
+                .filter(|c| c.dest != 0)
+                .copied()
+                .collect(),
+            sets_origin: fst.initializers.iter().any(|c| c.dest == 0),
+            required_after: (t.end_anchor && max_hops[fst.start() as usize] != u32::MAX)
+                .then(|| t.required_suffix_counts()),
+        }
+    }
+}
+
 /// The nondeterministic traversal's visited set (C# `traversed`): each key is a byte record holding only the registers that differ from its parent instance's record, with a full snapshot at least every `SNAPSHOT_HOPS` levels; equality reconstructs the stored registers exactly, so `insert` answers as a `HashSet` of `(state, ann_index, registers)` would.
 struct Visited {
     slots: usize,
@@ -275,11 +323,14 @@ const SMALL_ENTRY_BYTES: usize =
 /// The nondeterministic traversal's visited set. It answers every `insert` exactly as a `HashSet` of `(state, ann_index, registers)` keys would in both forms; the switch from the plain set to `Visited` copies every key across, so no decision depends on when it happens.
 enum Seen {
     Small {
-        set: HashSet<(usize, usize, RegKey), FxBuildHasher>,
+        set: PlainSet,
         charge: RetainedCharge,
     },
     Large(Visited),
 }
+
+/// The plain form of the visited set.
+type PlainSet = HashSet<(usize, usize, RegKey), FxBuildHasher>;
 
 /// Plain-set key: contents are hashed and compared, so independently allocated equal blocks deduplicate.
 struct RegKey(Rc<[Packed]>);
@@ -309,10 +360,24 @@ enum Insert {
 }
 
 impl Seen {
-    fn new() -> Self {
+    /// A fresh visited set built on `set`'s allocation; `set` must be empty (see `Seen::recycle`).
+    fn new(set: PlainSet) -> Self {
+        debug_assert!(set.is_empty());
         Seen::Small {
-            set: HashSet::default(),
+            set,
             charge: RetainedCharge(0),
+        }
+    }
+
+    /// Ends this set: releases its retained charge and hands back the plain set's emptied allocation for the next start position (a compact `Visited` has none to give).
+    fn recycle(self) -> PlainSet {
+        match self {
+            Seen::Small { mut set, charge } => {
+                drop(charge);
+                set.clear();
+                set
+            }
+            Seen::Large(_) => PlainSet::default(),
         }
     }
 
@@ -821,8 +886,12 @@ impl<'f> Transduce<'f> {
         ann_index: usize,
         registers: &[Packed],
         state: usize,
-        cur_results: &mut Vec<FstResult>,
+        found: &mut Found,
     ) {
+        let Found {
+            results: cur_results,
+            packed,
+        } = found;
         let meta = self.fst.states[state];
         if !meta.accepting {
             return;
@@ -835,9 +904,10 @@ impl<'f> Transduce<'f> {
         }
         let next_ann = self.next_ann_pos(ann_index);
         pg_cost::add_registers(registers.len());
-        let mut packed = registers.to_vec();
+        packed.clear();
+        packed.extend_from_slice(registers);
         let fin = &self.fst.commands[meta.fin_lo as usize..meta.fin_hi as usize];
-        Self::execute_commands(&mut packed, fin, Packed::UNSET, Packed::UNSET);
+        Self::execute_commands(packed, fin, Packed::UNSET, Packed::UNSET);
         let match_registers: Vec<Register> = packed.iter().map(|r| r.unpack()).collect();
 
         let infos = &self.fst.accept_infos[meta.accept_lo as usize..meta.accept_hi as usize];
@@ -851,14 +921,23 @@ impl<'f> Transduce<'f> {
                 order: cur_results.len(),
             });
         } else {
-            for info in infos {
+            let last = infos.len() - 1;
+            let mut match_registers = Some(match_registers);
+            for (i, info) in infos.iter().enumerate() {
                 if !crate::work::consume() {
                     return;
                 }
-                pg_cost::add_registers(match_registers.len());
+                let held = match_registers.as_ref().expect("held until the last info");
+                pg_cost::add_registers(held.len());
+                // The last result takes the buffer; the others copy it.
+                let registers = if i == last {
+                    match_registers.take().expect("held until the last info")
+                } else {
+                    held.clone()
+                };
                 cur_results.push(FstResult {
                     id: info.id.clone(),
-                    registers: match_registers.clone(),
+                    registers,
                     priority: info.priority,
                     is_lazy: false,
                     next_ann,
@@ -875,7 +954,7 @@ impl<'f> Transduce<'f> {
         arc: &crate::fst::Arc,
         guard: u32,
         optional: bool,
-        cur_results: &mut Vec<FstResult>,
+        found: &mut Found,
         out: &mut Vec<Inst>,
     ) {
         if !crate::work::consume() {
@@ -895,7 +974,7 @@ impl<'f> Transduce<'f> {
             if self.seg(next_index).optional {
                 let mut ti = inst.clone(); // O(1): registers shared, deep-copied only on write
                 ti.ann_index = next_index;
-                self.advance(ti, arc, guard, true, cur_results, out);
+                self.advance(ti, arc, guard, true, found, out);
             }
 
             // A skip that stops inside the run the consumed node belongs to is a non-canonical tiling.
@@ -916,12 +995,7 @@ impl<'f> Transduce<'f> {
                 );
             }
             if !optional || self.end_anchor {
-                self.check_accepting(
-                    next_index,
-                    &inst.registers,
-                    arc.target as usize,
-                    cur_results,
-                );
+                self.check_accepting(next_index, &inst.registers, arc.target as usize, found);
             }
             inst.state = arc.target as usize;
             inst.ann_index = next_index;
@@ -940,25 +1014,25 @@ impl<'f> Transduce<'f> {
                     Packed::at(end, false),
                 );
             }
-            self.check_accepting(self.n(), &inst.registers, arc.target as usize, cur_results);
+            self.check_accepting(self.n(), &inst.registers, arc.target as usize, found);
             inst.state = arc.target as usize;
             inst.ann_index = self.n();
             out.push(inst);
         }
     }
 
-    /// C# `Initialize` (TraversalMethodBase.cs:193-246), linear model. Advances `ann_index` past the single co-starting annotation and returns seed instances.
+    /// C# `Initialize` (TraversalMethodBase.cs:193-246), linear model. Advances `ann_index` past the single co-starting annotation and appends the seed instances to `insts`.
     fn initialize(
         &self,
         ann_index: &mut usize,
         registers: &mut [Packed],
         cmds: &[Cmd],
         init_anns: &mut InitAnns,
-    ) -> Vec<Inst> {
+        insts: &mut Vec<Inst>,
+    ) {
         if !crate::work::consume() {
-            return Vec::new();
+            return;
         }
-        let mut insts: Vec<Inst> = Vec::new();
         let offset = self.ann_start(*ann_index);
 
         if self.start_anchor && self.seg(*ann_index).optional {
@@ -967,7 +1041,7 @@ impl<'f> Transduce<'f> {
                 pg_cost::add_registers(registers.len());
                 let mut regs = registers.to_vec();
                 let mut ni = next_index;
-                insts.extend(self.initialize(&mut ni, &mut regs, cmds, init_anns));
+                self.initialize(&mut ni, &mut regs, cmds, init_anns, insts);
             }
         }
 
@@ -985,39 +1059,46 @@ impl<'f> Transduce<'f> {
             init_anns.insert(*ann_index);
         }
         *ann_index += 1;
-        insts
     }
 
     fn check_accepting_start_state(
         &self,
         init_anns: &InitAnns,
         registers: &[Packed],
-        cur_results: &mut Vec<FstResult>,
+        found: &mut Found,
     ) {
         let start = self.fst.start() as usize;
         if !self.fst.states[start].accepting {
             return;
         }
         for &ann_index in init_anns {
-            self.check_accepting(ann_index, registers, start, cur_results);
+            self.check_accepting(ann_index, registers, start, found);
         }
     }
 
     // --- per-start-position traversal ---------------------------------------------------------
 
+    /// One start position's traversal; its results are left in `scratch.found.results` (empty if the work budget stopped it).
     fn traverse_from(
         &self,
         ann_index: &mut usize,
-        init_registers: &mut [Packed],
-        cmds: &[Cmd],
+        plan: &RunPlan,
         init_anns: &mut InitAnns,
-    ) -> Vec<FstResult> {
+        scratch: &mut Scratch,
+    ) {
+        let Scratch {
+            init_registers,
+            stack,
+            continuations,
+            found,
+            seen,
+        } = scratch;
         let deterministic = self.fst.is_deterministic();
-        let seeds = self.initialize(ann_index, init_registers, cmds, init_anns);
-        let mut stack: Vec<Inst> = seeds;
-        let mut cur_results: Vec<FstResult> = Vec::new();
-        // Reuse storage across arcs, draining only after all optional successors have been evaluated.
-        let mut continuations = Vec::new();
+        // Each use starts from empty buffers; only their capacity is kept from the previous start position.
+        stack.clear();
+        continuations.clear();
+        found.results.clear();
+        self.initialize(ann_index, init_registers, &plan.cmds, init_anns, stack);
 
         if deterministic {
             let __o2_det_start = profile::start();
@@ -1029,18 +1110,12 @@ impl<'f> Transduce<'f> {
                 for (arc_offset, arc) in arcs.iter().enumerate() {
                     let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
-                        return Vec::new();
+                        found.results.clear();
+                        return;
                     }
                     if self.check_input_match(arc, inst.ann_index) {
                         let guard = self.run_guard(inst.ann_index, arc_index);
-                        self.advance(
-                            inst,
-                            arc,
-                            guard,
-                            false,
-                            &mut cur_results,
-                            &mut continuations,
-                        );
+                        self.advance(inst, arc, guard, false, found, continuations);
                         for ni in continuations.drain(..) {
                             stack.push(ni);
                         }
@@ -1059,13 +1134,11 @@ impl<'f> Transduce<'f> {
             let n = self.n();
             let fst_states = self.fst.states.len();
             let slots = self.fst.register_count() as usize * 2;
-            let mut traversed = Seen::new();
+            let mut traversed = Seen::new(std::mem::take(seen));
             let min_hops = self.fst.min_hops_to_accept();
             // Under an end anchor every required segment still ahead costs one more arc.
             let max_hops = self.fst.max_hops_to_accept();
-            let required_after = (self.end_anchor
-                && max_hops[self.fst.start() as usize] != u32::MAX)
-                .then(|| self.required_suffix_counts());
+            let required_after = plan.required_after.as_deref();
             while let Some(inst) = stack.pop() {
                 // See the deterministic branch's comment above: `Arc` is `Copy` and this slice borrows straight from the frozen `Fst`, so no per-pop clone is needed.
                 let arcs = self.state_arcs(inst.state);
@@ -1073,7 +1146,8 @@ impl<'f> Transduce<'f> {
                 for (arc_offset, arc) in arcs.iter().enumerate() {
                     let arc_index = arc_base + arc_offset;
                     if !crate::work::consume() {
-                        return Vec::new();
+                        found.results.clear();
+                        return;
                     }
                     // frozen FSTs have no epsilon arcs; only the input-match branch fires.
                     if self.check_input_match(arc, inst.ann_index) {
@@ -1083,20 +1157,13 @@ impl<'f> Transduce<'f> {
                         if min_hops[arc.target as usize] > remaining {
                             continue;
                         }
-                        if let Some(required) = &required_after {
+                        if let Some(required) = required_after {
                             if required[inst.ann_index + 1] > max_hops[arc.target as usize] {
                                 continue;
                             }
                         }
                         let guard = self.run_guard(inst.ann_index, arc_index);
-                        self.advance(
-                            inst.clone(),
-                            arc,
-                            guard,
-                            false,
-                            &mut cur_results,
-                            &mut continuations,
-                        );
+                        self.advance(inst.clone(), arc, guard, false, found, continuations);
                         for mut new_inst in continuations.drain(..) {
                             let parent = inst.record.map(|r| (r, &*inst.registers));
                             match traversed.insert(&new_inst, parent, fst_states, n, slots) {
@@ -1105,7 +1172,10 @@ impl<'f> Transduce<'f> {
                                     stack.push(new_inst);
                                 }
                                 Insert::Present => {}
-                                Insert::Ceiling => return Vec::new(),
+                                Insert::Ceiling => {
+                                    found.results.clear();
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1114,10 +1184,10 @@ impl<'f> Transduce<'f> {
             if let Some(start) = __o2_nondet_start {
                 profile::record_nondet(start.elapsed().as_nanos(), traversed.len());
             }
+            *seen = traversed.recycle();
         }
 
-        self.check_accepting_start_state(init_anns, init_registers, &mut cur_results);
-        cur_results
+        self.check_accepting_start_state(init_anns, init_registers, found);
     }
 
     // --- Transduce (Fst.cs:304-414) -----------------------------------------------------------
@@ -1139,32 +1209,28 @@ impl<'f> Transduce<'f> {
         let mut result_list: Vec<FstResult> = Vec::new();
         let mut init_anns = InitAnns::default();
         let mut ann_index = 0usize;
+        let plan = RunPlan::new(self);
+        let mut scratch = Scratch::default();
 
         while ann_index < self.n() {
             if !crate::work::consume() {
                 return Vec::new();
             }
             pg_cost::add_registers(reg_slots);
-            let mut init_registers = vec![Packed::UNSET; reg_slots];
-            let offset = self.ann_start(ann_index);
-            // initializers: dest==0 set directly; others -> cmds (Fst.cs:376-387).
-            let mut cmds: Vec<Cmd> = Vec::new();
-            for cmd in &self.fst.initializers {
-                if cmd.dest == 0 {
-                    init_registers[0] = Packed::at(offset, true);
-                } else {
-                    cmds.push(*cmd);
-                }
+            scratch.init_registers.clear();
+            scratch.init_registers.resize(reg_slots, Packed::UNSET);
+            if plan.sets_origin {
+                scratch.init_registers[0] = Packed::at(self.ann_start(ann_index), true);
             }
 
-            let mut cur =
-                self.traverse_from(&mut ann_index, &mut init_registers, &cmds, &mut init_anns);
+            self.traverse_from(&mut ann_index, &plan, &mut init_anns, &mut scratch);
+            let cur = &mut scratch.found.results;
             if crate::work::stopped() {
                 return Vec::new();
             }
             if !cur.is_empty() {
                 cur.sort_by(|a, b| self.result_compare(a, b));
-                result_list.append(&mut cur);
+                result_list.append(cur);
                 if !all_matches {
                     break;
                 }

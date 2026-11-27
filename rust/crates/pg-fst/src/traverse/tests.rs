@@ -18,8 +18,9 @@ fn advance_reuses_storage_and_preserves_optional_fanout() {
         let mut successors = Vec::new();
         let mut storage = None;
         for _ in 0..2 {
-            let mut results = Vec::new();
-            transduce.advance(inst(), arc, 0, false, &mut results, &mut successors);
+            let mut found = Found::default();
+            transduce.advance(inst(), arc, 0, false, &mut found, &mut successors);
+            let results = found.results;
             assert_eq!(
                 successors.iter().map(|s| s.ann_index).collect::<Vec<_>>(),
                 (1..=optional_count + 1).rev().collect::<Vec<_>>()
@@ -116,7 +117,7 @@ fn seen_answers_as_a_hash_set_across_the_switch() {
     let slots = 6;
     let budget = crate::work::WorkBudget::new(usize::MAX / 2).with_retained_cap(None);
     let _scope = budget.enter();
-    let mut seen = Seen::new();
+    let mut seen = Seen::new(PlainSet::default());
     let mut reference = std::collections::HashSet::new();
     let mut x: u64 = 0x1234_5678_9abc_def1;
     let mut next = || {
