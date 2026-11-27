@@ -91,7 +91,7 @@ fn ambiguous_intermediate_context_uses_subsumption_in_synthesis_and_unification_
 
 #[test]
 fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
-    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "per-site-alpha-rewrite")
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
         .load_grammar_xml();
     let mut g = pg_grammar::load(&xml).unwrap();
     let pid = PRuleId(0);
@@ -130,7 +130,7 @@ fn probing_a_mixed_rule_keeps_deleted_nodes_and_matches_synthesis() {
 #[test]
 fn feeding_uses_the_same_result_for_plain_cached_and_traced_synthesis() {
     use crate::trace::{TraceSink, TreeTraceSink};
-    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "per-site-alpha-rewrite")
+    let xml = pg_conformance_fixtures::require_fixture("edge-cases", "cross-subrule-feeding")
         .load_grammar_xml();
     let g = pg_grammar::load(&xml).unwrap();
     let pid = PRuleId(0);
