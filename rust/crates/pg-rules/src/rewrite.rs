@@ -1866,6 +1866,9 @@ fn synthesize_sites(
         }
     }
     if eligible.is_empty() {
+        if pg_fst::census::enabled() {
+            pg_fst::census::record(Some(&rule.xml_id), "B", "gated_all_subrules", 0, 0, 0);
+        }
         return outcomes;
     }
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
@@ -1885,11 +1888,30 @@ fn synthesize_sites(
     let dir = dir_of(rule);
     let mut cursor: Option<usize> = None;
     let mut pending = Vec::new();
+    let census_before = (pg_fst::census::enabled() && !pg_fst::census::suspended())
+        .then(pg_fst::census::used);
+    // (nodes scanned, nodes satisfying the first target segment) on the entry shape.
+    let mut census_shadow: Option<(u64, u64)> = None;
     loop {
         if !pg_fst::work::consume() {
             break;
         }
         let (segs, node_of) = ms.segs(true);
+        if census_before.is_some() && census_shadow.is_none() {
+            let mut seen = 0u64;
+            let mut hits = 0u64;
+            if !rule.lhs.nodes.is_empty() {
+                for &node in &node_of {
+                    seen += 1;
+                    let segment = Segment::new(ms.nodes[node].lanes.clone())
+                        .with_explicit_full(segment_full_markers(&ms.nodes[node]));
+                    if synthesis_constraint_matches(g, &segment, &lhs_lanes[0]) {
+                        hits += 1;
+                    }
+                }
+            }
+            census_shadow = Some((seen, hits));
+        }
         let sites: Vec<(usize, usize, Vec<usize>)> = if let Some(target) = target {
             ordered_spans(target, &segs)
                 .into_iter()
@@ -2055,6 +2077,30 @@ fn synthesize_sites(
                     }
                 }
             }
+        }
+    }
+    if let Some(before) = census_before {
+        if !pg_fst::census::stopped() {
+            let work = pg_fst::census::used().saturating_sub(before);
+            let found = outcomes
+                .iter()
+                .any(|o| matches!(o, SubruleOutcome::Applied));
+            let (seen, hits) = census_shadow.unwrap_or((0, 0));
+            let cell = if rule.lhs.nodes.is_empty() {
+                if found {
+                    "empty_lhs_site_found"
+                } else {
+                    "empty_lhs_no_site"
+                }
+            } else {
+                match (found, hits > 0) {
+                    (false, false) => "no_site_shadow_no_target",
+                    (false, true) => "no_site_shadow_has_target",
+                    (true, true) => "site_shadow_has_target",
+                    (true, false) => "site_shadow_no_target",
+                }
+            };
+            pg_fst::census::record(Some(&rule.xml_id), "B", cell, work, seen, hits);
         }
     }
     outcomes

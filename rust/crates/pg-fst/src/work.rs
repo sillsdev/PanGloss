@@ -255,6 +255,11 @@ impl WorkBudget {
         false
     }
 
+    /// Whether reservations are currently free (inside `suspend`).
+    pub fn is_suspended(&self) -> bool {
+        self.0.step.get() == 0
+    }
+
     pub fn used(&self) -> usize {
         self.0.used.get()
     }

@@ -21,6 +21,7 @@
 //!   handles the right-to-left sign (Fst.cs:423).
 #![forbid(unsafe_code)]
 
+pub mod census;
 pub mod compile;
 mod fst;
 pub mod lanes;

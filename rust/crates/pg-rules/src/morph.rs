@@ -789,6 +789,9 @@ fn ana_affix_cached_traced<const COLLECT_STATS: bool>(
         }
         Consult::Replay(_) => unreachable!("an observed application re-runs the match"),
     };
+    if pg_fst::census::enabled() {
+        pg_fst::census::set_rule(format!("m{}", mrid.0));
+    }
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
@@ -3806,7 +3809,36 @@ fn ana_allomorph_matches(
     {
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
+    let census_before = (pg_fst::census::enabled() && !pg_fst::census::suspended())
+        .then(pg_fst::census::used);
     let matches = transduce.all_matches();
+    if let Some(before) = census_before {
+        if !pg_fst::census::stopped() {
+            let work = pg_fst::census::used().saturating_sub(before);
+            let (accepts, pairs, arcs) = transduce.shadow_accepts();
+            let cell = match (matches.is_empty(), accepts) {
+                (true, false) => "real_empty_shadow_rejects",
+                (true, true) => "real_empty_shadow_accepts",
+                (false, true) => "real_nonempty_shadow_accepts",
+                (false, false) => "real_nonempty_shadow_rejects",
+            };
+            pg_fst::census::record(None, "A", cell, work, pairs, arcs);
+            let size_cell = if fst.state_count() > 64 {
+                "fst_states_gt64"
+            } else {
+                "fst_states_le64"
+            };
+            // shadow columns here: summed state count and summed constraint-pool size
+            pg_fst::census::record(
+                None,
+                "A_size",
+                size_cell,
+                work,
+                fst.state_count() as u64,
+                fst.constraint_count() as u64,
+            );
+        }
+    }
     if let Some(recorder) = recorder {
         if matches.is_empty()
             && pg_fst::work::active_budget()
@@ -3988,6 +4020,9 @@ fn ana_realizational_cached<const COLLECT_STATS: bool>(
         Consult::Stopped => return Vec::new(),
         Consult::Run(run) => run,
     };
+    if pg_fst::census::enabled() {
+        pg_fst::census::set_rule(format!("m{}", mrid.0));
+    }
     let table = crate::cache::owning_table_for_morpheme(g, rule.morpheme).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);

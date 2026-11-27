@@ -76,6 +76,9 @@ impl Fst {
     pub fn is_deterministic(&self) -> bool {
         self.deterministic
     }
+    pub fn constraint_count(&self) -> usize {
+        self.constraints.len()
+    }
     pub fn state_count(&self) -> usize {
         self.states.len()
     }

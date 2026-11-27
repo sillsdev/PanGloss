@@ -1732,6 +1732,7 @@ fn run_batch_impl(
     parse_counter: &BatchParseCounter,
     diagnostic: Option<diagnostic::Options<'_>>,
 ) -> Result<(), String> {
+    let _census_guard = pg_fst::census::Guard;
     let mut positional: Vec<&str> = Vec::new();
     let mut engine = None;
     let mut work_cap: WorkCap = DEFAULT_WORK_CAP;
@@ -2393,6 +2394,7 @@ fn run_batch_impl(
                 }
                 continue;
             }
+            pg_fst::census::begin_word(word);
             writeln!(w, "{i}\t{word}\tSTARTED").map_err(|e| e.to_string())?;
             // Flush the STARTED sentinel immediately, before starting this word's parse, or it would only reach disk alongside the result line, defeating its purpose as a live in-flight signal for an external watchdog.
             if flush_each_word {
