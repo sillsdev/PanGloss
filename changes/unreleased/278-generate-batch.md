@@ -1,1 +1,0 @@
-- `pangloss generate --requests` can write all rows to `--out <rows.jsonl>` with a bounded stdout summary, address a root by `target` (entry, sense or MSA; every stem MSA when none is named) with `status` and `cause` on each row, and take an explicit `cell` of affix MSA combinations with `comboKey`, `cellIndex` and a shared work budget (sillsdev/motif#278).

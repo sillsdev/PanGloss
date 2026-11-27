@@ -5,6 +5,16 @@ fragment under `changes/unreleased/` (see its README). The prepare step of `rust
 folds the fragments into the new version section, in file-name order, and deletes them. It refuses a
 version with neither fragments, a `## Unreleased` section nor a version section.
 
+## 0.35.6
+
+Released 2026-11-27.
+
+- `pangloss generate --requests` can write all rows to `--out <rows.jsonl>` with a bounded stdout summary, address a root by `target` (entry, sense or MSA; every stem MSA when none is named) with `status` and `cause` on each row, and take an explicit `cell` of affix MSA combinations with `comboKey`, `cellIndex` and a shared work budget (sillsdev/motif#278).
+- `--without <rule guid>` on a real FieldWorks project (`parse`, `batch`) is no longer always refused as a dangling reference: the check ignores `conversionProvenance`, which lists every record guid (#397).
+- Fix four doc and code mismatches in the API surface (#543): the `serve` summary lists all ops, USAGE lists `stats-cache` and the `--trace-rejections` flags, `docs/formats/trace-details-v2.md` is renamed `trace-details.md` with no stub, and `recipe-optimize --oracle-word-timeout-ms` is removed (use `--oracle-liveness-net-ms`). Breaking (dev tooling only): the removed flag and the renamed doc path.
+- Removed the `pangloss serve` ops `health` and `shadowedAllomorphs` (they now answer `unknown_op`) and their `--describe` entries; use `pangloss grammar-health <project> [--shadowed [--include-selectable]]` instead (#544).
+- `batch --stats` no longer aborts and loses every measured word when one word's object work exceeds its budget or a feature predicate has no owner (both now count a warning in the run summary), duplicate input forms and words taken over by a later run no longer inflate run word counts, `--cache-pack` held up by a reader warns instead of failing a committed run, `mixed_settings` ignores runs that own no words, duplicate approved analyses no longer read as missing, `grammar-health --snapshot-out` is written atomically, and `stats` ignores unknown counter kinds instead of panicking.
+
 ## 0.35.5
 
 Released 2026-11-27.
