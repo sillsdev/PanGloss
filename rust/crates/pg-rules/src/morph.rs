@@ -43,6 +43,7 @@ use crate::stratum::{FinalTemplateSynthesisPolicy, NonHeadRootFilter, RuleInvoca
 use crate::trace::{FailureReason, TraceHandle, TraceMode, TraceSink};
 use crate::word::{MorphGroup, MorphLayout, MorphRecord, MorphStatus, Word};
 use rustc_hash::{FxHashMap as HashMap, FxHashSet as HashSet};
+use smallvec::SmallVec;
 
 pub(crate) mod edge_index;
 mod edge_prefilter;
@@ -1126,16 +1127,30 @@ fn full_mask(g: &Grammar, f: usize) -> u64 {
     pg_grammar_model::membership::mask(&g.phon_features, f)
 }
 
+/// One output node's lane row. Featureless grammars have width 1-2, so the row stays inline; a wider grammar spills to the heap as a `Vec` would.
+type Lanes = SmallVec<[u64; 2]>;
+
 /// Driver full-mask lane vector (width `W`, unconstrained everywhere).
-fn full_lanes(g: &Grammar) -> Vec<u64> {
+fn full_lanes(g: &Grammar) -> Lanes {
     (0..feat_width(g)).map(|f| full_mask(g, f)).collect()
 }
 
 /// Fit a lane row to width `W`: truncate extra, pad missing with `full_mask` (unconstrained).
-fn fit(g: &Grammar, lanes: &[u64]) -> Vec<u64> {
-    let mut out = Vec::new();
-    fit_into(g, lanes, &mut out);
-    out
+fn fit(g: &Grammar, lanes: &[u64]) -> Lanes {
+    fit_parts(g, lanes, None)
+}
+
+/// `fit` of `lanes` followed by one optional trailing lane, without first joining them into a temporary row.
+fn fit_parts(g: &Grammar, lanes: &[u64], last: Option<u64>) -> Lanes {
+    (0..feat_width(g))
+        .map(|f| {
+            lanes
+                .get(f)
+                .copied()
+                .or_else(|| last.filter(|_| f == lanes.len()))
+                .unwrap_or_else(|| full_mask(g, f))
+        })
+        .collect()
 }
 
 /// `fit` written over `out`, so a caller fitting one row after another keeps one buffer.
@@ -1147,18 +1162,19 @@ fn fit_into(g: &Grammar, lanes: &[u64], out: &mut Vec<u64>) {
 }
 
 /// Driver lanes for a char-def, `full_mask` for unmentioned/boundary lanes; `table` is the rule's own owning table, never an implicit default.
-fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Vec<u64> {
+fn cd_lanes(g: &Grammar, table: TableId, cd_raw: u32) -> Lanes {
     if cd_raw == NO_CHAR_DEF {
         return full_lanes(g);
     }
     let t = &g.char_tables[table.0 as usize];
-    fit(g, &t.get(CharDefId(cd_raw)).matching_lanes())
+    let cd = t.get(CharDefId(cd_raw));
+    // `CharDef::matching_lanes` is the feature lanes then the membership bits; fit that row without building it.
+    fit_parts(g, cd.feature_lanes(), Some(cd.membership_bits()))
 }
 
 /// The `(feature, symbol-bits)` a `SimpleContext` pins; alpha-variable features are left unconstrained.
 pub fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize, u64)> {
     let w = feat_width(g);
-    let t = &g.char_tables[table.0 as usize];
     let nc = &g.natural_classes[ctx.nat_class.0 as usize];
     let alpha: HashSet<usize> = ctx.vars.iter().map(|v| v.feature.0 as usize).collect();
     let mut pins: Vec<(usize, u64)> = match &nc.kind {
@@ -1169,9 +1185,9 @@ pub fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize,
             .collect(),
         NaturalClassKind::Segments(segs) => (0..w)
             .filter_map(|f| {
-                let bits = segs.iter().fold(0u64, |acc, cd| {
-                    acc | fit(g, &t.get(*cd).matching_lanes())[f]
-                });
+                let bits = segs
+                    .iter()
+                    .fold(0u64, |acc, cd| acc | cd_lanes(g, table, cd.0)[f]);
                 (bits != full_mask(g, f)).then_some((f, bits))
             })
             .collect(),
@@ -1185,7 +1201,7 @@ pub fn ctx_pins(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<(usize,
 }
 
 /// Driver lanes for a `SimpleContext` (width `W`).
-fn ctx_lanes(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Vec<u64> {
+fn ctx_lanes(g: &Grammar, table: TableId, ctx: &SimpleContext) -> Lanes {
     let mut lanes = full_lanes(g);
     for (f, bits) in ctx_pins(g, table, ctx) {
         lanes[f] = bits;
@@ -1290,8 +1306,8 @@ pub(crate) fn segs_of(
         }
         lanes
     };
-    let mut segs = Vec::new();
-    let mut node_of = Vec::new();
+    let mut segs = Vec::with_capacity(shape.len());
+    let mut node_of = Vec::with_capacity(shape.len());
     for i in 0..shape.len() {
         match shape.kind(i) {
             NodeKind::Segment => {
@@ -1330,7 +1346,7 @@ enum Origin {
 struct OutNode {
     kind: NodeKind,
     char_def: u32,
-    lanes: Vec<u64>,
+    lanes: Lanes,
     optional: bool,
     origin: Origin,
     /// Char-def-set identity, consulted only when `char_def == NO_CHAR_DEF`; a real `char_def` leaves this `Unrestricted` and unread.
@@ -1344,7 +1360,7 @@ fn freeze_out(g: &Grammar, nodes: &[OutNode]) -> Shape {
     let w = feat_width(g) as u32;
     let mut b = ShapeBuilder::with_features_capacity(w, nodes.len());
     // One row buffer for every node: a row is copied into the shape, never kept.
-    let mut lanes = Vec::new();
+    let mut lanes = Vec::with_capacity(w as usize);
     for (i, n) in nodes.iter().enumerate() {
         fit_into(g, &n.lanes, &mut lanes);
         match n.kind {
@@ -1763,7 +1779,7 @@ fn copy_part(
     let Some((s, e)) = src.range else { return };
     let pins = modify.map(|c| ctx_pins(g, table, c)).unwrap_or_default();
     // C# `GetSkippedOptionalNodes`: a run of Optional nodes immediately left of the capture, reaching back to the left anchor, folds into the copy — hence the two-pronged boundary-or-optional predicate.
-    let mut positions: Vec<usize> = Vec::new();
+    let mut positions: Vec<usize> = Vec::with_capacity(e.saturating_sub(s));
     if s < e {
         let first_node = src.node_of[s];
         let skippable =
@@ -1783,6 +1799,7 @@ fn copy_part(
         }
     }
     positions.extend(src.node_of[s..e].iter().copied());
+    out.reserve(positions.len());
     for &p in &positions {
         let mut lanes = fit(g, src.shape.node_lanes(p));
         let kind = src.shape.kind(p);
@@ -1842,6 +1859,7 @@ fn insert_segments(
     seg_shape: &Shape,
     origin: Origin,
 ) {
+    out.reserve(seg_shape.len().saturating_sub(2)); // interior: all but the two anchors
     for (idx, kind, char_def, _flags) in seg_shape.interior() {
         let _ = idx;
         out.push(OutNode {
@@ -3259,6 +3277,14 @@ fn group_name(part: &str, idx: usize) -> String {
     format!("{part}_{idx}")
 }
 
+/// `group_name` written into `buf`, so a loop over capture indexes keeps one string.
+fn group_name_into<'a>(buf: &'a mut String, part: &str, idx: usize) -> &'a str {
+    use std::fmt::Write;
+    buf.clear();
+    let _ = write!(buf, "{part}_{idx}");
+    buf
+}
+
 /// `GenerateShape`: re-emits captured original LHS parts as output nodes, dropping inserted material; modify parts get their changed features underspecified.
 #[allow(clippy::too_many_arguments)]
 fn generate_shape(
@@ -3272,12 +3298,14 @@ fn generate_shape(
     shape: &Shape,
 ) -> Vec<OutNode> {
     let mut out = Vec::new();
+    let mut group = String::new();
     for (name, part) in lhs_parts {
         if lhs.merged.values().any(|r| r.parts[1..].contains(name)) {
             continue; // emitted with the first part of its run
         }
         if let Some(run) = lhs.merged.get(name) {
             if let Some((s, e)) = fst.get_offsets(&run.group, &result.registers) {
+                out.reserve((e - s).max(0) as usize);
                 for &p in &node_of[s as usize..e as usize] {
                     out.push(OutNode {
                         kind: shape.kind(p),
@@ -3315,7 +3343,10 @@ fn generate_shape(
         });
         let mut emitted = false;
         for idx in 0..count {
-            if let Some((s, e)) = fst.get_offsets(&group_name(name, idx), &result.registers) {
+            if let Some((s, e)) =
+                fst.get_offsets(group_name_into(&mut group, name, idx), &result.registers)
+            {
+                out.reserve((e - s).max(0) as usize);
                 for &p in &node_of[s as usize..e as usize] {
                     let mut lanes = fit(g, shape.node_lanes(p));
                     let mut char_def = shape.char_def(p);
@@ -4717,6 +4748,7 @@ fn ana_compound_subrule(
         .map(|(n, p)| (n.clone(), *p))
         .collect();
     let mut sr_out: Vec<Word> = Vec::new();
+    let mut group = String::new();
     for result in Transduce::new(fst, segs).anchored(true, true).all_matches() {
         if !pg_fst::work::consume() {
             return Vec::new();
@@ -4724,7 +4756,7 @@ fn ana_compound_subrule(
         // Acceptable only if at least one head part was captured.
         let head_captured = head_parts.iter().any(|(name, _)| {
             (0..*lhs.captured.get(name).unwrap_or(&0)).any(|idx| {
-                fst.get_offsets(&group_name(name, idx), &result.registers)
+                fst.get_offsets(group_name_into(&mut group, name, idx), &result.registers)
                     .is_some()
             })
         });
@@ -4742,12 +4774,11 @@ fn ana_compound_subrule(
             &word.shape,
         );
         let nh_out = generate_shape(g, table, &nh_parts, lhs, fst, &result, node_of, &word.shape);
-        let head_shape = freeze_out(g, &head_out);
         let nh_shape = freeze_out(g, &nh_out);
         match root_filter {
             None => {
                 let mut w = word.clone();
-                w.shape = head_shape;
+                w.shape = freeze_out(g, &head_out);
                 w.syn_fs = new_syn.clone();
                 // Must push the split-off non-head AND advance the index in lock-step, or `current_non_head()`'s index-based lookup leaves the just-split non-head invisible to `synth_compound`'s gate.
                 w.non_head_unapplied(Word::new(nh_shape, word.stratum));
@@ -4764,6 +4795,11 @@ fn ana_compound_subrule(
                     mstats,
                     prod_rejected.is_some().then_some(&mut rejected_nh),
                 );
+                // A split whose roots all failed discards its head shape unused, so freeze it only once something needs it. `freeze_out` charges no work, so deferring it moves no step.
+                if resolved.is_empty() && rejected_nh.is_empty() {
+                    continue;
+                }
+                let head_shape = freeze_out(g, &head_out);
                 if let Some(sink) = prod_rejected.as_deref_mut() {
                     // The same candidate C# hands the trace: this split's head shape with the rejected root as the current non-head.
                     for nh in rejected_nh {
