@@ -991,6 +991,7 @@ fn describe_advertises_exactly_the_tuples_emitted_by_the_cli() {
         .chain(alternatives)
         .chain(owner::tuple_fixtures())
         .chain(lineage::tuple_fixtures())
+        .chain(target::tuple_fixtures())
         .flatten()
         .filter(|record| record["type"] == "event")
         .map(|event| {

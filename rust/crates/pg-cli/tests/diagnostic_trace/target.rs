@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 
 use serde_json::{json, Value};
@@ -832,4 +833,173 @@ fn add_homophone(source: &mut Value) {
     homophone["senses"][0]["guid"] = json!(guid(0x83));
     homophone["senses"][0]["msa"] = json!(guid(0x82));
     entries.push(homophone);
+}
+
+const UNCOVERABLE: &str = "required_slot_uncoverable";
+
+fn plain_signature(source: &Value, word: &str) -> String {
+    let temp = tempfile::tempdir().unwrap();
+    let grammar = temp.path().join("grammar.json");
+    fs::write(&grammar, source.to_string()).unwrap();
+    let plain = run(&["parse", grammar.to_str().unwrap(), word]);
+    success(&plain);
+    String::from_utf8(plain.stdout).unwrap()
+}
+
+/// Whether the ordinary parse's signature list holds the target: the root form, then `?` and the form of each affix.
+fn ordinary_has(ordinary: &str, target: &[u8]) -> bool {
+    let form = |entry: u8| match entry {
+        0x40 => "kkaa",
+        0x50 => "s",
+        0x70 => "t",
+        _ => unreachable!(),
+    };
+    let wanted = format!(
+        "{}+{}",
+        form(target[0]),
+        target[1..]
+            .iter()
+            .map(|&entry| format!("?{}", form(entry)))
+            .collect::<String>()
+    );
+    ordinary
+        .trim()
+        .split('|')
+        .any(|signature| signature == wanted)
+}
+
+fn uncoverable_events(data: &[Value]) -> Vec<&Value> {
+    data.iter()
+        .filter(|row| row["type"] == "event" && row["reason"] == UNCOVERABLE)
+        .collect()
+}
+
+fn selected_row(source: &Value, word: &str, morphs: &[u8]) -> Vec<Value> {
+    let morphs: Vec<_> = morphs.iter().map(|&entry| authored(entry)).collect();
+    let selector = json!({"rootIndex": 0, "morphs": morphs});
+    selected(
+        &source.to_string(),
+        "json",
+        word,
+        &selector,
+        &["--trace-max-paths", "64"],
+    )
+}
+
+#[test]
+fn a_target_missing_the_filler_of_a_required_slot_is_rejected_for_that_slot() {
+    let source = two_slot_templates();
+    let data = selected_row(&source, "kkaat", &[0x40, 0x70]);
+    let end = completion(&data);
+    assert_eq!(end["target"]["membership"], "absent");
+    assert_eq!(end["target"]["status"], "rejected");
+    assert_eq!(end["target"]["coverage"], "exhausted");
+    assert!(!end["target"]["limitations"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("owner_unobserved")));
+    let events = uncoverable_events(&data);
+    assert!(!events.is_empty());
+    for event in &events {
+        assert_eq!(event["direction"], "analysis");
+        assert_eq!(event["kind"], "reject");
+        assert_eq!(event["stage"], "template");
+        assert_eq!(event["operands"]["kind"], "template_slot");
+        let slot = mapping(&data, &event["operands"]["slot"]);
+        assert_eq!(slot["address"]["compiledSlotIndex"], 0);
+    }
+    assert!(
+        !ordinary_has(&plain_signature(&source, "kkaat"), &[0x40, 0x70]),
+        "the named cause must agree with the ordinary parse"
+    );
+}
+
+#[test]
+fn a_template_that_cannot_cover_the_target_does_not_name_it_rejected_while_another_can() {
+    let source = two_slot_templates();
+    let data = selected_row(&source, "kkaas", &[0x40, 0x50]);
+    let end = completion(&data);
+    assert_eq!(end["target"]["status"], "found");
+    let events = uncoverable_events(&data);
+    assert!(!events.is_empty());
+    for event in events {
+        let slot = mapping(&data, &event["operands"]["slot"]);
+        assert_eq!(slot["address"]["compiledSlotIndex"], 1);
+    }
+}
+
+#[test]
+fn a_target_with_no_affix_morph_keeps_every_template_rejection_unknown() {
+    let source = two_slot_templates();
+    let data = selected_row(&source, "kkaat", &[0x40]);
+    assert!(uncoverable_events(&data).is_empty());
+    let end = completion(&data);
+    assert_eq!(end["target"]["status"], "unknown");
+    assert!(end["target"]["limitations"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("owner_unobserved")));
+}
+
+#[test]
+fn a_named_cause_never_contradicts_the_ordinary_parse() {
+    let source = two_slot_templates();
+    let words = ["kkaa", "kkaas", "kkaat", "kkaast", "kkaats"];
+    let targets: [&[u8]; 6] = [
+        &[0x40],
+        &[0x40, 0x50],
+        &[0x40, 0x70],
+        &[0x40, 0x50, 0x70],
+        &[0x40, 0x70, 0x50],
+        &[0x40, 0x50, 0x50],
+    ];
+    let mut census: BTreeMap<String, usize> = BTreeMap::new();
+    let mut cells: Vec<String> = Vec::new();
+    assert!(ordinary_has(
+        &plain_signature(&source, "kkaas"),
+        &[0x40, 0x50]
+    ));
+    for word in words {
+        let ordinary = plain_signature(&source, word);
+        for target in targets {
+            let data = selected_row(&source, word, target);
+            let end = completion(&data);
+            let status = end["target"]["status"].as_str().unwrap().to_owned();
+            let named = !uncoverable_events(&data).is_empty();
+            if named && status == "rejected" {
+                assert_eq!(end["target"]["matchCount"]["value"], 0);
+                assert!(
+                    !ordinary_has(&ordinary, target),
+                    "{word} {target:?} was named uncoverable but the ordinary parse has it:\n{ordinary}"
+                );
+            }
+            *census
+                .entry(format!(
+                    "{status}/{}",
+                    if named { "named" } else { "plain" }
+                ))
+                .or_default() += 1;
+            cells.push(format!("{word} {target:x?} {status} {named}"));
+        }
+    }
+    assert_eq!(
+        format!("{census:?}"),
+        r#"{"found/named": 1, "rejected/named": 3, "unknown/named": 11, "unknown/plain": 15}"#
+    );
+    assert_eq!(
+        cells
+            .iter()
+            .filter(|cell| cell.ends_with("rejected true"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        [
+            "kkaat [40, 70] rejected true",
+            "kkaast [40, 70] rejected true",
+            "kkaats [40, 70] rejected true"
+        ]
+    );
+}
+
+pub(super) fn tuple_fixtures() -> Vec<Vec<Value>> {
+    vec![selected_row(&two_slot_templates(), "kkaat", &[0x40, 0x70])]
 }

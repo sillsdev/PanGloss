@@ -2633,6 +2633,7 @@
             "remaining_rules_in_stratum",
             "required_mpr_features",
             "required_pos",
+            "required_slot_uncoverable",
             "required_slot_unfilled",
             "required_stem_name",
             "required_syntactic_features",
@@ -2958,6 +2959,29 @@
                 },
                 "reason": {
                   "const": "required_slot_unfilled"
+                },
+                "operands": {
+                  "properties": {
+                    "kind": {
+                      "const": "template_slot"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "direction": {
+                  "const": "analysis"
+                },
+                "kind": {
+                  "const": "reject"
+                },
+                "stage": {
+                  "const": "template"
+                },
+                "reason": {
+                  "const": "required_slot_uncoverable"
                 },
                 "operands": {
                   "properties": {

@@ -1,9 +1,11 @@
 use pg_featstruct::{FeatId, FeatureStruct, FeatureValue, SymbolBits};
 use pg_grammar::model::{
-    AllomorphId, AllomorphOwner, Grammar, SourceMorphPlacement, SynFeatureKind,
+    AllomorphId, AllomorphOwner, Grammar, MorphemeId, SourceMorphPlacement, SynFeatureKind,
+    TemplateId,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::cell::{OnceCell, RefCell};
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::evidence::Identity;
 use super::{is_guid, FeatureDomain, FeatureSelector, MorphSelector, TargetSelector};
@@ -13,6 +15,22 @@ pub(super) const MAX_FEATURE_DEPTH: usize = 8;
 pub(super) struct Target<'a> {
     selector: &'a TargetSelector,
     features: Vec<(Vec<FeatId>, SymbolBits)>,
+    cover: OnceCell<Option<Cover>>,
+    uncoverable: RefCell<BTreeMap<TemplateId, Option<Uncoverable>>>,
+}
+
+/// The affix morphemes a target can carry, and the templates its rules can only apply inside.
+struct Cover {
+    morphemes: BTreeSet<MorphemeId>,
+    unreachable: bool,
+}
+
+/// Why a template cannot produce the target: the required slot no target morpheme can fill.
+#[derive(Clone, Copy)]
+pub(super) struct Uncoverable {
+    pub(super) slot: usize,
+    /// True when every template the target's affixes can apply in is uncoverable, so the target is unreachable.
+    pub(super) named: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -200,7 +218,81 @@ impl<'a> Target<'a> {
             .map(|feature| bind_feature(id.grammar, feature))
             .collect::<Option<Vec<_>>>()
             .ok_or("syntactic feature path or value set cannot be resolved")?;
-        Ok(Self { selector, features })
+        Ok(Self {
+            selector,
+            features,
+            cover: OnceCell::new(),
+            uncoverable: RefCell::new(BTreeMap::new()),
+        })
+    }
+
+    /// The proof that `template` cannot produce the target, from its required slots alone; `None` unless every non-root selector morph is an authored affix whose rules are all in template slots.
+    pub(super) fn uncoverable(
+        &self,
+        id: &Identity<'_>,
+        template: TemplateId,
+    ) -> Option<Uncoverable> {
+        if let Some(known) = self.uncoverable.borrow().get(&template) {
+            return *known;
+        }
+        let grammar = id.grammar;
+        let cover = self
+            .cover
+            .get_or_init(|| self.build_cover(grammar))
+            .as_ref();
+        let proof = cover.and_then(|cover| {
+            let slot = pg_rules::required_slots::unfillable_required_slot(
+                grammar,
+                template,
+                &cover.morphemes,
+            )?;
+            let named = cover.unreachable;
+            Some(Uncoverable { slot, named })
+        });
+        self.uncoverable.borrow_mut().insert(template, proof);
+        proof
+    }
+
+    fn build_cover(&self, grammar: &Grammar) -> Option<Cover> {
+        let mut morphemes = BTreeSet::new();
+        for (index, morph) in self.selector.morphs.iter().enumerate() {
+            if index == self.selector.root_index {
+                continue;
+            }
+            let MorphSelector::Authored {
+                entry_guid,
+                msa_guid,
+                ..
+            } = morph
+            else {
+                return None;
+            };
+            let found: Vec<_> = grammar
+                .morphemes
+                .iter()
+                .enumerate()
+                .filter(|(_, info)| {
+                    info.source_msa_guid.as_deref() == Some(msa_guid.as_str())
+                        && info
+                            .owner
+                            .as_ref()
+                            .is_some_and(|owner| owner.entry_guid == *entry_guid)
+                })
+                .map(|(at, _)| MorphemeId(at as u32))
+                .collect();
+            if found.is_empty() {
+                return None;
+            }
+            morphemes.extend(found);
+        }
+        if morphemes.is_empty() {
+            return None;
+        }
+        let unreachable = pg_rules::required_slots::target_unreachable(grammar, &morphemes);
+        Some(Cover {
+            morphemes,
+            unreachable,
+        })
     }
 
     pub(super) fn output(
