@@ -239,6 +239,11 @@ impl Canonicals {
                     if let Some(recorder) = recorder {
                         recorder.merged(&self.to_word(&stored), self.trace_at(at), true);
                     }
+                    // The dropped word is held no more, so its charge goes back.
+                    if self.memory.metered() {
+                        let dropped = crate::word::retained_word_bytes(&self.to_word(&stored));
+                        self.memory.release(dropped);
+                    }
                     if merge_phonological_rules {
                         let rules = fields.rest.applied_phonological_rules().to_vec();
                         self.merge_phonological_rules(at, &rules);

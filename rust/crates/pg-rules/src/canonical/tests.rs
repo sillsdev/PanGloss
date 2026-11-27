@@ -207,3 +207,45 @@ fn absorbing_keeps_what_inserting_each_word_keeps() {
         );
     }
 }
+
+#[test]
+fn absorbing_returns_the_charge_of_every_word_it_drops() {
+    // Words, keys and bases are built outside the budget's scope so only the sets are charged.
+    let batch = || -> (Word, Vec<(WordKey, Word)>) {
+        let words = (2..4)
+            .map(|rule| slot_output(&input(), rule, 7))
+            .map(|w| (w.dedup_key(), w))
+            .collect();
+        (input(), words)
+    };
+    let one = crate::word::retained_word_bytes(&batch().1[0].1);
+    // Room for the held words and one more candidate's, not for each candidate's left behind.
+    let cap = 4 * one + 10;
+    let batches = [batch(), batch(), batch(), batch()];
+    let budget = pg_fst::work::WorkBudget::new(usize::MAX).with_word_cap(Some(cap));
+    let _scope = budget.enter();
+    let charged = || cap - budget.word_headroom().expect("a ceiling is set");
+    let fill = |(base, words): (Word, Vec<(WordKey, Word)>)| {
+        let mut set = Canonicals::of_base(base);
+        for (key, w) in words {
+            set.push_new(&key, w);
+        }
+        set
+    };
+    let [first, rest @ ..] = batches;
+    let mut set = fill(first);
+    assert_eq!(set.len(), 2);
+    // Each other candidate of the stratum gives the same two words, which are dropped as duplicates.
+    for b in rest {
+        set.absorb(fill(b), false);
+    }
+    assert_eq!(set.len(), 2);
+    let held: usize = set
+        .words()
+        .map(|w| crate::word::retained_word_bytes(&w))
+        .sum();
+    assert_eq!(charged(), held);
+    assert!(!budget.word_capped());
+    drop(set);
+    assert_eq!(charged(), 0);
+}

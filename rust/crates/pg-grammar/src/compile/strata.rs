@@ -123,15 +123,16 @@ pub(crate) fn create(
             .or_else(|| forms.iter().find(wanted))
             .map(|f| f.form.as_str())
     }
+    // The first lexicon entry of each GUID, as a linear scan would find it, built once.
+    let mut by_guid =
+        std::collections::HashMap::with_capacity(named.snapshot.lexicon.entries.len());
+    for entry in &named.snapshot.lexicon.entries {
+        by_guid.entry(&entry.guid).or_insert(entry);
+    }
     // `ILexEntry.ShortName`, the headword: citation form, else the lexeme form, in the first vernacular writing system that has one.
     let entry_name = |id: LexEntryId| {
         let guid = &named.entries[id.0 as usize].authored_id;
-        let entry = named
-            .snapshot
-            .lexicon
-            .entries
-            .iter()
-            .find(|e| &e.guid == guid)?;
+        let entry = by_guid.get(guid).copied()?;
         let lexeme = entry.allomorphs.last().map_or(&[][..], |a| &a.forms[..]);
         let ws = &named.snapshot.project.vernacular_writing_systems;
         pick(&entry.citation_form, ws).or_else(|| pick(lexeme, ws))
