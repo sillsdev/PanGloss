@@ -23,9 +23,6 @@ mod four_grammar_recipe_evidence;
 #[cfg(any(unix, windows))]
 #[path = "../frozen_batch_hard_links.rs"]
 mod frozen_batch_hard_links;
-#[cfg(any(unix, windows))]
-#[path = "../result_cache_cli.rs"]
-mod result_cache_cli;
 #[path = "../fwdata_conformance_gate.rs"]
 mod fwdata_conformance_gate;
 #[path = "../fwdata_grammar_equivalence_gate.rs"]
@@ -45,6 +42,9 @@ mod inferred_segment_engine_parity_gate;
 #[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;
+#[cfg(any(unix, windows))]
+#[path = "../result_cache_cli.rs"]
+mod result_cache_cli;
 #[path = "../rule_costs_cli.rs"]
 mod rule_costs_cli;
 #[path = "../serve_effects.rs"]

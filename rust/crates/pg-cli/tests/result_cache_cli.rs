@@ -77,8 +77,15 @@ fn result_cache_refuses_a_folder_it_did_not_create_and_leaves_it_alone() {
     std::fs::write(root.join("src").join("main.txt"), "mine").unwrap();
     let run = batch(&s, &eq_forms(&s, &root, "1"), &[]);
     assert!(!run.status.success());
-    assert!(stderr(&run).contains("not a result cache"), "{}", stderr(&run));
-    assert_eq!(std::fs::read_to_string(root.join("src").join("main.txt")).unwrap(), "mine");
+    assert!(
+        stderr(&run).contains("not a result cache"),
+        "{}",
+        stderr(&run)
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("src").join("main.txt")).unwrap(),
+        "mine"
+    );
     assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
     assert!(!s.out.exists());
 }
