@@ -2974,17 +2974,6 @@ fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), Stri
             std::fs::File::open(source).map_err(|e| format!("cannot read {source}: {e}"))?,
         ))
     };
-    let out_file = out_path
-        .map(|path| {
-            std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .append(append)
-                .truncate(!append)
-                .open(path)
-                .map_err(|e| format!("cannot write {path}: {e}"))
-        })
-        .transpose()?;
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     // The defaults `pangloss serve` starts with, so a row equals the serve op's answer.
@@ -3000,6 +2989,18 @@ fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), Stri
         start_line,
         max_rows,
     };
+    // Opened last: a run that fails before generating must not truncate an existing --out file.
+    let out_file = out_path
+        .map(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(append)
+                .truncate(!append)
+                .open(path)
+                .map_err(|e| format!("cannot write {path}: {e}"))
+        })
+        .transpose()?;
     let summary = match out_file {
         Some(file) => {
             let mut writer = std::io::BufWriter::new(file);

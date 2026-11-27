@@ -507,3 +507,22 @@ fn bad_cells_and_serve_style_fields_are_error_rows_that_keep_their_line() {
     }
     assert_eq!(out[2]["cause"]["code"], "unknown_msa");
 }
+
+#[test]
+fn a_run_that_fails_to_load_leaves_an_existing_out_file_untouched() {
+    let run = Run::new();
+    let input = run.lines(&[request_row("r", MSA, &[infl()])]);
+    let out = run.dir.path().join("rows.jsonl");
+    std::fs::write(&out, "keep me\n").unwrap();
+    let output = Command::new(BIN)
+        .arg("generate")
+        .arg(run.dir.path().join("missing.json"))
+        .arg("--requests")
+        .arg(&input)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert_eq!(std::fs::read_to_string(&out).unwrap(), "keep me\n");
+}
