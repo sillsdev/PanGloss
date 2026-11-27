@@ -88,6 +88,15 @@ The inventory leaves three choices open; the v0.35.0 sweep took these, and the P
 - Swahili: `inputs/swh/swh.fwdata` with the full 280,099-type corpus.
 - Cebuano: the 44,801-word `ceb-rig-20261116/words.txt` list; of the three candidate `ceb.fwdata` copies, record the md5 of the one used.
 
+## Capped words and per-grammar summaries
+
+- `parse_compare.py` reports a word whose side is CAP as CAPPED and does not compare the partial signatures, so a change that alters what a
+  capped word reached passes silently. For each CAPPED word, compare the two `signature` columns (the partial result at the cap) yourself, and
+  say in the PR whether they agree. v0.35.0 used a scratch `capcheck.py` for this; `parse_compare.py` itself does not.
+- No tool summarises work, CPU and RSS per grammar. Take work from the `--work-columns` TSV (sum per grammar), "User time" and "Maximum
+  resident set size" from the `/usr/bin/time -v` file, and tabulate Before against After in the PR. v0.35.0 used a scratch `summarize.py`.
+  A script that does this belongs in `rust/tools`; until then write it in `<scratch>` and say so.
+
 ## Verdicts
 
 - NO-GO (regression) on a grammar the change does not reach (work identical or nearly so): compare it with its own Before-against-Before
@@ -108,7 +117,7 @@ The inventory leaves three choices open; the v0.35.0 sweep took these, and the P
   The exe lands at `C:\cargo-targets\<worktree name>\release\pangloss.exe` (11 to 15 min each).
 - Make every Windows tree with `stile worktree new`, as above; `git worktree add` skips the registration `stile` keeps and the cleanup it enables.
 - `herdr-x run win` hands the command to PowerShell, so write arrays in PowerShell syntax (`-Grammars a.fwdata,b.fwdata` or `@(...)`), not
-  as a bash list and not through a nested `pwsh -File`.
+  as a bash list and not through a nested `pwsh -File`. `herdr-x run win` also consumes stdin, so never pipe it into or feed it from a loop; run one command per call.
 - `rust/tools/instruction-compare.ps1 -Before <exe> -After <exe> -Grammars <g> -Words <w>` with Windows paths; data on a Windows drive
   (WSL `/mnt/h/...` paths work). Run the control (Before against Before) once per session.
 - The PMC lock is machine-wide: one grammar per run, one run at a time. Each takes 1 to 6 minutes at 5 repeats.

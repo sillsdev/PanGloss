@@ -13,6 +13,9 @@ A change that makes the parser cheaper must still produce the same parses as C# 
 the conformance suite does not show that: PRs #480 (match memo) and #481 (per-word shape graph) landed on exactly that, with
 steps 1, 2, 3 (beyond samples) and 4 unchecked. Put all four steps in the brief. Done means each step has a recorded result in the PR.
 
+Finding and researching the idea comes first: `.claude/skills/optimization-research/SKILL.md` and its ledger, `docs/research/optimization/README.md`.
+Start from the idea's ledger entry, and update its status here as the PR lands.
+
 ## 0. Is it allowed at all?
 
 CLAUDE.md allows one memo or cache: the root-trie exception (per-word, exact stratum and shape key, 1 MiB cap, immutable index results
@@ -55,7 +58,7 @@ Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -M
   never beside another sweep run. Run `stile admit --jobs 1` before every build and build with `-Jobs 1`. Parallel runs spoil the CPU
   column and the box.
 - Build Before and After release binaries from separate worktrees (`sweep.md`, "Build"), then run the bare binaries over the same word lists.
-- Compare with `python rust/tools/parse_compare.py before.tsv after.tsv --multiset --show 20`. Pass means every word IDENTICAL, and
+- Compare with `python rust/tools/parse_compare.py before.tsv after.tsv --multiset --show 20`. It reports CAP words as CAPPED without comparing their partial signatures; compare those by hand (`sweep.md`, "Capped words and per-grammar summaries"). Pass means every word IDENTICAL, and
   the table counts SKIPPED words per grammar (they compare nothing).
   - MULTISET_EQUAL is a reorder: a failure. SET_EQUAL and DIFFERENT fail.
   - STATUS_DIFF: rerun each such word on both sides at a long timeout and raised caps until the statuses settle (`sweep.md`, "Settling a
