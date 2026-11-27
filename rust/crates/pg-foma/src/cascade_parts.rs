@@ -189,6 +189,11 @@ impl CascadeParts {
         Some(members.into_iter().map(chardef_token).collect())
     }
 
+    /// Every retained bundle row of the cascade's closure with its char-def id (attested rows first) and lanes.
+    pub fn rows(&self) -> &[(CharDefId, Vec<u64>)] {
+        self.bundles.row_table()
+    }
+
     /// The token standing for `cd`.
     pub fn token(&self, cd: CharDefId) -> char {
         chardef_token(cd)

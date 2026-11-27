@@ -121,6 +121,118 @@ impl IntermediateBundles {
         Ok(result)
     }
 
+    /// The joint fixpoint of the cascade plan (section 2.0): rows closed under every rule's rhs updates, every `Modify` pin set and every `InsertContext` row of the grammar, in any order, until nothing new appears.
+    ///
+    /// Unlike [`IntermediateBundles::build`] no rule uses an `Exact` block plan, so `blocks` stays empty and every rule is closed by its general (widened) updates; and the closure of one source never waits for another, so the result is a superset for any stratum layout. Exceeding the row cap or byte charge is an error naming the first rule. Additive: nothing in `build` reads or calls this.
+    pub(crate) fn build_joint(
+        g: &Grammar,
+        table_id: TableId,
+        rules: &[&RewriteRuleDef],
+    ) -> Result<Self, PhonologyLoweringError> {
+        let table = &g.char_tables[table_id.0 as usize];
+        let first_rule = rules.first().map_or("", |rule| rule.xml_id.as_str());
+        if table.len() > 0x1900 {
+            return Err(Self::unavailable(first_rule));
+        }
+        let mut result = Self::empty(table_id, table.len() as u32);
+        for (id, definition) in table.iter() {
+            if definition.kind() == CharDefKind::Segment {
+                let lanes = definition.feature_lanes().to_vec();
+                result.interned.entry(lanes.clone()).or_insert(id);
+                result.push(id, lanes, first_rule)?;
+            }
+        }
+        result.evidence.attested_rows = result.rows.len();
+        let type_lane = g.phon_features.type_flat().0 as usize;
+        let width = g.phon_features.len();
+        // (rule, update) for every rewrite rule; (pins, alpha lanes) for every `Modify`.
+        let mut updates: Vec<(&str, RhsUpdate)> = Vec::new();
+        for rule in rules {
+            for update in Self::rhs_updates(g, table, rule)? {
+                updates.push((rule.xml_id.as_str(), update));
+            }
+        }
+        let (modifies, inserts) = Self::morphology_actions(g, table_id, width, type_lane);
+        for (rule, update) in &updates {
+            result.evidence.transfer_visits += 1;
+            result.intern(update.apply(&update.fresh, type_lane), rule)?;
+        }
+        for row in inserts {
+            result.intern(row, first_rule)?;
+        }
+        let mut next = 0;
+        while next < result.rows.len() {
+            let base = result.rows[next].1.clone();
+            next += 1;
+            for (rule, update) in &updates {
+                result.evidence.transfer_visits += 1;
+                result.intern(update.apply(&base, type_lane), rule)?;
+            }
+            for (pins, alpha) in &modifies {
+                let mut row = base.clone();
+                for &(lane, bits) in pins {
+                    row[lane] = bits;
+                }
+                for &lane in alpha {
+                    row[lane] = 0;
+                }
+                row[type_lane] = TYPE_SEGMENT_BITS;
+                result.intern(row, first_rule)?;
+            }
+        }
+        result.evidence.widened_alpha_outputs +=
+            updates.iter().map(|(_, update)| update.alpha_lanes.len()).sum::<usize>();
+        result.evidence.private_rows = result.rows.len() - result.evidence.attested_rows;
+        Ok(result)
+    }
+
+    /// Every `Modify` (pins, alpha lanes) and `InsertContext` row (as a full row) the grammar's affix and compounding rules can write.
+    fn morphology_actions(
+        g: &Grammar,
+        table_id: TableId,
+        width: usize,
+        type_lane: usize,
+    ) -> (Vec<(Vec<(usize, u64)>, Vec<usize>)>, Vec<Vec<u64>>) {
+        let (mut modifies, mut inserts) = (Vec::new(), Vec::new());
+        let affix_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| rule.affix_allomorphs())
+            .flatten()
+            .flat_map(|allomorph| &allomorph.rhs);
+        let compound_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| match rule {
+                MorphRuleDef::Compounding(rule) => Some(&rule.subrules),
+                _ => None,
+            })
+            .flatten()
+            .flat_map(|subrule| &subrule.rhs);
+        for action in affix_actions.chain(compound_actions) {
+            let context = match action {
+                OutputAction::Modify(_, context) | OutputAction::InsertContext(context) => context,
+                _ => continue,
+            };
+            let pins: Vec<_> = pg_rules::morph::ctx_pins(g, table_id, context)
+                .into_iter()
+                .filter(|(lane, _)| *lane < width)
+                .collect();
+            let alpha: Vec<usize> = context.vars.iter().map(|var| var.feature.0 as usize).collect();
+            if matches!(action, OutputAction::Modify(..)) {
+                modifies.push((pins, alpha));
+            } else {
+                let mut row = vec![0; width];
+                for (lane, bits) in pins {
+                    row[lane] = bits;
+                }
+                row[type_lane] = TYPE_SEGMENT_BITS;
+                inserts.push(row);
+            }
+        }
+        (modifies, inserts)
+    }
+
     /// Rows an affix `Modify` or `InsertContext` can create before any phonology runs, closed under repeated modification.
     fn seed_morphology(
         &mut self,
@@ -202,6 +314,14 @@ impl IntermediateBundles {
         let id = CharDefId(self.next_id);
         self.push(id, row.clone(), rule)?;
         self.interned.insert(row, id);
+        self.next_id += 1;
+        Ok(id)
+    }
+
+    /// A row distinct from every interned row with the same lanes: a private `Modify` token or an EMPTY twin.
+    fn push_distinct(&mut self, row: Vec<u64>, rule: &str) -> Result<CharDefId, PhonologyLoweringError> {
+        let id = CharDefId(self.next_id);
+        self.push(id, row, rule)?;
         self.next_id += 1;
         Ok(id)
     }
@@ -432,6 +552,11 @@ impl IntermediateBundles {
         }
     }
 
+    /// Every retained row with its token id and lanes.
+    pub(crate) fn row_table(&self) -> &[(CharDefId, Vec<u64>)] {
+        &self.rows
+    }
+
     /// The attested segment ids, then the private ids.
     pub(crate) fn row_ids(&self) -> (Vec<CharDefId>, Vec<CharDefId>) {
         let attested = self.evidence.attested_rows;
@@ -496,6 +621,301 @@ impl IntermediateBundles {
             return meter.regex(opts, "[0 - 0]*");
         }
         meter.regex(opts, &format!("[{}]*", pairs.join(" | ")))
+    }
+}
+
+/// The joint-fixpoint closure of one grammar's rewrite rules, for gates that compare the cascade's class membership and images with the synthesis code (plan section 2.0, KC-0b).
+pub struct JointClosure {
+    bundles: IntermediateBundles,
+    kinds: HashMap<CharDefId, RowKind>,
+}
+
+/// What a closure row stands for beyond its lanes (plan 2.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RowKind {
+    /// An attested segment, or a bundle some rule made: spelled by every compatible attested segment.
+    Plain,
+    /// The image of a `Modify` or `InsertContext` whose class restricts the char-def set to these members: spelled only by the members that unify.
+    Private(Vec<CharDefId>),
+    /// The EMPTY twin of an alpha-output image: spelled only as nothing.
+    EmptyTwin,
+}
+
+/// Row counts of a [`JointClosure`] against the token cap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct JointClosureReport {
+    pub attested_rows: usize,
+    pub private_rows: usize,
+    pub total_rows: usize,
+    /// Rows no attested segment can spell, so spelled as nothing.
+    pub epsilon_rows: usize,
+    /// Private `Modify`/`InsertContext` tokens, and EMPTY twins, among the private rows.
+    pub private_modify_rows: usize,
+    pub empty_twin_rows: usize,
+    /// The token-id cap: 0x1900 ids (6,400), and the row bound.
+    pub token_cap: usize,
+}
+
+impl JointClosure {
+    /// Closes the grammar's segment rows under every rule in `rules`, every `Modify` and every `InsertContext`; `Err` when the row cap is exceeded.
+    pub fn build(
+        g: &Grammar,
+        table: TableId,
+        rules: &[&RewriteRuleDef],
+    ) -> Result<Self, PhonologyLoweringError> {
+        let mut bundles = IntermediateBundles::build_joint(g, table, rules)?;
+        let kinds = Self::add_private_rows(g, table, rules, &mut bundles)?;
+        Ok(Self { bundles, kinds })
+    }
+
+    /// Adds the rows that carry more than lanes: a private token `(lanes, members)` for each image of a `Modify`/`InsertContext` whose class restricts the char-def set (unless every compatible segment is a member, the static check of 2.6), and an EMPTY twin of every image of a rule whose alpha variable is read with one polarity and written with the other.
+    fn add_private_rows(
+        g: &Grammar,
+        table_id: TableId,
+        rules: &[&RewriteRuleDef],
+        bundles: &mut IntermediateBundles,
+    ) -> Result<HashMap<CharDefId, RowKind>, PhonologyLoweringError> {
+        let table = &g.char_tables[table_id.0 as usize];
+        let first_rule = rules.first().map_or("", |rule| rule.xml_id.as_str());
+        let width = g.phon_features.len();
+        let type_lane = g.phon_features.type_flat().0 as usize;
+        let mut kinds = HashMap::new();
+        let plain: Vec<Vec<u64>> = bundles.rows.iter().map(|(_, row)| row.clone()).collect();
+        let compatible_segments = |lanes: &[u64]| -> Vec<CharDefId> {
+            table
+                .iter()
+                .filter(|(_, cd)| cd.kind() == CharDefKind::Segment && compatible(lanes, cd.feature_lanes()))
+                .map(|(id, _)| id)
+                .collect()
+        };
+        let mut seen: HashSet<(Vec<u64>, Vec<CharDefId>)> = HashSet::new();
+        let affix_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| rule.affix_allomorphs())
+            .flatten()
+            .flat_map(|allomorph| &allomorph.rhs);
+        let compound_actions = g
+            .mrules
+            .iter()
+            .filter_map(|rule| match rule {
+                MorphRuleDef::Compounding(rule) => Some(&rule.subrules),
+                _ => None,
+            })
+            .flatten()
+            .flat_map(|subrule| &subrule.rhs);
+        for action in affix_actions.chain(compound_actions) {
+            let (context, modify) = match action {
+                OutputAction::Modify(_, context) => (context, true),
+                OutputAction::InsertContext(context) => (context, false),
+                _ => continue,
+            };
+            let class = &g.natural_classes[context.nat_class.0 as usize];
+            let all_pins = pg_rules::morph::ctx_pins(g, table_id, context);
+            let flat: Vec<_> = all_pins
+                .iter()
+                .map(|(lane, bits)| (pg_grammar::featsys::FlatIndex(*lane as u32), pg_featstruct::SymbolBits(*bits)))
+                .collect();
+            let members: Vec<CharDefId> = match pg_grammar::segment::nat_class_cd_set_with_constraints(table, class, &flat) {
+                pg_shape::CdSet::Unrestricted => continue,
+                pg_shape::CdSet::Members(bits) => table.iter().map(|(id, _)| id).filter(|id| bits.contains(id.0)).collect(),
+            };
+            if members.is_empty() && matches!(class.kind, NaturalClassKind::Segments(_)) {
+                // E4: the pins would read as any-value, so this is refused by name instead of modelled.
+                return Err(PhonologyLoweringError::UnsupportedRewrite(format!(
+                    "class {} has no eligible member",
+                    class.xml_id
+                )));
+            }
+            let pins: Vec<_> = all_pins.into_iter().filter(|(lane, _)| *lane < width).collect();
+            let alpha: Vec<usize> = context.vars.iter().map(|var| var.feature.0 as usize).collect();
+            let images: Vec<Vec<u64>> = if modify {
+                plain
+                    .iter()
+                    .map(|base| {
+                        let mut row = base.clone();
+                        for &(lane, bits) in &pins {
+                            row[lane] = bits;
+                        }
+                        for &lane in &alpha {
+                            row[lane] = 0;
+                        }
+                        row[type_lane] = TYPE_SEGMENT_BITS;
+                        row
+                    })
+                    .collect()
+            } else {
+                let mut row = vec![0; plain.first().map_or(0, Vec::len)];
+                for &(lane, bits) in &pins {
+                    row[lane] = bits;
+                }
+                row[type_lane] = TYPE_SEGMENT_BITS;
+                vec![row]
+            };
+            for image in images {
+                if compatible_segments(&image).iter().all(|cd| members.contains(cd)) {
+                    continue;
+                }
+                if seen.insert((image.clone(), members.clone())) {
+                    let id = bundles.push_distinct(image, first_rule)?;
+                    kinds.insert(id, RowKind::Private(members.clone()));
+                }
+            }
+        }
+        // EMPTY twins: a rule reads a variable with one polarity and writes it with the other.
+        for rule in rules {
+            fn vars_of(nodes: &[PatternNode], out: &mut Vec<(pg_grammar::model::VarId, bool)>) {
+                for node in nodes {
+                    match node {
+                        PatternNode::Context(context) => {
+                            out.extend(context.vars.iter().map(|v| (v.var, v.plus)))
+                        }
+                        PatternNode::Quantifier { children, .. } => vars_of(children, out),
+                        _ => {}
+                    }
+                }
+            }
+            let (mut read, mut written) = (Vec::new(), Vec::new());
+            vars_of(&rule.lhs.nodes, &mut read);
+            for sub in &rule.subrules {
+                vars_of(&sub.rhs.nodes, &mut written);
+                for env in [&sub.left_env, &sub.right_env].into_iter().flatten() {
+                    vars_of(&env.nodes, &mut read);
+                }
+            }
+            if !written.iter().any(|(var, plus)| read.iter().any(|(v, p)| v == var && p != plus)) {
+                continue;
+            }
+            let updates = IntermediateBundles::rhs_updates(g, table, rule)?;
+            let mut images: HashSet<Vec<u64>> = HashSet::new();
+            for update in &updates {
+                images.insert(update.apply(&update.fresh, type_lane));
+                for base in &plain {
+                    images.insert(update.apply(base, type_lane));
+                }
+            }
+            let mut images: Vec<Vec<u64>> = images.into_iter().collect();
+            images.sort();
+            for image in images {
+                let id = bundles.push_distinct(image, &rule.xml_id)?;
+                kinds.insert(id, RowKind::EmptyTwin);
+            }
+        }
+        Ok(kinds)
+    }
+
+    pub fn row_kind(&self, id: CharDefId) -> RowKind {
+        self.kinds.get(&id).cloned().unwrap_or(RowKind::Plain)
+    }
+
+    /// Every row with its token id, attested rows first.
+    pub fn rows(&self) -> &[(CharDefId, Vec<u64>)] {
+        &self.bundles.rows
+    }
+
+    pub fn attested_rows(&self) -> usize {
+        self.bundles.evidence.attested_rows
+    }
+
+    /// The tokens a `CharDef` or `Context` node matches across the closure; `None` for any other node.
+    pub fn node_members(&self, g: &Grammar, node: &PatternNode) -> Option<Vec<CharDefId>> {
+        self.bundles.node_members(g, node)
+    }
+
+    /// Every boundary char-def of the owning table.
+    pub fn boundary_ids(&self, g: &Grammar) -> Vec<CharDefId> {
+        self.bundles.boundary_ids(g)
+    }
+
+    /// Whether some row has these lanes, a zero lane in the row standing for any value in `lanes`.
+    pub fn covers(&self, lanes: &[u64]) -> bool {
+        self.bundles.rows.iter().any(|(_, row)| {
+            row.len() == lanes.len() && row.iter().zip(lanes).all(|(r, l)| *r == 0 || r == l)
+        })
+    }
+
+    /// The concrete lane vectors row `idx` stands for: every zero (any-value) phonological lane takes each single value, each complement and the whole set. `None` above `cap` completions (the token then gets the epsilon spelling, plan 2.6).
+    pub fn completions(&self, g: &Grammar, idx: usize, cap: usize) -> Option<Vec<Vec<u64>>> {
+        let row = &self.bundles.rows[idx].1;
+        let mut out = vec![row.clone()];
+        for lane in (0..g.phon_features.len().min(row.len())).filter(|&l| row[l] == 0) {
+            let mask = g.phon_features.mask(pg_grammar::featsys::FlatIndex(lane as u32));
+            let mut values = vec![mask];
+            for bit in 0..64 {
+                let one = 1u64 << bit;
+                if mask & one != 0 {
+                    values.push(one);
+                    if mask & !one != 0 {
+                        values.push(mask & !one);
+                    }
+                }
+            }
+            let mut next = Vec::new();
+            for base in &out {
+                for value in &values {
+                    let mut r = base.clone();
+                    r[lane] = *value;
+                    next.push(r);
+                }
+            }
+            if next.len() > cap {
+                return None;
+            }
+            out = next;
+        }
+        Some(out)
+    }
+
+    /// The attested segments row `idx` may be spelled as, and whether it may also be spelled as nothing: when no segment is compatible, or when some concrete completion of an any-value lane unifies with no segment, or when there are more than 256 completions (plan 2.6).
+    pub fn spellings(&self, g: &Grammar, idx: usize) -> (Vec<CharDefId>, bool) {
+        let (id, row) = &self.bundles.rows[idx];
+        let table = &g.char_tables[self.bundles.table.0 as usize];
+        let kind = self.row_kind(*id);
+        if kind == RowKind::EmptyTwin {
+            return (Vec::new(), true);
+        }
+        let mut spelled = self.bundles.row_spellings(g, row, *id);
+        if let RowKind::Private(members) = &kind {
+            if g.phon_features.is_empty() {
+                // A featureless table spells by identity: a private token is spelled by its members.
+                spelled = members
+                    .iter()
+                    .copied()
+                    .filter(|cd| table.get(*cd).kind() == CharDefKind::Segment)
+                    .collect();
+            } else {
+                spelled.retain(|cd| members.contains(cd));
+            }
+        }
+        let allowed = |cd: CharDefId| match &kind {
+            RowKind::Private(members) => members.contains(&cd),
+            _ => true,
+        };
+        let epsilon = spelled.is_empty()
+            || (!g.phon_features.is_empty()
+                && match self.completions(g, idx, 256) {
+                None => true,
+                Some(completions) => completions.iter().any(|c| {
+                    !table.iter().any(|(cd_id, cd)| {
+                        cd.kind() == CharDefKind::Segment
+                            && allowed(cd_id)
+                            && c.iter().zip(cd.feature_lanes()).take(g.phon_features.len()).all(|(a, b)| a & b != 0)
+                    })
+                }),
+            });
+        (spelled, epsilon)
+    }
+
+    pub fn report(&self, g: &Grammar) -> JointClosureReport {
+        JointClosureReport {
+            attested_rows: self.bundles.evidence.attested_rows,
+            private_rows: self.bundles.rows.len() - self.bundles.evidence.attested_rows,
+            total_rows: self.bundles.rows.len(),
+            epsilon_rows: (0..self.bundles.rows.len()).filter(|&i| self.spellings(g, i).1).count(),
+            private_modify_rows: self.kinds.values().filter(|k| matches!(k, RowKind::Private(_))).count(),
+            empty_twin_rows: self.kinds.values().filter(|k| **k == RowKind::EmptyTwin).count(),
+            token_cap: 0x1900,
+        }
     }
 }
 
