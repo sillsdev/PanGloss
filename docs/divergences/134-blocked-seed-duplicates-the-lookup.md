@@ -1,7 +1,7 @@
 # 134: hc.dll reports a family-blocked derivation and the relative's own lookup as two analyses; PanGloss reports one
 
 Kind: behavioural (hc.dll multiplicity; low severity).
-Status: permanent until the Machine seed equality changes. Upstream: the fixture `edge-cases/family-blocked-generation`, kept in `conformance-staging/` since the suite retired it at df2b0e7 (a family is not FieldWorks-producible, cannot-say row 8; pinned row `aat` -> `[B|aat, B|aat]`); the `pangloss_expectations` row (`staging:edge-cases/family-blocked-generation`) in `oracle-conformance-known-divergences.json` excuses PanGloss's single `B|aat`. PanGloss #423 introduced the fixture.
+Status: permanent until the Machine seed equality changes. Upstream issue: [sillsdev/machine#656](https://github.com/sillsdev/machine/issues/656); cause: the `CheckBlocking` seed (Word.cs:550) carries `Modified:Clean` from `ResetDirty` and the lexical-lookup clone does not, so the frozen shape hashes differ and the `HashSet` dedup keeps both (reproduced at machine `ba6dfa106` with one thread). Upstream: the fixture `edge-cases/family-blocked-generation`, kept in `conformance-staging/` since the suite retired it at df2b0e7 (a family is not FieldWorks-producible, cannot-say row 8; pinned row `aat` -> `[B|aat, B|aat]`); the `pangloss_expectations` row (`staging:edge-cases/family-blocked-generation`) in `oracle-conformance-known-divergences.json` excuses PanGloss's single `B|aat`. PanGloss #423 introduced the fixture.
 
 ## Decision
 
