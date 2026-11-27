@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>BatchTarget</Name>
+    <PartsOfSpeech><PartOfSpeech id="v"><Name>Verb</Name></PartOfSpeech></PartsOfSpeech>
+    <CharacterDefinitionTable id="table1">
+      <Name>Main</Name>
+      <SegmentDefinitions>
+        <SegmentDefinition id="cR"><Representations><Representation>r</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cN"><Representations><Representation>n</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cA"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cS"><Representations><Representation>s</Representation></Representations></SegmentDefinition>
+        <SegmentDefinition id="cK"><Representations><Representation>k</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions>
+    </CharacterDefinitionTable>
+    <NaturalClasses>
+      <FeatureNaturalClass id="ncAny"><Name>Any</Name></FeatureNaturalClass>
+      <SegmentNaturalClass id="ncV"><Name>V</Name><Segment segment="cA" /></SegmentNaturalClass>
+    </NaturalClasses>
+    <Strata>
+      <Stratum characterDefinitionTable="table1" morphologicalRuleOrder="unordered" morphologicalRules="deriv">
+        <Name>Main</Name>
+        <MorphologicalRuleDefinitions>
+          <MorphologicalRule id="infl" requiredPartsOfSpeech="v">
+            <Name>s</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subInfl">
+                <MorphologicalInput>
+                  <PhoneticSequence id="stemI"><OptionalSegmentSequence min="0" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence>
+                  <PhoneticSequence id="vowI"><SimpleContext naturalClass="ncV" /></PhoneticSequence>
+                </MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemI" /><CopyFromInput index="vowI" /><InsertSegments><PhoneticShape>s</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>infl-id</MorphemeId>
+          </MorphologicalRule>
+          <MorphologicalRule id="deriv" requiredPartsOfSpeech="v" outputPartOfSpeech="v">
+            <Name>k</Name>
+            <MorphologicalSubrules>
+              <MorphologicalSubrule id="subDeriv">
+                <MorphologicalInput><PhoneticSequence id="stemD"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+                <MorphologicalOutput><CopyFromInput index="stemD" /><InsertSegments><PhoneticShape>k</PhoneticShape></InsertSegments></MorphologicalOutput>
+              </MorphologicalSubrule>
+            </MorphologicalSubrules>
+            <MorphemeId>deriv-id</MorphemeId>
+          </MorphologicalRule>
+        </MorphologicalRuleDefinitions>
+        <AffixTemplates>
+          <AffixTemplate id="tpl" requiredPartsOfSpeech="v" final="true">
+            <Name>VerbTemplate</Name>
+            <Slot morphologicalRules="infl"><Name>Tense</Name></Slot>
+          </AffixTemplate>
+        </AffixTemplates>
+        <LexicalEntries>
+          <LexicalEntry id="root" partOfSpeech="v">
+            <Allomorphs><Allomorph id="aRoot"><PhoneticShape>ranna</PhoneticShape></Allomorph></Allomorphs>
+            <MorphemeId>root-id</MorphemeId>
+          </LexicalEntry>
+        </LexicalEntries>
+      </Stratum>
+    </Strata>
+  </Language>
+</HermitCrabInput>

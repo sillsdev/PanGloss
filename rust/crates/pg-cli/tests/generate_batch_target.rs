@@ -1,4 +1,4 @@
-//! Batch `--out`, `target` and `cell` rows; every expected surface is read from the `request` path or already pinned.
+//! Batch `--out`, `target` and `cell` rows; surface literals are C# GenerateWords output (evidence 278-generate-batch).
 
 use std::process::Command;
 
@@ -107,6 +107,14 @@ fn request_row(id: &str, msa: &str, morphemes: &[Value]) -> Value {
         "root": aff(ENTRY, msa, "MoStemMsa"),
         "morphemes": morphemes,
     }})
+}
+
+/// The sorted surface strings of a row.
+fn surfaces(row: &Value) -> Vec<String> {
+    let mut found: Vec<String> = all_surfaces(row).into_iter().map(|s| s.0).collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 fn all_surfaces(row: &Value) -> Vec<(String, u64)> {
@@ -231,6 +239,7 @@ fn a_target_without_an_msa_enumerates_the_entrys_msas_and_names_each_one() {
             expected["seeds"].as_array().unwrap().len()
         );
         assert_eq!(row["comboKey"], INFL_MSA);
+        assert_eq!(surfaces(row), ["rannas"], "C# GenerateWords, infl");
     }
 }
 
@@ -405,6 +414,9 @@ fn a_cell_mixes_derivational_and_inflectional_affixes_and_flattens_combinations(
             rows[offset]["seeds"].as_array().unwrap().len(),
             rows[expected]["seeds"].as_array().unwrap().len()
         );
+        // C# GenerateWords on the same morphemes, in this order (evidence 278-generate-batch/hc-generate.tsv).
+        let hc: [&[&str]; 3] = [&["rannas"], &[], &[]];
+        assert_eq!(surfaces(&rows[offset]), hc[offset - 6], "combo {offset}");
         assert_eq!(
             rows[offset]["status"],
             if all_surfaces(&rows[expected]).is_empty() {
@@ -473,6 +485,7 @@ fn trace_is_on_none_rows_by_default_and_on_every_row_with_trace_all() {
         "per-surface steps ride with the opt-in: {surface}"
     );
     assert_eq!(all_surfaces(&plain[0]), all_surfaces(&all[0]));
+    assert_eq!(surfaces(&all[0]), ["rannas"], "C# GenerateWords, infl");
 }
 
 #[test]

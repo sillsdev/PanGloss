@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><NuGetAudit>false</NuGetAudit><RollForward>Major</RollForward></PropertyGroup>
+  <ItemGroup>
+    <Reference Include="SIL.Machine"><HintPath>/home/johnm/.cache/pangloss/hc-conformance/1ddef2bd2f1503717de95556116df8e4a63846d6/SIL.Machine.dll</HintPath></Reference>
+    <Reference Include="SIL.Machine.Morphology.HermitCrab"><HintPath>/home/johnm/.cache/pangloss/hc-conformance/1ddef2bd2f1503717de95556116df8e4a63846d6/SIL.Machine.Morphology.HermitCrab.dll</HintPath></Reference>
+    <Reference Include="SIL.Core"><HintPath>/home/johnm/.cache/pangloss/hc-conformance/1ddef2bd2f1503717de95556116df8e4a63846d6/SIL.Core.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
