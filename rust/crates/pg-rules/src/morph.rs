@@ -3812,9 +3812,37 @@ fn ana_allomorph_matches(
     {
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
-    let census_before = (pg_fst::census::enabled() && !pg_fst::census::suspended())
-        .then(pg_fst::census::used);
-    let matches = transduce.all_matches();
+    let census_before =
+        (pg_fst::census::enabled() && !pg_fst::census::suspended()).then(pg_fst::census::used);
+    let matches = match pg_fst::census::gate_mode() {
+        0 => transduce.all_matches(),
+        1 => {
+            // Measurement build: the register-free pass runs first, one work step per arc check, and a rejection skips the traversal.
+            let (accepts, _, arc_checks) = transduce.shadow_accepts();
+            let mut paid = true;
+            for _ in 0..arc_checks {
+                if !pg_fst::work::consume() {
+                    paid = false;
+                    break;
+                }
+            }
+            if paid && accepts {
+                transduce.all_matches()
+            } else {
+                Vec::new()
+            }
+        }
+        _ => {
+            let (accepts, _, _) = transduce.shadow_accepts();
+            let real = transduce.all_matches();
+            assert!(
+                accepts || real.is_empty() || pg_fst::census::stopped(),
+                "acceptance pass rejected a call whose traversal matched"
+            );
+            pg_fst::census::check_note(accepts && real.is_empty());
+            real
+        }
+    };
     if let Some(before) = census_before {
         if !pg_fst::census::stopped() {
             let work = pg_fst::census::used().saturating_sub(before);

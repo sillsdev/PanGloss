@@ -72,6 +72,7 @@ pub fn begin_word(word: &str) {
 pub struct Guard;
 impl Drop for Guard {
     fn drop(&mut self) {
+        check_report();
         if enabled() {
             flush(&mut STATE.lock().unwrap());
         }
@@ -114,4 +115,36 @@ pub fn stopped() -> bool {
 /// True when work is suspended (a replay that reserves without spending): such calls are not counted.
 pub fn suspended() -> bool {
     crate::work::active_budget().is_some_and(|b| b.is_suspended())
+}
+
+static GATE: OnceLock<u8> = OnceLock::new();
+static CHECK_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CHECK_ACCEPT_EMPTY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Measuring only: the landed version has no switch. `HC_ACCEPT_GATE`: 0 off (default), 1 skip a traversal the acceptance pass rejects, 2 (`check`) run both and panic if the pass rejects a call whose traversal matched.
+pub fn gate_mode() -> u8 {
+    *GATE.get_or_init(|| match std::env::var("HC_ACCEPT_GATE").as_deref() {
+        Ok("1") => 1,
+        Ok("check") => 2,
+        _ => 0,
+    })
+}
+
+/// Check mode: count one call; `accepts_empty` marks a pass that accepted a traversal that found nothing (allowed, not a bug).
+pub fn check_note(accepts_empty: bool) {
+    CHECK_CALLS.fetch_add(1, Ordering::Relaxed);
+    if accepts_empty {
+        CHECK_ACCEPT_EMPTY.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Print the check-mode totals once, at the end of a batch.
+pub fn check_report() {
+    if gate_mode() == 2 {
+        eprintln!(
+            "ACCEPT_GATE_CHECK calls={} accepts_but_empty={} rejects_but_nonempty=0 (a panic would have stopped the run)",
+            CHECK_CALLS.load(Ordering::Relaxed),
+            CHECK_ACCEPT_EMPTY.load(Ordering::Relaxed)
+        );
+    }
 }

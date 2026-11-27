@@ -1888,8 +1888,8 @@ fn synthesize_sites(
     let dir = dir_of(rule);
     let mut cursor: Option<usize> = None;
     let mut pending = Vec::new();
-    let census_before = (pg_fst::census::enabled() && !pg_fst::census::suspended())
-        .then(pg_fst::census::used);
+    let census_before =
+        (pg_fst::census::enabled() && !pg_fst::census::suspended()).then(pg_fst::census::used);
     // (nodes scanned, nodes satisfying the first target segment) on the entry shape.
     let mut census_shadow: Option<(u64, u64)> = None;
     loop {
