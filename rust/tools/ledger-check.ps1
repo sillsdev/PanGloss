@@ -22,8 +22,6 @@ param(
 )
 
 $script:LedgerStatuses = @('idea', 'measured', 'issue-filed', 'ready', 'in-progress', 'landed', 'rejected', 'open-upstream')
-# `open` predates the status list and is used by many rows; it reads as "issue exists, no work yet".
-$script:LedgerLegacyStatuses = @('open')
 
 # The one place that lists the paths whose change needs a `Ledger:` line (HermitCrab analysis and
 # synthesis). A path matches when it starts with an entry ending in `/`, or equals / starts with
@@ -108,7 +106,7 @@ function Get-LedgerSectionText {
 function Test-LedgerStatus {
     param([string]$Cell)
     $c = $Cell.Trim().Trim('`').ToLowerInvariant()
-    foreach ($s in ($script:LedgerStatuses + $script:LedgerLegacyStatuses)) {
+    foreach ($s in $script:LedgerStatuses) {
         # Any trailing qualifier is allowed: '(...)', ', ...', or plain words ('rejected as ported').
         if ($c -match ('^' + [regex]::Escape($s) + '(?![\w-])')) { return $s }
     }
@@ -157,7 +155,7 @@ function Test-LedgerFile {
 
         $status = Test-LedgerStatus $cells[1]
         if (-not $status) {
-            $errors += "$where : status '$($cells[1])' must start with one of $($script:LedgerStatuses -join ', ') (open is also accepted), optionally followed by a qualifier such as '(...)' or ', ...'. Fix: begin the Status cell with the status word."
+            $errors += "$where : status '$($cells[1])' must start with one of $($script:LedgerStatuses -join ', '), optionally followed by a qualifier such as '(...)' or ', ...'. Fix: begin the Status cell with the status word."
         }
 
         $link = [regex]::Match($cells[4], '\]\(([^)]+)\)')
