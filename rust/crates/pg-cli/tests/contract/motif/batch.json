@@ -1,0 +1,277 @@
+{
+  "description": "batch over a word list with the analyses file and the per-object statistics cache, then the stats pass-through.",
+  "scenario": "batch",
+  "steps": [
+    {
+      "argv": [
+        "batch",
+        "{scratch}/kat.fwdata",
+        "{scratch}/words.txt",
+        "{scratch}/out.tsv",
+        "--word-timeout-ms",
+        "10000",
+        "--work-cap",
+        "20000000",
+        "--threads",
+        "1",
+        "--analyses",
+        "{scratch}/analyses.jsonl",
+        "--stats",
+        "--cache",
+        "{scratch}/stats.sqlite",
+        "--stats-manifest",
+        "{scratch}/stats-manifest.json"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "analyses.jsonl": {
+            "fieldworks-parse-analysis/v1": {
+              "analyses": [
+                {
+                  "morphs": [
+                    {
+                      "form": "string",
+                      "guessedString": "null",
+                      "inflType": "null",
+                      "msa": "string"
+                    }
+                  ]
+                }
+              ],
+              "capped": "boolean",
+              "elapsedMs": "integer",
+              "index": "integer",
+              "invalidShape": "boolean",
+              "schema": "fieldworks-parse-analysis/v1",
+              "timedOut": "boolean",
+              "unavailable": [],
+              "word": "string"
+            }
+          },
+          "out.tsv": {
+            "tsv": "0\tkat\tSTARTED\n0\tkat\t<ms>\tok\t-\n1\tkad\tSTARTED\n1\tkad\t<ms>\tok\t|kad\n2\tkak\tSTARTED\n2\tkak\t<ms>\tok\t-"
+          },
+          "stats-manifest.json": {
+            "batch": {
+              "always_enforce_final_templates": "boolean",
+              "analyses_requested": "boolean",
+              "engine": "string",
+              "guess": "boolean",
+              "search_budget_semantics": "integer",
+              "start": "integer",
+              "threads": "integer",
+              "word_mem_cap": "integer",
+              "word_timeout_ms": "integer",
+              "work_cap": "string"
+            },
+            "cache": {
+              "bytes": "integer",
+              "counter_semantics_version": 8,
+              "schema_version": 13,
+              "sha256": "string"
+            },
+            "compiler": {
+              "build_identity": "string",
+              "version": "string"
+            },
+            "completion": {
+              "complete": "integer",
+              "incomplete": "integer",
+              "invalid_shape": "integer",
+              "missing": "integer",
+              "requested": "integer",
+              "words": [
+                {
+                  "capped": "boolean",
+                  "form": "string",
+                  "index": "integer",
+                  "invalid_shape": "boolean",
+                  "status": "string",
+                  "timed_out": "boolean"
+                }
+              ]
+            },
+            "format": "string",
+            "input": {
+              "word_count": "integer",
+              "word_list_sha256": "string",
+              "words": [
+                "string"
+              ]
+            },
+            "run": {
+              "engine": "string",
+              "grammar_hash": "string",
+              "id": "integer",
+              "options_hash": "string",
+              "options_json": "string"
+            },
+            "source": {
+              "compile_options_json": "string",
+              "grammar_hash": "string",
+              "kind": "string",
+              "model_fingerprint": "string",
+              "source_sha256": "string"
+            },
+            "version": 2
+          }
+        }
+      },
+      "files": {
+        "analyses.jsonl": "jsonl",
+        "out.tsv": "tsv",
+        "stats-manifest.json": "json"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Batch.AddArguments",
+      "name": "batch-stats-analyses",
+      "writeFiles": {
+        "words.txt": "kat\nkad\nkak\n"
+      }
+    },
+    {
+      "argv": [
+        "stats",
+        "{scratch}/kat.fwdata",
+        "--cache",
+        "{scratch}/stats.sqlite"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "nonEmpty": true
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Stats.AddArguments",
+      "name": "stats-default",
+      "stdout": "text"
+    },
+    {
+      "argv": [
+        "stats",
+        "{scratch}/kat.fwdata",
+        "--cache",
+        "{scratch}/stats.sqlite",
+        "--group",
+        "object",
+        "--format",
+        "jsonl"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "-": {
+            "amp": "null|number",
+            "attempts": "integer|null",
+            "engine": "string",
+            "filters": {
+              "by_kind": "boolean",
+              "direction": "null",
+              "exclude_censored": "boolean",
+              "kind": "null",
+              "object": "null",
+              "sort": "null",
+              "stratum": "null",
+              "top": "null",
+              "word": "null"
+            },
+            "grammar_hash": "string",
+            "identity_quality": "string",
+            "kind": "string",
+            "label": "string",
+            "meta": "boolean",
+            "no_root": "integer|null",
+            "not_applied": "integer|null",
+            "orientation": "string",
+            "outputs": "integer|null",
+            "surface_mismatch": "integer|null",
+            "time_ns": "integer",
+            "totals": {
+              "attempts_by_kind": {
+                "lex_entry": "integer",
+                "morph_rule": "integer",
+                "parser": "null",
+                "phon_rule": "integer",
+                "root_index": "integer"
+              },
+              "attributed_pct": "number",
+              "comparisonElapsedNs": "integer",
+              "comparisonScope": "string",
+              "rows": "integer",
+              "rows_shown": "integer",
+              "time_ns": "integer",
+              "uses": "integer"
+            },
+            "unmeasured": {},
+            "uses": "integer|null",
+            "words": "integer",
+            "work": "integer|null",
+            "work_steps": "integer"
+          }
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Stats.AddArguments plus StatsCommand.cs AppendFormatJsonl",
+      "name": "stats-object-jsonl",
+      "stdout": "jsonl"
+    },
+    {
+      "argv": [
+        "stats",
+        "{scratch}/kat.fwdata",
+        "--cache",
+        "{scratch}/stats.sqlite",
+        "--group",
+        "word",
+        "--format",
+        "jsonl"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "-": {
+            "capped": "boolean",
+            "elapsed_ns": "integer",
+            "engine": "string",
+            "filters": {
+              "by_kind": "boolean",
+              "direction": "null",
+              "exclude_censored": "boolean",
+              "kind": "null",
+              "object": "null",
+              "sort": "null",
+              "stratum": "null",
+              "top": "null",
+              "word": "null"
+            },
+            "form": "string",
+            "grammar_hash": "string",
+            "invalid_shape": "boolean",
+            "meta": "boolean",
+            "orientation": "string",
+            "passes": "integer",
+            "timed_out": "boolean",
+            "totals": {
+              "rows": "integer",
+              "rows_shown": "integer",
+              "time_ns": "integer",
+              "work": "integer"
+            },
+            "unmeasured": {},
+            "work": "integer"
+          }
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Stats.AddArguments plus StatsCommand.cs AppendFormatJsonl",
+      "name": "stats-word-jsonl",
+      "stdout": "jsonl"
+    }
+  ]
+}

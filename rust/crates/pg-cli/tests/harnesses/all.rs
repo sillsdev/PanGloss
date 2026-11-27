@@ -39,6 +39,8 @@ mod grammar_health_shadowed;
 mod guesser_conformance_gate;
 #[path = "../inferred_segment_engine_parity_gate.rs"]
 mod inferred_segment_engine_parity_gate;
+#[path = "../motif_contract.rs"]
+mod motif_contract;
 #[cfg(feature = "foma-tools")]
 #[path = "../recipe_optimize_continuation.rs"]
 mod recipe_optimize_continuation;

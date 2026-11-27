@@ -1,0 +1,37 @@
+{
+  "description": "batch with --work-columns (batch TSV 5 ends with work_steps) and no per-word time limit.",
+  "scenario": "batch-work-columns",
+  "steps": [
+    {
+      "argv": [
+        "batch",
+        "{scratch}/kat-snapshot.json",
+        "{scratch}/words.txt",
+        "{scratch}/out.tsv",
+        "--work-cap",
+        "unbounded",
+        "--work-columns",
+        "--threads",
+        "1"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "out.tsv": {
+            "tsv": "0\tkat\tSTARTED\n0\tkat\t<ms>\tok\t-\t<work>\n1\tkad\tSTARTED\n1\tkad\t<ms>\tok\t|kad\t<work>\n2\tkak\tSTARTED\n2\tkak\t<ms>\tok\t-\t<work>"
+          }
+        }
+      },
+      "files": {
+        "out.tsv": "tsv"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Batch.AddArguments",
+      "name": "batch-work-columns",
+      "writeFiles": {
+        "words.txt": "kat\nkad\nkak\n"
+      }
+    }
+  ]
+}
