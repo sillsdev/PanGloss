@@ -88,17 +88,8 @@ fn parse_set(pattern: &str) -> Result<Vec<char>, String> {
         .strip_prefix('[')
         .and_then(|s| s.strip_suffix(']'))
         .ok_or("invalid Unicode set")?;
-    if s.len() > 2
-        && s.starts_with(':')
-        && s.ends_with(':')
-        && s[..s.len() - 1]
-            .chars()
-            .rev()
-            .take_while(|c| *c == '\\')
-            .count()
-            % 2
-            == 0
-    {
+    // ICU 70.1 reads a leading `[:` as property syntax and fails unless it is well formed; we refuse both.
+    if s.starts_with(':') {
         return Err("unsupported Unicode set property".into());
     }
     let mut chars = s.chars().peekable();
