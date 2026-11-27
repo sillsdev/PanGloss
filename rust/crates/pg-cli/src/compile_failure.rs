@@ -124,12 +124,17 @@ impl CompileFailure {
             let kind = match error {
                 pg_grammar::GrammarError::Xml(_) => "xml",
                 pg_grammar::GrammarError::Unsupported(_) => "unsupported",
+                pg_grammar::GrammarError::Limit { .. } => "limit",
                 pg_grammar::GrammarError::Semantic(_) => "semantic",
                 pg_grammar::GrammarError::DuplicateRepresentation(_) => "duplicate_representation",
                 pg_grammar::GrammarError::UnsegmentableBoundary(_) => "unsegmentable_boundary",
                 pg_grammar::GrammarError::Conversion(_) => unreachable!(),
             };
-            let warning = Warning::new(ImportWarningCode::CompileFailed, &message).with_subject(
+            let code = match &error {
+                pg_grammar::GrammarError::Limit { code, .. } => code.clone(),
+                _ => ImportWarningCode::CompileFailed,
+            };
+            let warning = Warning::new(code, &message).with_subject(
                 pg_snapshot::FwObjectRef::new(FwClass::Project)
                     .project_settings()
                     .name(path),

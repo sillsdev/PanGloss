@@ -17,6 +17,9 @@ pub(crate) const DANGLING_REFERENCE: ImportWarningCode = ImportWarningCode::Fwda
 /// position (includes the tag/discriminant classes like `PhContextOrVar`/`RuleMapping` variants,
 /// not just `super::Ctx::require`'s single-target-class case).
 pub(crate) const UNEXPECTED_CLASS: ImportWarningCode = ImportWarningCode::FwdataUnexpectedClass;
+/// A feature structure holds a negated (or other non-closed, non-complex) value; FieldWorks' `HCLoader` throws on it, so the import is fatal.
+pub(crate) const NEGATED_FEATURE_VALUE: ImportWarningCode =
+    ImportWarningCode::FeatureNegatedValueUnsupported;
 /// A record is missing a field this extractor needs to represent it at all (as opposed to that
 /// field being present but dangling) -- the record/sub-structure is skipped as a result.
 pub(crate) const MISSING_REQUIRED_FIELD: ImportWarningCode =
@@ -36,10 +39,6 @@ pub(crate) const EMPTY_REPRESENTATION: ImportWarningCode =
 /// no variant for; a documented default is substituted so extraction can continue.
 pub(crate) const UNRECOGNIZED_ENUM_VALUE: ImportWarningCode =
     ImportWarningCode::FwdataUnrecognizedEnumValue;
-/// `PhMetathesisRule.StrucChange`'s two-element-swap approximation could not exactly represent the
-/// authored permutation (documented model gap — see `extract_metathesis_rule`'s doc).
-pub(crate) const METATHESIS_APPROXIMATION: ImportWarningCode =
-    ImportWarningCode::FwdataMetathesisApproximation;
 /// An enabled ad-hoc "morpheme" co-occurrence prohibition targets an inflectional affix whose
 /// slot(s) belong only to disabled affix templates — the stale/unreachable-rule shape that
 /// crashes FieldWorks' own HC exporter (`docs/fwdata-import-plan.md` §1's motivating example).
@@ -49,10 +48,6 @@ pub(crate) const STALE_ADHOC_PROHIBITION: ImportWarningCode =
 /// `lexemeMorphType` falls back to a default rather than being left unset.
 pub(crate) const NO_USABLE_ALLOMORPHS: ImportWarningCode =
     ImportWarningCode::FwdataNoUsableAllomorphs;
-/// An allomorph's morph-type guid is a recognized, well-known FieldWorks morph type, but one this
-/// format's `MorphType` enum has no variant for (a documented model gap, not a data error).
-pub(crate) const UNSUPPORTED_MORPH_TYPE: ImportWarningCode =
-    ImportWarningCode::FwdataUnsupportedMorphType;
 /// An allomorph's morph-type guid isn't recognized as any known FieldWorks morph type at all.
 pub(crate) const UNKNOWN_MORPH_TYPE_GUID: ImportWarningCode =
     ImportWarningCode::FwdataUnknownMorphTypeGuid;

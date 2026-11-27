@@ -38,6 +38,7 @@ fn segments_class(
     NaturalClass {
         xml_id: xml_id.to_string(),
         name: Some(name.to_string()),
+        full_name: None,
         kind: NaturalClassKind::Segments(members),
     }
 }
@@ -132,6 +133,7 @@ fn natural_class_member_ids_respects_feature_eligibility_and_wildcards() {
     let nc = NaturalClass {
         xml_id: "nc".into(),
         name: Some("Voiced".into()),
+        full_name: None,
         kind: NaturalClassKind::Feature(vec![(phon.flat_index("voice").unwrap(), SymbolBits(1))]),
     };
 
@@ -301,4 +303,44 @@ fn representation_matches_after_nfd_normalization() {
     let t = table(vec![seg("c1", &["e\u{0301}"])]); // e + combining acute
     let shape = segment(&t, "\u{00e9}").unwrap(); // precomposed é
     assert_eq!(shape.interior().count(), 1);
+}
+
+#[test]
+fn load_variants_agree_with_the_originals_on_every_word_over_a_small_alphabet() {
+    let t = table(vec![
+        seg("c_a", &["a"]),
+        seg("c_s", &["s"]),
+        seg("c_sy", &["sy", "S"]),
+        seg("c_e", &["e", "e\u{301}"]),
+        seg("c_aa", &["a\u{300}\u{323}"]),
+        bnd("b1", &["+", "--"]),
+    ]);
+    let alphabet = [
+        'a', 's', 'y', 'e', '\u{301}', '\u{e9}', '+', '-', 'z', '\u{300}', '\u{323}', 'S',
+    ];
+    let mut words = vec![String::new()];
+    let mut frontier = vec![String::new()];
+    for _ in 0..5 {
+        let mut next = Vec::new();
+        for w in &frontier {
+            for c in alphabet {
+                let mut x = w.clone();
+                x.push(c);
+                next.push(x);
+            }
+        }
+        words.extend(next.iter().cloned());
+        frontier = next;
+        if words.len() > 300_000 {
+            break;
+        }
+    }
+    for w in &words {
+        assert_eq!(segment(&t, w), segment_load(&t, w), "segment {w:?}");
+        assert_eq!(
+            segment_phonemes_only(&t, w),
+            segment_phonemes_only_load(&t, w),
+            "phonemes {w:?}"
+        );
+    }
 }

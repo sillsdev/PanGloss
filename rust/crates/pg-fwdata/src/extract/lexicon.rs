@@ -16,9 +16,11 @@ pub fn extract_lexicon(
     _feature_systems: &FeatureSystems,
     _morphology: &Morphology,
 ) -> Lexicon {
-    // `LexEntry` is `owner="none"` in LCM (no ordered `Entries` sequence), so the parser tracks file-encounter order directly via `RawGraph::lex_entry_order`.
     let order = ctx.graph.lex_entry_order.clone();
-    let entries: Vec<LexEntry> = order.iter().filter_map(|g| extract_entry(ctx, g)).collect();
+    let entries: Vec<LexEntry> = order
+        .iter()
+        .filter_map(|guid| extract_entry(ctx, guid))
+        .collect();
     let ctx: &Ctx = ctx;
     let msa_equality = entries
         .iter()
@@ -117,8 +119,8 @@ fn resolve_morph_type(
             IssueClass::UnrepresentableForHc,
             false,
             Some(SourceRef {
-                kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                id: rec.guid.clone(),
+                kind: pg_snapshot::FwClass::from_wire(rec.class),
+                id: rec.guid.to_string(),
             }),
             warning,
         );
@@ -126,29 +128,6 @@ fn resolve_morph_type(
     };
     match morphtype::lookup(&mt_guid) {
         MorphTypeLookup::Known(mt) => Some(mt),
-        MorphTypeLookup::UnsupportedWellKnown(name) => {
-            let warning = pg_snapshot::Warning::new(
-                super::codes::UNSUPPORTED_MORPH_TYPE,
-                format!(
-                    "{label}: {} has morph type {name:?} ({mt_guid}), which this format's \
-                     MorphType enum has no variant for (model gap — see morphtype module docs); \
-                     skipping",
-                    rec.guid
-                ),
-            )
-            .with_subject(ctx.subject_for_record(rec, Some("MorphType")));
-            ctx.reject_with_warning(
-                key.clone(),
-                IssueClass::UnrepresentableForHc,
-                false,
-                Some(SourceRef {
-                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                    id: rec.guid.clone(),
-                }),
-                warning,
-            );
-            None
-        }
         MorphTypeLookup::Unknown => {
             let name = ctx.best_vernacular(&rec.node.ws_forms("Form"));
             let resolution = ctx.resolve_reference(&mt_guid, "MoMorphType");
@@ -167,8 +146,8 @@ fn resolve_morph_type(
                 IssueClass::UnrepresentableForHc,
                 false,
                 Some(SourceRef {
-                    kind: pg_snapshot::FwClass::from_wire(&rec.class),
-                    id: rec.guid.clone(),
+                    kind: pg_snapshot::FwClass::from_wire(rec.class),
+                    id: rec.guid.to_string(),
                 }),
                 warning,
             );
@@ -181,7 +160,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
     let label = "lexicon.entries.allomorphs";
     let rec = ctx.get(guid)?;
     if !matches!(
-        rec.class.as_str(),
+        rec.class,
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess"
     ) {
         ctx.warn_with_subjects(
@@ -195,7 +174,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
         );
         return None;
     }
-    let kind = tracked_kind(&rec.class)?;
+    let kind = tracked_kind(rec.class)?;
     let key = InventoryKey::object(kind, guid.to_string());
     ctx.considered(key.clone());
     ctx.selected(key.clone());
@@ -259,7 +238,7 @@ fn extract_allomorph(ctx: &mut Ctx, guid: &str, owner: &Record, field: &str) -> 
 fn record_environment_attachment(ctx: &mut Ctx, allomorph: &Record, env_guid: &str) {
     let attachment = InventoryKey::attachment(
         InventoryKind::Environment,
-        allomorph.guid.clone(),
+        allomorph.guid.to_string(),
         env_guid.to_string(),
         "environment",
     );
@@ -355,7 +334,7 @@ fn extract_rule_mapping(
             }
         }
     };
-    match rec.class.as_str() {
+    match rec.class {
         "MoInsertNC" => {
             let natural_class = rec.node.objsur_one("Content")?;
             Some(RuleMapping::InsertNaturalClass { natural_class })
@@ -366,18 +345,20 @@ fn extract_rule_mapping(
             Some(RuleMapping::CopyFromInput { part })
         }
         "MoInsertPhones" => {
+            let terms = rec.node.objsur_list("Content");
+            // HCLoader adds no step for an empty Content list, and rejects the whole process when any unit has no representation (HCLoader.cs:1437-1452); an empty text here makes the compiler reject it.
+            if terms.is_empty() {
+                return None;
+            }
             let mut text = String::new();
-            for term_guid in rec.node.objsur_list("Content") {
+            for term_guid in terms {
                 match first_code_representation(ctx, &term_guid) {
                     Some(s) => text.push_str(&s),
                     None => {
                         let mut subjects = vec![ctx.subject_for_record(rec, Some("Content"))];
                         match ctx.get(&term_guid) {
                             Some(target)
-                                if matches!(
-                                    target.class.as_str(),
-                                    "PhPhoneme" | "PhBdryMarker"
-                                ) =>
+                                if matches!(target.class, "PhPhoneme" | "PhBdryMarker") =>
                             {
                                 subjects.push(ctx.subject_for_record(target, Some("Content")));
                             }
@@ -402,7 +383,9 @@ fn extract_rule_mapping(
                                  unit {term_guid}"
                             ),
                             subjects,
-                        )
+                        );
+                        text.clear();
+                        break;
                     }
                 }
             }
@@ -435,12 +418,12 @@ fn extract_rule_mapping(
 fn extract_msa(ctx: &mut Ctx, guid: &str, owner: &Record) -> Option<Msa> {
     let label = "lexicon.entries.msas";
     let rec = ctx.get(guid)?;
-    let key = tracked_kind(&rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
+    let key = tracked_kind(rec.class).map(|kind| InventoryKey::object(kind, guid.to_string()));
     if let Some(key) = &key {
         ctx.considered(key.clone());
         ctx.selected(key.clone());
     }
-    let msa = match rec.class.as_str() {
+    let msa = match rec.class {
         "MoStemMsa" => {
             let features = rec
                 .node

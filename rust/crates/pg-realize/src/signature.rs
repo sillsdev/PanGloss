@@ -1,5 +1,5 @@
 //! The R4 gloss signature: a shared canonical gloss/analysis-signature unit, matching
-//! `machine/conformance/PROTOCOL.md`'s §3-4 multiset comparison semantics. Any caller doing a
+//! `conformance/PROTOCOL.md`'s §3-4 multiset comparison semantics. Any caller doing a
 //! gloss-signature parity check or gloss-based diagnostics is meant to call this one
 //! implementation instead of growing its own — see this module's doc for why no such unit existed
 //! to extract before this change (only the morpheme-ID-keyed `pg_parse::result_signature` did).

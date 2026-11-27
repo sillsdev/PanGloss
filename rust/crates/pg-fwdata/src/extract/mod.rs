@@ -55,9 +55,26 @@ impl ReferenceResolution<'_> {
 }
 
 impl<'a> Ctx<'a> {
+    #[cfg(test)]
     fn new(graph: &'a RawGraph) -> Self {
-        let mut recorder = SelectionRecorder::for_stage(LoadPipelineStage::Import);
-        inventory::seed_authored_from_graph(&mut recorder, graph);
+        Self::new_with(graph, false)
+    }
+
+    /// A `lean` context records only issues and the `represented` kinds the extractors read back; its recorder yields no inventory or load decisions.
+    fn new_with(graph: &'a RawGraph, lean: bool) -> Self {
+        let recorder = if lean {
+            SelectionRecorder::lean_for_stage_keeping_represented(
+                LoadPipelineStage::Import,
+                &[
+                    pg_snapshot::InventoryKind::TemplateSlot,
+                    pg_snapshot::InventoryKind::Environment,
+                ],
+            )
+        } else {
+            let mut recorder = SelectionRecorder::for_stage(LoadPipelineStage::Import);
+            inventory::seed_authored_from_graph(&mut recorder, graph);
+            recorder
+        };
         Ctx {
             graph,
             warnings: Vec::new(),
@@ -80,9 +97,9 @@ impl<'a> Ctx<'a> {
 
     pub(crate) fn subject_for_record(&self, record: &Record, field: Option<&str>) -> FwObjectRef {
         let name = record_name(record, self);
-        let mut subject = FwObjectRef::new(FwClass::from_wire(&record.class))
-            .guid(record.guid.clone())
-            .source_class(record.class.clone());
+        let mut subject = FwObjectRef::new(FwClass::from_wire(record.class))
+            .guid(record.guid.to_string())
+            .source_class(record.class);
         if let Some(name) = name.filter(|name| !name.trim().is_empty()) {
             subject = subject.name(name);
         }
@@ -321,7 +338,7 @@ fn record_name(record: &Record, ctx: &Ctx<'_>) -> Option<String> {
             return Some(name);
         }
     }
-    let fields = match record.class.as_str() {
+    let fields = match record.class {
         "LexEntry" => ["CitationForm", "Name", "Abbreviation"],
         "MoStemAllomorph" | "MoAffixAllomorph" | "MoAffixProcess" | "MoForm" => {
             ["Form", "Name", "CitationForm"]
@@ -352,7 +369,16 @@ pub fn extract(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>), ImportError> {
-    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false)?;
+    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false, false)?;
+    Ok((snapshot, warnings))
+}
+
+/// As [`extract`], but the snapshot's provenance omits `graph_to_snapshot` and `import_load_decisions`, which only the facts export reads and which dominate the peak heap of a large import.
+pub fn extract_lean(
+    graph: &RawGraph,
+    filename_stem: &str,
+) -> Result<(Snapshot, Vec<Warning>), ImportError> {
+    let (snapshot, warnings, _) = extract_with(graph, filename_stem, false, true)?;
     Ok((snapshot, warnings))
 }
 
@@ -361,7 +387,7 @@ pub(crate) fn extract_recording(
     graph: &RawGraph,
     filename_stem: &str,
 ) -> Result<(Snapshot, Vec<Warning>, SelectionRecorder), ImportError> {
-    let (snapshot, warnings, recorder) = extract_with(graph, filename_stem, true)?;
+    let (snapshot, warnings, recorder) = extract_with(graph, filename_stem, true, false)?;
     let recorder = recorder.expect("extract_with keeps the recorder when asked to");
     Ok((snapshot, warnings, recorder))
 }
@@ -370,8 +396,9 @@ fn extract_with(
     graph: &RawGraph,
     filename_stem: &str,
     keep_recorder: bool,
+    lean: bool,
 ) -> Result<(Snapshot, Vec<Warning>, Option<SelectionRecorder>), ImportError> {
-    let mut ctx = Ctx::new(graph);
+    let mut ctx = Ctx::new_with(graph, lean);
 
     let lang_project = project::find_lang_project(&mut ctx, filename_stem);
     let project = project::extract_project(&mut ctx, lang_project, filename_stem);
@@ -381,15 +408,18 @@ fn extract_with(
     let feature_systems = features::extract_feature_systems(&mut ctx, lang_project);
     let phonology =
         phonology::extract_phonology(&mut ctx, lang_project, &feature_systems, &project.name);
-    let morphology =
+    let mut morphology =
         morphology::extract_morphology(&mut ctx, lang_project, &feature_systems, &project.name)?;
     let lexicon = lexicon::extract_lexicon(&mut ctx, &feature_systems, &morphology);
+    morphology.adhoc_prohibitions = morphology::extract_adhoc_prohibitions(&mut ctx, lang_project);
 
     morphology::check_stale_adhoc_morpheme_rules(&mut ctx, &morphology, &lexicon);
-    finalize_unrecorded_tracked_objects(&mut ctx);
+    if !lean {
+        finalize_unrecorded_tracked_objects(&mut ctx);
+    }
 
     let source_objects = graph.source_objects();
-    for source_object in &source_objects {
+    for source_object in source_objects.iter().filter(|_| !lean) {
         let decision = if !source_object.handled {
             Some((LoadReasonCode::UnknownClass, None))
         } else if source_object.raw_guid.is_empty() {
@@ -419,8 +449,12 @@ fn extract_with(
     }
     let recorder = keep_recorder.then(|| ctx.recorder.clone());
     // Source decisions add load decisions only, so one finish yields the inventory and issues too.
-    let (graph_to_snapshot, recorder_issues, import_load_decisions) =
+    let (mut graph_to_snapshot, recorder_issues, mut import_load_decisions) =
         std::mem::take(&mut ctx.recorder).finish_with_load_decisions();
+    if lean {
+        graph_to_snapshot = Default::default();
+        import_load_decisions = Vec::new();
+    }
     let mut snapshot = Snapshot::new(project, feature_systems, phonology, morphology, lexicon);
     let mut import_issues = graph.issues.clone();
     import_issues.extend(recorder_issues);
@@ -447,8 +481,9 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
 
     use pg_snapshot::{InventoryKind, LoadDecisionDraft};
 
+    // Pruned lexicon fields hold no references to tracked phonology or morphology objects, which are the only targets read from `incoming`, so skipping them cannot change a decision.
     fn collect_refs(node: &crate::node::Node, out: &mut Vec<String>) {
-        if node.tag == "objsur" {
+        if &*node.tag == "objsur" {
             if let Some(guid) = node.attr("guid") {
                 out.push(guid.to_string());
             }
@@ -468,7 +503,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
             incoming
                 .entry(target)
                 .or_default()
-                .push((owner.class.clone(), owner.guid.clone()));
+                .push((owner.class.to_string(), owner.guid.to_string()));
         }
     }
     for owners in incoming.values_mut() {
@@ -478,7 +513,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
 
     let mut disabled_rule_targets = BTreeMap::<String, Vec<String>>::new();
     for rule in ctx.graph.records.values().filter(|record| {
-        matches!(record.class.as_str(), "PhRegularRule" | "PhMetathesisRule")
+        matches!(record.class, "PhRegularRule" | "PhMetathesisRule")
             && record.node.val_bool("Disabled").unwrap_or(false)
     }) {
         let mut pending = Vec::new();
@@ -489,7 +524,7 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
                 continue;
             }
             if ctx.graph.get(&target).is_some_and(|record| {
-                inventory::tracked_kind(&record.class).is_some_and(|kind| {
+                inventory::tracked_kind(record.class).is_some_and(|kind| {
                     matches!(
                         kind,
                         InventoryKind::PhonologicalContext | InventoryKind::RuleFeature
@@ -499,10 +534,10 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
                 disabled_rule_targets
                     .entry(target.clone())
                     .or_default()
-                    .push(rule.guid.clone());
+                    .push(rule.guid.to_string());
             }
             if ctx.graph.get(&target).is_some_and(|record| {
-                inventory::tracked_kind(&record.class) == Some(InventoryKind::PhonologicalContext)
+                inventory::tracked_kind(record.class) == Some(InventoryKind::PhonologicalContext)
             }) {
                 if let Some(record) = ctx.graph.get(&target) {
                     collect_refs(&record.node, &mut pending);
@@ -519,17 +554,17 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
         .graph
         .records
         .values()
-        .filter_map(|record| inventory::tracked_kind(&record.class).map(|kind| (kind, record)))
+        .filter_map(|record| inventory::tracked_kind(record.class).map(|kind| (kind, record)))
         .collect();
     records.sort_by(|(left_kind, left), (right_kind, right)| {
-        (left_kind, left.guid.as_str()).cmp(&(right_kind, right.guid.as_str()))
+        (left_kind, &*left.guid).cmp(&(right_kind, &*right.guid))
     });
 
     for (guid, rule_guids) in &disabled_rule_targets {
         let Some(record) = ctx.graph.get(guid) else {
             continue;
         };
-        let Some(kind) = inventory::tracked_kind(&record.class) else {
+        let Some(kind) = inventory::tracked_kind(record.class) else {
             continue;
         };
         ctx.considered(InventoryKey::object(kind, guid.clone()));
@@ -552,12 +587,12 @@ fn finalize_unrecorded_tracked_objects(ctx: &mut Ctx<'_>) {
         ) {
             continue;
         }
-        let key = InventoryKey::object(kind, record.guid.clone());
+        let key = InventoryKey::object(kind, record.guid.to_string());
         if ctx.has_load_decision(&key, LoadPipelineStage::Import) {
             continue;
         }
 
-        let owners = incoming.get(&record.guid).cloned().unwrap_or_default();
+        let owners = incoming.get(&*record.guid).cloned().unwrap_or_default();
         match kind {
             InventoryKind::FeatureStructure if !owners.is_empty() => {
                 ctx.recorder.record_load_decision(LoadDecisionDraft {

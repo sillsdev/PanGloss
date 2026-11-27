@@ -9,13 +9,13 @@ use std::time::{Duration, Instant};
 
 use pg_grammar::model::Grammar;
 use pg_parse::Morpher;
-use pg_stats::StepCap;
-use serde_json::{json, Value};
+use pg_stats::WorkCap;
+use serde_json::{json, Map, Value};
 
 use crate::rich_trace;
 
 /// The serve protocol version; bump only for an incompatible wire change.
-pub(crate) const SERVE_PROTOCOL_VERSION: u32 = 1;
+pub(crate) const SERVE_PROTOCOL_VERSION: u32 = 2;
 
 /// Wall-clock milliseconds of the snapshot read (json) or fwdata import, recorded by the grammar loader for `--timing`.
 pub(crate) static IMPORT_MS: AtomicU64 = AtomicU64::new(0);
@@ -27,19 +27,19 @@ pub(crate) fn record_ms(slot: &AtomicU64, since: Instant) {
     slot.store(since.elapsed().as_millis() as u64, Ordering::Relaxed);
 }
 
-struct ServeArgs {
+pub(crate) struct ServeArgs {
     project: String,
-    step_cap: StepCap,
-    work_cap: Option<StepCap>,
+    work_cap: WorkCap,
+    word_mem_cap: Option<usize>,
     word_timeout: Option<Duration>,
     guess_arg: Option<bool>,
     timing: bool,
 }
 
-fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
+pub(crate) fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     let mut project = None;
-    let mut step_cap = crate::DEFAULT_STEP_CAP;
-    let mut work_cap = None;
+    let mut work_cap = crate::DEFAULT_WORK_CAP;
+    let mut word_mem_cap = Some(pg_parse::morpher::DEFAULT_WORD_MEM_CAP_BYTES);
     let mut word_timeout = None;
     let mut guess_arg = None;
     let mut timing = false;
@@ -59,21 +59,20 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
                 guess_arg = Some(crate::parse_guess_flag(s)?)
             }
             "--timing" => timing = true,
-            "--step-cap" => {
-                step_cap = it
-                    .next()
-                    .ok_or("--step-cap requires a value")?
-                    .parse::<StepCap>()?;
-            }
-            s if s.starts_with("--step-cap=") => {
-                step_cap = s["--step-cap=".len()..].parse::<StepCap>()?;
-            }
             "--work-cap" => {
                 let v = it.next().ok_or("--work-cap requires a value")?;
-                work_cap = Some(crate::parse_work_cap(v)?);
+                work_cap = crate::parse_work_cap(v)?;
             }
             s if s.starts_with("--work-cap=") => {
-                work_cap = Some(crate::parse_work_cap(&s["--work-cap=".len()..])?);
+                work_cap = crate::parse_work_cap(&s["--work-cap=".len()..])?;
+            }
+            "--word-mem-cap-mib" => {
+                word_mem_cap = crate::parse_word_mem_cap(
+                    it.next().ok_or("--word-mem-cap-mib requires a value")?,
+                )?;
+            }
+            s if s.starts_with("--word-mem-cap-mib=") => {
+                word_mem_cap = crate::parse_word_mem_cap(&s["--word-mem-cap-mib=".len()..])?;
             }
             "--word-timeout-ms" => {
                 word_timeout = Some(ms(it
@@ -91,8 +90,8 @@ fn parse_args(args: &[String]) -> Result<ServeArgs, String> {
     }
     Ok(ServeArgs {
         project: project.ok_or("--project <path> is required")?,
-        step_cap,
         work_cap,
+        word_mem_cap,
         word_timeout,
         guess_arg,
         timing,
@@ -120,15 +119,14 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         Err(e) => return fatal("bad_arguments", &e),
     };
     let load_started = Instant::now();
-    let (grammar, warnings, metadata) =
-        match crate::load_grammar_with_trace_metadata(&parsed.project) {
-            Ok(loaded) => loaded,
-            Err(e) => return fatal("load_failed", &e),
-        };
+    let (grammar, warnings, metadata) = match crate::load_grammar_for_serve(&parsed.project) {
+        Ok(loaded) => loaded,
+        Err(e) => return fatal("load_failed", &e),
+    };
     crate::print_grammar_warnings(&warnings);
     let morpher = crate::with_guess_override(
-        Morpher::new(&grammar, parsed.step_cap.as_morpher_cap())
-            .with_work_cap(crate::resolved_work_cap(parsed.step_cap, parsed.work_cap))
+        Morpher::new(&grammar, parsed.work_cap.as_morpher_cap())
+            .with_word_mem_cap(parsed.word_mem_cap)
             .with_word_timeout(parsed.word_timeout),
         parsed.guess_arg,
     );
@@ -153,6 +151,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
         metadata: &metadata,
         timing: parsed.timing,
         guess: parsed.guess_arg == Some(true),
+        identities: std::sync::OnceLock::new(),
     };
     let requests = spawn_reader();
     loop {
@@ -191,7 +190,7 @@ pub(crate) fn run_serve(args: &[String]) -> ExitCode {
 }
 
 /// The longest accepted request line, newline excluded.
-const MAX_REQUEST_BYTES: usize = 1 << 20;
+pub(crate) const MAX_REQUEST_BYTES: usize = 1 << 20;
 
 enum Request {
     Line(Vec<u8>),
@@ -251,44 +250,70 @@ struct Context<'a> {
     metadata: &'a rich_trace::TraceMetadata,
     timing: bool,
     guess: bool,
+    /// Built on the first `ruleCosts` request, then kept for the life of the server.
+    identities: std::sync::OnceLock<pg_grammar::stats_identity::StatsIdentityCatalog>,
 }
 
-fn error_response(id: &Value, code: &str, message: &str) -> Value {
+pub(crate) fn error_response(id: &Value, code: &str, message: &str) -> Value {
     json!({"id": id, "type": "error", "code": code, "message": message})
+}
+
+/// Reads one request line into its string `id` and its object. `Err` is the error response line for a malformed, non-object or id-less line.
+pub(crate) fn request_envelope(line: &str) -> Result<(Value, Map<String, Value>), Value> {
+    let request: Value = serde_json::from_str(line)
+        .map_err(|e| error_response(&Value::Null, "malformed_json", &e.to_string()))?;
+    let Value::Object(object) = request else {
+        return Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "request must be a JSON object",
+        ));
+    };
+    match object.get("id") {
+        Some(Value::String(s)) => Ok((Value::String(s.clone()), object)),
+        Some(_) => Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "\"id\" must be a string",
+        )),
+        None => Err(error_response(
+            &Value::Null,
+            "bad_request",
+            "\"id\" is required",
+        )),
+    }
+}
+
+/// Runs one `generate` request object and returns its response line: the op's result with `id`, `type` and `op` set, or an error line.
+pub(crate) fn generate_response(
+    grammar: &Grammar,
+    morpher: &Morpher<'_>,
+    id: Value,
+    object: &Map<String, Value>,
+    default_attested: Option<&crate::serve_generate::AttestedSet>,
+) -> Value {
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        crate::serve_generate::run(grammar, morpher, object, default_attested)
+    }));
+    match outcome {
+        Ok(Ok(mut result)) => {
+            result["id"] = id;
+            result["type"] = json!("result");
+            result["op"] = json!("generate");
+            result
+        }
+        Ok(Err((code, message))) => error_response(&id, code, &message),
+        Err(_) => error_response(&id, "internal", "generator panicked; see stderr"),
+    }
 }
 
 /// Returns the response line and whether the process should exit after writing it.
 fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
-    let request: Value = match serde_json::from_str(line) {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                error_response(&Value::Null, "malformed_json", &e.to_string()),
-                false,
-            )
-        }
+    let (id, object) = match request_envelope(line) {
+        Ok(envelope) => envelope,
+        Err(response) => return (response, false),
     };
-    let Some(object) = request.as_object() else {
-        return (
-            error_response(&Value::Null, "bad_request", "request must be a JSON object"),
-            false,
-        );
-    };
-    let id = match object.get("id") {
-        Some(Value::String(s)) => Value::String(s.clone()),
-        Some(_) => {
-            return (
-                error_response(&Value::Null, "bad_request", "\"id\" must be a string"),
-                false,
-            )
-        }
-        None => {
-            return (
-                error_response(&Value::Null, "bad_request", "\"id\" is required"),
-                false,
-            )
-        }
-    };
+    let object = &object;
     match object.get("op").and_then(Value::as_str) {
         Some("shutdown") => (json!({"id": id, "type": "bye"}), true),
         Some("parse") => {
@@ -314,18 +339,60 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
                     )
                 }
             };
-            let outcome = catch_unwind(AssertUnwindSafe(|| parse_word(ctx, word, details)));
+            let rule_trace = match object.get("ruleTrace") {
+                None => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => {
+                    return (
+                        error_response(&id, "bad_request", "\"ruleTrace\" must be a boolean"),
+                        false,
+                    )
+                }
+            };
+            let rule_costs = match object.get("ruleCosts") {
+                None | Some(Value::Bool(false)) => None,
+                Some(Value::Bool(true)) => Some(rich_trace::DEFAULT_RULE_COSTS),
+                Some(Value::Number(n)) => match n.as_u64().filter(|n| *n >= 1) {
+                    Some(n) => Some(usize::try_from(n).unwrap_or(usize::MAX)),
+                    None => {
+                        return (
+                            error_response(
+                                &id,
+                                "bad_request",
+                                "\"ruleCosts\" must be a boolean or a positive integer",
+                            ),
+                            false,
+                        )
+                    }
+                },
+                Some(_) => {
+                    return (
+                        error_response(
+                            &id,
+                            "bad_request",
+                            "\"ruleCosts\" must be a boolean or a positive integer",
+                        ),
+                        false,
+                    )
+                }
+            };
+            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                parse_word(ctx, word, details, rule_trace, rule_costs)
+            }));
             let response = match outcome {
                 Ok(Ok(served)) => {
                     let mut r = json!({
                         "id": id,
                         "type": "result",
                         "exitCode": served.exit_code,
-                        "steps": served.steps,
+                        "status": served.status,
                         "workSteps": served.work_steps,
                         "guessed": served.guessed,
                         "result": served.result,
                     });
+                    if let Some(costs) = served.rule_costs {
+                        r["ruleCosts"] = costs;
+                    }
                     if ctx.timing {
                         r["timing"] =
                             json!({"parseMs": served.parse_ms, "renderMs": served.render_ms});
@@ -337,6 +404,33 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
             };
             (response, false)
         }
+        Some("generate") => (
+            generate_response(ctx.grammar, ctx.morpher, id, object, None),
+            false,
+        ),
+        Some("inventory") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_inventory::handle(ctx.grammar, ctx.morpher, &id, object)
+            }))
+            .unwrap_or_else(|_| error_response(&id, "internal", "inventory panicked; see stderr")),
+            false,
+        ),
+        Some("match") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_match::handle(ctx.grammar, ctx.morpher, &id, object)
+            }))
+            .unwrap_or_else(|_| error_response(&id, "internal", "matcher panicked; see stderr")),
+            false,
+        ),
+        Some("effects") => (
+            catch_unwind(AssertUnwindSafe(|| {
+                crate::serve_effects::handle(ctx.grammar, ctx.morpher, &id, object)
+            }))
+            .unwrap_or_else(|_| {
+                error_response(&id, "internal", "effects scan panicked; see stderr")
+            }),
+            false,
+        ),
         Some(other) => (
             error_response(&id, "unknown_op", &format!("unknown op: {other}")),
             false,
@@ -352,16 +446,37 @@ fn handle_line(ctx: &Context, line: &str) -> (Value, bool) {
 struct Served {
     result: Value,
     exit_code: i32,
+    status: &'static str,
     /// Whether the guesser found the analyses, whatever the `--guess` flag.
     guessed: bool,
-    steps: usize,
     work_steps: usize,
+    /// The `ruleCosts` object, present only when the request asked for it.
+    rule_costs: Option<Value>,
     parse_ms: u64,
     render_ms: u64,
 }
 
-/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
-fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'static str, String)> {
+/// The `interfaces.serveOps.parse` capability object.
+pub(crate) fn describe_parse() -> Value {
+    json!({
+        // Hand-kept; describe_declares_the_parse_request_fields pins ruleTrace and traceDetails.
+        "request": ["id", "op", "word", "traceDetails", "ruleTrace", "ruleCosts"],
+        "defaultTraceDetails": false,
+        "defaultRuleTrace": false,
+        "defaultRuleCosts": false,
+        "ruleCosts": "true or a positive integer N (true is 8): the response gains a top-level ruleCosts object listing the N objects that reserved the most work steps for this word, with the unattributed remainder; it works on a word the parser stops on. It runs the parse with a stats collector, which does not change workSteps; with traceDetails false and no ruleTrace the parse stays untraced",
+        "ruleTrace": "with traceDetails false, the JSON rule-trace tree is appended to result only when ruleTrace is true; it is neither built nor sent otherwise. traceDetails true ignores ruleTrace",
+    })
+}
+
+/// The same work `pangloss parse` does after loading. `traceDetails: true` is `parse <p> <w> --trace --trace-format json --trace-details`; `false` is `parse <p> <w> --trace --trace-format json`, minus the rule-trace tree unless `rule_trace`. `result` is the cold stdout: a JSON document, or the verbatim text for `false`.
+fn parse_word(
+    ctx: &Context,
+    word: &str,
+    details: bool,
+    rule_trace: bool,
+    rule_costs: Option<usize>,
+) -> Result<Served, (&'static str, String)> {
     let render_err = |e: String| ("render_failed", e);
     if details {
         let sink = pg_rules::trace::TreeTraceSink::with_failure_context();
@@ -379,40 +494,78 @@ fn parse_word(ctx: &Context, word: &str, details: bool) -> Result<Served, (&'sta
             &rows,
             started.elapsed(),
             ctx.metadata,
+            rule_costs,
         )
         .map_err(render_err)?;
         let render_ms = (started.elapsed().as_millis() as u64).saturating_sub(parse_ms);
         let value = serde_json::from_str(&rendered).map_err(|e| render_err(e.to_string()))?;
+        // The document carries ruleCosts itself (v6), so the response does not repeat it.
         return Ok(Served {
             result: value,
             exit_code: 0,
+            status: crate::outcome_status(&outcome),
             guessed: outcome.guessed,
-            steps: outcome.steps,
             work_steps: outcome.work_steps,
+            rule_costs: None,
             parse_ms,
             render_ms,
         });
     }
     let sink = pg_rules::trace::TreeTraceSink::new();
     let started = Instant::now();
-    let outcome = ctx.morpher.parse_word_traced(word, ctx.opts, &sink);
+    // The tree sink is the cost; without ruleTrace the parse runs on the no-op sink.
+    let mut rows = Vec::new();
+    let outcome = match (rule_trace, rule_costs.is_some()) {
+        (true, true) => {
+            let (outcome, collected) = ctx
+                .morpher
+                .parse_word_traced_with_stats(word, ctx.opts, &sink);
+            rows = collected;
+            outcome
+        }
+        (true, false) => ctx.morpher.parse_word_traced(word, ctx.opts, &sink),
+        (false, true) => {
+            let (outcome, collected) = ctx.morpher.parse_word_with_stats(word, ctx.opts);
+            rows = collected;
+            outcome
+        }
+        (false, false) => ctx.morpher.parse_word_opts(word, ctx.opts),
+    };
+    let rule_costs = rule_costs_for(ctx, &rows, &outcome, rule_costs).map_err(render_err)?;
     let parse_ms = started.elapsed().as_millis() as u64;
     let render_started = Instant::now();
     let mut stdout = format!("{}\t{}\n", word, outcome.signature());
     if ctx.guess {
         stdout.push_str(&format!("guessed:\t{}\n", outcome.guessed));
     }
-    if let Some(root) = sink.root() {
+    if let Some(root) = sink.root().filter(|_| rule_trace) {
         stdout.push_str(&crate::trace_render::render_json(ctx.grammar, &sink, root));
     }
     let exit_code = i32::from(crate::require_complete_parse(&outcome).is_err());
     Ok(Served {
         result: Value::String(stdout),
         exit_code,
+        status: crate::outcome_status(&outcome),
         guessed: outcome.guessed,
-        steps: outcome.steps,
         work_steps: outcome.work_steps,
+        rule_costs,
         parse_ms,
         render_ms: render_started.elapsed().as_millis() as u64,
     })
+}
+
+/// The `ruleCosts` object for a request that asked for one.
+fn rule_costs_for(
+    ctx: &Context,
+    rows: &[pg_rules::stats::StatsRow],
+    outcome: &pg_parse::ParseOutcome,
+    top_n: Option<usize>,
+) -> Result<Option<Value>, String> {
+    let Some(top_n) = top_n else {
+        return Ok(None);
+    };
+    let identities = ctx
+        .identities
+        .get_or_init(|| pg_grammar::stats_identity::StatsIdentityCatalog::new(ctx.grammar));
+    rich_trace::rule_costs_json(ctx.grammar, identities, rows, outcome, top_n).map(Some)
 }
