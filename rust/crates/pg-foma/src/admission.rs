@@ -10,6 +10,8 @@ mod floor_tests;
 pub mod gate;
 pub(crate) mod meter;
 #[cfg(test)]
+mod meter_minimize_tests;
+#[cfg(test)]
 mod meter_tests;
 mod piece;
 mod plan;
