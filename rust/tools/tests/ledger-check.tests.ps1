@@ -86,12 +86,32 @@ Test-Case 'dead-end bullets need a number or the exception' {
 }
 
 Test-Case 'a Memo/cache yes line needs the owner-approval phrase' {
-    foreach ($ok in @('yes (owner approval required) extra', 'yes, approved.')) {
+    foreach ($ok in @('yes (owner approval required) extra', 'yes, approved (PR #488).', 'yes, approved (OWNER-DECISIONS 2026-11-25)')) {
         $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **Memo/cache?** $ok`n"
         Assert-Equal 0 @(Test-LedgerFile -Path $p).Count $ok
     }
-    $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **Memo/cache?** yes: capped table.`n"
-    Assert-Equal 1 @(Test-LedgerFile -Path $p).Count
+    foreach ($bad in @('yes: capped table.', 'yes, approved.', 'yes, approved by me')) {
+        $p = New-Ledger -Rows @('| alpha | idea | b | none | [entry](#alpha) |') -Entries "### alpha`n- **Memo/cache?** $bad`n"
+        Assert-Equal 1 @(Test-LedgerFile -Path $p).Count "should fail: $bad"
+    }
+}
+
+Test-Case 'placeholder reasons are refused in Ledger: n/a and in the no-measurement exception' {
+    foreach ($b in @('Ledger: n/a (<reason>)', 'Ledger: n/a (TBD)', 'Ledger: n/a (todo)', 'Ledger: n/a ( )', 'Ledger: n/a ()')) {
+        Assert-Equal 1 @(Test-LedgerPrBody -Body $b -ChangedFiles @('rust/crates/pg-rules/src/a.rs') -RowNames @('x')).Count $b
+    }
+    foreach ($bad in @('<reason>', 'TBD', 'todo', '')) {
+        $p = New-Ledger -Rows @("| alpha | rejected: no isolated measurement ($bad) | b | none | [entry](#alpha) |")
+        Assert-Equal 1 @(Test-LedgerFile -Path $p).Count "should fail: ($bad)"
+    }
+}
+
+Test-Case 'a Ledger line naming a rejected row needs new evidence' {
+    $f = @('rust/crates/pg-rules/src/a.rs')
+    Assert-Equal 1 @(Test-LedgerPrBody -Body 'Ledger: dead-idea' -ChangedFiles $f -RowNames @('dead-idea', 'live') -RejectedNames @('dead-idea')).Count
+    Assert-Equal 1 @(Test-LedgerPrBody -Body 'Ledger: dead-idea; new evidence:' -ChangedFiles $f -RowNames @('dead-idea') -RejectedNames @('dead-idea')).Count
+    Assert-Equal 0 @(Test-LedgerPrBody -Body 'Ledger: dead-idea; new evidence: 3.1x fewer steps on the heavy list (#900)' -ChangedFiles $f -RowNames @('dead-idea') -RejectedNames @('dead-idea')).Count
+    Assert-Equal 0 @(Test-LedgerPrBody -Body 'Ledger: live' -ChangedFiles $f -RowNames @('dead-idea', 'live') -RejectedNames @('dead-idea')).Count
 }
 
 $names = @('shape-table', 'work-cap')

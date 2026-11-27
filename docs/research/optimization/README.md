@@ -147,7 +147,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where:** `rust/crates/pg-rules/src/shape_graph.rs`; C# `CombinationRuleCascade.ApplyRules`, `AnalysisAffixProcessRule.Apply`.
 - **Gain:** measured across the sweep: instructions down 13% to 85% on the heaviest Tamil grammars, about 3% to 85% elsewhere; Mbugwe's capped word ends 17.6x fewer steps. Regression of +0.78% on one light grammar (see shape-table-lazy-rows). v0.35.0 sweep, work steps: Tamil heaviest-24 variant 750M to 114M (0.152x), its core list 20.2G to 13.2G, the base core 11.7G to 9.9G, Mbugwe 7.79G to 4.95G (28 memory-capped and 9 timed-out words remain). The graph moved the point where the heaviest Mbugwe words give out (one word that needed 16.4G steps before now ends in a memory cap at 100 MiB after 0.93G), it did not remove their growth: see unordered-stratum-order-explosion and optional-run-enumeration. Compounding is excluded from the graph (idea compounding-rows-with-filter-key); other row kinds are ideas (phonological-analysis-rows, template-slot-dominance-rows).
 - **Parity:** results identical on every swept grammar; key is the full shape plus rule and `prune_disagreeing_copies`.
-- **Memo/cache?** yes, approved. **Prior art:** none external. **Issues:** PanGloss #481; machine#653 (C# shares it). **Next:** machine port by the `conformance` lead.
+- **Memo/cache?** yes, approved (PanGloss #481, PR #488; `CLAUDE.md`). **Prior art:** none external. **Issues:** PanGloss #481; machine#653 (C# shares it). **Next:** machine port by the `conformance` lead.
 
 ### match-memo
 - **Status:** landed (PR #480, issue #477); the structural fix behind it is shape-table.
@@ -157,7 +157,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 
 ### root-trie-cache
 - **Status:** landed. Per-word, keyed by exact stratum and shape, 1 MiB of accounted allocation, immutable index results only (`CLAUDE.md`). **Issues:** PanGloss #92.
-- **Blowup:** repeated root-trie searches. **Parity:** overlay suppression, filtering, dedup and materialisation run on every lookup. **Memo/cache?** yes, approved.
+- **Blowup:** repeated root-trie searches. **Parity:** overlay suppression, filtering, dedup and materialisation run on every lookup. **Memo/cache?** yes, approved (PanGloss #92; `CLAUDE.md`).
 
 ### analysis-memo-bounds
 - **Status:** landed then removed with the memo (divergence 045). **Source:** `docs/research/analysis-memo-explosion.md`, `docs/research/2026-09-10-analysis-memo-fixes-for-machine.md`.

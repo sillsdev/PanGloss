@@ -14,7 +14,7 @@ Statuses (a qualifier may follow in parentheses or after a comma): `idea`, `meas
 - **Where in PanGloss:** crate/file of the code that would change. In C#: the matching sillsdev/machine file.
 - **Expected gain:** a measured multiplier with its command, or an estimate (say which).
 - **Parity risk:** can it change parses versus C# HermitCrab? Which invariant makes it safe?
-- **Memo/cache?** `no`, or `yes (owner approval required)` (the lint requires that exact phrase for any yes; `yes, approved` for one already approved and landed). Beyond the root-trie exception and the shape graph needs owner approval.
+- **Memo/cache?** `no`, or `yes (owner approval required)` (the lint requires that exact phrase for any yes; `yes, approved (<issue, PR link or OWNER-DECISIONS entry>)` for one already approved and landed). Beyond the root-trie exception and the shape graph needs owner approval.
 - **Prior art:** citation, one line each on what was taken.
 - **Issues:** sillsdev/PanGloss#N, sillsdev/machine#N, or none yet.
 - **Next step:** the smallest experiment that would confirm or kill it.
@@ -26,3 +26,5 @@ An entry that changes status keeps its history in one line (`2026-11-27 measured
 Exception: a rejection with no measurement (rejected on reasoning from the code) is written exactly `rejected: no isolated measurement (<reason>)`, reason non-empty,
 in the row, entry or dead-end bullet. The lint accepts it and prints how many rely on it. Such an idea may be re-proposed once someone measures it, and the
 measurement then replaces the exception with `rejected: <number> <unit> (<source>)` or moves the idea on. Any other `rejected` text without a number and a source fails.
+
+A PR `Ledger:` line naming a `rejected` row must add `new evidence: <what is new>`; a placeholder such as `<reason>`, `TBD` or `todo` is refused, in the `Ledger:` line and in the exception reason.

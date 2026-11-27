@@ -124,9 +124,20 @@ function Test-LedgerKillingNumber {
 # The one accepted exception to the killing-number rule: `rejected: no isolated measurement (<reason>)`.
 # The reason must be non-empty. A row or bullet in this form may be re-proposed once someone measures it;
 # the measurement then replaces the exception. The lint counts them so they stay visible.
+function Test-LedgerRealReason {
+    # A reason is real text: not empty, not an angle-bracket placeholder, not TBD / todo / n/a / none.
+    param([string]$Reason)
+    $r = $Reason.Trim()
+    if (-not $r) { return $false }
+    if ($r -match '<[^>]*>') { return $false }
+    if ($r -match '(?i)^(tbd|todo|to do|fixme|xxx|\.\.\.|\?+|n/?a|none|reason)\W*$') { return $false }
+    return $true
+}
+
 function Test-LedgerNoMeasurementException {
     param([string]$Text)
-    return $Text -match '(?i)\brejected:\s*no isolated measurement\s*\(\s*[^\s)]'
+    $m = [regex]::Match($Text, '(?i)\brejected:\s*no isolated measurement\s*\((.*)\)')
+    return $m.Success -and (Test-LedgerRealReason $m.Groups[1].Value)
 }
 
 $script:LedgerExceptionCount = 0
@@ -194,8 +205,8 @@ function Test-LedgerFile {
         $m = [regex]::Match($line, '\*\*Memo/cache\?\*\*\s*(.*)$')
         if (-not $m.Success) { continue }
         $v = $m.Groups[1].Value
-        if ($v -match '(?i)^yes\b' -and $v -notmatch '(?i)^yes \(owner approval required\)' -and $v -notmatch '(?i)^yes,? approved') {
-            $errors += "ledger line $lineNo : 'Memo/cache? yes' must read exactly 'Memo/cache? yes (owner approval required)' (or 'yes, approved' for an owner-approved memo already landed). Fix: use that phrase; further detail goes after it."
+        if ($v -match '(?i)^yes\b' -and $v -notmatch '(?i)^yes \(owner approval required\)' -and $v -notmatch '(?i)^yes,? approved[^\n]*(#\d+|PR\s*\d+|OWNER-DECISIONS|https://)') {
+            $errors += "ledger line $lineNo : 'Memo/cache? yes' must read exactly 'Memo/cache? yes (owner approval required)' (or 'yes, approved' plus the issue, PR link or OWNER-DECISIONS entry that records the approval). Fix: use that phrase; further detail goes after it."
         }
     }
     # Dead-end bullets ('- **<name>:** rejected ...') carry their own number or the exception.
@@ -222,7 +233,7 @@ function Test-LedgerPathIsParser {
 
 function Test-LedgerPrBody {
     # Returns @() when the PR passes, otherwise the failure messages.
-    param([string]$Body, [string[]]$ChangedFiles, [string[]]$RowNames)
+    param([string]$Body, [string[]]$ChangedFiles, [string[]]$RowNames, [string[]]$RejectedNames = @())
     $touched = @($ChangedFiles | Where-Object { $_ -and (Test-LedgerPathIsParser $_) })
     if ($touched.Count -eq 0) { return @() }
     $example = "Fix: add a line 'Ledger: <row name>' (a row of docs/research/optimization/README.md) or 'Ledger: n/a (<reason>)' to the PR description."
@@ -234,10 +245,15 @@ function Test-LedgerPrBody {
     $ok = $false
     foreach ($x in $m) {
         $v = $x.Groups[1].Value.Trim().Trim('`')
-        if ($v -match '(?i)^n/a\s*\(\s*\S.*\)$') { $ok = $true; continue }
-        if ($v -match '(?i)^n/a') { $errs += "'Ledger: $v' needs a reason in parentheses, for example 'Ledger: n/a (tooling)'."; continue }
-        $n = Get-LedgerRowName $v
-        if ($n -and ($RowNames -contains $n)) { $ok = $true } else { $errs += "'Ledger: $v' names no ledger row. Known rows are the Idea column of docs/research/optimization/README.md; add the row first or use 'Ledger: n/a (<reason>)'." }
+        $na = [regex]::Match($v, '(?i)^n/a\s*\((.*)\)$')
+        if ($na.Success -and (Test-LedgerRealReason $na.Groups[1].Value)) { $ok = $true; continue }
+        if ($v -match '(?i)^n/a') { $errs += "'Ledger: $v' needs a real reason in parentheses (not empty, not a <placeholder>, not TBD or todo), for example 'Ledger: n/a (tooling)'."; continue }
+        $ev = [regex]::Match($v, '(?i)^(.*?)[\s;,.-]*new evidence:\s*(\S.*)$')
+        $named = if ($ev.Success) { $ev.Groups[1].Value } else { $v }
+        $n = Get-LedgerRowName $named
+        if ($n -and ($RejectedNames -contains $n) -and -not ($ev.Success -and (Test-LedgerRealReason $ev.Groups[2].Value))) {
+            $errs += "'Ledger: $v' names a rejected row. Fix: add 'new evidence: <what is new>' on the same line, or name another row; restating a rejected idea needs new evidence."
+        } elseif ($n -and ($RowNames -contains $n)) { $ok = $true } else { $errs += "'Ledger: $v' names no ledger row. Known rows are the Idea column of docs/research/optimization/README.md; add the row first or use 'Ledger: n/a (<reason>)'." }
     }
     if ($ok) { return @() }
     return $errs
@@ -257,7 +273,8 @@ if ($MyInvocation.InvocationName -ne '.') {
     $files = @($ChangedFile)
     if ($ChangedFilesPath) { $files += @(Get-Content -LiteralPath $ChangedFilesPath) }
     $names = @((Read-Ledger -Path $LedgerPath).Rows | ForEach-Object { Get-LedgerRowName $_.Cells[0] })
-    $errs = @(Test-LedgerPrBody -Body $Body -ChangedFiles $files -RowNames $names)
+    $rej = @((Read-Ledger -Path $LedgerPath).Rows | Where-Object { $_.Cells.Count -ge 2 -and (Test-LedgerStatus $_.Cells[1]) -eq 'rejected' } | ForEach-Object { Get-LedgerRowName $_.Cells[0] })
+    $errs = @(Test-LedgerPrBody -Body $Body -ChangedFiles $files -RowNames $names -RejectedNames $rej)
     foreach ($e in $errs) { Write-Host "::error::$e" }
     if ($errs.Count) { exit 1 }
     Write-Host 'ledger-line: ok'
