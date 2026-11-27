@@ -93,6 +93,7 @@ mod batch_spans;
 mod retire;
 #[cfg(test)]
 mod test_support;
+mod without;
 
 use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};

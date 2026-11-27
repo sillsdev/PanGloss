@@ -405,7 +405,7 @@ const BATCH_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--without",
         takes_value: true,
-        summary: "comma-separated entry or allomorph guids to leave out: parse as if they were deleted from the grammar, reusing the --retire reduction; any other guid, or an unknown one, is an error; needs a .fwdata, .fwbackup or snapshot .json grammar",
+        summary: "comma-separated guids of lexical entries, allomorphs, phonological rules, compound rules, affix templates or ad hoc co-occurrence rules to leave out: parse as if they were deleted from the grammar; a template slot or any other object, or an unknown guid, is an error naming its kind; needs a .fwdata, .fwbackup or snapshot .json grammar",
     },
     FlagSpec {
         name: "--query-fields",
@@ -573,7 +573,7 @@ const PARSE_FLAGS: &[FlagSpec] = &[
     FlagSpec {
         name: "--without",
         takes_value: true,
-        summary: "comma-separated entry or allomorph guids to leave out: parse as if they were deleted from the grammar, reusing the --retire reduction; any other guid, or an unknown one, is an error; needs a .fwdata, .fwbackup or snapshot .json grammar",
+        summary: "comma-separated guids of lexical entries, allomorphs, phonological rules, compound rules, affix templates or ad hoc co-occurrence rules to leave out: parse as if they were deleted from the grammar; a template slot or any other object, or an unknown guid, is an error naming its kind; needs a .fwdata, .fwbackup or snapshot .json grammar",
     },
     crate::diagnostic::FLAGS[0],
     crate::diagnostic::FLAGS[1],

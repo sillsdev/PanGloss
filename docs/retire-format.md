@@ -30,6 +30,14 @@ Retiring an entry or allomorph that an ad hoc prohibition names drops that refer
 
 `pangloss parse <grammar> <word> --without <guid>[,<guid>...]` and `pangloss batch <grammar> <words.txt> <out.tsv> --without <guid>[,<guid>...]` parse with the named objects disabled and return the ordinary output (the `parse` signature lines, the batch TSV, an `--analyses` sidecar), not a diff. They run on the same reduced grammar as `--retire` (one implementation, `retire::load_without`), so the result for each word equals a plain parse of a grammar copy with those entries or allomorphs deleted, including the ad hoc prohibition handling above.
 
-Only lexical entries (entry guids) and allomorphs (`MoForm` guids) are supported. A guid that names any other object in the grammar (an MSA, rule, feature, template and so on) is refused with an error saying so, and a guid found nowhere in the grammar is an error; no guid is ever ignored. Rule-level removal is not modelled. The grammar must be a `.fwdata`, `.fwbackup` or snapshot `.json`.
+Supported objects, each deleted from the grammar snapshot before it is compiled (`without::remove_rule_objects`), so the result equals a plain parse of a grammar with that object deleted:
+
+- lexical entries and allomorphs, as above;
+- phonological rules (rewrite and metathesis);
+- compound rules (endocentric and exocentric), with their max-application setting;
+- affix templates (the slots stay; affixes that fill them then belong to no template);
+- ad hoc co-occurrence (prohibition) rules, and their rationale-group memberships.
+
+Refused, each with an error that names the kind of object: an affix template slot (deleting it would silently turn every affix that fills it into a partial affix outside the template; leave out the template instead), and any other object (MSA, phoneme, natural class, environment, part of speech, feature and so on). A guid found nowhere in the grammar is an error. A removal that would leave a reference to the removed guid behind is refused with that reason rather than guessed at. No guid is ever ignored. The grammar must be a `.fwdata`, `.fwbackup` or snapshot `.json`.
 
 `--without` is refused with `--retire`, `--stats`, `--partials`, `--engine`, `--prefilter`, `--cache`, `--stats-manifest` and a rejection trace on `batch`, and with `--trace-details` and a rejection trace on `parse`. `batch --result-cache` keys on the flag.

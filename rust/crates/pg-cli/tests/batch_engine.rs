@@ -556,7 +556,7 @@ fn parse_without_refuses_unknown_and_unsupported_guids() {
     assert!(!unsupported.status.success());
     let stderr = String::from_utf8_lossy(&unsupported.stderr);
     assert!(
-        stderr.contains(&msa) && stderr.contains("only lexical entries and allomorphs"),
+        stderr.contains(&msa) && stderr.contains("morphosyntactic analysis"),
         "{stderr}"
     );
     let entry = snapshot.lexicon.entries[0].guid.clone();

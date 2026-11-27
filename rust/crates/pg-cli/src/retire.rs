@@ -310,7 +310,8 @@ pub(crate) fn load_without(
         .extension()
         .is_some_and(|e| e == "json");
     let (mut snapshot, mut warnings) = load_snapshot(path, flag)?;
-    retire_from_snapshot(&mut snapshot, ids, flag)?;
+    let rest = crate::without::remove_rule_objects(&mut snapshot, ids, flag)?;
+    retire_from_snapshot(&mut snapshot, &rest, flag)?;
     if ext_json {
         warnings = Vec::new();
     }
