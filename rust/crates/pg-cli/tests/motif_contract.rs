@@ -228,11 +228,20 @@ fn describe_projection(doc: &Value) -> Value {
             Value::Object(out)
         })
         .collect();
+    // Motif never reads the retired serve ops `health` and `shadowedAllomorphs`, so they are not pinned.
+    let mut interfaces = doc["interfaces"].clone();
+    if let Some(ops) = interfaces
+        .get_mut("serveOps")
+        .and_then(Value::as_object_mut)
+    {
+        ops.remove("health");
+        ops.remove("shadowedAllomorphs");
+    }
     json!({
         "schema_version": doc["schema_version"],
         "binary": doc["binary"],
         "commands": commands,
-        "interfaces": doc["interfaces"],
+        "interfaces": interfaces,
     })
 }
 
