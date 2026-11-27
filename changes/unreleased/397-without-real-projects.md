@@ -1,1 +1,0 @@
-- `--without <rule guid>` on a real FieldWorks project (`parse`, `batch`) is no longer always refused as a dangling reference: the check ignores `conversionProvenance`, which lists every record guid (#397).
