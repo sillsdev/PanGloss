@@ -7,6 +7,11 @@
 <!-- Link verified issues and relevant Machine reports/divergence entries.
 Use closing keywords only when the whole issue is addressed. State exclusions and follow-ups. -->
 
+## Release note
+
+<!-- A user-visible change adds one `changes/unreleased/<issue>-<slug>.md` fragment (a Markdown bullet).
+Do not edit CHANGELOG.md; see changes/unreleased/README.md. Docs-only or internal work needs none. -->
+
 ## Verification
 
 <!-- Exact managed rust/tools/pg.ps1 commands and results, including conformance scope.

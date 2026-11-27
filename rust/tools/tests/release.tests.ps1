@@ -13,7 +13,7 @@ function Invoke-TestGit {
 }
 
 function New-ReleaseFixture {
-    param([ValidateSet('Unreleased', 'Missing', 'Existing')][string]$ChangelogKind = 'Unreleased', [switch]$RealCargo, [string]$ChangelogText)
+    param([ValidateSet('Unreleased', 'Missing', 'Existing')][string]$ChangelogKind = 'Unreleased', [switch]$RealCargo, [string]$ChangelogText, [hashtable]$Fragments = @{})
     $root = New-TestTempDir 'pg-release-test'
     $repository = Join-Path $root 'checkout'
     $remote = Join-Path $root 'origin.git'
@@ -111,6 +111,11 @@ exit 0
 
     $fixturePaths = @('rust/Cargo.toml', 'rust/Cargo.lock', 'CHANGELOG.md', 'rust/tools/release.ps1', 'rust/tools/pg.ps1')
     $fixturePaths += 'rust/crates/pg-cli/Cargo.toml'
+    foreach ($name in $Fragments.Keys) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $repository 'changes\unreleased') | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $repository "changes\unreleased\$name"), $Fragments[$name], [System.Text.UTF8Encoding]::new($false))
+        $fixturePaths += "changes/unreleased/$name"
+    }
     if ($RealCargo) { $fixturePaths += 'rust/crates/pg-cli/src/lib.rs' }
     Invoke-TestGit -Repository $repository -Arguments (@('add') + $fixturePaths) | Out-Null
     Invoke-TestGit -Repository $repository -Arguments @('commit', '-m', 'base') | Out-Null
@@ -202,6 +207,42 @@ Test-Case 'prepare renames Unreleased to the version with a Released date line' 
         $today = Get-Date -Format 'yyyy-MM-dd'
         $text = (Get-Content (Join-Path $fixture.Repository 'CHANGELOG.md') -Raw) -replace "`r`n", "`n"
         Assert-Equal "# Changelog`n`n## 0.7.0`n`nReleased $today.`n`nRelease notes`n`n## 0.6.2`n`nEarlier release`n" $text
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+$fragmentSet = @{ 'README.md' = "# About`n"; 'b-second.md' = "- Second (#2)`n  - detail`n"; 'a-first.md' = "- First (#1)`n"; 'B-upper.md' = "- Upper (#3)`r`n" }
+
+Test-Case 'prepare folds fragments in ordinal file-name order, deletes them, and keeps README' {
+    $fixture = New-ReleaseFixture -ChangelogText "# Changelog`n`n## 0.6.2`n`nEarlier release`n" -Fragments $fragmentSet
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 0 $result.ExitCode $result.Output
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        $text = (Get-Content (Join-Path $fixture.Repository 'CHANGELOG.md') -Raw) -replace "`r`n", "`n"
+        Assert-Equal "# Changelog`n`n## 0.7.0`n`nReleased $today.`n`n- Upper (#3)`n- First (#1)`n- Second (#2)`n  - detail`n`n## 0.6.2`n`nEarlier release`n" $text
+        $left = Invoke-TestGit -Repository $fixture.Repository -Arguments @('ls-tree', '-r', '--name-only', 'HEAD', '--', 'changes')
+        Assert-Equal 'changes/unreleased/README.md' $left 'only the README may remain in the release commit'
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'prepare appends fragments after a legacy Unreleased body' {
+    $fixture = New-ReleaseFixture -Fragments @{ 'a-first.md' = "- First (#1)`n" }
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 0 $result.ExitCode $result.Output
+        $today = Get-Date -Format 'yyyy-MM-dd'
+        $text = (Get-Content (Join-Path $fixture.Repository 'CHANGELOG.md') -Raw) -replace "`r`n", "`n"
+        Assert-Equal "# Changelog`n`n## 0.7.0`n`nReleased $today.`n`nRelease notes`n`n- First (#1)`n`n## 0.6.2`n`nEarlier release`n" $text
+    } finally { Remove-ReleaseFixture $fixture }
+}
+
+Test-Case 'a fragment that is not a bullet is refused and leaves the tree as found' {
+    $fixture = New-ReleaseFixture -Fragments @{ 'a-bad.md' = "Not a bullet`n" }
+    try {
+        $result = Invoke-ReleaseScript -Repository $fixture.Repository
+        Assert-Equal 33 $result.ExitCode $result.Output
+        Assert-True ($result.Output -match "starting with '- '") 'refusal must say what a fragment holds'
+        Assert-Equal 'main' (Invoke-TestGit -Repository $fixture.Repository -Arguments @('rev-parse', '--abbrev-ref', 'HEAD')) 'the original branch must be restored'
     } finally { Remove-ReleaseFixture $fixture }
 }
 
