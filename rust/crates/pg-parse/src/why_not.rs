@@ -133,6 +133,8 @@ pub enum FailureKind {
     InflectionClass,
     SurfaceMismatch,
     OtherGate,
+    /// A co-occurrence rule requires a partner the candidate does not provide; the rule's owner is named.
+    RequiredCoOccurrence,
 }
 
 impl FailureKind {
@@ -142,10 +144,11 @@ impl FailureKind {
             FailureKind::NoMorphMatch
             | FailureKind::EnvironmentUnmet
             | FailureKind::AdhocProhibition
-            | FailureKind::OtherGate => true,
-            FailureKind::SlotOrder
+            | FailureKind::OtherGate
             | FailureKind::RequiredSlotEmpty
             | FailureKind::FeatureClash
+            | FailureKind::RequiredCoOccurrence => true,
+            FailureKind::SlotOrder
             | FailureKind::StemName
             | FailureKind::InflectionClass
             | FailureKind::SurfaceMismatch => false,
@@ -166,7 +169,7 @@ impl FailureKind {
             .collect()
     }
 
-    pub const ALL: [FailureKind; 10] = [
+    pub const ALL: [FailureKind; 11] = [
         FailureKind::NoMorphMatch,
         FailureKind::EnvironmentUnmet,
         FailureKind::SlotOrder,
@@ -177,6 +180,7 @@ impl FailureKind {
         FailureKind::InflectionClass,
         FailureKind::SurfaceMismatch,
         FailureKind::OtherGate,
+        FailureKind::RequiredCoOccurrence,
     ];
 }
 
@@ -219,12 +223,14 @@ impl Progress {
                 return Progress { slot: 0, check: 0 };
             }
             FailureKind::EnvironmentUnmet => FailureReason::Environments,
-            FailureKind::AdhocProhibition
+            FailureKind::AdhocProhibition | FailureKind::RequiredCoOccurrence
                 if f.hc_reason.as_deref() == Some("MorphemeCoOccurrenceRules") =>
             {
                 FailureReason::MorphemeCoOccurrenceRules
             }
-            FailureKind::AdhocProhibition => FailureReason::AllomorphCoOccurrenceRules,
+            FailureKind::AdhocProhibition | FailureKind::RequiredCoOccurrence => {
+                FailureReason::AllomorphCoOccurrenceRules
+            }
             FailureKind::StemName => FailureReason::RequiredStemName,
             FailureKind::SurfaceMismatch => FailureReason::SurfaceFormMismatch,
             FailureKind::SlotOrder | FailureKind::RequiredSlotEmpty => FailureReason::PartialParse,
@@ -260,6 +266,8 @@ pub enum ObjectType {
     Class,
     StemName,
     Feature,
+    /// A lexical entry (a family member that blocks a derivation).
+    Entry,
 }
 
 /// The grammar object a fix Proposal would touch, for kinds without a dedicated field
@@ -271,6 +279,20 @@ pub struct FailureObject {
     pub kind: ObjectType,
     pub id: Option<String>,
     pub guid: Option<String>,
+    /// The object's authored name, for one that has no `grammar.xml` id (a template); omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// The slot of an affix template that a failure is about; a slot has no `grammar.xml` id, so it is its template's `index`th slot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct FailureSlot {
+    /// 0-based index in the template's slot list.
+    pub index: u32,
+    /// The slot's authored name, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// An environment has no id of its own: it is the `index`th environment of an allomorph.
@@ -359,9 +381,12 @@ pub struct FirstFailure {
     pub features: Vec<FeatureDiff>,
     /// How many other derivations for this candidate also fail; null when not counted.
     pub alternatives: Option<u32>,
-    /// `other_gate` only: the named gate (`disjunctive_allomorph`); omitted for every other kind.
+    /// `other_gate` only: the named gate (`disjunctive_allomorph` or `family_block`); omitted for every other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gate: Option<String>,
+    /// `required_slot_empty` only: the empty slot; omitted for every other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<FailureSlot>,
 }
 
 /// The accepted derivation named by authored ids only: the engine's dense morpheme, allomorph and
@@ -960,6 +985,7 @@ mod tests {
             }],
             alternatives: Some(1),
             gate: None,
+            slot: None,
         }
     }
 
@@ -1003,7 +1029,8 @@ mod tests {
                 "stem_name",
                 "inflection_class",
                 "surface_mismatch",
-                "other_gate"
+                "other_gate",
+                "required_co_occurrence"
             ]
         );
     }
@@ -1051,6 +1078,7 @@ mod tests {
             kind: ObjectType::Affix,
             id: Some("m4".into()),
             guid: None,
+            name: None,
         });
         let back: FirstFailure = serde_json::from_value(serde_json::to_value(&f).unwrap()).unwrap();
         assert_eq!(back, f);

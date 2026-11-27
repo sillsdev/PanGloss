@@ -223,8 +223,11 @@ fn describe_json_publishes_the_why_not_capability_and_its_answered_kinds() {
         serde_json::json!([
             "no_morph_match",
             "environment_unmet",
+            "required_slot_empty",
+            "feature_clash",
             "adhoc_prohibition",
-            "other_gate"
+            "other_gate",
+            "required_co_occurrence"
         ])
     );
 }

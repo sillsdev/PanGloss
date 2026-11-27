@@ -309,6 +309,10 @@ pub struct TraceNode {
     pub partial_parse_cause: Option<PartialParseCause>,
     /// On a `Blocked` node, the family entry whose seed replaced the rule's output.
     pub blocked_by_entry: Option<LexEntryId>,
+    /// On a `Blocked` node, the word the family entry's seed replaced (the rule's output before blocking); set after the event, only by a sink that keeps it.
+    pub blocked_original: Option<Word>,
+    /// On an applicable-templates-not-applied partial parse, the one template that applied to the word; `None` when several did.
+    pub applicable_template: Option<TemplateId>,
     pub children: Vec<TraceHandle>,
 }
 
@@ -327,6 +331,8 @@ impl TraceNode {
             template_slots: None,
             partial_parse_cause: None,
             blocked_by_entry: None,
+            blocked_original: None,
+            applicable_template: None,
             children: Vec::new(),
         }
     }
@@ -490,6 +496,7 @@ pub trait TraceSink {
         _p: TraceHandle,
         _s: StratumId,
         _i: &Word,
+        _unique_template: Option<TemplateId>,
     ) -> TraceHandle {
         unreachable!()
     }
@@ -620,6 +627,9 @@ pub trait TraceSink {
     fn blocked(&self, _p: TraceHandle, _r: MRuleId, _o: &Word, _e: LexEntryId) -> TraceHandle {
         unreachable!()
     }
+
+    /// Keep the word a `Blocked` event replaced, so a diagnostic can say which derivation was blocked. A sink that has no use for it ignores it.
+    fn blocked_original(&self, _event: TraceHandle, _original: &Word) {}
 
     fn successful(&self, _p: TraceHandle, _w: &Word) -> TraceHandle {
         unreachable!()
@@ -1058,6 +1068,7 @@ impl TraceSink for TreeTraceSink {
         parent: TraceHandle,
         stratum: StratumId,
         input: &Word,
+        unique_template: Option<TemplateId>,
     ) -> TraceHandle {
         let mut n = TraceNode::new(
             TraceType::StratumSynthesisOutput,
@@ -1067,6 +1078,7 @@ impl TraceSink for TreeTraceSink {
         n.failure_reason = Some(FailureReason::PartialParse);
         if self.captures_details() {
             n.partial_parse_cause = Some(PartialParseCause::ApplicableTemplatesNotApplied);
+            n.applicable_template = unique_template;
         }
         self.append(parent, n)
     }
@@ -1266,6 +1278,12 @@ impl TraceSink for TreeTraceSink {
         n.output = Some(output.clone());
         n.blocked_by_entry = Some(by_entry);
         self.append(parent, n)
+    }
+
+    fn blocked_original(&self, event: TraceHandle, original: &Word) {
+        if self.capture_failure_context {
+            self.nodes.borrow_mut()[event.0 as usize].blocked_original = Some(original.clone());
+        }
     }
 
     fn successful(&self, parent: TraceHandle, word: &Word) -> TraceHandle {

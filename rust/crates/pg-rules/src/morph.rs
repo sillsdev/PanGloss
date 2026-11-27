@@ -1084,7 +1084,8 @@ fn apply_blocking_traced(
         .map(|w| match check_blocking(g, &w) {
             Some((entry, mut new_word)) => {
                 if trace.is_tracing() {
-                    trace.blocked(parent, mrid, &new_word, entry);
+                    let event = trace.blocked(parent, mrid, &new_word, entry);
+                    trace.blocked_original(event, &w);
                 }
                 new_word.trace = w.trace;
                 new_word

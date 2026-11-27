@@ -3042,7 +3042,12 @@ fn synth_apply_templates(
             match trace.mode() {
                 crate::trace::TraceMode::Tree => {
                     let node_parent = input.trace.unwrap_or(parent);
-                    trace.applicable_templates_not_applied(node_parent, stratum, input);
+                    trace.applicable_templates_not_applied(
+                        node_parent,
+                        stratum,
+                        input,
+                        unique_applicable,
+                    );
                 }
                 crate::trace::TraceMode::Observe(recorder) if !budget.search_stopped() => {
                     recorder.record_at(
