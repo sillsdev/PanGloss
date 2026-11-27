@@ -121,7 +121,7 @@ static GATE: OnceLock<u8> = OnceLock::new();
 static CHECK_CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static CHECK_ACCEPT_EMPTY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Measuring only: the landed version has no switch. `HC_ACCEPT_GATE`: 0 off (default), 1 skip a traversal the acceptance pass rejects, 2 (`check`) run both and panic if the pass rejects a call whose traversal matched.
+/// Measurement switch read from the environment: 0 off (default), 1 skip a traversal the acceptance pass rejects, 2 run both and panic if the pass rejects a call whose traversal matched.
 pub fn gate_mode() -> u8 {
     *GATE.get_or_init(|| match std::env::var("HC_ACCEPT_GATE").as_deref() {
         Ok("1") => 1,
