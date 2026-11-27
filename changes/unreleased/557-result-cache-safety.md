@@ -1,0 +1,1 @@
+- `batch --result-cache` eviction no longer deletes folders it didn't create: only 64-hex key folders holding the cache's own marker are removed, a non-empty root without the marker is refused, and the key now covers a `.fwdata`'s sibling `WritingSystemStore/*.ldml` files.

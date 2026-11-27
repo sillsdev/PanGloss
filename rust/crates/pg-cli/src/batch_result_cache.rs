@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 
 const DEFAULT_MAX_MIB: u64 = 256;
 const MAX_SEGMENTS: usize = 16;
+/// Written in a cache root this cache created or adopted; eviction never touches a root without it.
+const ROOT_MARKER: &str = ".pangloss-result-cache";
+/// Written in every key directory this cache created; eviction removes only directories that hold it.
+const KEY_MARKER: &str = ".pangloss-result-cache-key";
 const ROW_PREFIX_HEAD: &str = "{\"schema\":\"fieldworks-parse-analysis/v1\",\"index\":";
 
 /// Options that cannot be replayed from stored rows.
@@ -37,6 +41,7 @@ struct Plan<'a> {
     out: &'a str,
     analyses: String,
     root: PathBuf,
+    dedicated_root: bool,
     max_bytes: u64,
     inner: Vec<String>,
     key_tokens: Vec<String>,
@@ -62,23 +67,25 @@ fn default_root() -> Result<PathBuf, String> {
     Ok(base.join("pangloss").join("batch-results"))
 }
 
-fn take_value<'a>(
-    arg: &'a str,
-    name: &str,
-    it: &mut std::slice::Iter<'a, String>,
-) -> Result<Option<&'a str>, String> {
-    if arg == name {
-        return it
-            .next()
-            .map(|v| Some(v.as_str()))
-            .ok_or_else(|| format!("{name} requires a value"));
+pub(crate) fn refuse_env(set: Option<&str>) -> Result<(), String> {
+    match set {
+        Some(name) => Err(format!(
+            "--result-cache cannot be used while {name} is set: it changes or profiles the parse, and the cache neither keys nor replays it"
+        )),
+        None => Ok(()),
     }
-    Ok(arg
-        .strip_prefix(name)
-        .and_then(|rest| rest.strip_prefix('=')))
+}
+
+/// Every word has a row; checked before any output file is created or truncated.
+pub(crate) fn require_rows<V>(words: &[String], have: &HashMap<String, V>) -> Result<(), String> {
+    if words.iter().any(|w| !have.contains_key(w)) {
+        return Err("batch produced fewer rows than words".into());
+    }
+    Ok(())
 }
 
 fn plan(args: &[String]) -> Result<Plan<'_>, String> {
+    refuse_env(crate::parse_affecting_env_set_for_cache())?;
     let [grammar, words, out, rest @ ..] = args else {
         return Err("--result-cache needs the three positional arguments first".into());
     };
@@ -88,23 +95,25 @@ fn plan(args: &[String]) -> Result<Plan<'_>, String> {
         );
     }
     let (mut root, mut max_mib, mut analyses) = (None, DEFAULT_MAX_MIB, None);
+    let mut dedicated_root = false;
     let mut inner = Vec::new();
     let mut key_tokens = Vec::new();
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
-        if let Some(v) = take_value(arg, "--result-cache-max-mib", &mut it)? {
+        if let Some(v) = crate::option_value("--result-cache-max-mib", arg, &mut it)? {
             max_mib = v
                 .parse()
                 .ok()
                 .filter(|n| *n > 0)
                 .ok_or_else(|| format!("invalid --result-cache-max-mib: {v}"))?;
-        } else if let Some(v) = take_value(arg, "--result-cache", &mut it)? {
+        } else if let Some(v) = crate::option_value("--result-cache", arg, &mut it)? {
+            dedicated_root = v == "auto";
             root = Some(if v == "auto" {
                 default_root()?
             } else {
                 PathBuf::from(v)
             });
-        } else if let Some(v) = take_value(arg, "--analyses", &mut it)? {
+        } else if let Some(v) = crate::option_value("--analyses", arg, &mut it)? {
             analyses = Some(v.to_string());
         } else if arg == "--threads" {
             inner.push(arg.clone());
@@ -128,6 +137,7 @@ fn plan(args: &[String]) -> Result<Plan<'_>, String> {
         out,
         analyses,
         root: root.ok_or("--result-cache requires a directory or auto")?,
+        dedicated_root,
         max_bytes: max_mib.saturating_mul(1 << 20),
         inner,
         key_tokens,
@@ -138,10 +148,22 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// SHA-256 of the grammar file's current bytes.
+/// SHA-256 of the grammar file's current bytes and of every side input its import reads (a `.fwdata`'s sibling `WritingSystemStore/*.ldml`, by name).
 fn grammar_digest(grammar: &str) -> Result<String, String> {
     let bytes = fs::read(grammar).map_err(|e| format!("--result-cache reads {grammar}: {e}"))?;
-    Ok(hex(&Sha256::digest(&bytes)))
+    let mut hasher = Sha256::new();
+    hasher.update(Sha256::digest(&bytes));
+    let side = pg_fwdata::import_side_inputs(Path::new(grammar)).map_err(|e| {
+        format!("--result-cache reads the writing-system files beside {grammar}: {e}")
+    })?;
+    for (name, content) in side {
+        hasher.update(b"\nside:");
+        hasher.update(name.len().to_string());
+        hasher.update(b":");
+        hasher.update(name);
+        hasher.update(Sha256::digest(&content));
+    }
+    Ok(hex(&hasher.finalize()))
 }
 
 /// SHA-256 of the running executable, so a rebuilt or locally modified binary never replays another build's rows.
@@ -171,6 +193,50 @@ pub(crate) fn cache_key(
         hasher.update(token);
     }
     hex(&hasher.finalize())
+}
+
+fn is_key_name(name: &str) -> bool {
+    name.len() == 64 && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Prepares the root: creates it, or adopts it when it is empty or already ours. A non-empty root without the marker is someone else's folder, so nothing is written or removed there. The default folder (`auto`) is ours by construction, so a root from before the marker existed is adopted and its key directories marked.
+fn prepare_root(root: &Path, dedicated: bool) -> Result<(), String> {
+    let marker = root.join(ROOT_MARKER);
+    if marker.is_file() {
+        return Ok(());
+    }
+    let occupied = match fs::read_dir(root) {
+        Ok(mut entries) => entries.next().is_some(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(format!("read {}: {e}", root.display())),
+    };
+    if occupied && !dedicated {
+        return Err(format!(
+            "--result-cache {} is not empty and is not a result cache (it has no {ROOT_MARKER} file); choose an empty or new folder, or `auto`",
+            root.display()
+        ));
+    }
+    fs::create_dir_all(root).map_err(|e| format!("create {}: {e}", root.display()))?;
+    if occupied {
+        for entry in fs::read_dir(root).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let ours = entry.file_type().is_ok_and(|t| t.is_dir())
+                && is_key_name(&entry.file_name().to_string_lossy())
+                && fs::read_dir(&path).is_ok_and(|files| {
+                    files.flatten().all(|f| {
+                        let name = f.file_name().to_string_lossy().into_owned();
+                        name == ".used"
+                            || Path::new(&name)
+                                .extension()
+                                .is_some_and(|x| x == "jsonl" || x == "tmp")
+                    })
+                });
+            if ours {
+                let _ = fs::write(path.join(KEY_MARKER), b"");
+            }
+        }
+    }
+    fs::write(&marker, b"").map_err(|e| format!("write {}: {e}", marker.display()))
 }
 
 fn segments(dir: &Path) -> Vec<PathBuf> {
@@ -241,13 +307,17 @@ fn dir_size(dir: &Path) -> u64 {
         .sum()
 }
 
-/// Removes the least recently used key directories until the cache fits, never `keep`.
+/// Removes the least recently used key directories this cache created (a 64-hex name holding its marker) until the cache fits, never `keep`.
 fn evict(root: &Path, keep: &Path, max_bytes: u64) {
     let mut dirs: Vec<(std::time::SystemTime, u64, PathBuf)> = fs::read_dir(root)
         .into_iter()
         .flatten()
         .flatten()
-        .filter(|e| e.path().is_dir())
+        .filter(|e| {
+            e.file_type().is_ok_and(|t| t.is_dir())
+                && is_key_name(&e.file_name().to_string_lossy())
+                && e.path().join(KEY_MARKER).is_file()
+        })
         .map(|e| {
             let path = e.path();
             let used = fs::metadata(path.join(".used"))
@@ -286,7 +356,9 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
     let grammar_before = grammar_digest(plan.grammar)?;
     let key = cache_key(&grammar_before, &executable_digest()?, &plan.key_tokens);
     let dir = plan.root.join(&key);
+    prepare_root(&plan.root, plan.dedicated_root)?;
     fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let _ = fs::write(dir.join(KEY_MARKER), b"");
     let _ = fs::write(dir.join(".used"), b"");
     sweep_stale_tmp(&dir);
     let source = fs::read_to_string(plan.words).map_err(|e| format!("read {}: {e}", plan.words))?;
@@ -359,10 +431,8 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
             }
             have.insert(entry.w.clone(), entry);
         }
-        if have.len() < miss_set.len() {
-            return Err("batch produced fewer rows than words".into());
-        }
     }
+    require_rows(&words, &have)?;
     let mut out = std::io::BufWriter::new(
         fs::File::create(plan.out).map_err(|e| format!("create {}: {e}", plan.out))?,
     );
@@ -382,11 +452,20 @@ pub(crate) fn run(args: &[String], counter: &crate::BatchParseCounter) -> Result
         words.len() - parsed_rows,
         fresh.len()
     );
-    if !fresh.is_empty() && grammar_digest(plan.grammar)? != grammar_before {
-        eprintln!(
-            "RESULTCACHE\tskipped: the grammar changed during the run, so nothing was stored"
-        );
-        fresh.clear();
+    if !fresh.is_empty() {
+        match grammar_digest(plan.grammar) {
+            Ok(after) if after == grammar_before => {}
+            Ok(_) => {
+                eprintln!(
+                    "RESULTCACHE\tskipped: the grammar changed during the run, so nothing was stored"
+                );
+                fresh.clear();
+            }
+            Err(e) => {
+                eprintln!("RESULTCACHE\twarning: could not re-read the grammar, so nothing was stored: {e}");
+                fresh.clear();
+            }
+        }
     }
     if !fresh.is_empty() {
         let refs: Vec<&Entry> = fresh.iter().collect();

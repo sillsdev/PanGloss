@@ -187,6 +187,13 @@ jobs:
           set -o pipefail
           cargo test --profile pg-test-opt -p pg-cli --test all --locked -- frozen_batch_hard_links | tee hard-links.log
           grep -q 'test result: ok\. 2 passed' hard-links.log
+      - name: Run the result-cache deletion and marker tests
+        shell: bash
+        # Eviction deletes directories, so its marker rules must hold on Windows file semantics too; require the four tests by count.
+        run: |
+          set -o pipefail
+          cargo test --profile pg-test-opt -p pg-cli --test all --locked -- result_cache_cli | tee result-cache.log
+          grep -q 'test result: ok\. 4 passed' result-cache.log
 
   coverage:
     name: coverage (codecov)

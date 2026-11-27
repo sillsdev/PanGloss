@@ -316,6 +316,16 @@ const ANALYZE_TEXT_FLAGS: &[FlagSpec] = &[
         summary: "<language>=<grammar>: a Language Pack to check every Occurrence against; repeatable, one per language",
     },
     FlagSpec {
+        name: "--dictionary",
+        takes_value: true,
+        summary: "<language>=<prefix>: a Dictionary pack (<prefix>.aff, .dic and .pgdict.json) to check every Occurrence against; repeatable",
+    },
+    FlagSpec {
+        name: "--max-suggestion-chars",
+        takes_value: true,
+        summary: "longest rejected form, in characters, that is searched for suggestions (default 64); longer is incomplete",
+    },
+    FlagSpec {
         name: "--work-cap",
         takes_value: true,
         summary: "N or \"unbounded\"; the work steps one word may spend in each pack (default: 5000000000)",
