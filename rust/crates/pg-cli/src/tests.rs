@@ -2041,7 +2041,7 @@ fn batch_without_refuses_unknown_unsupported_and_incompatible_requests() {
     let msa = entry.msas[0].guid().to_string();
     let err = without_readings("without-msa", &project, &words, &msa).unwrap_err();
     assert!(
-        err.contains("--without") && err.contains("only lexical entries and allomorphs"),
+        err.contains("--without") && err.contains("morphosyntactic analysis"),
         "{err}"
     );
     // One bad id among good ones still refuses the whole request.
