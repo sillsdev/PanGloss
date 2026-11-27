@@ -1,0 +1,24 @@
+# Ledger entry format
+
+The ledger is `docs/research/optimization/README.md`: a table (one row per idea: name, status, target blowup, issues, link) and one `##` entry
+per idea, or a file `docs/research/optimization/<idea>.md` for a long one (link it from the row).
+
+Statuses: `idea`, `measured`, `issue-filed`, `ready` (parity argued, owner decisions in, hand off to `land-an-optimization`),
+`in-progress`, `landed`, `rejected` (with the killing number), `open-upstream` (a Machine issue exists and the port waits).
+
+```
+## <short-name>
+- **Status:** one of the above, with reason and link when rejected or landed.
+- **Blowup it targets:** the construct and why the work multiplies (e.g. N optional segments give 2^N match choices).
+- **Mechanism:** the technique in two to four sentences.
+- **Where in PanGloss:** crate/file of the code that would change. In C#: the matching sillsdev/machine file.
+- **Expected gain:** a measured multiplier with its command, or an estimate (say which).
+- **Parity risk:** can it change parses versus C# HermitCrab? Which invariant makes it safe?
+- **Memo/cache?** yes or no. Beyond the root-trie exception and the shape graph needs owner approval.
+- **Prior art:** citation, one line each on what was taken.
+- **Issues:** sillsdev/PanGloss#N, sillsdev/machine#N, or none yet.
+- **Next step:** the smallest experiment that would confirm or kill it.
+```
+
+Rules: synthetic examples only; primary sources; mark speculation; counts in work steps or instructions, not wall time (unless no step count exists, and say so).
+An entry that changes status keeps its history in one line (`2026-11-27 measured; 2026-12-01 rejected: ...`).

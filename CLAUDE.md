@@ -234,6 +234,7 @@ to commit if rustfmt or another check leaves changes outside `rust/Cargo.toml` a
 `dead-end-census` — the standing first lever for "language X is too slow".
 `code-comments` — comment and doc-comment policy.
 `land-an-optimization` — a memo, cache, speedup or work reduction: Machine issue, breakage analysis, every grammar, recalibrate.
+`optimization-research` — finding and researching a speedup (blowup, smoking gun, why is this word slow): ledger in `docs/research/optimization/`, prior work, issues, hand-off.
 `retune-parser-work` — after a parser change gets a GO from `instruction-compare`: do the parser-work weights still fit.
 
 **Design docs** (`docs/design/`), for changing the mechanism rather than obeying it:
