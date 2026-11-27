@@ -67,6 +67,47 @@ pub fn resolve_fw_entry_msa(
     }
 }
 
+/// The stem MSA GUIDs the compiled grammar holds for `entry_guid`, in compiled order without repeats: the roots a request may name. Empty when the entry exists but owns no stem (an affix entry). `UnknownEntry` when no stem or affix carries the entry GUID.
+pub fn stem_msas_of_entry(
+    grammar: &Grammar,
+    entry_guid: &str,
+) -> Result<Vec<String>, SourceIdentityError> {
+    if grammar.entries.is_empty() {
+        return Err(SourceIdentityError::EmptyLexicon);
+    }
+    if !has_authored_identity(grammar) {
+        return Err(SourceIdentityError::AuthoredIdentityUnavailable);
+    }
+    let mut stems: Vec<String> = Vec::new();
+    let mut known = false;
+    for entry in grammar
+        .entries
+        .iter()
+        .filter(|entry| entry.source_guid.as_deref() == Some(entry_guid))
+    {
+        known = true;
+        let info = grammar.morphemes.get(entry.morpheme.0 as usize);
+        if let Some(guid) = info
+            .filter(|info| info.source_msa_class == Some(FwClass::MoStemMsa))
+            .and_then(|info| info.source_msa_guid.clone())
+        {
+            if !stems.contains(&guid) {
+                stems.push(guid);
+            }
+        }
+    }
+    if !known
+        && !grammar.morphemes.iter().any(|info| {
+            info.owner
+                .as_ref()
+                .is_some_and(|owner| owner.entry_guid == entry_guid)
+        })
+    {
+        return Err(SourceIdentityError::UnknownEntry);
+    }
+    Ok(stems)
+}
+
 /// Resolve any supported FieldWorks MSA to one exact lexical entry or affix rule owner.
 ///
 /// Stem MSAs resolve through `LexEntryDef.source_guid`; affix MSAs resolve through the source

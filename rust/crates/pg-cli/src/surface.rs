@@ -540,6 +540,31 @@ const GENERATE_FLAGS: &[FlagSpec] = &[
         takes_value: true,
         summary: "with --requests: a word list, one word per line; every surface in every row gets attested true/false (NFD comparison) unless the row sends its own attestedWords or attestedWordsFile",
     },
+    FlagSpec {
+        name: "--out",
+        takes_value: true,
+        summary: "with --requests: write every row to this JSONL file and print only a bounded summary (counts per status and cause, the first none rows, the out path, and complete:false with how to resume when capped); without it rows go to stdout",
+    },
+    FlagSpec {
+        name: "--append",
+        takes_value: false,
+        summary: "with --out: append to the file instead of replacing it, to extend a capped run",
+    },
+    FlagSpec {
+        name: "--max-rows",
+        takes_value: true,
+        summary: "with --requests: stop after the input line that brings the rows written to N or more, when input remains; the summary gives nextLine",
+    },
+    FlagSpec {
+        name: "--start-line",
+        takes_value: true,
+        summary: "with --requests: skip input lines before this 1-based line, to resume a capped run",
+    },
+    FlagSpec {
+        name: "--trace-all",
+        takes_value: false,
+        summary: "with --requests: every `target` row carries trace and per-surface rule steps, not only its none rows",
+    },
 ];
 
 const SERVE_FLAGS: &[FlagSpec] = &[

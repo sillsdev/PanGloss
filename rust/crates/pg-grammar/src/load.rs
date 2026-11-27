@@ -667,6 +667,7 @@ pub fn load(xml: &str) -> Result<Grammar, GrammarError> {
         always_enforce_final_templates: false,
         merge_equivalent_analyses: true,
         representative_msas: Default::default(),
+        sense_msas: Default::default(),
         guess_roots: false,
     };
     grammar.shrink_to_fit();

@@ -24,7 +24,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | `stats` | read the stats cache | 0.14.0 | cache 13/14, counters 8 ([stats-cache.md](stats-cache.md)) | M, L | stable |
 | `stats-cache` | cache maintenance (not in USAGE) | 0.21.0 | | none | stable |
 | `phonology-examples` | request, save, check phonology examples | 0.8.5 | | M | stable |
-| `generate` | HC XML ids; `--request`, `--requests` JSONL (0.35.3) | 0.29.0 | request schemaVersion 1 (`docs/generation.md`) | M (via serve), L; `--requests`: Motif caller planned (motif#278) | stable |
+| `generate` | HC XML ids; `--request`, `--requests` JSONL (0.35.3); `--out`, `target`/`cell` rows (batch only) | 0.29.0 | request schemaVersion 1 (`docs/generation.md`) | M (via serve), L; `--requests`: Motif caller planned (motif#278) | stable |
 | `why-not` | first failing constraint | 0.28.0 | `pangloss.whynot.v1` ([why-not.md](why-not.md)) | M | stable |
 | `analyze-text` | segment text, Language Pack evidence | 0.17.0 | `docs/text-analysis-format.md` | none | stable |
 | `cost-compare`, `readings-histogram` | compare batch TSVs | 0.13.0 | | D | experimental |

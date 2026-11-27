@@ -703,6 +703,19 @@ pub(crate) fn compile_project_recording_with(
         always_enforce_final_templates: snapshot.morphology.parser_parameters.make_partials_final,
         merge_equivalent_analyses: snapshot.morphology.parser_parameters.merge_analyses,
         representative_msas: msa_merge.into_representatives(),
+        sense_msas: snapshot
+            .lexicon
+            .entries
+            .iter()
+            .flat_map(|entry| {
+                entry.senses.iter().filter_map(|sense| {
+                    Some((
+                        sense.guid.clone(),
+                        (entry.guid.clone(), sense.msa.as_ref()?.clone()),
+                    ))
+                })
+            })
+            .collect(),
         guess_roots: snapshot.morphology.parser_parameters.guess_roots,
     };
 

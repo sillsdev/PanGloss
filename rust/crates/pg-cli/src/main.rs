@@ -157,6 +157,7 @@ mod fst_verify;
 // `pub`: see `backend_report`'s note above -- marks this bin module's long docs as interface for comment-hygiene.
 mod diagnostic;
 mod generate_batch;
+mod generate_target;
 pub mod grammar_health;
 #[cfg(feature = "foma-tools")]
 mod make_report;
@@ -575,7 +576,7 @@ fn print_usage_and_fail() -> ExitCode {
          usage: pangloss cost-compare <before.tsv> <after.tsv> [--json]\n\
          usage: pangloss readings-histogram <batch.tsv> [--json]\n\
          usage: pangloss stats-cache pack|unpack --cache <path> [--out <path> (unpack only)]\n\
-         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json> | pangloss generate <snapshot|project> --requests <requests.jsonl|-> [--attested <words.txt>]\n\
+         usage: pangloss generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | pangloss generate <snapshot|project> --request <request.json> | pangloss generate <snapshot|project> --requests <requests.jsonl|-> [--attested <words.txt>] [--out <rows.jsonl> [--append]] [--max-rows N] [--start-line N] [--trace-all]\n\
          usage: pangloss parse <grammar> <word> [--trace[=<file>]] [--trace-format=text|json] [--trace-details] [--gloss] [--natural-gloss=eng] [--realize-map=<path>] [--guess[=true|false]] [--without <guid>[,<guid>...]] [--rule-costs[=N]] [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--trace-rejections <path> [--trace-options <json>] [--trace-max-paths N] [--trace-max-depth N] [--trace-max-events N] [--trace-max-bytes N]]\n\
          usage: pangloss serve --project <project.fwdata|snapshot.json> [--work-cap N|unbounded] [--word-mem-cap-mib N] [--word-timeout-ms N] [--guess[=true|false]] [--timing] (line-delimited JSON on stdin/stdout; see docs/formats/serve-protocol.md)\n\
          usage: pangloss import <project.fwdata/.fwbackup> <out.json>\n\
@@ -2841,7 +2842,7 @@ fn run_batch_impl(
 
 /// `generate <grammar> <root-morpheme-id> [other-morpheme-id ...]` keeps the positional HC-XML `<MorphemeId>` mode; `generate <grammar> --request <request.json>` resolves exact FieldWorks entry/MSA identities from an imported snapshot; `generate <grammar> --requests <file.jsonl|-> [--attested <words.txt>]` answers a JSONL batch of `serve` `generate` requests, marking each surface attested or not against the word list.
 fn run_generate(args: &[String]) -> Result<(), String> {
-    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|-> [--attested <words.txt>]";
+    const USAGE: &str = "usage: generate <grammar> <root-morpheme-id> [other-morpheme-id ...] | generate <grammar> --request <request.json> | generate <grammar> --requests <requests.jsonl|-> [--attested <words.txt>] [--out <rows.jsonl> [--append]] [--max-rows N] [--start-line N] [--trace-all]";
     let Some(grammar_path) = args.first() else {
         return Err(USAGE.into());
     };
@@ -2852,8 +2853,18 @@ fn run_generate(args: &[String]) -> Result<(), String> {
     if args.iter().skip(1).any(|arg| arg == "--requests") {
         return Err(generate_request::GenerateRequestError::MixedSelectors.to_string());
     }
-    if args.iter().skip(1).any(|arg| arg == "--attested") {
-        return Err("--attested applies only to generate --requests".to_string());
+    if let Some(flag) = args.iter().skip(1).find(|arg| {
+        [
+            "--attested",
+            "--out",
+            "--append",
+            "--trace-all",
+            "--max-rows",
+            "--start-line",
+        ]
+        .contains(&arg.split('=').next().unwrap_or(""))
+    }) {
+        return Err(format!("{flag} applies only to generate --requests"));
     }
 
     if args.get(1).is_some_and(|arg| arg == "--request") {
@@ -2911,13 +2922,47 @@ fn run_generate(args: &[String]) -> Result<(), String> {
 
 /// `generate <grammar> --requests <file.jsonl|->`: one `serve` `generate` request per input line, one `serve` response per output line on stdout, in input order. A bad line is an error row and the batch goes on; the exit status is 0 once every line is answered, and 1 only for a bad argument, an unreadable input, a grammar that fails to load or a failed write.
 fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), String> {
-    let (source, attested_path) = match rest {
-        [] => return Err("--requests requires a path to a JSONL file, or - for stdin".to_string()),
-        [source] => (source, None),
-        [source, flag, path] if flag == "--attested" => (source, Some(path)),
-        [flag, path, source] if flag == "--attested" => (source, Some(path)),
-        _ => return Err(generate_request::GenerateRequestError::MixedSelectors.to_string()),
+    let mut source: Option<&String> = None;
+    let (mut attested_path, mut out_path) = (None, None);
+    let (mut trace_all, mut append) = (false, false);
+    let (mut max_rows, mut start_line) = (None, 1usize);
+    // `--flag=value` and `--flag value` both work.
+    let split: Vec<String> = rest
+        .iter()
+        .flat_map(|arg| match arg.split_once('=') {
+            Some((flag, value)) if flag.starts_with("--") => {
+                vec![flag.to_string(), value.to_string()]
+            }
+            _ => vec![arg.clone()],
+        })
+        .collect();
+    let mut args = split.iter();
+    let count = |flag: &str, value: Option<&String>| -> Result<usize, String> {
+        value
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|n| *n >= 1)
+            .ok_or_else(|| format!("{flag} requires a positive integer"))
     };
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--attested" => {
+                attested_path = Some(args.next().ok_or("--attested requires a path")?);
+            }
+            "--out" => out_path = Some(args.next().ok_or("--out requires a path")?),
+            "--trace-all" => trace_all = true,
+            "--append" => append = true,
+            "--max-rows" => max_rows = Some(count("--max-rows", args.next())?),
+            "--start-line" => start_line = count("--start-line", args.next())?,
+            _ if source.is_none() => source = Some(arg),
+            _ => return Err(generate_request::GenerateRequestError::MixedSelectors.to_string()),
+        }
+    }
+    let Some(source) = source else {
+        return Err("--requests requires a path to a JSONL file, or - for stdin".to_string());
+    };
+    if append && out_path.is_none() {
+        return Err("--append applies only with --out".to_string());
+    }
     let attested = attested_path
         .map(|path| serve_generate::load_attested_file(path))
         .transpose()?;
@@ -2929,6 +2974,17 @@ fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), Stri
             std::fs::File::open(source).map_err(|e| format!("cannot read {source}: {e}"))?,
         ))
     };
+    let out_file = out_path
+        .map(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .append(append)
+                .truncate(!append)
+                .open(path)
+                .map_err(|e| format!("cannot write {path}: {e}"))
+        })
+        .transpose()?;
     let (grammar, warnings) = load_grammar(grammar_path)?;
     print_grammar_warnings(&warnings);
     // The defaults `pangloss serve` starts with, so a row equals the serve op's answer.
@@ -2938,13 +2994,31 @@ fn run_generate_requests(grammar_path: &str, rest: &[String]) -> Result<(), Stri
             .with_word_timeout(None),
         None,
     );
-    let stdout = std::io::stdout();
-    let summary =
-        generate_batch::run_requests(&grammar, &morpher, attested.as_ref(), input, stdout.lock())
-            .map_err(|e| format!("generate --requests: {e}"))?;
+    let config = generate_batch::BatchConfig {
+        attested: attested.as_ref(),
+        trace_all,
+        start_line,
+        max_rows,
+    };
+    let summary = match out_file {
+        Some(file) => {
+            let mut writer = std::io::BufWriter::new(file);
+            let summary =
+                generate_batch::run_requests(&grammar, &morpher, &config, input, &mut writer)
+                    .map_err(|e| format!("generate --requests: {e}"))?;
+            std::io::Write::flush(&mut writer).map_err(|e| format!("generate --requests: {e}"))?;
+            println!("{}", summary.render(out_path.map(String::as_str)));
+            summary
+        }
+        None => {
+            let stdout = std::io::stdout();
+            generate_batch::run_requests(&grammar, &morpher, &config, input, stdout.lock())
+                .map_err(|e| format!("generate --requests: {e}"))?
+        }
+    };
     if summary.errors > 0 {
         eprintln!(
-            "generate --requests: {} of {} requests were refused; see the error rows",
+            "generate --requests: {} of {} rows were refused; see the error rows",
             summary.errors, summary.rows
         );
     }

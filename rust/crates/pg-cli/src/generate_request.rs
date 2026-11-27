@@ -217,7 +217,7 @@ impl<'de> serde::Deserialize<'de> for AuthoredMsaClass {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ValidatedMorphemeRef {
     pub(crate) entry_guid: String,
     pub(crate) msa_guid: String,
@@ -269,6 +269,16 @@ pub(crate) fn parse_request_json(
     Ok(ValidatedGenerateRequest { root, morphemes })
 }
 
+/// One morpheme reference taken from a JSON value, validated as a request's own morphemes are; `path` names it in errors.
+pub(crate) fn morpheme_ref_from_value(
+    value: &serde_json::Value,
+    path: &str,
+) -> Result<ValidatedMorphemeRef, GenerateRequestError> {
+    let item: AuthoredMorphemeRef = serde_json::from_value(value.clone())
+        .map_err(|error| GenerateRequestError::InvalidJson(format!("{path}: {error}")))?;
+    validate_morpheme_ref(item, path)
+}
+
 fn validate_morpheme_ref(
     item: AuthoredMorphemeRef,
     path: &str,
@@ -303,7 +313,7 @@ fn validate_morpheme_ref(
     })
 }
 
-fn is_canonical_guid(value: &str) -> bool {
+pub(crate) fn is_canonical_guid(value: &str) -> bool {
     let bytes = value.as_bytes();
     bytes.len() == 36
         && bytes.iter().enumerate().all(|(index, byte)| match index {
