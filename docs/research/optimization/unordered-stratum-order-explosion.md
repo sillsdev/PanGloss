@@ -2,7 +2,7 @@
 
 Ledger entry (format: `.claude/skills/optimization-research/references/ledger-format.md`). Back to the [ledger](README.md).
 
-- **Status:** measured (2026-11-27). No issue yet; a `sillsdev/machine` issue with the tables below is the next step. 2026-11-27: oracle study and state-repeat census done (below); the lever is re-aimed at synthesis of the expanded variants.
+- **Status:** parked, measured (2026-11-27 owner stop). PanGloss #574; a `sillsdev/machine` issue with the tables below is the next step. 2026-11-27: oracle study and state-repeat census done (below); the lever is re-aimed at synthesis of the expanded variants.
 - **Blowup it targets:** a stratum whose morphological rules are `morphologicalRuleOrder="unordered"` (the FieldWorks default) explores every combination and order of its rules. One heavy Bantu grammar has an unordered stratum of 22 morphological rules. Subsets of non-interacting prefix rules (noun-class-like markers, an applicative, a causative) are re-derived in every order, and each combination word re-runs the whole template battery. Work grows with the number of orderings, not with the number of distinct rule sets.
 - **Measured (release 0.35.0, which has the shape graph; one thread, work steps):** the same grammar with only that stratum's attribute switched to `linear`:
   - 6 costliest parsing words: 11.4x, 8.3x, 7.1x, 4.9x, 3.8x and 3.1x less work (the top word 88.6M to 7.8M); signatures identical on all 6.

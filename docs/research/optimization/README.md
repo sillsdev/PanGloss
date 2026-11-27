@@ -44,10 +44,10 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | tracing-keeps-merging | open | tracing disables equivalent-analysis merging | machine#565 | [entry](#tracing-keeps-merging) |
 | emission-lexical-cull | open | candidates culled only after emission | machine#512 | [entry](#emission-lexical-cull) |
 | measurement-noise | open (tooling, not an idea) | Windows instruction counts spread about 0.6% per round | PanGloss #260 | [entry](#measurement-noise) |
-| unordered-stratum-order-explosion | measured | unordered-stratum rules explored in every order: 2.25x total, 3x to 11x on the heaviest words (one heavy Bantu grammar); the lever is synthesis of the expanded variants | none yet | [file](unordered-stratum-order-explosion.md) |
+| unordered-stratum-order-explosion | parked, measured | unordered-stratum rules explored in every order: 2.25x total, 3x to 11x on the heaviest words (one heavy Bantu grammar); the lever is synthesis of the expanded variants | PanGloss #574 | [file](unordered-stratum-order-explosion.md) |
 | deletion-reinsertion | rejected: 3 counterexamples vs hc.dll ba6dfa10 (fable-pass r2 deletion-2; sillsdev/machine#655); prune cuts work 68% to 75% on one Tamil grammar but loses analyses C# finds (64 of 300 fuzz grammars as written; 7 of 300 for the per-rule narrowing) | optional re-insertion of deleted segments re-runs the template battery: +52% heavy, +16% random words (one Tamil grammar) | sillsdev/machine#655 (open PR; evidence posted as a comment) | [file](deletion-reinsertion.md) |
 | machine-655-redundant-deletion-matches | open-upstream (drops analyses on a build of the pinned tree plus the PR's source changes) | the same deletion re-insertion blowup (up to 2^N optional copies per gap), filtered upstream by a two-sided redundant-match test that drops analyses the pinned parser finds | sillsdev/machine#655 (evidence posted as a comment) | [entry](#machine-655-redundant-deletion-matches) |
-| root-answers-table | measured (partly); Memo/cache? yes, owner decision | repeated root-trie search per canonical sharing a shape in the last analysed stratum of an explosive word | PanGloss #559, #262 | [entry](#root-answers-table) |
+| root-answers-table | parked, measured (partly); Memo/cache? yes, owner decision | repeated root-trie search per canonical sharing a shape in the last analysed stratum of an explosive word | PanGloss #559, #262 | [entry](#root-answers-table) |
 | null-derivation-hypotheses | measured; exposure zero; folded into machine#653 | a null noun-to-verb affix duplicates every verb shape as a noun hypothesis: 1.87x | machine#653, #635 | [entry](#null-derivation-hypotheses) |
 | env-split-allomorph-fanout | rejected: 0.6% to 2.2% collapse ceiling on three grammars (controlled edit; census mean group size 1.00 to 1.02) | one analysis match per environment-split allomorph: median +0.4% per affix | none | [entry](#env-split-allomorph-fanout) |
 | deep-template-optional-slot | rejected: 1.6x to 3.3x per word is real ambiguity (cal-deep-template-16, pangloss batch) | a 17th optional template slot: 1.6x to 3.3x, genuine extra readings | PanGloss #66, machine#598 | [entry](#deep-template-optional-slot) |
@@ -57,12 +57,12 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | unread-register-projection | idea (speculative) | visited key includes capture registers nothing reads | none yet | [entry](#unread-register-projection) |
 | one-build-identity | rejected: 0.2% to 0.3% of instructions self, 1.3% to 2.5% inclusive (callgrind, three grammars) | three `WordKey` builds per cascade edge (constant factor) | none | [entry](#one-build-identity) |
 | phonological-analysis-rows | idea, owner approval needed | reversed phonological rules re-run per same-shape canonical | none yet | [entry](#phonological-analysis-rows) |
-| state-tabled-continuations | measured (census 2: analysis-only ceilings per grammar; form (i) twin replay needs no table, form (ii) stratum table is a memo and needs the owner) | same analysis state reached by k orders expanded k times: 0.59 of stratum work under repeat arrivals on one heavy Bantu grammar (twins: conditioned allomorphs that strip to the same residue), 0.60 on Aweti (rule order) | machine#653/#654 (shape half) | [file](state-tabled-continuations.md) |
+| state-tabled-continuations | parked, measured (census 2: analysis-only ceilings per grammar; form (i) twin replay needs no table, form (ii) stratum table is a memo and needs the owner) | same analysis state reached by k orders expanded k times: 0.59 of stratum work under repeat arrivals on one heavy Bantu grammar (twins: conditioned allomorphs that strip to the same residue), 0.60 on Aweti (rule order) | machine#653/#654 (shape half), PanGloss #574 | [file](state-tabled-continuations.md) |
 | synthesis-input-dedup | idea (measure first) | 370 expanded alternatives synthesise to 6 identities | none yet | [entry](#synthesis-input-dedup) |
 | compounding-rows-with-filter-key | idea, owner approval needed | shape graph skips compounding | none yet | [entry](#compounding-rows-with-filter-key) |
 | static-commutation-sleep-sets | rejected: 1.0x to 1.1x estimated (19 of 22 free rules on one edge; rule census) | order multiplicity of commuting unapplications | none | [entry](#static-commutation-sleep-sets) |
 | synthesis-rewrite-preparation-hoist | in-progress | candidate-independent preparation inside the synthesis site scan: about 15% of instructions on mid-weight words of one heavy Bantu grammar | PanGloss #535, PR #566 | [entry](#synthesis-rewrite-preparation-hoist) |
-| allocator-share | in-progress (three slices being built) | malloc, free and realloc are 29.3%, 22.0% and 10.6% of parse instructions on three grammars (load excluded); six slices, preloaded alternative allocator deferred | PanGloss #548 | [entry](#allocator-share) |
+| allocator-share | parked (2026-11-27 owner stop; S1 and S3 committed locally, S2a uncommitted, none measured; best estimate Sena 15% to 17% of parse instructions for S1 to S4 plus S2b) | malloc, free and realloc are 29.3%, 22.0% and 10.6% of parse instructions on three grammars (load excluded); six slices, preloaded alternative allocator deferred | PanGloss #548 | [entry](#allocator-share) |
 | synthesis-of-dying-variants | measured; split into the four design rows below | 99.9% of synthesis work on the heaviest word is on variants that die; 81.6% of one word's variants die on the first re-applied rule | PanGloss #550 | [entry](#synthesis-of-dying-variants) |
 | compound-first-member-search | in-progress | compound rules search the whole root trie once per split: 8.3x on a compounding grammar, 99.4% of it with no eligible first member | PanGloss #437; machine#657 | [entry](#compound-first-member-search) |
 | affix-acceptance-prefilter | measured (census + audit; gate experiment not built): empty traversals are 85.7% to 90.4% of work on two Tamil runs, 0.4% Sena, 1.3% Aweti; shadow pass finds 0 disagreements on 5 runs | register-free live-state pass before each affix traversal; empty traversals cost 2,213 to 6,941 steps each on Tamil against 8 to 13 elsewhere; auditor's wall-time estimate 3.5x to 5x (systematic sample) and 5x to 7x (cap-word list) on one Tamil grammar, at most 1.01x on Sena and Aweti (estimate) | none yet; relates machine#596, #564 | [entry](#affix-acceptance-prefilter) |
@@ -72,10 +72,10 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | trail-prefix-synthesis-sharing | idea | variants with a shared trail prefix are synthesised one by one | none yet | [entry](#trail-prefix-synthesis-sharing) |
 | segment-bundle-interning | idea | per-node lane vectors cloned per rewrite call | none yet | [entry](#segment-bundle-interning) |
 | analysis-shape-conformance-in-synthesis | idea (speculative; not exact as stated) | candidates synthesised through every stratum before the surface comparison | none yet | [entry](#analysis-shape-conformance-in-synthesis) |
-| recorded-allomorph-replay | in-progress | 81.6% of synthesis variants on one heavy word die on the recorded allomorph's MPR gate; estimate 7% to 13% of whole-parse work | PanGloss #550 | [entry](#recorded-allomorph-replay) |
-| synthesis-template-walk-index | measured | synthesis template walk overhead: up to 8% of run instructions on mid-weight words | none yet | [entry](#synthesis-template-walk-index) |
-| pending-rule-once-per-word | measured | pending rule re-applied once per template, 4.7x to 5.6x inside a variant: at most about 17% of run instructions | none yet | [entry](#pending-rule-once-per-word) |
-| synthesis-prefix-table | idea, owner decision needed | variants share rule prefixes 3x to 4.8x | none yet | [entry](#synthesis-prefix-table) |
+| recorded-allomorph-replay | parked (2026-11-27 owner stop; code and unit test committed locally, nothing built or measured) | 81.6% of synthesis variants on one heavy word die on the recorded allomorph's MPR gate; estimate 7% to 13% of whole-parse work | PanGloss #550 | [entry](#recorded-allomorph-replay) |
+| synthesis-template-walk-index | parked, measured | synthesis template walk overhead: up to 8% of run instructions on mid-weight words | PanGloss #573 | [entry](#synthesis-template-walk-index) |
+| pending-rule-once-per-word | parked, measured | pending rule re-applied once per template, 4.7x to 5.6x inside a variant: at most about 17% of run instructions | PanGloss #573 | [entry](#pending-rule-once-per-word) |
+| synthesis-prefix-table | parked, idea, owner decision needed | variants share rule prefixes 3x to 4.8x | PanGloss #573 | [entry](#synthesis-prefix-table) |
 | lexicon-tandem-analysis | rejected: 23.5% dead steps against a 30% gate (machine record) | lexicon-guided un-application | machine#585, #601 | [entry](#lexicon-tandem-analysis) |
 | rule-inversion-by-transducer | rejected: 2.1% of analysis work is phonological rules (callgrind, deletion-rule grammar) | spurious ambiguity of inverted rules | none | [entry](#rule-inversion-by-transducer) |
 | subsumption-packing-of-analysis-shapes | rejected: 0 subsumable pairs among 16,176 and 12,595 expansions (machine record) | packing equal-or-more-general analysis states | none | [entry](#subsumption-packing-of-analysis-shapes) |
@@ -357,7 +357,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Prior art:** loop-invariant code motion. **Issues:** sillsdev/PanGloss#535, PR #566. **Next step:** byte identity plus callgrind before and after on the heavy grammar, then the Windows verdict.
 
 ### allocator-share
-- **Status:** in-progress (2026-11-27; PanGloss #548). Measured, ranked into six slices; three slices (S1, S3, S2a) are being built, S4 follows, S2b after S2a, S5 after #535.
+- **Status:** parked (2026-11-27 owner stop; PanGloss #548). Measured and ranked into six slices. Local only, nothing pushed: S1 committed (4ec923764, 51 of 51 crate tests, branch `alloc-s1-literal-lanes`), S3 committed as an unverified work-in-progress commit (7c2b5f3be, branch `alloc-s3-morph-shapes`; its crate test run showed 70 failures, 44 from a missing conformance checkout and 26 not triaged), S2a uncommitted edits (a diff is kept in the research tree). No slice has a build, identity run or instruction count. Best numbers are the estimates in the list below.
 - **Blowup it targets:** a constant factor: allocator instructions (malloc, free, realloc self) are 29.3% (377.4M of 1,288.3M), 22.0% (129.9M of 589.5M) and 10.6% (79.0M of 743.8M) of parse instructions on a heavy Bantu grammar, a second Bantu grammar and a Dravidian grammar (callgrind on v0.35.0, small word lists of 4 to 6 words, grammar load excluded), plus 44M, 17M and 7M instructions of memcpy from growth. Mallocs per parse: 2.03M, 0.85M, 0.35M.
 - **Mechanism:** short-lived lane rows built by `to_vec()` plus `push` (which reallocates) and `Vec::new()` growth; refcounted FST register blocks copied on write; a fresh hash set and vectors per FST start position; shapes built before a filter that discards them. Each cut is a separate scratch-reuse, capacity or borrow change; none is a memo, cache or retained table.
 - **Where in PanGloss and expected gain** (estimated parse-instruction gain per slice; the slice files are disjoint):
@@ -371,7 +371,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Global options (measured):** a preloaded alternative allocator (jemalloc by `LD_PRELOAD`) gives -3.1% (Mbugwe), -6.7% (Sena), -5.2% (Tamil) of parse instructions with identical output; deferred (the Windows gain is unknown and the host library owns its allocator, a host decision); it removes allocator cost per call and leaves the calls, so it is not a substitute for S1 to S3. A per-word bump arena as a global is rejected: shapes outlive the step that builds them, lane rows are better removed than moved, and a word-scope arena would hold memory to the end of the word and raise peak bytes. Its one sound part is the register arena of S2b.
 - **Parity risk:** none: analyses, statuses and work columns are byte-identical by construction; no `consume()` moves; the memory charge numbers do not move. Every slice moves the cost column: retune after landing. Allocation cuts are Rust-only (C# allocates differently), so no Machine issue; each PR says so under step 1.
 - **Memo/cache?** no. **Prior art:** PanGloss #232, #244, #249, #243, #284, #286 (landed earlier); machine#591.
-- **Issues:** sillsdev/PanGloss#548 (excludes #535). **Next step:** land S1, S3 and S2a with the instruction-compare gate and the conformance run; then S4 and S2b; re-measure the preloaded allocator after S3.
+- **Issues:** sillsdev/PanGloss#548 (excludes #535). **Next step:** (S3 first needs the #437 compound fix to land: one of its cuts is in the compound-split function both edit, and that cut skips work conditionally, so it needs an independent review) land S1, S3 and S2a with the instruction-compare gate and the conformance run; then S4 and S2b; re-measure the preloaded allocator after S3.
 
 ### synthesis-of-dying-variants
 - **Status:** measured (2026-11-27). Split into four design rows: [recorded-allomorph-replay](#recorded-allomorph-replay) (in-progress, PanGloss #550), [synthesis-template-walk-index](#synthesis-template-walk-index), [pending-rule-once-per-word](#pending-rule-once-per-word) (both measured) and [synthesis-prefix-table](#synthesis-prefix-table) (idea, owner decision). Ruled-out designs are rows of their own: [synthesis-trail-replay-of-syntactic-state](#synthesis-trail-replay-of-syntactic-state), [synthesis-whole-variant-dedup](#synthesis-whole-variant-dedup), [synthesis-length-bound](#synthesis-length-bound), [allomorph-validity-before-phonology](#allomorph-validity-before-phonology), [synthesis-factored-alternative-product](#synthesis-factored-alternative-product).
@@ -443,7 +443,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Issues:** sillsdev/machine#655 (evidence posted as a PR comment).
 - **Next step:** wait for the Machine decision. If Machine merges #655, port only with a pin bump and recorded C# rows for the fixtures (build the port and measure `HC_DEL_DOMGAP=m655` off against on with an identity check); the sound alternative is [optional-run-enumeration](#optional-run-enumeration).
 ### root-answers-table
-- **Status:** measured (partly). 2026-11-27: phase A (design and exactness) done; the with/without measurements are not run (phase B, PanGloss #559).
+- **Status:** parked, measured (partly) (2026-11-27 owner stop). Phase A (design and exactness) done; the with/without measurements (phase B, PanGloss #559) were not run, and the fix branch the design builds on was never pushed. Best number: #262's +3.80% instructions without the table against +0.36% with it on one heavy word (not re-measured).
 - **Blowup it targets:** in the last analysed stratum an explosive word folds tens of thousands of arrivals into canonicals, and every canonical with no root still stores its alternatives until lookup. The rootless check drops them, and the table stops the check repeating one trie search per canonical that shares a shape.
 - **Mechanism:** a per-word map (stratum, shape) to has-root, stratum 0 only, read once a stratum call holds 1,024 words, capped at 4 MiB counted (about 31 KB counted per shape, so about 135 shapes; estimated), no eviction, dropped at word end. A table-free candidate: load-time per-node accept depths (fewest and most edges to an accept) plus an allocation-free existence walk (exact: drops only trie positions that cannot end on an accept with the segments left).
 - **Where in PanGloss:** `pg-parse` `root_answers.rs`, `morpher.rs` `has_root`; `pg-rules` `stratum.rs` `keeps_alternatives`. In C#: none (analysis keeps all alternatives at the pin).
@@ -552,42 +552,42 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Finding:** shapes are short and already flat columns interned per word; a wide-node tree degenerates to one leaf and a path copy costs more than copying the columns. **Next step:** none. **Memo/cache?** no.
 
 ### recorded-allomorph-replay
-- **Status:** in-progress (2026-11-27; PanGloss #550). Measured first, built second: slice 1 is being built.
+- **Status:** parked (2026-11-27 owner stop on optimization exploration; PanGloss #550). Slice 1 is written and committed locally (branch `replay-recorded-allomorph-550`, 5a372197b, not pushed) with a unit test and a C#-oracle fixture; nothing is built, tested or measured. Best number: the death census, 81.6% (9,896 of 12,127) of one heavy word's variants die on the recorded allomorph's MPR gate; the 7% to 13% whole-parse gain is an estimate.
 - **Blowup it targets:** synthesis variants whose recorded allomorph can never pass its MPR gate. Measured on the heavy Bantu grammar: 81.6% (9,896 of 12,127) of one word's variants and at least 75% (3,686 of 4,914) of another's die on the first re-applied rule; each such variant still walks 17 templates and applies the doomed rule 4.76 times.
 - **Mechanism:** the pre-synthesis trail replay (`lookup_replay`, PanGloss #21) asks "can any allomorph of the rule pass", while synthesis emits output only from the allomorph that analysis recorded. Example: rule `-ti` has allomorphs `-ti` (needs class A), `-ta` (needs class B) and `-t` (no gate); root `bak` has neither class; analysis of `bakti` records the first allomorph; synthesis can only emit from it and fails, yet the replay passes because the third allomorph has no gate. Test the recorded allomorph instead (attempt counts are identical with the replay on and off today).
 - **Where in PanGloss:** `rust/crates/pg-parse/src/lookup_replay.rs` (`trail_is_feasible`). In C#: `SynthesisAffixProcessRule.Apply`, `Word.IsAllomorphApplicable`.
 - **Expected gain:** estimate: 7% to 13% of whole-parse work on heavy words, more in instructions; work steps fall (labelled estimate; the exact work of the dead variants is not attributed by the stats).
 - **Parity risk:** low: same invariant as the existing replay; fixtures for multiple application and free fluctuation.
 - **Memo/cache?** no. **Prior art:** machine PR #570 (the any-allomorph form), PanGloss #21.
-- **Issues:** sillsdev/PanGloss#550. **Next step:** slice 1 with a conformance fixture, then the Machine issue.
+- **Issues:** sillsdev/PanGloss#550. **Next step:** build the local commit, run the unit test and the fixture against hc.dll, byte-identity runs and callgrind on the heavy grammar (before binary: a release build of main), then open the PR with `Ledger: recorded-allomorph-replay`, then the Machine issue.
 
 ### synthesis-template-walk-index
-- **Status:** measured (2026-11-27); design ready, not started.
+- **Status:** parked, measured (2026-11-27 owner stop); design ready, not started.
 - **Blowup it targets:** every synthesis candidate scans all templates to find a rule's stratum and visits every rule of every slot: synthesis work that no rule object owns (47% to 72% of synthesis work on the three heavier words measured, 36% on the lightest).
 - **Mechanism:** a load-time rule-to-stratum table and per-template rule positions; steps charged as before.
 - **Where in PanGloss:** `rust/crates/pg-rules/src/stratum.rs` (`owning_stratum`, `synth_slots_generic`). In C#: `SynthesisAffixTemplateRule.ApplySlots`.
 - **Expected gain:** measured walk overhead up to 8% of run instructions on mid-weight words; work unchanged.
-- **Parity risk:** low; compounding slots keep the old walk. **Memo/cache?** no. **Prior art:** PanGloss #66 (the analysis-side slot sharing). **Issues:** none yet.
+- **Parity risk:** low; compounding slots keep the old walk. **Memo/cache?** no. **Prior art:** PanGloss #66 (the analysis-side slot sharing). **Issues:** PanGloss #573.
 - **Next step:** slice (a), a byte-identical work-column check, after the #535 PR is up (same file).
 
 ### pending-rule-once-per-word
-- **Status:** measured (2026-11-27); census to be repeated after recorded-allomorph-replay.
+- **Status:** parked, measured (2026-11-27 owner stop); census to be repeated after recorded-allomorph-replay.
 - **Blowup it targets:** in an unordered stratum the pending rule is re-applied to the same word once per template (4.7 to 5.6 times inside one variant).
 - **Mechanism:** a call-scoped cell holding the result of applying the pending rule to the input word; templates take clones. No key and no lifetime beyond the call.
 - **Where in PanGloss:** `rust/crates/pg-rules/src/stratum.rs` (`synth_apply_templates`). In C#: `SynthesisAffixTemplatesRule.Apply`.
 - **Expected gain:** at most about 17% of run instructions on mid-weight words before recorded-allomorph-replay (measured bound); unmeasured after it.
 - **Parity risk:** medium: per-template final flags, trace and stats per attempt must be replayed per template.
-- **Memo/cache?** no (scoped to one call). **Prior art:** machine#601 row 29 (a rule-level memo, rejected as a memo). **Issues:** none yet.
+- **Memo/cache?** no (scoped to one call). **Prior art:** machine#601 row 29 (a rule-level memo, rejected as a memo). **Issues:** PanGloss #573.
 - **Next step:** rerun the death census after recorded-allomorph-replay lands, then slice 1 with step replay.
 
 ### synthesis-prefix-table
-- **Status:** idea (2026-11-27); blocked on an owner decision and on recorded-allomorph-replay.
+- **Status:** parked, idea (2026-11-27 owner stop); blocked on an owner decision and on recorded-allomorph-replay.
 - **Blowup it targets:** variants of one word share rule prefixes (3x to 4.8x, measured) and pre-phonology shapes (3x to 5.3x, measured before recorded-allomorph-replay, so the factors will shrink).
 - **Mechanism:** word-scoped keyed tables for rule prefixes and phonology results, a hard cap, drop-all on overflow.
 - **Where in PanGloss:** `rust/crates/pg-parse/src/morpher.rs` (the synthesis loop). In C#: `Morpher.SynthesizeSequential`.
 - **Expected gain:** unmeasured after recorded-allomorph-replay.
 - **Parity risk:** high: the key must hold every field synthesis reads.
-- **Memo/cache?** yes: needs owner approval (a capped, word-scoped table). **Prior art:** machine#584, machine#601 row 6. **Issues:** none yet.
+- **Memo/cache?** yes: needs owner approval (a capped, word-scoped table). **Prior art:** machine#584, machine#601 row 6. **Issues:** PanGloss #573.
 - **Next step:** measure the remaining sharing after recorded-allomorph-replay with the death-census counter, then ask the owner only if it is still large.
 
 ### synthesis-trail-replay-of-syntactic-state
