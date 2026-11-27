@@ -5,6 +5,19 @@ fragment under `changes/unreleased/` (see its README). The prepare step of `rust
 folds the fragments into the new version section, in file-name order, and deletes them. It refuses a
 version with neither fragments, a `## Unreleased` section nor a version section.
 
+## 0.35.5
+
+Released 2026-11-27.
+
+- Added Rust tests mirroring the required-slot look-ahead cases machine #575 gained after the port (boundary-only infix, empty unbounded run, optional node before a prefix, inner material inside the outer suffix); the look-ahead already behaved the same, so no behaviour changes (#25).
+- The conformance suite pin moves to babd5f4 and the two narrowing-boundary alpha-lhs fixtures now come from it instead of conformance-staging (#33).
+- Rejection trace names `required_slot_uncoverable` when a template's required slot cannot be filled by the target's affixes, so such target rows are no longer `unknown` with `owner_unobserved` (#364).
+- `pangloss readings-histogram <batch.tsv> [--json]` counts the words of a `batch` run by Readings per word (0, 1, 2, ...), with words that did not finish `ok` listed apart (#396); new command only, no existing output changes. See `docs/formats/batch-tsv.md`.
+- Added negative tests proving `pangloss why-not` leaves the owner `unknown` for a category clash across several rules, an empty required slot with two applicable templates and a surface mismatch, and documented that new failure kinds may appear within v1 and unknown kinds must be read as `unknown` (#397).
+- `pangloss why-not` now names the owning object for a stem-requirement feature clash (`feature_clash`, the affix rule), an empty required slot (`required_slot_empty`, the template and a new `slot` field), a family block (`other_gate` gate `family_block`, the blocking entry) and a failed `require` co-occurrence rule (new kind `required_co_occurrence`), additively in the report schema and `--describe`; a surface mismatch, a clash between rules and every other failure stay `unknown` because no single object is proven (#397).
+- `parse` and `batch --without` now also leave out phonological rules, compound rules, affix templates and ad hoc co-occurrence rules, parsing exactly as a grammar with that rule deleted; an affix template slot or any other object is refused with its kind (#397).
+- `pangloss generate` can force a root or stem form with `formGuid` (only that form's seeds run, an affix `formGuid` stays refused) and mark each surface `attested` against a word list with `--requests ... --attested <words.txt>` or the `serve` `generate` fields `attestedWords` / `attestedWordsFile`; output is unchanged without them (#398).
+
 ## 0.35.4
 
 Released 2026-11-27.
