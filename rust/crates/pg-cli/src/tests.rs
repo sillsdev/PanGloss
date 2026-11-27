@@ -2715,13 +2715,85 @@ fn result_cache_is_refused_where_rows_cannot_be_replayed_and_is_size_bounded() {
         assert!(run_batch(&base(&extra)).is_err(), "{extra:?}");
     }
     // A least recently used grammar's directory goes once the bound is passed.
-    let old = dir.join("cache").join("old-key");
+    run_batch(&base(&[])).unwrap();
+    let cache = dir.join("cache");
+    let old = cache.join("a".repeat(64));
     fs::create_dir_all(&old).unwrap();
+    fs::write(old.join(".pangloss-result-cache-key"), b"").unwrap();
     fs::write(old.join("seg-1.jsonl"), vec![b'x'; 2 << 20]).unwrap();
     run_batch(&base(&["--result-cache-max-mib", "1"])).unwrap();
     assert!(!old.exists());
-    let kept = fs::read_dir(dir.join("cache")).unwrap().count();
-    assert_eq!(kept, 1);
+    // Folders the cache did not create survive every eviction, even one named like a key and one over the bound.
+    let foreign = cache.join("project");
+    let lookalike = cache.join("b".repeat(64));
+    for dir in [&foreign, &lookalike] {
+        fs::create_dir_all(dir).unwrap();
+        fs::write(dir.join("keep.txt"), vec![b'x'; 2 << 20]).unwrap();
+    }
+    run_batch(&base(&["--result-cache-max-mib", "1"])).unwrap();
+    assert!(foreign.join("keep.txt").is_file());
+    assert!(lookalike.join("keep.txt").is_file());
+}
+
+/// A root that is not empty and was not made by the cache is refused and left alone.
+#[test]
+fn result_cache_refuses_a_root_it_did_not_create() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-foreign-root");
+    let words = dir.join("words.txt");
+    fs::write(&words, "kat\n").unwrap();
+    let root = dir.join("project");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src").join("main.txt"), "mine").unwrap();
+    let args = [
+        fixture.to_string_lossy().into_owned(),
+        words.to_string_lossy().into_owned(),
+        dir.join("out.tsv").to_string_lossy().into_owned(),
+        "--analyses".into(),
+        dir.join("a.jsonl").to_string_lossy().into_owned(),
+        "--result-cache".into(),
+        root.to_string_lossy().into_owned(),
+        "--result-cache-max-mib".into(),
+        "1".into(),
+    ];
+    let error = run_batch(&args).expect_err("must refuse");
+    assert!(error.contains("not a result cache"), "{error}");
+    assert_eq!(
+        fs::read_to_string(root.join("src").join("main.txt")).unwrap(),
+        "mine"
+    );
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    assert!(!dir.join("out.tsv").exists());
+}
+
+/// The sibling writing-system files feed the import, so editing one is a miss.
+#[test]
+fn result_cache_key_follows_the_sibling_writing_system_files() {
+    let fixture = fwdata_fixture_with_k();
+    let dir = scratch_dir("cache-ldml");
+    let store = fixture.parent().unwrap().join("WritingSystemStore");
+    fs::create_dir_all(&store).unwrap();
+    let ldml = store.join("qaa.ldml");
+    fs::write(&ldml, "<ldml/>").unwrap();
+    assert_eq!(cached_run(&dir, &fixture, "kad\n", &[]).parsed, 1);
+    assert_eq!(cached_run(&dir, &fixture, "kad\n", &[]).parsed, 0);
+    fs::write(&ldml, "<ldml><!-- edited --></ldml>").unwrap();
+    assert_eq!(cached_run(&dir, &fixture, "kad\n", &[]).parsed, 1);
+    fs::remove_file(&ldml).unwrap();
+    assert_eq!(cached_run(&dir, &fixture, "kad\n", &[]).parsed, 1);
+}
+
+#[test]
+fn result_cache_refuses_parse_affecting_env_and_incomplete_rows() {
+    let error = crate::batch_result_cache::refuse_env(Some("HC_RSL")).unwrap_err();
+    assert!(error.contains("HC_RSL"), "{error}");
+    assert!(crate::batch_result_cache::refuse_env(None).is_ok());
+    let have: std::collections::HashMap<String, ()> = [("a".to_string(), ())].into();
+    assert!(crate::batch_result_cache::require_rows(&["a".to_string()], &have).is_ok());
+    assert!(
+        crate::batch_result_cache::require_rows(&["a".to_string(), "b".to_string()], &have)
+            .is_err()
+    );
 }
 
 /// A variant's morph names the variant's own entry, while its `msa` is the main entry's.

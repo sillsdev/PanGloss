@@ -166,6 +166,39 @@ pub fn import_file_measured(
     ))
 }
 
+/// Every file besides `path` that [`import_file`] reads, as (name, bytes) sorted by name: a plain `.fwdata`'s sibling `WritingSystemStore/*.ldml` files. A `.fwbackup` carries its own copies inside the archive, so it has none. A caller that keys on an import's result must key on these bytes too.
+pub fn import_side_inputs(path: &Path) -> std::io::Result<Vec<(String, Vec<u8>)>> {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("fwbackup"))
+    {
+        return Ok(Vec::new());
+    }
+    let Some(parent) = path.parent() else {
+        return Ok(Vec::new());
+    };
+    let entries = match std::fs::read_dir(parent.join("WritingSystemStore")) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut files = Vec::new();
+    for entry in entries {
+        let entry_path = entry?.path();
+        if entry_path.extension().and_then(|e| e.to_str()) != Some("ldml") {
+            continue;
+        }
+        let name = entry_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        files.push((name, std::fs::read(&entry_path)?));
+    }
+    files.sort();
+    Ok(files)
+}
+
 /// Reads every `WritingSystemStore/*.ldml` file next to `fwdata_path`; a missing directory is silent (matches `.fwbackup`'s tolerant absence of embedded LDML), but an existing, unreadable one -- a different fact from "never shipped" -- returns a warning rather than looking identical to it.
 fn read_sibling_writing_system_store(
     fwdata_path: &Path,

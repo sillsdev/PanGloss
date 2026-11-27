@@ -1660,18 +1660,56 @@ fn parse_batch_with_stats(
     Ok(results)
 }
 
+/// The value of option `name` in `arg`: the next argument for `--name value`, the rest for `--name=value`, `None` when `arg` is another option.
+pub(crate) fn option_value<'a>(
+    name: &str,
+    arg: &'a str,
+    it: &mut std::slice::Iter<'a, String>,
+) -> Result<Option<&'a str>, String> {
+    if arg == name {
+        let value = it
+            .next()
+            .ok_or_else(|| format!("{name} requires a value"))?;
+        return Ok(Some(value));
+    }
+    Ok(arg
+        .strip_prefix(name)
+        .and_then(|rest| rest.strip_prefix('=')))
+}
+
+/// The per-word diagnostic environment variables; `--prefilter` and `--result-cache` both refuse a run where one is set. `HC_ALLOC_STATS` counts only in an `alloc-trace` build.
+const DIAGNOSTIC_ENV: &[&str] = &[
+    "HC_STEP_STATS",
+    "HC_FST_PROFILE",
+    "HC_FRONTIER_STATS",
+    "HC_WORD_STATS",
+    "HC_ALT_YIELD",
+    "HC_BRANCH_CENSUS",
+    "HC_ALLOC_STATS",
+];
+
+/// `HC_RSL` changes which parses are found, so a cache keyed without it would replay another setting's rows.
+const PARSE_SETTING_ENV: &[&str] = &["HC_RSL"];
+
+fn diagnostic_env_set() -> Option<&'static str> {
+    DIAGNOSTIC_ENV
+        .iter()
+        .copied()
+        .filter(|name| *name != "HC_ALLOC_STATS" || cfg!(feature = "alloc-trace"))
+        .find(|name| std::env::var_os(name).is_some())
+}
+
+/// The first parse-affecting or diagnostic variable that is set, whatever the build, for `--result-cache` to refuse.
+pub(crate) fn parse_affecting_env_set_for_cache() -> Option<&'static str> {
+    DIAGNOSTIC_ENV
+        .iter()
+        .chain(PARSE_SETTING_ENV)
+        .copied()
+        .find(|name| std::env::var_os(name).is_some())
+}
+
 fn per_word_diagnostics_requested() -> bool {
-    [
-        "HC_STEP_STATS",
-        "HC_FST_PROFILE",
-        "HC_FRONTIER_STATS",
-        "HC_WORD_STATS",
-        "HC_ALT_YIELD",
-        "HC_BRANCH_CENSUS",
-    ]
-    .iter()
-    .any(|name| std::env::var_os(name).is_some())
-        || (cfg!(feature = "alloc-trace") && std::env::var_os("HC_ALLOC_STATS").is_some())
+    diagnostic_env_set().is_some()
 }
 
 /// Reset per-word thread-local diagnostic counters before the next parse.

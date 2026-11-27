@@ -26,7 +26,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | `phonology-examples` | request, save, check phonology examples | 0.8.5 | | M | stable |
 | `generate` | HC XML ids; `--request`, `--requests` JSONL (0.35.3); `--out`, `target`/`cell` rows (batch only) | 0.29.0 | request schemaVersion 1 (`docs/generation.md`) | M (via serve), L; `--requests`: Motif caller planned (motif#278) | stable; `--out`, `target`/`cell`, `--trace-all` experimental |
 | `why-not` | first failing constraint | 0.28.0 | `pangloss.whynot.v1` ([why-not.md](why-not.md)) | M | stable |
-| `analyze-text` | segment text, Language Pack evidence | 0.17.0 | `docs/text-analysis-format.md` | none | stable |
+| `analyze-text` | segment text, Language Pack evidence (`--dictionary`, `--max-suggestion-chars`) | 0.17.0 | `docs/text-analysis-format.md` | none | stable |
 | `cost-compare`, `readings-histogram` | compare batch TSVs | 0.13.0 | | D | experimental |
 | `fst-health`, `fst-verify`, `coverage`, `plan-diagram`, `make-report`, `recipe-optimize` | foma-tools build commands | 0.5.0 to 0.24.0 | fst-health 10; fst-verify ([fst-verify.md](fst-verify.md)) | D | experimental |
 | `describe` / `--describe` | machine-readable surface | 0.3.0 | schema_version 1 | M (capability gate) | stable |
@@ -41,7 +41,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | batch analyses | `--analyses`, `--morph-spans` (0.34.0), `--query-fields` (0.35.0) | 0.10.0 | M for `--analyses`; `--query-fields`: frozen | stable (`--query-fields` frozen) |
 | batch stats | `--stats`, `--cache`, `--stats-manifest`, `--stats-profile`, `--stats-compact`, `--cache-pack` | 0.14.0+ | M (first three) | stable |
 | batch retire | `--retire`, `--retire-out` (`pangloss-retire/v1`), `--without` | 0.35.0, 0.35.3 | none; supported (stable, future capability) | stable |
-| batch result cache | `--result-cache`, `--result-cache-max-mib` | 0.35.0 | none | stable |
+| batch result cache | `--result-cache` (a folder marked `.pangloss-result-cache`; refused when not empty and unmarked, or when an `HC_*` diagnostic or `HC_RSL` is set), `--result-cache-max-mib` | 0.35.0 | none | stable |
 | batch engine | `--engine hc/fst`, `--prefilter`, `--partials`, `--start` | 0.18 to 0.24 | L, D | experimental |
 | batch diagnostics | `--cost-column`, `--no-flush`, `--phase-marks`, `--word-phase-marks` | 0.13+ | D, L | experimental |
 | rejection trace | `--trace-rejections`, `-max-paths`, `-max-events`, `-max-bytes`, `-max-depth` | 0.3.0 | M (parse) | stable |
