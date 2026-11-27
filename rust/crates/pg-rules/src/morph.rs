@@ -958,6 +958,7 @@ fn ana_compound_cached_traced<const COLLECT_STATS: bool>(
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
+    let walk = non_head_prefix_walk(g, word, rule, &node_of, root_filter);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
@@ -984,6 +985,7 @@ fn ana_compound_cached_traced<const COLLECT_STATS: bool>(
                 &node_of,
                 &new_syn,
                 root_filter,
+                walk.as_deref(),
                 mstats,
                 Some(&mut prod_rejected),
             )
@@ -4600,6 +4602,7 @@ fn ana_compound<const COLLECT_STATS: bool>(
     let table = crate::cache::owning_table_for_compounding_rule(g, rule).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
+    let walk = non_head_prefix_walk(g, word, rule, &node_of, root_filter);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
     for (i, sr) in rule.subrules.iter().enumerate() {
@@ -4622,6 +4625,7 @@ fn ana_compound<const COLLECT_STATS: bool>(
             &node_of,
             &new_syn,
             root_filter,
+            walk.as_deref(),
             mstats,
             None,
         ));
@@ -4652,6 +4656,7 @@ fn ana_compound_cached<const COLLECT_STATS: bool>(
     let table = crate::cache::owning_table_for_mrule(g, mrid).unwrap_or(TableId(0));
     let (segs, node_of) = segs_of(g, table, &word.shape, false);
     record_analysis_segs_of(mstats);
+    let walk = non_head_prefix_walk(g, word, rule, &node_of, root_filter);
     let cc = cache.compound(mrid);
     let mut output = Vec::new();
     let mut reached: u32 = 0;
@@ -4677,6 +4682,7 @@ fn ana_compound_cached<const COLLECT_STATS: bool>(
             &node_of,
             &new_syn,
             root_filter,
+            walk.as_deref(),
             mstats,
             None,
         ));
@@ -4702,9 +4708,18 @@ fn ana_compound_subrule(
     node_of: &[usize],
     new_syn: &FeatureStruct,
     root_filter: Option<NonHeadRootFilter>,
+    prefix_ends: Option<&[bool]>,
     mstats: Option<MRuleStatsCtx>,
-    mut prod_rejected: Option<&mut Vec<Word>>,
+    prod_rejected_sink: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
+    // The prefix answer applies only to a subrule whose non-head is a verbatim copy of a left-edge prefix of the input.
+    let prefix_ends = prefix_ends.filter(|_| non_head_is_left_edge_copy(sr, lhs, g, table));
+    let whole_skippable = prefix_ends.is_some_and(|ends| !ends.iter().any(|&eligible| eligible));
+    if whole_skippable {
+        // No prefix of the input can be a first member the rule would keep, so every split would come back empty from the root search.
+        return Vec::new();
+    }
+    let mut prod_rejected: Option<&mut Vec<Word>> = prod_rejected_sink;
     let parts = ana_compound_parts(sr);
     let head_parts: Vec<(String, &Pattern)> = parts
         .iter()
@@ -4787,6 +4802,88 @@ fn ana_compound_subrule(
     sr_out
 }
 
+/// Fewest input segments a pattern can match; unknown or boundary-only nodes count as zero, so the answer never exceeds the truth.
+fn pattern_min_segments(g: &Grammar, table: TableId, nodes: &[PatternNode]) -> u64 {
+    nodes
+        .iter()
+        .map(|n| match n {
+            PatternNode::Context(_) => 1,
+            PatternNode::CharDef(cd) => {
+                let t = &g.char_tables[table.0 as usize];
+                u64::from(
+                    (cd.0 as usize) < t.len()
+                        && t.get(*cd).kind() == pg_grammar_model::chardef::CharDefKind::Segment,
+                )
+            }
+            PatternNode::Quantifier { min, children, .. } => {
+                u64::from(*min).saturating_mul(pattern_min_segments(g, table, children))
+            }
+            PatternNode::Segments { .. } | PatternNode::Anchor(_) => 0,
+        })
+        .sum()
+}
+
+/// A single non-head part, copied first and nowhere else, that cannot capture nothing: every match's non-head is then a verbatim left-edge copy of input segments.
+fn non_head_is_left_edge_copy(
+    sr: &CompoundingSubruleDef,
+    lhs: &AnalysisLhs,
+    g: &Grammar,
+    table: TableId,
+) -> bool {
+    sr.non_head_lhs.len() == 1
+        && matches!(
+            sr.rhs.first(),
+            Some(OutputAction::Copy(PartRef::NonHead(0)))
+        )
+        && sr.rhs.iter().skip(1).all(|a| {
+            !matches!(
+                a,
+                OutputAction::Copy(PartRef::NonHead(_))
+                    | OutputAction::Modify(PartRef::NonHead(_), _)
+            )
+        })
+        && lhs.captured.get("n0") == Some(&1)
+        && !lhs.modify.contains_key("n0")
+        && lhs.merged.is_empty()
+        && pattern_min_segments(g, table, &sr.non_head_lhs[0].nodes) >= 1
+}
+
+/// Which input prefix lengths can end a first member the rule would keep; `None` leaves every subrule on the per-split search.
+fn non_head_prefix_walk(
+    g: &Grammar,
+    word: &Word,
+    rule: &CompoundingRuleDef,
+    node_of: &[usize],
+    root_filter: Option<NonHeadRootFilter>,
+) -> Option<Vec<bool>> {
+    let filter = root_filter?;
+    if !rule.subrules.iter().any(|sr| {
+        sr.non_head_lhs.len() == 1
+            && matches!(
+                sr.rhs.first(),
+                Some(OutputAction::Copy(PartRef::NonHead(0)))
+            )
+    }) {
+        return None;
+    }
+    // The input's segments as the non-head search will see any prefix of them: the same copy `generate_shape` makes of each, frozen once.
+    let nodes: Vec<OutNode> = node_of
+        .iter()
+        .map(|&p| OutNode {
+            kind: word.shape.kind(p),
+            char_def: word.shape.char_def(p),
+            lanes: fit(g, word.shape.node_lanes(p)),
+            optional: word.shape.flags(p).is_optional(),
+            origin: Origin::Head(p - 1),
+            cd_set: cd_set_of(&word.shape, p),
+            unresolved_variables: Vec::new(),
+            generated_full: Vec::new(),
+        })
+        .collect();
+    let probe = freeze_out(g, &nodes);
+    filter.eligible_prefix_ends(word.stratum, rule.non_head_required_syn_fs, &probe)
+}
+
 /// C#'s root-allomorph search, gates, and pin: builds a resolved non-head `Word` per surviving root allomorph so `attribute_morphs` and `synth_compound`'s non-head gate see real data; an empty result meaningfully discards the whole split.
 fn resolve_non_head_roots(
     g: &Grammar,
@@ -4798,7 +4895,7 @@ fn resolve_non_head_roots(
     mut prod_rejected: Option<&mut Vec<Word>>,
 ) -> Vec<Word> {
     let mut out = Vec::new();
-    for resolved in filter(stratum, nh_shape, mstats.map(|m| m.stats)) {
+    for resolved in filter.search(stratum, nh_shape, mstats.map(|m| m.stats)) {
         if !pg_fst::work::consume() {
             return Vec::new();
         }

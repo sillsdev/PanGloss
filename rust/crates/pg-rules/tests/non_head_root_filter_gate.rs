@@ -194,12 +194,13 @@ fn split_survives_when_non_head_is_a_lexicon_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
+    let filter_lookup = pg_rules::stratum::lookup_fn(|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
-    };
+    });
+    let filter: NonHeadRootFilter = &filter_lookup;
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_filtered(
@@ -227,7 +228,8 @@ fn split_dropped_when_non_head_is_not_a_root() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape, _stats| Vec::new();
+    let filter_lookup = pg_rules::stratum::lookup_fn(|_st, _shape, _stats| Vec::new());
+    let filter: NonHeadRootFilter = &filter_lookup;
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_filtered(
@@ -264,12 +266,13 @@ fn split_dropped_when_root_found_but_mpr_restriction_unsatisfied() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
+    let filter_lookup = pg_rules::stratum::lookup_fn(|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
-    };
+    });
+    let filter: NonHeadRootFilter = &filter_lookup;
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_filtered(
@@ -299,12 +302,13 @@ fn split_dropped_when_root_found_but_syntactic_fs_conflicts() {
     let r = push_mrule(&mut g, rule);
     let s = push_stratum(&mut g, vec![r]);
 
-    let filter: NonHeadRootFilter = &|_st, _shape, _stats| {
+    let filter_lookup = pg_rules::stratum::lookup_fn(|_st, _shape, _stats| {
         vec![pg_rules::word::ResolvedRoot::Grammar(
             pg_grammar_model::model::AllomorphId(300),
             entry,
         )]
-    };
+    });
+    let filter: NonHeadRootFilter = &filter_lookup;
 
     let cache = pg_rules::cache::RuleCache::build(&g);
     let out = analyze_stratum_filtered(
@@ -347,4 +351,113 @@ fn unfiltered_backward_compat_ignores_the_gate_entirely() {
         has_apa_ka_split(&g, &out.words),
         "no filter configured: the split must survive"
     );
+}
+
+// ---- prefix-answer skip (non-head copied first): skipped and unskipped agree -----------------------
+
+/// The `non-head="ka"(1+) + head="apa"(1+)` rule: the non-head is a verbatim left-edge copy, so a prefix answer may skip splits.
+fn non_head_first_rule(g: &Grammar) -> MorphRuleDef {
+    let MorphRuleDef::Compounding(mut rule) = compound_rule_with(g, FsId(0), &MprSet::EMPTY) else {
+        unreachable!()
+    };
+    rule.subrules[0].rhs = vec![
+        OutputAction::Copy(PartRef::NonHead(0)),
+        OutputAction::Copy(PartRef::Head(0)),
+    ];
+    MorphRuleDef::Compounding(rule)
+}
+
+/// A lexicon holding one root, "ka", that counts its searches and gives the prefix answer it was told to.
+struct CountingLookup {
+    ka: Vec<u32>,
+    entry: LexEntryId,
+    prefix: Option<Vec<bool>>,
+    searches: std::sync::atomic::AtomicUsize,
+}
+
+impl pg_rules::stratum::NonHeadLookup for CountingLookup {
+    fn search(
+        &self,
+        _stratum: StratumId,
+        shape: &Shape,
+        _stats: Option<&pg_rules::stats::StatsCollector>,
+    ) -> Vec<pg_rules::word::ResolvedRoot> {
+        self.searches
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if char_defs(shape) == self.ka {
+            vec![pg_rules::word::ResolvedRoot::Grammar(
+                AllomorphId(300),
+                self.entry,
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn eligible_prefix_ends(
+        &self,
+        _stratum: StratumId,
+        _non_head_required: FsId,
+        _shape: &Shape,
+    ) -> Option<Vec<bool>> {
+        self.prefix.clone()
+    }
+}
+
+/// Runs the rule over `text` with the given prefix answer; returns the analyses' shapes and how many root searches ran.
+fn run_with_prefix(text: &str, prefix: Option<Vec<bool>>) -> (Vec<Vec<u32>>, usize) {
+    let mut g = load_alpha_grammar();
+    let entry = push_entry(&mut g, FsId(0), &MprSet::EMPTY);
+    push_allomorph(&mut g, entry, "ka");
+    let rule = non_head_first_rule(&g);
+    let r = push_mrule(&mut g, rule);
+    let s = push_stratum(&mut g, vec![r]);
+    let lookup = CountingLookup {
+        ka: char_defs(&shape_with_lanes(&g, "ka")),
+        entry,
+        prefix,
+        searches: std::sync::atomic::AtomicUsize::new(0),
+    };
+    let filter: NonHeadRootFilter = &lookup;
+    let cache = pg_rules::cache::RuleCache::build(&g);
+    let out = analyze_stratum_filtered(
+        &g,
+        s,
+        word(&g, text, s),
+        &AnalyzerConfig::default(),
+        Some(filter),
+        Some(&cache),
+        &WordBudget::new(usize::MAX),
+    );
+    assert!(!out.capped);
+    let mut shapes: Vec<Vec<u32>> = out.words.iter().map(|w| char_defs(&w.shape)).collect();
+    shapes.sort();
+    (
+        shapes,
+        lookup.searches.load(std::sync::atomic::Ordering::Relaxed),
+    )
+}
+
+#[test]
+fn prefix_skip_yields_the_same_analyses_as_searching_every_split() {
+    // "aapa": no prefix is "ka"; the lexicon holds nothing else.
+    let (unskipped, searched) = run_with_prefix("aapa", None);
+    let (skipped, skipped_searches) = run_with_prefix("aapa", Some(vec![false; 5]));
+    assert_eq!(skipped, unskipped);
+    assert!(searched > 0, "without an answer every split is searched");
+    assert_eq!(
+        skipped_searches, 0,
+        "an all-false answer skips the rule before any root search"
+    );
+}
+
+#[test]
+fn prefix_answer_with_an_eligible_end_still_searches() {
+    // "kaapa": "ka" is a prefix, so an honest answer has a true at length 2 and the splits are searched as before.
+    let (unskipped, _) = run_with_prefix("kaapa", None);
+    let (answered, searches) =
+        run_with_prefix("kaapa", Some(vec![false, false, true, false, false, false]));
+    assert_eq!(answered, unskipped);
+    assert!(!unskipped.is_empty(), "the 'ka' split must survive");
+    assert!(searches > 0);
 }

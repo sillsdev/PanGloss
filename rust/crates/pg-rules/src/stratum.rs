@@ -23,8 +23,8 @@ use pg_grammar_model::model::{
 use pg_shape::Shape;
 use rustc_hash::FxHashMap as HashMap;
 
-/// Callback injected so compounding analysis can prune non-heads against the lexicon without
-/// `pg-rules` depending on `pg-parse` (the dependency runs the other way). The signature matches
+/// Lexicon access injected so compounding analysis can prune non-heads against the lexicon without
+/// `pg-rules` depending on `pg-parse` (the dependency runs the other way). `search` matches
 /// `RootAllomorphIndex::search`'s return shape, so `pg-parse` hands its own method straight in.
 ///
 /// Only the lexicon *search* crosses the boundary — do not widen this beyond a raw shape search.
@@ -32,8 +32,52 @@ use rustc_hash::FxHashMap as HashMap;
 /// resolution, and the per-subrule dedup all stay on this side (`morph::resolve_non_head_roots`),
 /// because `Grammar` already carries everything they need. `+ Sync` so parallelizing batch parsing
 /// later is not a breaking API change.
-pub type NonHeadRootFilter<'a> = &'a (dyn Fn(StratumId, &Shape, Option<&StatsCollector>) -> Vec<crate::word::ResolvedRoot>
-         + Sync);
+///
+/// A plain closure `Fn(StratumId, &Shape, Option<&StatsCollector>) -> Vec<ResolvedRoot>` is a lookup with no prefix answer.
+pub trait NonHeadLookup: Sync {
+    fn search(
+        &self,
+        stratum: StratumId,
+        shape: &Shape,
+        stats: Option<&StatsCollector>,
+    ) -> Vec<crate::word::ResolvedRoot>;
+
+    /// For a compounding rule whose non-head must unify with `non_head_required`: element `k` says whether some root of `stratum`'s lexicon that unifies with it can match the first `k` segments of `shape`.
+    /// `None` means no answer, and the caller must search every split as it always did (also when the work budget ran out, or roots the grammar does not own are in play).
+    /// A `false` is a promise: `search` on any verbatim copy of that prefix returns no root the rule would keep.
+    fn eligible_prefix_ends(
+        &self,
+        _stratum: StratumId,
+        _non_head_required: pg_featstruct::FsId,
+        _shape: &Shape,
+    ) -> Option<Vec<bool>> {
+        None
+    }
+}
+
+impl<F> NonHeadLookup for F
+where
+    F: Fn(StratumId, &Shape, Option<&StatsCollector>) -> Vec<crate::word::ResolvedRoot> + Sync,
+{
+    fn search(
+        &self,
+        stratum: StratumId,
+        shape: &Shape,
+        stats: Option<&StatsCollector>,
+    ) -> Vec<crate::word::ResolvedRoot> {
+        self(stratum, shape, stats)
+    }
+}
+
+pub type NonHeadRootFilter<'a> = &'a dyn NonHeadLookup;
+
+/// Pins a closure to the lookup signature, so its parameter types are inferred; a convenience for callers that have no prefix answer to give.
+pub fn lookup_fn<F>(f: F) -> impl NonHeadLookup
+where
+    F: Fn(StratumId, &Shape, Option<&StatsCollector>) -> Vec<crate::word::ResolvedRoot> + Sync,
+{
+    f
+}
 
 /// The admission unit C#'s `Morpher.RuleSelector` gates: one variant per rule kind with its own
 /// selector read site. Rust has no shared `IHCRule` object to hand back, so the caller's closure

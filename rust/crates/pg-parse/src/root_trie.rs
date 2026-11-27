@@ -368,6 +368,128 @@ impl RootAllomorphTrie {
     }
 }
 
+/// Per trie node of one stratum, for one compounding rule's non-head requirement: whether an eligible allomorph accepts there, and whether one accepts there or anywhere below.
+/// An allomorph is eligible when its entry's syntactic feature structure unifies with the requirement, the same test `resolve_non_head_roots` applies to every root the search returns, before the productivity-restriction gate (which is left out, so a superset).
+#[derive(Debug)]
+pub struct EligibleNodes {
+    /// Bit 0: an eligible accept at this node. Bit 1: an eligible accept at this node or below.
+    bits: Vec<u8>,
+}
+
+const ELIGIBLE_HERE: u8 = 1;
+const ELIGIBLE_BELOW: u8 = 2;
+
+impl EligibleNodes {
+    /// Whether any root allomorph in the stratum is eligible at all.
+    pub fn any(&self) -> bool {
+        self.bits.first().is_some_and(|b| b & ELIGIBLE_BELOW != 0)
+    }
+}
+
+impl RootAllomorphTrie {
+    /// Marks every node with the eligibility bits for `eligible_entry` (one call per distinct lexical entry owning an allomorph).
+    pub fn eligible_nodes(
+        &self,
+        eligible_entry: &mut dyn FnMut(LexEntryId) -> bool,
+    ) -> EligibleNodes {
+        let mut bits = vec![0u8; self.nodes.len()];
+        // A child's index is always above its parent's (`add_path` appends), so one reverse pass sees every child first.
+        for n in (0..self.nodes.len()).rev() {
+            let node = &self.nodes[n];
+            let mut b = 0u8;
+            if node.accepts.iter().any(|&(_, le)| eligible_entry(le)) {
+                b |= ELIGIBLE_HERE | ELIGIBLE_BELOW;
+            }
+            if b & ELIGIBLE_BELOW == 0
+                && node
+                    .edges
+                    .iter()
+                    .any(|e| bits[e.target] & ELIGIBLE_BELOW != 0)
+            {
+                b |= ELIGIBLE_BELOW;
+            }
+            bits[n] = b;
+        }
+        EligibleNodes { bits }
+    }
+
+    /// Walks `shape`'s segments left to right through the trie exactly as `search` does (same arc conditions, optional-segment skipping and char-def-set identities), without requiring the whole shape to be consumed.
+    /// Returns, for each prefix length `k` (`k` segments consumed, `0..=segments`), whether an eligible allomorph accepts at some trie position reached after `k` segments.
+    /// Any prefix `search` could be asked about is a prefix of `shape`, so a `false` at `k` means no root of the requirement can match a verbatim copy of the first `k` segments.
+    /// `None` when the work budget ran out part-way: the caller must then not rely on the answer.
+    pub fn eligible_prefix_ends(
+        &self,
+        grammar: &Grammar,
+        shape: &Shape,
+        eligible: &EligibleNodes,
+    ) -> Option<Vec<bool>> {
+        let table_ref = &grammar.char_tables[self.table.0 as usize];
+        let segs = shape_search_segments(shape, table_ref, self.feat_width);
+        let idents = self.featureless.then(|| shape_query_identities(shape));
+        self.eligible_prefix_ends_segs(
+            &segs,
+            table_ref.unif_closure_rows(),
+            idents.as_deref(),
+            eligible,
+        )
+    }
+
+    /// `eligible_prefix_ends` over already-encoded query segments, as `search_segs_ident` takes them.
+    fn eligible_prefix_ends_segs(
+        &self,
+        segs: &[(u32, Vec<u64>, bool)],
+        closure: Option<&[CdBits]>,
+        idents: Option<&[Option<CdBits>]>,
+        eligible: &EligibleNodes,
+    ) -> Option<Vec<bool>> {
+        let mut ends = vec![false; segs.len() + 1];
+        let mut active: Vec<usize> = vec![0];
+        ends[0] = eligible.bits[0] & ELIGIBLE_HERE != 0;
+        if eligible.bits[0] & ELIGIBLE_BELOW == 0 {
+            return Some(ends);
+        }
+        for (qi, (cd, lanes, optional)) in segs.iter().enumerate() {
+            let ident = idents.and_then(|ids| ids[qi].as_ref());
+            if !pg_fst::work::consume() {
+                return None;
+            }
+            let mut next: Vec<usize> = Vec::new();
+            for &node in &active {
+                for e in &self.nodes[node].edges {
+                    if !pg_fst::work::consume() {
+                        return None;
+                    }
+                    if !Self::edge_matches(e, *cd, lanes, closure) {
+                        continue;
+                    }
+                    if ident.is_some_and(|q| !Self::edge_in_identity(e, q, closure)) {
+                        continue;
+                    }
+                    if eligible.bits[e.target] & ELIGIBLE_BELOW != 0 && !next.contains(&e.target) {
+                        next.push(e.target);
+                    }
+                }
+            }
+            if *optional {
+                for &node in &active {
+                    if !pg_fst::work::consume() {
+                        return None;
+                    }
+                    if !next.contains(&node) {
+                        next.push(node);
+                    }
+                }
+            }
+            if next.is_empty() {
+                return Some(ends);
+            }
+            ends[qi + 1] = next.iter().any(|&n| eligible.bits[n] & ELIGIBLE_HERE != 0);
+            active = next;
+        }
+        Some(ends)
+    }
+}
+
 /// The `(char_def, phon-lanes, cd_set)` sequence of a shape's `Segment` nodes (boundaries/anchors skipped); a pattern-derived node's `CdSet` is its class member set, a concrete node's is `Unrestricted`.
 fn shape_segments<'a>(
     shape: &Shape,
@@ -475,6 +597,17 @@ impl RootAllomorphIndex {
         shape: &Shape,
     ) -> Vec<(AllomorphId, LexEntryId)> {
         self.tries[stratum.0 as usize].search(grammar, shape)
+    }
+
+    /// Per-prefix eligibility ends for `shape` in `stratum`'s trie; see `RootAllomorphTrie::eligible_prefix_ends`.
+    pub fn eligible_prefix_ends(
+        &self,
+        grammar: &Grammar,
+        stratum: StratumId,
+        shape: &Shape,
+        eligible: &EligibleNodes,
+    ) -> Option<Vec<bool>> {
+        self.tries[stratum.0 as usize].eligible_prefix_ends(grammar, shape, eligible)
     }
 
     /// The per-stratum trie (introspection for reports/tests).
