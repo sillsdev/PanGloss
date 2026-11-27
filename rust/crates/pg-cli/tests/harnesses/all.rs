@@ -23,6 +23,9 @@ mod four_grammar_recipe_evidence;
 #[cfg(any(unix, windows))]
 #[path = "../frozen_batch_hard_links.rs"]
 mod frozen_batch_hard_links;
+#[cfg(any(unix, windows))]
+#[path = "../result_cache_cli.rs"]
+mod result_cache_cli;
 #[path = "../fwdata_conformance_gate.rs"]
 mod fwdata_conformance_gate;
 #[path = "../fwdata_grammar_equivalence_gate.rs"]

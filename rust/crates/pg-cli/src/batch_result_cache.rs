@@ -100,20 +100,20 @@ fn plan(args: &[String]) -> Result<Plan<'_>, String> {
     let mut key_tokens = Vec::new();
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
-        if let Some(v) = crate::option_value(arg, "--result-cache-max-mib", &mut it)? {
+        if let Some(v) = crate::option_value("--result-cache-max-mib", arg, &mut it)? {
             max_mib = v
                 .parse()
                 .ok()
                 .filter(|n| *n > 0)
                 .ok_or_else(|| format!("invalid --result-cache-max-mib: {v}"))?;
-        } else if let Some(v) = crate::option_value(arg, "--result-cache", &mut it)? {
+        } else if let Some(v) = crate::option_value("--result-cache", arg, &mut it)? {
             dedicated_root = v == "auto";
             root = Some(if v == "auto" {
                 default_root()?
             } else {
                 PathBuf::from(v)
             });
-        } else if let Some(v) = crate::option_value(arg, "--analyses", &mut it)? {
+        } else if let Some(v) = crate::option_value("--analyses", arg, &mut it)? {
             analyses = Some(v.to_string());
         } else if arg == "--threads" {
             inner.push(arg.clone());
