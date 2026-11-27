@@ -53,6 +53,7 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 | deep-template-optional-slot | rejected: 1.6x to 3.3x per word is real ambiguity (cal-deep-template-16, pangloss batch) | a 17th optional template slot: 1.6x to 3.3x, genuine extra readings | PanGloss #66, machine#598 | [entry](#deep-template-optional-slot) |
 | online-copy-length-guard | idea | reduplication `X => X X`: n-1 split points explored, length test after acceptance | PanGloss #235, machine#634 | [entry](#online-copy-length-guard) |
 | co-accessibility-table-for-cyclic-patterns | idea (sharpened by affix-acceptance-prefilter) | no feasibility prune for cyclic (zero-or-more) patterns | machine#596 (related) | [entry](#co-accessibility-table-for-cyclic-patterns) |
+| synthesis-rewrite-carry | parked, measured: -4.28% instructions on Mbugwe, -0.04% Tamil base, -0.06% Sena; not worth new retained per-word state | the stratum rule loop re-copies the word's working shape and segment list for every phonological rule, including rules that rewrite nothing | PanGloss #535; PR #566 (closed, branch kept) | [entry](#synthesis-rewrite-carry) |
 | template-slot-dominance-rows | idea, owner approval needed | k optional slots give 2^k slot subsets | PanGloss #495, machine#653 | [entry](#template-slot-dominance-rows) |
 | unread-register-projection | idea (speculative) | visited key includes capture registers nothing reads | none yet | [entry](#unread-register-projection) |
 | one-build-identity | rejected: 0.2% to 0.3% of instructions self, 1.3% to 2.5% inclusive (callgrind, three grammars) | three `WordKey` builds per cascade edge (constant factor) | none | [entry](#one-build-identity) |
@@ -632,3 +633,15 @@ From the exponent-clamping and graph-sharing research drafts of 2026-11-27. Each
 - **LRU or eviction memos, adaptive disable, store-on-second-arrival:** rejected: peak memory identical to within 2 bytes across a 20x spread in eviction count (memo-eviction-tuning.md; analysis-memo-explosion.md).
 
 Not a dead end, listed so nobody re-proposes it: shape graph, shape and feature-structure interning, difference-stored alternatives and streaming sinks are done.
+
+## synthesis-rewrite-carry
+- **Status:** parked, measured. 2026-11-27 measured; parked the same day: -4.28% instructions on one grammar and about 0 elsewhere does not justify new retained per-word state whose invalidation is untested.
+- **Blowup it targets:** every phonological rewrite rule in the stratum loop re-copied the word's working shape and rebuilt its segment list, even when the previous rule left the form untouched.
+- **Mechanism:** the loop owns one `RewriteCarry` (one working copy of one shape and optionally its segment list) and passes it to each rule call; a call that rewrites empties it, and the loop empties it after any applied rule and on a character-table change. An earlier revision also hoisted each rule's word-independent data into the compiled rule cache and keyed the carry by shape allocation; that gave -13.2% on Mbugwe but was dropped for the keyless design.
+- **Where in PanGloss:** `pg-rules/src/rewrite.rs`, `pg-rules/src/stratum.rs`. Branch `synth-rewrite-prep-535`, closed draft PR #566.
+- **Expected gain (measured):** Linux callgrind, total instructions, small lists, keyless build against origin/main b40704d28: Mbugwe 1,728,600,419 to 1,654,651,905 (-4.28%), Tamil base 2,224,929,522 to 2,224,097,801 (-0.04%), Sena 764,151,732 to 763,706,934 (-0.06%). `synthesize_sites` inclusive share on Mbugwe 26.26% to 16.33%.
+- **Parity risk:** identity clean. Ten lists byte-identical with work columns (Aweti full and at `--work-cap 20000`, Indonesian, Tamil p145 cap24, Amharic, Mbugwe every 10th and at `--work-cap 200000`, Tamil base every 20th, Sena, Swahili every 20th); `parse_compare --multiset` every word byte-exact; conformance 3280 passed; preland 8 checks, 0 failed.
+- **Memo/cache?** No cache, but retained state: one slot per word, one extra shape copy, carried across rule calls. It needs owner approval as a carry. The gap that parked it: the loop's clear after an applied rule (`stratum.rs`) can be removed with the pg-rules suite still green; only identity, conformance and `debug_assert`s cover it.
+- **Prior art:** none needed.
+- **Issues:** sillsdev/PanGloss#535, PR #566.
+- **Next step (what would revive it):** a cheaper design with no retained state, or a grammar where `synthesize_sites` dominates total work (it is 26% on Mbugwe and inlined or small on Tamil base and Sena). Still owed had it gone on: Windows instruction-compare, retune-parser-work, the remaining all-grammars sweep.
