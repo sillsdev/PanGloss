@@ -1,1 +1,1 @@
-- Compounding-rule analysis skips a rule whose first member cannot end in any eligible root, answering the question with one walk of the root trie; results and traces are unchanged and long compound words do 30-40% less work (#437)
+- Compounding-rule analysis skips a rule whose first member cannot end in any eligible root, answering the question with one walk of the root trie; results and traces are unchanged and a North Sami word list does 39% less work in total, with single long compounds 39-88% less (#437)

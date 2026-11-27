@@ -305,3 +305,109 @@ fn inverse_admission_matches_materialization_with_and_without_observation() {
     }
     assert!(outcomes.iter().all(|&count| count > 0));
 }
+
+mod left_edge_copy_guard {
+    use super::*;
+    use pg_grammar_model::model::NatClassId;
+
+    fn grammar() -> Grammar {
+        pg_grammar::load(REAL_XML).expect("fixture loads")
+    }
+
+    fn ctx() -> SimpleContext {
+        SimpleContext {
+            nat_class: NatClassId(0),
+            vars: Vec::new(),
+        }
+    }
+
+    fn one_or_more() -> Pattern {
+        Pattern {
+            nodes: vec![PatternNode::Quantifier {
+                min: 1,
+                max: None,
+                children: vec![PatternNode::Context(ctx())],
+            }],
+        }
+    }
+
+    fn zero_or_more() -> Pattern {
+        Pattern {
+            nodes: vec![PatternNode::Quantifier {
+                min: 0,
+                max: None,
+                children: vec![PatternNode::Context(ctx())],
+            }],
+        }
+    }
+
+    fn subrule(non_head_lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> CompoundingSubruleDef {
+        CompoundingSubruleDef {
+            vars: Default::default(),
+            required_mpr: Default::default(),
+            excluded_mpr: Default::default(),
+            out_mpr: Default::default(),
+            head_lhs: vec![one_or_more()],
+            non_head_lhs,
+            rhs,
+        }
+    }
+
+    fn guard(sr: &CompoundingSubruleDef) -> bool {
+        let g = grammar();
+        let table = TableId(0);
+        let (_, lhs) = build_ana_compound_lhs(&g, table, sr).expect("analysis lhs builds");
+        non_head_is_left_edge_copy(sr, &lhs, &g, table)
+    }
+
+    fn nh_copy() -> OutputAction {
+        OutputAction::Copy(PartRef::NonHead(0))
+    }
+
+    fn head_copy() -> OutputAction {
+        OutputAction::Copy(PartRef::Head(0))
+    }
+
+    #[test]
+    fn a_non_head_copied_first_qualifies() {
+        assert!(guard(&subrule(
+            vec![one_or_more()],
+            vec![nh_copy(), head_copy()]
+        )));
+    }
+
+    #[test]
+    fn a_head_first_subrule_does_not() {
+        assert!(!guard(&subrule(
+            vec![one_or_more()],
+            vec![head_copy(), nh_copy()]
+        )));
+    }
+
+    #[test]
+    fn a_modified_non_head_does_not() {
+        assert!(!guard(&subrule(
+            vec![one_or_more()],
+            vec![
+                OutputAction::Modify(PartRef::NonHead(0), ctx()),
+                head_copy()
+            ]
+        )));
+    }
+
+    #[test]
+    fn a_multi_part_non_head_does_not() {
+        assert!(!guard(&subrule(
+            vec![one_or_more(), one_or_more()],
+            vec![nh_copy(), head_copy()]
+        )));
+    }
+
+    #[test]
+    fn a_non_head_that_can_match_nothing_does_not() {
+        assert!(!guard(&subrule(
+            vec![zero_or_more()],
+            vec![nh_copy(), head_copy()]
+        )));
+    }
+}

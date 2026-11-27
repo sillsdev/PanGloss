@@ -4714,20 +4714,12 @@ fn ana_compound_subrule(
 ) -> Vec<Word> {
     // The prefix answer applies only to a subrule whose non-head is a verbatim copy of a left-edge prefix of the input.
     let prefix_ends = prefix_ends.filter(|_| non_head_is_left_edge_copy(sr, lhs, g, table));
-    let shadow = prefix_ends.is_some() && prefix_walk_shadow();
     let whole_skippable = prefix_ends.is_some_and(|ends| !ends.iter().any(|&eligible| eligible));
-    if whole_skippable && !shadow {
+    if whole_skippable {
         // No prefix of the input can be a first member the rule would keep, so every split would come back empty from the root search.
         return Vec::new();
     }
-    // Shadow mode runs the old path anyway and checks that a skip would have lost nothing.
-    let mut shadow_sink: Vec<Word> = Vec::new();
-    let mut prod_rejected: Option<&mut Vec<Word>> = match prod_rejected_sink {
-        Some(sink) => Some(sink),
-        None if shadow => Some(&mut shadow_sink),
-        None => None,
-    };
-    let rejected_before = prod_rejected.as_deref().map_or(0, Vec::len);
+    let mut prod_rejected: Option<&mut Vec<Word>> = prod_rejected_sink;
     let parts = ana_compound_parts(sr);
     let head_parts: Vec<(String, &Pattern)> = parts
         .iter()
@@ -4807,19 +4799,7 @@ fn ana_compound_subrule(
             }
         }
     }
-    if whole_skippable {
-        assert!(
-            sr_out.is_empty() && prod_rejected.as_deref().map_or(0, Vec::len) == rejected_before,
-            "compound prefix walk would have skipped a subrule that yields analyses"
-        );
-    }
     sr_out
-}
-
-/// `PG_COMPOUND_WALK_SHADOW=1` runs the prefix walk's skipped searches anyway and asserts they were empty; a soundness gate for sweeps, not for production.
-fn prefix_walk_shadow() -> bool {
-    static SHADOW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *SHADOW.get_or_init(|| std::env::var_os("PG_COMPOUND_WALK_SHADOW").is_some_and(|v| v != "0"))
 }
 
 /// Fewest input segments a pattern can match; unknown or boundary-only nodes count as zero, so the answer never exceeds the truth.
