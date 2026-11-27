@@ -5,10 +5,25 @@ use pg_parse::{Morpher, ParseOptions};
 
 /// Imports the case's FieldWorks witness and returns `(word, analysis count, expected count)` for every word in `words.yaml`.
 fn witness_counts(case: &str) -> Vec<(String, usize, usize)> {
+    let project = require_fixture("edge-cases", case)
+        .dir
+        .join("fieldworks")
+        .join("project.fwdata");
+    witness_counts_of(case, &project)
+}
+
+/// Like `witness_counts`, for a witness bundled here because the suite fixture carries no `fieldworks/` directory.
+fn bundled_witness_counts(case: &str, bundled: &[u8]) -> Vec<(String, usize, usize)> {
+    let temp = tempfile::tempdir().expect("temporary project directory");
+    let project = temp.path().join("project.fwdata");
+    std::fs::write(&project, bundled).expect("write bundled FieldWorks witness");
+    witness_counts_of(case, &project)
+}
+
+fn witness_counts_of(case: &str, project: &std::path::Path) -> Vec<(String, usize, usize)> {
     let fixture = require_fixture("edge-cases", case);
-    let project = fixture.dir.join("fieldworks").join("project.fwdata");
     assert!(project.is_file(), "{case}: missing {}", project.display());
-    let (snapshot, _report) = pg_fwdata::import_file(&project).unwrap();
+    let (snapshot, _report) = pg_fwdata::import_file(project).unwrap();
     let (grammar, _warnings) = pg_grammar::compile_project(&snapshot).unwrap();
     let morpher = Morpher::new(&grammar, usize::MAX);
     fixture
@@ -28,7 +43,14 @@ fn witness_counts(case: &str) -> Vec<(String, usize, usize)> {
 }
 
 fn assert_witness_agrees(case: &str) {
-    let counts = witness_counts(case);
+    assert_counts_agree(case, witness_counts(case));
+}
+
+fn assert_bundled_witness_agrees(case: &str, bundled: &[u8]) {
+    assert_counts_agree(case, bundled_witness_counts(case, bundled));
+}
+
+fn assert_counts_agree(case: &str, counts: Vec<(String, usize, usize)>) {
     assert!(
         counts.iter().any(|(_, _, expected)| *expected == 0)
             && counts.iter().any(|(_, _, expected)| *expected > 0),
@@ -107,12 +129,18 @@ fn fieldworks_witness_of_do_not_use_for_parsing_matches_the_unflagged_oracle() {
 
 #[test]
 fn fieldworks_witness_of_complex_form_ref_variant_matches_the_oracle() {
-    assert_witness_agrees("variant-complex-form-ref-senseless-entry");
+    assert_bundled_witness_agrees(
+        "variant-complex-form-ref-senseless-entry",
+        include_bytes!("data/variant-complex-form-ref-senseless-entry/project.fwdata"),
+    );
 }
 
 #[test]
 fn fieldworks_witness_of_clitic_typed_variant_matches_the_oracle() {
-    assert_witness_agrees("variant-clitic-typed-form");
+    assert_bundled_witness_agrees(
+        "variant-clitic-typed-form",
+        include_bytes!("data/variant-clitic-typed-form/project.fwdata"),
+    );
 }
 
 #[test]
