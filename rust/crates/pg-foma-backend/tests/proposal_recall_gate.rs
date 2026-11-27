@@ -215,11 +215,11 @@ const COLLATERAL_REFUSALS: &[(&str, ProposalRecallGap)] = &[
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/narrowing-boundary-first-alpha-lhs",
+        "machine:edge-cases/narrowing-boundary-first-alpha-lhs",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
-        "staging:edge-cases/narrowing-boundary-order-alpha-lhs",
+        "machine:edge-cases/narrowing-boundary-order-alpha-lhs",
         ProposalRecallGap::AmbiguousSegmentSpelling,
     ),
     (
