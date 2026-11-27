@@ -442,7 +442,7 @@ Fields: Status; Blowup; Mechanism; Where; Gain; Parity; Memo/cache; Prior art; I
 - **Where in PanGloss:** `pg-parse` `root_answers.rs`, `morpher.rs` `has_root`; `pg-rules` `stratum.rs` `keeps_alternatives`. In C#: none (analysis keeps all alternatives at the pin).
 - **Expected gain:** measured in #262 on the heaviest word of one heavy Bantu grammar at a 5M cap: without the table +3.80% instructions, with it +0.36% (not re-measured here). Up to 40,621 canonicals per pass (measured, 5M cap; 58,215 at the memory cap) against at most about 135 held shapes (estimated), so a repeat factor of up to about 300 per held shape (estimated; the real factor needs the phase B counter). No effect where no stratum call reaches 1,024 words.
 - **Parity risk:** none, argued. A pure function of (stratum, shape) within one parse; the answer only drops alternatives of a canonical that lookup cannot root; work is unmetered and identical.
-- **Memo/cache?** yes. Outside the root-trie exception and the shape graph; owner decision. The per-node trie bits of compound-first-member-search do not transfer (with no category filter every trie node has an accept below it).
+- **Memo/cache?** yes (owner approval required). Outside the root-trie exception and the shape graph; owner decision. The per-node trie bits of compound-first-member-search do not transfer (with no category filter every trie node has an accept below it).
 - **Prior art:** PanGloss #262 (adds the table, 4.5% figure).
 - **Issues:** sillsdev/PanGloss#559, #262.
 - **Next step:** phase B measurement (issue #559): one binary with the switch unset, off, walk and no-table; identity, callgrind and peak memory on the heavy and explosive words.
