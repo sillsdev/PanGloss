@@ -345,6 +345,10 @@ this ledger that cannot state what it examined as unverified.
 | `rust/tools/typology-speedup.sh` | Only driver for a finished harness; bash + bare cargo on a Windows box with a hook that refuses it | **fixed** `554cfbd` |
 | `capability.rs:1538` | Records a *previous* stale-doc correction in place — evidence this class recurs | open |
 | `openspec/changes/archive/2026-08-08-define-fst-compilation-health/design.md:13-16` | Present tense, unqualified: *"Error and Critical are BOTH overridable via the ADR 0005 capability override (an explicit per-compilation override, permanently recorded in reports and the pack manifest); the trust axis is binary and the only non-overridable floor is ADR 0003 apply-time execution containment, never a predicted health/size verdict."* Superseded by the four-verdict model (`docs/superpowers/specs/2026-08-23-stress-grammar-construction-and-production-admission.md`): `CannotRepresent` (this document's Critical, when naming a representability gap) is never overridable by production selection at all, and `NotProductionReady` (this document's Error) never blocked compiling in the first place, so it needed no override to begin with | **fixed 2026-08-24** — superseded banner added at the top of the archived doc naming the current spec and quoting the false claim; body left intact as history |
+| `serve` COMMANDS summary (`surface.rs`) | Said serve answers parse requests; there are 8 ops | **fixed** (#543): summary lists every op |
+| `pangloss` USAGE (`main.rs`) | Omitted `stats-cache` and every `--trace-rejections`/`--trace-*` flag | **fixed** (#543) |
+| `docs/formats/trace-details-v2.md` | Documented v5 and v6 under a v2 name | **fixed** (#543): renamed to `trace-details.md`, no stub, links updated |
+| `recipe-optimize --oracle-word-timeout-ms` | Legacy alias for `--oracle-liveness-net-ms` | **fixed** (#543): removed outright |
 
 ## The standing fix, not just the instances
 

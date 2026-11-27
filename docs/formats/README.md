@@ -24,7 +24,7 @@ assuming you have this repository open or know its internal vocabulary.
   [`retire-format.md`](../retire-format.md) (`pangloss-retire/v1`), [`parse-analysis-format.md`](../parse-analysis-format.md),
   [`grammar-diagnostics.md`](../grammar-diagnostics.md) (grammar-health), [`text-analysis-format.md`](../text-analysis-format.md),
   [`snapshot-format.md`](../snapshot-format.md).
-- [`trace-details-v2.md`](trace-details-v2.md) — (file name predates v5 and v6) the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
+- [`trace-details.md`](trace-details.md) — the opt-in one-word diagnostic envelope: recorded analyses, morph metadata, rejection context, provenance, and aggregate timing.
 
 This is **not** the same audience, and not the same material, as `../research/`, `../history/`,
 and `../divergences/`. Those three are written for people porting or maintaining HermitCrab itself

@@ -39,7 +39,7 @@ pub struct RecipeOptimizeArgs {
     pub budget: Budget,
     /// `--oracle-work-cap`; `None` leaves `recipe_runtime`'s own default in force, never unbounded.
     pub oracle_work_cap: Option<usize>,
-    /// `--oracle-liveness-net-ms` (legacy alias `--oracle-word-timeout-ms`); tripping it aborts the run rather than excluding the word.
+    /// `--oracle-liveness-net-ms`; tripping it aborts the run rather than excluding the word.
     pub oracle_liveness_net: Option<Duration>,
     /// `--oracle-memory-ceiling-bytes`; exceeding it aborts the run, never classifies a word.
     pub oracle_memory_ceiling: Option<u64>,
@@ -191,8 +191,8 @@ pub fn parse_args(args: &[String]) -> Result<RecipeOptimizeArgs, RecipeOptimizeE
             "reserve-ns" => r.budget.reserve = n,
             // `None` here means "use `RuntimeBudget`'s default", never "unbounded".
             "oracle-work-cap" => r.oracle_work_cap = Some(n as usize),
-            // Legacy alias: this flag no longer excludes a word on timeout, only aborts the run.
-            "oracle-liveness-net-ms" | "oracle-word-timeout-ms" => {
+            // This flag does not exclude a word on timeout; it only aborts the run.
+            "oracle-liveness-net-ms" => {
                 r.oracle_liveness_net = Some(Duration::from_millis(n))
             }
             "oracle-memory-ceiling-bytes" => r.oracle_memory_ceiling = Some(n),
