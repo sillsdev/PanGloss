@@ -120,23 +120,38 @@ pub(crate) fn describe() -> Value {
         "allomorphFields": ["role", "entryGuid", "msaGuid", "allomorphId", "formGuid", "shape", "ruleName"],
         "ruleFields": ["kind", "id", "name", "guid"],
         "stepFields": ["stratum", "rule", "input", "output", "subrule"],
+        "batch": {
+            "note": "generate --requests only; serve refuses these fields. One input row gives one output row per root MSA and combination",
+            "requestFields": {
+                "target": "{entryGuid (required), senseGuid?, msaGuid?}; without an msaGuid every stem MSA of the entry is generated, each row naming the msaGuid used; exclusive with request",
+                "cell": "{msas: [ref, ...] | [[ref, ...], ...]}; ref is {entryGuid, msaGuid, msaClass} of an inflectional, derivational or unclassified affix MSA (or stem); an array of refs is one combination, an array of arrays one each",
+                "maxWorkPerCombo": "integer >= 1; most work one combination may use; maxWork is the total for the whole row, shared by every combination",
+            },
+            "rowFields": ["status", "cause", "target", "cellIndex", "comboKey", "trace"],
+            "statuses": ["ok", "none", "error"],
+            "noneCauses": crate::generate_target::NONE_CAUSES,
+            "extraErrorCodes": crate::generate_target::TARGET_ERROR_CODES,
+        },
     })
 }
 
 /// A `generate` request that never ran: the error code and message.
 pub(crate) type OpError = (&'static str, String);
 
-struct Options {
-    trace: bool,
-    max_seeds: usize,
-    max_trace_steps: usize,
-    max_work: usize,
-    timeout: Option<Duration>,
+#[derive(Clone)]
+pub(crate) struct Options {
+    pub(crate) trace: bool,
+    pub(crate) max_seeds: usize,
+    pub(crate) max_trace_steps: usize,
+    pub(crate) max_work: usize,
+    /// Batch `target` rows only: the most work one combination may use, inside the row's total `max_work`.
+    pub(crate) max_work_per_combo: Option<usize>,
+    pub(crate) timeout: Option<Duration>,
     /// The list each surface is marked against; `None` adds no `attested` field.
-    attested: Option<AttestedSet>,
+    pub(crate) attested: Option<AttestedSet>,
 }
 
-fn bad(message: impl Into<String>) -> OpError {
+pub(crate) fn bad(message: impl Into<String>) -> OpError {
     ("bad_request", message.into())
 }
 
@@ -198,9 +213,14 @@ fn parse_attested(
     }
 }
 
-fn parse_options(
+/// The request fields only a batch `target` row takes.
+pub(crate) const BATCH_ONLY_FIELDS: [&str; 3] = ["target", "cell", "maxWorkPerCombo"];
+
+/// Reads the limit, trace and attested fields of a `generate` request; `batch` also admits the `target` row fields.
+pub(crate) fn parse_options(
     object: &Map<String, Value>,
     default_attested: Option<&AttestedSet>,
+    batch: bool,
 ) -> Result<Options, OpError> {
     const KNOWN: [&str; 10] = [
         "id",
@@ -214,7 +234,9 @@ fn parse_options(
         "attestedWords",
         "attestedWordsFile",
     ];
-    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+    if let Some(unknown) = object.keys().find(|key| {
+        !KNOWN.contains(&key.as_str()) && !(batch && BATCH_ONLY_FIELDS.contains(&key.as_str()))
+    }) {
         return Err(bad(format!("unknown generate field: {unknown}")));
     }
     let trace = match object.get("trace") {
@@ -247,12 +269,22 @@ fn parse_options(
             crate::DEFAULT_GENERATION_WORK_CAP,
             1,
         )?,
+        max_work_per_combo: match object.get("maxWorkPerCombo") {
+            None => None,
+            Some(_) => Some(bounded_count(
+                object,
+                "maxWorkPerCombo",
+                crate::DEFAULT_GENERATION_WORK_CAP,
+                crate::DEFAULT_GENERATION_WORK_CAP,
+                1,
+            )?),
+        },
         timeout,
         attested: parse_attested(object, default_attested)?,
     })
 }
 
-fn request_error(error: GenerateRequestError) -> OpError {
+pub(crate) fn request_error(error: GenerateRequestError) -> OpError {
     let message = error.to_string();
     let code = match error {
         GenerateRequestError::RequestTooLarge { .. } => "request_too_large",
@@ -277,7 +309,7 @@ pub(crate) fn run(
     object: &Map<String, Value>,
     default_attested: Option<&AttestedSet>,
 ) -> Result<Value, OpError> {
-    let options = parse_options(object, default_attested)?;
+    let options = parse_options(object, default_attested, false)?;
     let request = object
         .get("request")
         .ok_or_else(|| bad("\"request\" is required"))?;
@@ -304,7 +336,7 @@ pub(crate) fn run(
     Ok(render(&options, &outcome))
 }
 
-fn render(options: &Options, outcome: &TracedGenerateOutcome) -> Value {
+pub(crate) fn render(options: &Options, outcome: &TracedGenerateOutcome) -> Value {
     let stop = outcome.stop_reason.map(TracedStopReason::code);
     json!({
         "complete": outcome.stop_reason.is_none(),
@@ -321,7 +353,7 @@ fn render(options: &Options, outcome: &TracedGenerateOutcome) -> Value {
     })
 }
 
-fn render_seed(options: &Options, seed: &GeneratedSeed) -> Value {
+pub(crate) fn render_seed(options: &Options, seed: &GeneratedSeed) -> Value {
     json!({
         "seedKey": seed.seed_key,
         "allomorphs": seed.items.iter().map(render_item).collect::<Vec<_>>(),
@@ -330,7 +362,7 @@ fn render_seed(options: &Options, seed: &GeneratedSeed) -> Value {
     })
 }
 
-fn render_item(item: &SeedItem) -> Value {
+pub(crate) fn render_item(item: &SeedItem) -> Value {
     json!({
         "role": item.role.code(),
         "entryGuid": item.entry_guid,
@@ -451,6 +483,7 @@ mod tests {
             max_seeds: 1,
             max_trace_steps: 1,
             max_work: 1,
+            max_work_per_combo: None,
             timeout: None,
             attested,
         };

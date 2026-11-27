@@ -27,6 +27,8 @@ mod frozen_batch_hard_links;
 mod fwdata_conformance_gate;
 #[path = "../fwdata_grammar_equivalence_gate.rs"]
 mod fwdata_grammar_equivalence_gate;
+#[path = "../generate_batch_target.rs"]
+mod generate_batch_target;
 #[path = "../grammar_dump_diag.rs"]
 mod grammar_dump_diag;
 #[path = "../grammar_health_artifacts.rs"]

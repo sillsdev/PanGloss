@@ -78,6 +78,33 @@ produced by the same code, plus a batch-only `line` field: the 1-based input lin
 - It has the same limits as `serve` started with its defaults. There is no paradigm mode.
   `formGuid` behaves per row exactly as above.
 
+## Rows to a file, with a bounded summary
+
+`--out <rows.jsonl>` writes every row to that file (JSONL only, replaced unless `--append`) and prints one summary line on stdout, never more than 50 lines or 8 KB:
+
+```json
+{"type":"summary","rows":301,"status":{"ok":300,"none":0,"error":1},"causes":{"bad_request":1},"surfaces":300,"incomplete":0,"firstNone":[],"out":"rows.jsonl","complete":true}
+```
+
+`causes` counts the cause code of each `none` row and the error code of each `error` row; `firstNone` quotes at most five `none` rows (`line`, `id`, `target`, `comboKey`, `cause`); `incomplete` counts rows that stopped on a cap or deadline. `--max-rows N` stops after the input line that brings the rows written to N or more when input remains; the summary then has `complete:false`, `nextLine` and a `resume` sentence: rerun with `--start-line <nextLine>` (and `--append` to extend the same file). Without `--out` the rows go to stdout as before and nothing else is printed.
+
+## Targets and cells
+
+A row may name its root by `target` instead of `request` (not both):
+
+```json
+{"id":"x","op":"generate","target":{"entryGuid":"..","senseGuid":"..","msaGuid":".."},"cell":{"msas":[[{"entryGuid":"..","msaGuid":"..","msaClass":"MoDerivAffMsa"},{"entryGuid":"..","msaGuid":"..","msaClass":"MoInflAffMsa"}]]}}
+```
+
+- `entryGuid` is required. A `senseGuid` is resolved to the MSA it points at (it must belong to the entry); an `msaGuid` names the MSA directly and, with a sense, must agree with it. With neither, every stem MSA of the entry is generated, one row each. Each row's `target.msaGuid` names the MSA used.
+- Every `target` row has `status` (`ok`, `none`, `error`) and `cause` (null when `ok`). An empty result is `none`, never an error: cause `generated_empty` (every seed ran, none produced a surface), `cap` (a cap or deadline stopped it first; carries `stopReason`) or `no_stem_msa` (the entry has no stem MSA). `error` rows are for bad input only (`bad_request`, `unknown_entry`, `unknown_msa`, `msa_not_owned_by_entry`, `ambiguous_identity`, `unknown_sense`, `sense_not_owned_by_entry`, `unsupported_msa_class`, `unknown_form`, `unsupported_form_selection`) and keep `line` and `id`; their `cause` is `{code, message}`. `request` rows keep their old shape; the summary derives their status.
+- `cell.msas` lists affix MSAs: inflectional, derivational or unclassified (`msaClass` as in a request). An array of references is one combination in generation order; an array of arrays is one combination each (at most 10,000). Each (root MSA, combination) gives one row with `comboKey` (the combination's MSA GUIDs joined by `+`, `-` for none) and a `cellIndex` shared by every row of one cell: the ordinal of the cell among the batch's rows that carry `cell`, counted over the whole input even with `--start-line`. A reference that does not resolve makes the whole row one `error` row before anything is generated. Feature cells (`cell.features`) are not supported yet.
+- Every form comes back: the seeds of a row are one per allomorph choice, each with its `allomorphs` provenance, and a surface two seeds both produce appears in both (`derivations` counts within a seed). Nothing is merged across rows or seeds.
+- `maxWork` is one budget for the whole row, spent combination by combination in order; `maxWorkPerCombo` also caps each combination. A combination that finds nothing once the budget is gone is a `none` row with cause `cap`. `wordTimeoutMs` is likewise a deadline for the whole row.
+- `trace` object (`seedChoices`, `workUnits`, `traceSteps`, `seedsTried` with each tried seed's allomorphs and surface count) is on every `none` row. `--trace-all` (or `"trace": true` on the row) puts it on every `target` row and gives surfaces their rule steps as `serve` does.
+
+`target` and `cell` are batch-only; `serve` refuses them as unknown fields.
+
 ## Marking surfaces attested
 
 `generate <project> --requests <file.jsonl|-> --attested <words.txt>` reads a word list (one word

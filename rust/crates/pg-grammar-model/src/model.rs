@@ -1218,6 +1218,8 @@ pub struct Grammar {
     /// representative. Analyses name the representative, so a stored or requested MSA guid is
     /// mapped through this before comparing. Empty when merging is off or nothing merged.
     pub representative_msas: std::collections::BTreeMap<String, String>,
+    /// Each authored sense GUID mapped to the entry GUID that owns it and the MSA GUID it points at (`LexSense.MorphoSyntaxAnalysisRA`), so a request can address a sense. Empty for a grammar with no authored senses (HC XML). A sense with no MSA is absent.
+    pub sense_msas: std::collections::BTreeMap<String, (String, String)>,
     /// The `guessRoot` argument the project's host passes to C# `Morpher.ParseWord`. FieldWorks reads it from `<HC><GuessRoots>` (default `true`); `<HermitCrabInput>` XML cannot carry it, and the C# `hc` tool parses with `guessRoot = false`, so it is `false` there.
     pub guess_roots: bool,
 }

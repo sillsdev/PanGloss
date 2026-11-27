@@ -24,7 +24,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | `stats` | read the stats cache | 0.14.0 | cache 13/14, counters 8 ([stats-cache.md](stats-cache.md)) | M, L | stable |
 | `stats-cache` | cache maintenance (not in USAGE) | 0.21.0 | | none | stable |
 | `phonology-examples` | request, save, check phonology examples | 0.8.5 | | M | stable |
-| `generate` | HC XML ids; `--request`, `--requests` JSONL (0.35.3) | 0.29.0 | request schemaVersion 1 (`docs/generation.md`) | M (via serve), L; `--requests`: Motif caller planned (motif#278) | stable |
+| `generate` | HC XML ids; `--request`, `--requests` JSONL (0.35.3); `--out`, `target`/`cell` rows (batch only) | 0.29.0 | request schemaVersion 1 (`docs/generation.md`) | M (via serve), L; `--requests`: Motif caller planned (motif#278) | stable; `--out`, `target`/`cell`, `--trace-all` experimental |
 | `why-not` | first failing constraint | 0.28.0 | `pangloss.whynot.v1` ([why-not.md](why-not.md)) | M | stable |
 | `analyze-text` | segment text, Language Pack evidence | 0.17.0 | `docs/text-analysis-format.md` | none | stable |
 | `cost-compare`, `readings-histogram` | compare batch TSVs | 0.13.0 | | D | experimental |
@@ -57,7 +57,7 @@ none = no caller and no plan. No caller alone is not grounds for removal; retire
 | Op | Added | CLI twin | Callers | Level |
 |---|---|---|---|---|
 | `parse` (`traceDetails`, `ruleTrace`, `ruleCosts`) | 0.3.1 | `parse` | M | stable |
-| `generate` | 0.29.0 | `generate --request(s)` | M | stable |
+| `generate` | 0.29.0 | `generate --request(s)` | M | stable; `--out`, `target`/`cell`, `--trace-all` experimental |
 | `inventory` | 0.3.0 | none | M | stable |
 | `match` (`boundaryMarkers` 0.35.3) | 0.29.0 | none | M | stable |
 | `effects` (`outputMatchPattern` 0.35.0) | 0.29.0 | none | M | stable |
