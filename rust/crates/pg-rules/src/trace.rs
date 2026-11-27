@@ -48,10 +48,52 @@ impl TraceHandle {
     /// all `unreachable!()`, so this value is never actually looked up.
     pub const DUMMY: TraceHandle = TraceHandle(u32::MAX);
 
+    /// An observation cursor whose ancestry exceeded the capture budget.
+    pub const OMITTED_OBSERVATION: TraceHandle = TraceHandle(u32::MAX - 1);
+
+    const OBSERVATION_BIT: u32 = 1 << 31;
+
+    pub fn observation(index: u32) -> Option<Self> {
+        (index < Self::OBSERVATION_BIT - 2).then_some(Self(index | Self::OBSERVATION_BIT))
+    }
+
+    pub(crate) fn is_observation(self) -> bool {
+        self.0 & Self::OBSERVATION_BIT != 0 && self != Self::DUMMY
+    }
+
+    /// The handle for arena index `index`, for walking `TreeTraceSink::len` nodes in the order they were minted.
+    pub fn from_index(index: u32) -> Self {
+        Self(index)
+    }
+
     /// The document-local arena index, for linking published events within one trace.
     pub fn index(self) -> u32 {
-        assert_ne!(self, Self::DUMMY, "a dummy handle has no document identity");
-        self.0
+        assert!(
+            self != Self::DUMMY && self != Self::OMITTED_OBSERVATION,
+            "a sentinel handle has no document identity"
+        );
+        self.0 & !Self::OBSERVATION_BIT
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct TraceOverride(u32);
+
+impl TraceOverride {
+    pub(crate) fn from_word(trace: Option<TraceHandle>) -> Self {
+        Self(
+            trace
+                .filter(|handle| handle.is_observation())
+                .map_or(0, |handle| handle.0),
+        )
+    }
+
+    pub(crate) fn resolve(self, inherited: Option<TraceHandle>) -> Option<TraceHandle> {
+        if self.0 == 0 {
+            inherited
+        } else {
+            Some(TraceHandle(self.0))
+        }
     }
 }
 
@@ -134,6 +176,9 @@ pub enum FailureReason {
     NonPartialRuleProhibitedAfterFinalTemplate,
     NonPartialRuleRequiredAfterNonFinalTemplate,
     MaxApplicationCount,
+    AllomorphNotApplicable,
+    /// A lexical lookup skipped a matched root allomorph because its entry's syntactic features do not unify with the input's (machine#627 `LexicalLookupFeatures`, appended after `AllomorphNotApplicable`).
+    LexicalLookupFeatures,
 }
 
 /// The lookup strategy that produced a lexical lookup's candidate roots.
@@ -225,6 +270,11 @@ pub enum RejectionEvidence {
         end: u32,
         alternatives: Vec<EnvironmentResult>,
     },
+    /// An earlier allomorph of the same morpheme blocks the used one (C# disjunctive allomorph rule).
+    AllomorphBlocked {
+        blocked: AllomorphId,
+        blocker: AllomorphId,
+    },
 }
 
 /// Evidence captured by the rejection owner, without re-evaluating a predicate.
@@ -251,12 +301,18 @@ pub struct TraceNode {
     pub output: Option<Word>,
     pub failure_reason: Option<FailureReason>,
     pub failure_context: Option<FailureContext>,
+    /// The allomorph whose validity check failed; set only by the per-allomorph checks and only when failure context is captured.
+    pub failed_allomorph: Option<AllomorphId>,
     /// Present only when rich trace capture recorded the lookup's completed output.
     pub lookup_result: Option<LookupResult>,
     pub template_slots: Option<Vec<TemplateSlotOutcome>>,
     pub partial_parse_cause: Option<PartialParseCause>,
     /// On a `Blocked` node, the family entry whose seed replaced the rule's output.
     pub blocked_by_entry: Option<LexEntryId>,
+    /// On a `Blocked` node, the word the family entry's seed replaced (the rule's output before blocking); set after the event, only by a sink that keeps it.
+    pub blocked_original: Option<Word>,
+    /// On an applicable-templates-not-applied partial parse, the one template that applied to the word; `None` when several did.
+    pub applicable_template: Option<TemplateId>,
     pub children: Vec<TraceHandle>,
 }
 
@@ -270,10 +326,13 @@ impl TraceNode {
             output: None,
             failure_reason: None,
             failure_context: None,
+            failed_allomorph: None,
             lookup_result: None,
             template_slots: None,
             partial_parse_cause: None,
             blocked_by_entry: None,
+            blocked_original: None,
+            applicable_template: None,
             children: Vec::new(),
         }
     }
@@ -299,6 +358,15 @@ impl TraceNode {
 pub trait TraceSink {
     /// Mirrors C# `ITraceManager.IsTracing`.
     fn is_tracing(&self) -> bool;
+
+    /// Select the trace consumer once at owners that already check for tree tracing.
+    fn mode(&self) -> TraceMode<'_> {
+        if self.is_tracing() {
+            TraceMode::Tree
+        } else {
+            TraceMode::Off
+        }
+    }
 
     /// Rich diagnostic evidence is separately opt-in; ordinary tracing does not format it.
     fn captures_failure_context(&self) -> bool {
@@ -346,6 +414,11 @@ pub trait TraceSink {
         panic!("this trace sink cannot capture failure context");
     }
 
+    /// Name the allomorph whose validity check failed on a failed event.
+    fn set_failed_allomorph(&self, _event: TraceHandle, _allomorph: AllomorphId) {
+        panic!("this trace sink cannot capture failure context");
+    }
+
     /// Attach the result from the lexical lookup owner after its candidate list is fully built.
     fn complete_lexical_lookup(&self, _event: TraceHandle, _result: LookupResult) {
         panic!("this trace sink cannot capture lexical lookup results");
@@ -353,223 +426,15 @@ pub trait TraceSink {
 
     /// Mint the root node for one `parse_word` call (`AnalyzeWord`). Returns the handle later events
     /// thread through as `parent`.
-    fn analyze_word(&self, input: &Word) -> TraceHandle;
-
-    /// Mint the root node for one `GenerateWords` call (a distinct root from `AnalyzeWord`'s).
-    fn generate_words(&self) -> TraceHandle;
-
-    fn begin_unapply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_unapply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-    fn begin_apply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_apply_stratum(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-
-    fn begin_unapply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_unapply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        output: &Word,
-        unapplied: bool,
-    ) -> TraceHandle;
-    fn begin_apply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        input: &Word,
-    ) -> TraceHandle;
-    fn end_apply_template(
-        &self,
-        parent: TraceHandle,
-        template: TemplateId,
-        output: &Word,
-        applied: bool,
-    ) -> TraceHandle;
-
-    /// `NonFinalTemplateAppliedLast` — always `FailureReason::PartialParse` (§1.1/§4.2's last note).
-    /// P12 chunk 5 correction (verified against `ITraceManager.cs:72`/`TraceManager.cs:145-153`):
-    /// C#'s actual signature is `(Stratum stratum, Word word)` -- the SOURCE is the enclosing
-    /// stratum, not a template (chunk 0's original `TemplateId` param was never checked against the
-    /// oracle at landing time; fixed here at chunk 5, its first real call site, before any caller
-    /// existed to break).
-    fn non_final_template_applied_last(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        output: &Word,
-    ) -> TraceHandle;
-    /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
-    /// event from `Self::non_final_template_applied_last` (§3.2's last row / §4.2's third bullet).
-    /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
-    /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
-    fn applicable_templates_not_applied(
-        &self,
-        parent: TraceHandle,
-        stratum: StratumId,
-        input: &Word,
-    ) -> TraceHandle;
-
-    fn phonological_rule_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_applied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-        output: &Word,
-    ) -> TraceHandle;
-    fn phonological_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: PRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    fn morphological_rule_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
-    /// synthesis-side `Self::morphological_rule_not_applied` (which has carried a `FailureReason`
-    /// since P12 chunk 4), this method originally carried none — there was no call site at all
-    /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
-    /// grep, zero production or test callers before this census). Adding the `reason` parameter here
-    /// is therefore a pure signature change on dead code, not a behavior change to anything that
-    /// exists today — see `crate::morph::analyze_cached_traced`'s doc for the first real caller.
-    fn morphological_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-    fn morphological_rule_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        output: &Word,
-    ) -> TraceHandle;
-    fn morphological_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    fn compounding_rule_not_unapplied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        subrule: i32,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-    fn compounding_rule_unapplied(
-        &self,
-        _parent: TraceHandle,
-        _rule: MRuleId,
-        _subrule: i32,
-        _output: &Word,
-    ) -> TraceHandle {
-        panic!("this trace sink cannot record compound analysis results");
-    }
-    fn compounding_rule_not_applied(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        input: &Word,
-        reason: FailureReason,
-    ) -> TraceHandle;
-
-    /// `LexicalLookup(stratum, input)` — one per stratum's root-allomorph search (both the real
-    /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
-    fn lexical_lookup(&self, parent: TraceHandle, stratum: StratumId, input: &Word) -> TraceHandle;
-
-    /// An applied rule's output was replaced by `by_entry`, an entry in the root's lexical family
-    /// whose syntactic features the output subsumes (C# `Word.CheckBlocking`). `output` is the
-    /// replacement word.
-    fn blocked(
-        &self,
-        parent: TraceHandle,
-        rule: MRuleId,
-        output: &Word,
-        by_entry: LexEntryId,
-    ) -> TraceHandle;
-
-    fn successful(&self, parent: TraceHandle, word: &Word) -> TraceHandle;
-    fn failed(&self, parent: TraceHandle, word: &Word, reason: FailureReason) -> TraceHandle;
-
-    /// C#'s subtlest cursor move (§1.2): appends **two levels deep** —
-    /// `parent`'s LAST child's children, not `parent`'s own children directly — because by the time
-    /// `SynthesizeWord` fires the cursor logically needs to descend into the just-appended
-    /// `LexicalLookup` node's children. `parent` here is the cursor BEFORE this call (unchanged by
-    /// `LexicalLookup`, which does not reassign it) — see this module's tests.
-    fn synthesize_word(&self, parent: TraceHandle, input: &Word) -> TraceHandle;
-}
-
-/// The always-present no-op `TraceSink` (see the `impl` below for why every method but
-/// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
-/// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
-/// at the boundary instead.
-pub struct NoopSink;
-
-impl TraceSink for NoopSink {
-    #[inline(always)]
-    fn is_tracing(&self) -> bool {
-        false
-    }
     fn analyze_word(&self, _input: &Word) -> TraceHandle {
         unreachable!("NoopSink methods are never called; every call site checks is_tracing() first")
     }
+
+    /// Mint the root node for one `GenerateWords` call (a distinct root from `AnalyzeWord`'s).
     fn generate_words(&self) -> TraceHandle {
         unreachable!()
     }
+
     fn begin_unapply_stratum(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
@@ -582,6 +447,7 @@ impl TraceSink for NoopSink {
     fn end_apply_stratum(&self, _p: TraceHandle, _s: StratumId, _o: &Word) -> TraceHandle {
         unreachable!()
     }
+
     fn begin_unapply_template(&self, _p: TraceHandle, _t: TemplateId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
@@ -606,6 +472,13 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
+    /// `NonFinalTemplateAppliedLast` — always `FailureReason::PartialParse` (§1.1/§4.2's last note).
+    /// P12 chunk 5 correction (verified against `ITraceManager.cs:72`/`TraceManager.cs:145-153`):
+    /// C#'s actual signature is `(Stratum stratum, Word word)` -- the SOURCE is the enclosing
+    /// stratum, not a template (chunk 0's original `TemplateId` param was never checked against the
+    /// oracle at landing time; fixed here at chunk 5, its first real call site, before any caller
+    /// existed to break).
     fn non_final_template_applied_last(
         &self,
         _p: TraceHandle,
@@ -614,14 +487,20 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    /// `ApplicableTemplatesNotApplied` — always `FailureReason::PartialParse`, but a DISTINCT trace
+    /// event from `Self::non_final_template_applied_last` (§3.2's last row / §4.2's third bullet).
+    /// P12 chunk 5 correction: C#'s actual signature (`ITraceManager.cs:73`) is also `(Stratum
+    /// stratum, Word word)` -- chunk 0 omitted the stratum source entirely; added here.
     fn applicable_templates_not_applied(
         &self,
         _p: TraceHandle,
         _s: StratumId,
         _i: &Word,
+        _unique_template: Option<TemplateId>,
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn phonological_rule_unapplied(
         &self,
         _p: TraceHandle,
@@ -660,6 +539,7 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn morphological_rule_unapplied(
         &self,
         _p: TraceHandle,
@@ -669,6 +549,13 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    /// Dead-end-attribution census addition (`deadend_census.rs`): unlike the
+    /// synthesis-side `Self::morphological_rule_not_applied` (which has carried a `FailureReason`
+    /// since P12 chunk 4), this method originally carried none — there was no call site at all
+    /// (`pg_rules::stratum::StratumAnalyzer`'s analysis cascade has never been traced; confirmed by
+    /// grep, zero production or test callers before this census). Adding the `reason` parameter here
+    /// is therefore a pure signature change on dead code, not a behavior change to anything that
+    /// exists today — see `crate::morph::analyze_cached_traced`'s doc for the first real caller.
     fn morphological_rule_not_unapplied(
         &self,
         _p: TraceHandle,
@@ -698,6 +585,7 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
     fn compounding_rule_not_unapplied(
         &self,
         _p: TraceHandle,
@@ -708,6 +596,15 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+    fn compounding_rule_unapplied(
+        &self,
+        _parent: TraceHandle,
+        _rule: MRuleId,
+        _subrule: i32,
+        _output: &Word,
+    ) -> TraceHandle {
+        panic!("this trace sink cannot record compound analysis results");
+    }
     fn compounding_rule_not_applied(
         &self,
         _p: TraceHandle,
@@ -717,20 +614,73 @@ impl TraceSink for NoopSink {
     ) -> TraceHandle {
         unreachable!()
     }
+
+    /// `LexicalLookup(stratum, input)` — one per stratum's root-allomorph search (both the real
+    /// lexicon path and P11's guesser pattern-match path reuse this exact hook).
     fn lexical_lookup(&self, _p: TraceHandle, _s: StratumId, _i: &Word) -> TraceHandle {
         unreachable!()
     }
+
+    /// An applied rule's output was replaced by `by_entry`, an entry in the root's lexical family
+    /// whose syntactic features the output subsumes (C# `Word.CheckBlocking`). `output` is the
+    /// replacement word.
     fn blocked(&self, _p: TraceHandle, _r: MRuleId, _o: &Word, _e: LexEntryId) -> TraceHandle {
         unreachable!()
     }
+
+    /// Keep the word a `Blocked` event replaced, so a diagnostic can say which derivation was blocked. A sink that has no use for it ignores it.
+    fn blocked_original(&self, _event: TraceHandle, _original: &Word) {}
+
     fn successful(&self, _p: TraceHandle, _w: &Word) -> TraceHandle {
         unreachable!()
     }
     fn failed(&self, _p: TraceHandle, _w: &Word, _reason: FailureReason) -> TraceHandle {
         unreachable!()
     }
+
+    /// C#'s subtlest cursor move (§1.2): appends **two levels deep** —
+    /// `parent`'s LAST child's children, not `parent`'s own children directly — because by the time
+    /// `SynthesizeWord` fires the cursor logically needs to descend into the just-appended
+    /// `LexicalLookup` node's children. `parent` here is the cursor BEFORE this call (unchanged by
+    /// `LexicalLookup`, which does not reassign it) — see this module's tests.
     fn synthesize_word(&self, _p: TraceHandle, _i: &Word) -> TraceHandle {
         unreachable!()
+    }
+}
+
+/// Tree capture and ordinary-path observations use different search policies.
+#[derive(Clone, Copy)]
+pub enum TraceMode<'a> {
+    Off,
+    Tree,
+    Observe(&'a dyn crate::observations::Recorder),
+}
+
+impl<'a> TraceMode<'a> {
+    #[inline]
+    pub fn recorder(self) -> Option<&'a dyn crate::observations::Recorder> {
+        match self {
+            Self::Observe(recorder) => Some(recorder),
+            _ => None,
+        }
+    }
+
+    #[inline]
+    pub fn is_tree(self) -> bool {
+        matches!(self, Self::Tree)
+    }
+}
+
+/// The always-present no-op `TraceSink` (see the `impl` below for why every method but
+/// [`is_tracing`](TraceSink::is_tracing) panics). Kept as a concrete (not `dyn`) type at call sites
+/// where possible so `is_tracing()` can const-fold away; some call sites accept `&dyn TraceSink`
+/// at the boundary instead.
+pub struct NoopSink;
+
+impl TraceSink for NoopSink {
+    #[inline(always)]
+    fn is_tracing(&self) -> bool {
+        false
     }
 }
 
@@ -742,6 +692,10 @@ pub struct TreeTraceSink {
     nodes: RefCell<Vec<TraceNode>>,
     root: Cell<Option<TraceHandle>>,
     capture_failure_context: bool,
+    /// Most nodes the arena may hold; `usize::MAX` for the unbounded default.
+    node_cap: usize,
+    /// Latched once an append was refused because the arena was full.
+    truncated: Cell<bool>,
 }
 
 impl Default for TreeTraceSink {
@@ -763,7 +717,26 @@ impl TreeTraceSink {
             nodes: RefCell::new(Vec::new()),
             root: Cell::new(None),
             capture_failure_context: false,
+            node_cap: usize::MAX,
+            truncated: Cell::new(false),
         }
+    }
+
+    /// A sink that holds at most `node_cap` nodes. Once full it drops every further event and
+    /// latches `Self::truncated`: an append returns its parent's handle, so callers keep a valid
+    /// cursor and nothing is retained past the cap. Only the plain synthesis event methods are
+    /// safe on a bounded sink; the failure-context and template-slot setters assume the handle
+    /// they were given names the event they just appended.
+    pub fn with_node_cap(node_cap: usize) -> Self {
+        Self {
+            node_cap,
+            ..Self::new()
+        }
+    }
+
+    /// Whether any event was dropped because the node cap was reached.
+    pub fn truncated(&self) -> bool {
+        self.truncated.get()
     }
 
     /// The tree's root node handle, if one has been minted yet (`analyze_word`/`generate_words`).
@@ -778,6 +751,35 @@ impl TreeTraceSink {
         self.nodes.borrow()[h.0 as usize].clone()
     }
 
+    /// Run `f` on one node in place; unlike `Self::node` this never clones the node's input and output words.
+    pub fn with_node<R>(&self, h: TraceHandle, f: impl FnOnce(&TraceNode) -> R) -> R {
+        f(&self.nodes.borrow()[h.0 as usize])
+    }
+
+    /// Each node's parent, by arena index. Children are always minted after their parent, so one pass recovers every parent.
+    pub fn parent_index(&self) -> Vec<Option<u32>> {
+        let nodes = self.nodes.borrow();
+        let mut parent: Vec<Option<u32>> = vec![None; nodes.len()];
+        for (index, node) in nodes.iter().enumerate() {
+            for child in &node.children {
+                parent[child.0 as usize] = Some(index as u32);
+            }
+        }
+        parent
+    }
+
+    /// The handles from the root down to and including `h`, given `Self::parent_index`.
+    pub fn path_from_root(&self, parents: &[Option<u32>], h: TraceHandle) -> Vec<TraceHandle> {
+        let mut path = vec![h];
+        let mut cursor = h.0;
+        while let Some(up) = parents[cursor as usize] {
+            path.push(TraceHandle(up));
+            cursor = up;
+        }
+        path.reverse();
+        path
+    }
+
     /// The number of nodes minted so far (for iteration without re-walking from the root).
     pub fn len(&self) -> usize {
         self.nodes.borrow().len()
@@ -789,6 +791,10 @@ impl TreeTraceSink {
 
     fn append(&self, parent: TraceHandle, node: TraceNode) -> TraceHandle {
         let mut nodes = self.nodes.borrow_mut();
+        if nodes.len() >= self.node_cap {
+            self.truncated.set(true);
+            return parent;
+        }
         let h = TraceHandle(nodes.len() as u32);
         nodes.push(node);
         nodes[parent.0 as usize].children.push(h);
@@ -885,6 +891,14 @@ impl TraceSink for TreeTraceSink {
             "failure context requires a failed event"
         );
         node.failure_context = Some(context);
+    }
+
+    fn set_failed_allomorph(&self, event: TraceHandle, allomorph: AllomorphId) {
+        assert!(
+            self.capture_failure_context,
+            "failure context capture was not enabled"
+        );
+        self.nodes.borrow_mut()[event.0 as usize].failed_allomorph = Some(allomorph);
     }
     fn complete_lexical_lookup(&self, event: TraceHandle, result: LookupResult) {
         assert!(
@@ -1054,6 +1068,7 @@ impl TraceSink for TreeTraceSink {
         parent: TraceHandle,
         stratum: StratumId,
         input: &Word,
+        unique_template: Option<TemplateId>,
     ) -> TraceHandle {
         let mut n = TraceNode::new(
             TraceType::StratumSynthesisOutput,
@@ -1063,6 +1078,7 @@ impl TraceSink for TreeTraceSink {
         n.failure_reason = Some(FailureReason::PartialParse);
         if self.captures_details() {
             n.partial_parse_cause = Some(PartialParseCause::ApplicableTemplatesNotApplied);
+            n.applicable_template = unique_template;
         }
         self.append(parent, n)
     }
@@ -1262,6 +1278,12 @@ impl TraceSink for TreeTraceSink {
         n.output = Some(output.clone());
         n.blocked_by_entry = Some(by_entry);
         self.append(parent, n)
+    }
+
+    fn blocked_original(&self, event: TraceHandle, original: &Word) {
+        if self.capture_failure_context {
+            self.nodes.borrow_mut()[event.0 as usize].blocked_original = Some(original.clone());
+        }
     }
 
     fn successful(&self, parent: TraceHandle, word: &Word) -> TraceHandle {

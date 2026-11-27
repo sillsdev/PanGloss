@@ -265,7 +265,7 @@ pub fn render_match(table: &CharDefTable, matched: &[GuessNode]) -> String {
             false,
         );
         if let Some(first) = reps.into_iter().next() {
-            out.push_str(&first);
+            out.push_str(first);
         }
     }
     out
@@ -360,15 +360,15 @@ pub fn lexical_guess(
             nw.shape = fab_shape;
             nw.stratum = fab_stratum;
             nw.syn_fs = g.fs_interner.get(owning_entry.syn_fs).clone();
-            nw.mpr = owning_entry.mpr;
-            nw.flags.is_partial = owning_entry.is_partial();
+            nw.mpr = owning_entry.mpr.clone();
+            nw.flags.set_is_partial(owning_entry.is_partial());
             nw.root_allomorph = Some(AllomorphId::GUESSED);
             let runtime = pg_rules::word::RuntimeRoot::Guessed(GuessedRoot {
                 pattern_allo,
                 pattern_entry,
                 text: shape_string.clone(),
             });
-            nw.root_runtime_id = Some(shape_string);
+            nw.set_root_runtime_id(Some(shape_string));
             nw.morphs = vec![
                 MorphRecord::new(AllomorphId::GUESSED, MorphemeId::GUESSED, 0)
                     .with_runtime_root(runtime),

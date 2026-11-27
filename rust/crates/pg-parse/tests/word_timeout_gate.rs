@@ -35,7 +35,7 @@ fn no_word_timeout_is_unaffected() {
     );
 }
 
-/// `with_word_timeout(Some(0ms))` deterministically expires before construction finishes, so the first `over_budget()` check must catch it, independent of `--step-cap` (left uncapped here).
+/// `with_word_timeout(Some(0ms))` deterministically expires before construction finishes, so the first `over_budget()` check must catch it, independent of `--work-cap` (left uncapped here).
 #[test]
 fn zero_ms_word_timeout_fires_and_reports_no_analyses() {
     let g = simple_grammar();
@@ -51,7 +51,7 @@ fn zero_ms_word_timeout_fires_and_reports_no_analyses() {
     );
     assert!(
         !outcome.capped,
-        "--step-cap was usize::MAX -- the cap itself must never fire"
+        "--work-cap was usize::MAX -- the cap itself must never fire"
     );
     assert!(
         outcome.analyses.is_empty(),

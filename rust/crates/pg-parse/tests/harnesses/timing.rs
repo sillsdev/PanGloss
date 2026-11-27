@@ -8,5 +8,5 @@ mod word_timeout_gate;
 #[path = "../word_timeout_pathological_gate.rs"]
 mod word_timeout_pathological_gate;
 
-#[path = "../step_cap_work_gate.rs"]
-mod step_cap_work_gate;
+#[path = "../work_cap_gate.rs"]
+mod work_cap_gate;

@@ -7,9 +7,11 @@ use common::{load_alpha_grammar, nat_class};
 use pg_grammar_model::model::{
     AffixAllomorphDef, AffixProcessRuleDef, AllomorphId, CompoundingRuleDef, CompoundingSubruleDef,
     Grammar, MorphRuleDef, MorphemeId, MprSet, OutputAction, PartRef, Pattern, PatternNode,
-    ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId, VarTable,
+    RealizationalRuleDef, ReduplicationHint, SegmentedText, SimpleContext, StratumId, TableId,
+    VarTable,
 };
 use pg_rules::morph::{analyze, synthesize};
+use pg_rules::word::MorphStatus;
 use pg_rules::{MorphRecord, Word};
 use pg_shape::{NodeKind, Shape};
 
@@ -77,6 +79,7 @@ fn insert_segments(g: &Grammar, text: &str) -> OutputAction {
 
 fn allomorph(id: u32, lhs: Vec<Pattern>, rhs: Vec<OutputAction>) -> AffixAllomorphDef {
     AffixAllomorphDef {
+        xml_key: String::new(),
         id: AllomorphId(id),
         environments: vec![],
         co_occurrence: vec![],
@@ -107,6 +110,37 @@ fn affix_rule(morpheme: u32, allomorphs: Vec<AffixAllomorphDef>) -> MorphRuleDef
         is_clitic_rule: None,
         allomorphs,
     })
+}
+
+#[test]
+fn realizational_rule_synthesizes_at_most_once_per_word() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let rule = |id| {
+        MorphRuleDef::Realizational(RealizationalRuleDef {
+            morpheme: MorphemeId(id),
+            name: None,
+            blockable: true,
+            required_syn_fs: pg_featstruct::FsId(0),
+            real_fs: pg_featstruct::FsId(0),
+            allomorphs: vec![allomorph(
+                id,
+                vec![one_or_more("nc_any", &g)],
+                vec![
+                    OutputAction::Copy(PartRef::Input(0)),
+                    insert_segments(&g, "n"),
+                ],
+            )],
+        })
+    };
+    let first = synthesize(&g, &stem, &rule(200));
+    assert_eq!(first.len(), 1);
+    assert!(synthesize(&g, &first[0], &rule(200)).is_empty());
+    let mut erased_morphs = first[0].clone();
+    erased_morphs.morphs.clear();
+    assert!(synthesize(&g, &erased_morphs, &rule(200)).is_empty());
+    assert_eq!(synthesize(&g, &first[0], &rule(201)).len(), 1);
+    assert_eq!(synthesize(&g, &stem, &rule(200)).len(), 1);
 }
 
 // Suffix: CopyFromInput + InsertSegments, mirroring C#'s `AffixProcessRuleTests.MorphosyntacticRules`. Root "apa" (100) + suffix "n" (200).
@@ -143,6 +177,42 @@ fn suffix_synthesis_appends_and_orders_root_then_affix() {
     assert_eq!(
         out[0].morpheme_sequence(),
         vec![MorphemeId(100), MorphemeId(200)]
+    );
+}
+
+#[test]
+fn uncached_synthesis_emits_only_the_recorded_allomorph() {
+    let g = load_alpha_grammar();
+    let mut stem = root_word(&g, "apa", 100);
+    stem.trail = pg_rules::trail::Trail::from_slots([(
+        Some(pg_grammar_model::model::MRuleId(0)),
+        Some(AllomorphId(201)),
+    )]);
+    stem.mrule_app_index = 0;
+    let make_allomorph = |id| {
+        allomorph(
+            id,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
+        )
+    };
+    let rule = affix_rule(
+        200,
+        vec![
+            make_allomorph(200),
+            make_allomorph(201),
+            make_allomorph(202),
+        ],
+    );
+    let out = synthesize(&g, &stem, &rule);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].morphs.last().unwrap().allomorph, AllomorphId(201));
+    assert_eq!(
+        out[0].morphs.last().unwrap().passed_over.as_deref(),
+        Some(&[0][..])
     );
 }
 
@@ -352,10 +422,247 @@ fn compound_synthesis_joins_head_and_non_head() {
         vec![MorphemeId(100), MorphemeId(300)]
     );
     // `non_heads` is never cleared, matching C#'s `SynthesisCompoundingRule` (only the app index moves): the non-head stays as permanent history, which lets `Word::dedup_key()` distinguish surface-homophone compounds with distinct non-heads.
-    assert_eq!(out[0].non_heads.len(), 1);
+    assert_eq!(out[0].non_heads().len(), 1);
     assert_eq!(
-        char_defs(&out[0].non_heads[0].shape),
+        char_defs(&out[0].non_heads()[0].shape),
         char_defs(&shape_with_lanes(&g, "ka"))
+    );
+}
+
+#[test]
+fn compound_synthesis_does_not_transfer_genuine_head_children() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let append_u = affix_rule(
+        200,
+        vec![allomorph(
+            200,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
+        )],
+    );
+    let replace_final_n = affix_rule(
+        201,
+        vec![allomorph(
+            201,
+            vec![one_or_more("nc_any", &g), single("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "k"),
+            ],
+        )],
+    );
+
+    let with_u = synthesize(&g, &stem, &append_u).remove(0);
+    let with_s = synthesize(&g, &with_u, &replace_final_n).remove(0);
+    let intermediate: Vec<_> = with_s
+        .morphs
+        .iter()
+        .map(|morph| {
+            (
+                morph.allomorph.0,
+                morph.morpheme.0,
+                morph.order,
+                morph.status,
+            )
+        })
+        .collect();
+    assert_eq!(
+        intermediate,
+        vec![
+            (100, 100, 0, MorphStatus::Real),
+            (200, 200, 3, MorphStatus::SubsumedChild),
+            (201, 201, 3, MorphStatus::Real),
+        ],
+        "U must be a genuine child of S after the real U-then-S synthesis transitions"
+    );
+
+    let mut head = with_s;
+    head.non_head_unapplied(root_word(&g, "ka", 300));
+    let compound = synthesize(&g, &head, &compound_rule_with(&g)).remove(0);
+    let got: Vec<_> = compound
+        .morphs
+        .iter()
+        .map(|morph| {
+            (
+                morph.allomorph.0,
+                morph.morpheme.0,
+                morph.order,
+                morph.status,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (100, 100, 0, MorphStatus::Real),
+            (201, 201, 3, MorphStatus::Real),
+            (300, 300, 4, MorphStatus::Real),
+        ],
+        "C# compound ApplySubrule copies head owners and non-head root without recursively transferring head children"
+    );
+}
+
+#[test]
+fn copying_a_floating_markers_anchor_does_not_restore_its_node_ownership() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let prefix = affix_rule(
+        200,
+        vec![allomorph(
+            200,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                insert_segments(&g, "n"),
+                OutputAction::Copy(PartRef::Input(0)),
+            ],
+        )],
+    );
+    let delete_prefix = affix_rule(
+        201,
+        vec![allomorph(
+            201,
+            vec![single("nc_any", &g), one_or_more("nc_any", &g)],
+            vec![OutputAction::Copy(PartRef::Input(1))],
+        )],
+    );
+    let suffix = affix_rule(
+        202,
+        vec![allomorph(
+            202,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "k"),
+            ],
+        )],
+    );
+    let records = |word: &Word| {
+        word.morphs
+            .iter()
+            .map(|morph| (morph.allomorph.0, morph.order, morph.status))
+            .collect::<Vec<_>>()
+    };
+
+    let prefixed = synthesize(&g, &stem, &prefix).remove(0);
+    let truncated = synthesize(&g, &prefixed, &delete_prefix).remove(0);
+    assert_eq!(char_defs(&truncated.shape), char_defs(&stem.shape));
+    assert_eq!(
+        records(&truncated),
+        vec![
+            (100, 0, MorphStatus::Real),
+            (200, 0, MorphStatus::Floating),
+            (201, 2, MorphStatus::SubsumedFirst),
+        ],
+        "the copied root reclaims node zero from the deleted prefix's fallback mark"
+    );
+
+    let copied = synthesize(&g, &truncated, &suffix).remove(0);
+    assert_eq!(
+        char_defs(&copied.shape),
+        char_defs(&shape_with_lanes(&g, "apak"))
+    );
+    assert_eq!(
+        records(&copied),
+        vec![
+            (100, 0, MorphStatus::Real),
+            (201, 2, MorphStatus::Real),
+            (200, 3, MorphStatus::SubsumedChild),
+            (202, 3, MorphStatus::Real),
+        ],
+        "copying node zero transfers its root owner; the empty prefix annotation becomes a child of the new suffix"
+    );
+}
+
+#[test]
+fn affix_fallback_suppression_observes_child_allomorphs() {
+    let g = load_alpha_grammar();
+    let stem = root_word(&g, "apa", 100);
+    let mut append_u = affix_rule(
+        200,
+        vec![allomorph(
+            200,
+            vec![one_or_more("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "n"),
+            ],
+        )],
+    );
+    if let MorphRuleDef::AffixProcess(definition) = &mut append_u {
+        definition.max_apps = 2;
+    }
+    let replace_final_n = affix_rule(
+        201,
+        vec![allomorph(
+            201,
+            vec![one_or_more("nc_any", &g), single("nc_any", &g)],
+            vec![
+                OutputAction::Copy(PartRef::Input(0)),
+                insert_segments(&g, "k"),
+            ],
+        )],
+    );
+    let delete_final_n = affix_rule(
+        202,
+        vec![allomorph(
+            202,
+            vec![one_or_more("nc_any", &g), single("nc_any", &g)],
+            vec![OutputAction::Copy(PartRef::Input(0))],
+        )],
+    );
+
+    let first_u = synthesize(&g, &stem, &append_u).remove(0);
+    let with_s = synthesize(&g, &first_u, &replace_final_n).remove(0);
+    let second_u = synthesize(&g, &with_s, &append_u).remove(0);
+    let intermediate: Vec<_> = second_u
+        .morphs
+        .iter()
+        .map(|morph| {
+            (
+                morph.allomorph.0,
+                morph.morpheme.0,
+                morph.order,
+                morph.status,
+            )
+        })
+        .collect();
+    assert_eq!(
+        intermediate,
+        vec![
+            (100, 100, 0, MorphStatus::Real),
+            (200, 200, 3, MorphStatus::SubsumedChild),
+            (201, 201, 3, MorphStatus::Real),
+            (200, 200, 4, MorphStatus::Real),
+        ],
+        "U twice around S must produce one child occurrence and a separate later U host"
+    );
+
+    let after_delete = synthesize(&g, &second_u, &delete_final_n).remove(0);
+    let got: Vec<_> = after_delete
+        .morphs
+        .iter()
+        .map(|morph| {
+            (
+                morph.allomorph.0,
+                morph.morpheme.0,
+                morph.order,
+                morph.status,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            (100, 100, 0, MorphStatus::Real),
+            (200, 200, 3, MorphStatus::SubsumedChild),
+            (201, 201, 3, MorphStatus::Real),
+            (202, 202, 3, MorphStatus::SubsumedFirst),
+        ],
+        "the child U marks its allomorph before the later top-level U is considered; deleting only the final U node must not create a fallback at node zero"
     );
 }
 

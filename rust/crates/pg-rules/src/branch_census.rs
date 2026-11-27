@@ -2,7 +2,7 @@
 //! ceiling on pruning analysis branches that can never reach a lexical root.
 //!
 //! Every analysis word is a node named by a hash of its `WordKey`. Unapplication records a
-//! parent-to-child edge and charges the attempt's steps, work and time to its input node; a
+//! parent-to-child edge and charges the attempt's work and time to its input node; a
 //! word folded into a canonical as an alternative is an alias that shares the canonical's fate.
 //! After the parse, a node is lexically live when a lookup on it, an alias, or a descendant
 //! found a root, and parse-live when such a lookup also produced a surface match. Cost charged
@@ -27,7 +27,6 @@ use crate::word::Word;
 
 #[derive(Default, Clone, Copy)]
 struct Cost {
-    steps: u64,
     work: u64,
     ns: u64,
     lookups: u64,
@@ -132,10 +131,9 @@ pub fn mark_may_compound(node: u64) {
 }
 
 /// One unapplication attempt with `node` as input.
-pub fn charge_analysis(node: u64, steps: u64, work: u64, ns: u64) {
+pub fn charge_analysis(node: u64, work: u64, ns: u64) {
     with(|c| {
         let e = c.cost.entry(node).or_default();
-        e.steps += steps;
         e.work += work;
         e.ns += ns;
     });
@@ -208,13 +206,10 @@ pub struct BranchCensusSnapshot {
     pub pdead_nodes: u64,
     pub phase_analysis_work: u64,
     pub phase_analysis_ns: u64,
-    pub steps: u64,
     pub work: u64,
     pub ns: u64,
-    pub dead_steps: u64,
     pub dead_work: u64,
     pub dead_ns: u64,
-    pub pdead_steps: u64,
     pub pdead_work: u64,
     pub pdead_ns: u64,
     pub lookups: u64,
@@ -242,19 +237,16 @@ pub struct BranchCensusSnapshot {
 impl BranchCensusSnapshot {
     /// `name=value` fields, tab-separated, in declaration order.
     pub fn to_tsv(&self) -> String {
-        let fields: [(&str, u64); 34] = [
+        let fields: [(&str, u64); 31] = [
             ("nodes", self.nodes),
             ("dead_nodes", self.dead_nodes),
             ("pdead_nodes", self.pdead_nodes),
             ("phase_ana_work", self.phase_analysis_work),
             ("phase_ana_ns", self.phase_analysis_ns),
-            ("steps", self.steps),
             ("work", self.work),
             ("ns", self.ns),
-            ("dead_steps", self.dead_steps),
             ("dead_work", self.dead_work),
             ("dead_ns", self.dead_ns),
-            ("pdead_steps", self.pdead_steps),
             ("pdead_work", self.pdead_work),
             ("pdead_ns", self.pdead_ns),
             ("lookups", self.lookups),
@@ -334,7 +326,6 @@ pub fn snapshot() -> BranchCensusSnapshot {
         };
         let has_child: FxHashSet<u64> = c.parents.values().flatten().copied().collect();
         for (n, e) in &c.cost {
-            s.steps += e.steps;
             s.work += e.work;
             s.ns += e.ns;
             s.lookups += e.lookups;
@@ -343,7 +334,6 @@ pub fn snapshot() -> BranchCensusSnapshot {
             s.syn_work += e.syn_work;
             s.syn_ns += e.syn_ns;
             if !lex_live.contains(n) {
-                s.dead_steps += e.steps;
                 s.dead_work += e.work;
                 s.dead_ns += e.ns;
                 s.dead_lookups += e.lookups;
@@ -360,7 +350,6 @@ pub fn snapshot() -> BranchCensusSnapshot {
                 }
             }
             if !parse_live.contains(n) {
-                s.pdead_steps += e.steps;
                 s.pdead_work += e.work;
                 s.pdead_ns += e.ns;
                 s.pdead_syn_work += e.syn_work;

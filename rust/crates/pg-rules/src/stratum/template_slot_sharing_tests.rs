@@ -2,6 +2,61 @@ use super::*;
 use crate::stats::{PruneCounters, StatsCollector};
 use pg_featstruct::FeatureStruct;
 
+#[test]
+fn work_attribution_excludes_nested_scopes_and_failed_reservations() {
+    use crate::stats::{Direction, ObjectKind, ALLOMORPH_NONE};
+    let g = grammar();
+    let stats = StatsCollector::new(&g);
+    let budget = pg_fst::work::WorkBudget::new(4);
+    let _scope = budget.enter();
+    assert!(budget.consume());
+    {
+        let _outer = stats.time_enter(
+            ObjectKind::MorphRule,
+            StratumId(0),
+            0,
+            ALLOMORPH_NONE,
+            Direction::Analysis,
+        );
+        assert!(budget.consume());
+        {
+            let _inner = stats.time_enter(
+                ObjectKind::MorphRule,
+                StratumId(0),
+                0,
+                1,
+                Direction::Analysis,
+            );
+            assert!(pg_fst::work::consume());
+            assert!(pg_fst::work::consume());
+            assert!(!pg_fst::work::consume());
+        }
+    }
+    let rows = stats.rows();
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.allomorph == 0)
+            .unwrap()
+            .counters
+            .work_steps,
+        1
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|r| r.allomorph == 1)
+            .unwrap()
+            .counters
+            .work_steps,
+        2
+    );
+    assert_eq!(budget.used(), 4);
+    assert_eq!(
+        rows.iter().map(|row| row.counters.work_steps).sum::<u64>() + 1,
+        budget.used() as u64,
+        "object work plus the one unscoped reservation equals the total"
+    );
+}
+
 const XML: &str = r#"
 <HermitCrabInput>
   <Language>
@@ -122,17 +177,30 @@ fn word(g: &Grammar, text: &str) -> Word {
 
 fn analyzer<'a>(
     g: &'a Grammar,
-    budget: &'a StepBudget,
+    budget: &'a WordBudget,
     stats: Option<&'a StatsCollector>,
+) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
+    analyzer_with(g, budget, stats, RequiredSlotLookahead::default())
+}
+
+fn analyzer_with<'a>(
+    g: &'a Grammar,
+    budget: &'a WordBudget,
+    stats: Option<&'a StatsCollector>,
+    look_ahead: RequiredSlotLookahead,
 ) -> StratumAnalyzer<'a, 'a, 'a, 'a, 'a, 'a> {
     StratumAnalyzer::new(
         g,
         StratumId(0),
-        AnalyzerConfig::default(),
+        AnalyzerConfig {
+            required_slot_lookahead: look_ahead,
+            ..AnalyzerConfig::default()
+        },
         None,
         None,
         None,
         budget,
+        Box::leak(Box::default()),
         FinalTemplateAnalysisPolicy::default(),
         stats,
         &crate::trace::NoopSink,
@@ -148,7 +216,7 @@ fn project(per_template: Vec<Vec<Word>>) -> Projection {
         .map(|words| {
             words
                 .into_iter()
-                .map(|w| (w.dedup_key(), w.syn_fs.clone(), w.mrule_apps.clone()))
+                .map(|w| (w.dedup_key(), w.syn_fs.clone(), w.trail.rules()))
                 .collect()
         })
         .collect()
@@ -186,15 +254,19 @@ fn shared_walk_matches_every_templates_own_walk_in_order() {
         for syn_fs in [FeatureStruct::EMPTY, pos_n.clone()] {
             let mut input = word(&g, &text);
             input.syn_fs = syn_fs;
-            let budget = StepBudget::new(usize::MAX);
+            let budget = WordBudget::new(usize::MAX);
             let a = analyzer(&g, &budget, None);
             let own: Vec<Vec<Word>> = a
                 .stratum
                 .templates
                 .iter()
-                .map(|&tid| a.analyze_template(tid, &input))
+                .map(|&tid| a.analyze_template(tid, &input).into_vec())
                 .collect();
-            let shared = a.shared_slot_battery(&input);
+            let shared: Vec<Vec<Word>> = a
+                .shared_slot_battery(&input)
+                .into_iter()
+                .map(crate::battery::BatterySet::into_vec)
+                .collect();
             compared += own.iter().map(Vec::len).sum::<usize>();
             assert_eq!(project(shared), project(own), "word {text}");
         }
@@ -211,16 +283,17 @@ fn untraced_battery_runs_a_shared_slot_batch_once() {
     let input = word(&g, "miedd");
 
     let own_stats = StatsCollector::new(&g);
-    let budget = StepBudget::new(usize::MAX);
-    let a = analyzer(&g, &budget, Some(&own_stats));
+    let budget = WordBudget::new(usize::MAX);
+    let a = analyzer_with(&g, &budget, Some(&own_stats), RequiredSlotLookahead::Off);
     for &tid in &a.stratum.templates {
         a.analyze_template(tid, &input);
     }
     let own = battery_counters(&own_stats);
 
     let shared_stats = StatsCollector::new(&g);
-    let budget = StepBudget::new(usize::MAX);
-    analyzer(&g, &budget, Some(&shared_stats)).run_template_batch(&input);
+    let budget = WordBudget::new(usize::MAX);
+    analyzer_with(&g, &budget, Some(&shared_stats), RequiredSlotLookahead::Off)
+        .run_template_batch(&input);
     let shared = battery_counters(&shared_stats);
 
     assert!(shared.shared_slot_batches > 0, "{shared:?}");

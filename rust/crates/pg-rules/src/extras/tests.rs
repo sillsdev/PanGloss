@@ -1,0 +1,80 @@
+use super::*;
+use pg_shape::ShapeBuilder;
+
+/// Measured Word layout with Extras and the 16-byte inline/shared MPR set.
+const MAX_WORD_BYTES: usize = 168;
+
+fn word() -> Word {
+    Word::new(ShapeBuilder::new().finish(), StratumId(0))
+}
+
+#[test]
+fn word_does_not_regrow() {
+    assert!(
+        std::mem::size_of::<Word>() <= MAX_WORD_BYTES,
+        "Word is {} bytes",
+        std::mem::size_of::<Word>()
+    );
+}
+
+#[test]
+fn an_empty_box_and_no_box_are_indistinguishable() {
+    let plain = word();
+    let mut boxed = word();
+    boxed.non_heads_mut();
+    boxed.applied_realizational_rules_mut();
+    boxed.applied_phonological_rules_mut();
+    boxed.set_root_runtime_id(None);
+    assert_eq!(format!("{plain:?}"), format!("{boxed:?}"));
+    assert_eq!(plain.dedup_key(), boxed.dedup_key());
+    assert!(plain.dedup_key().matches(&boxed));
+    assert!(boxed.dedup_key().matches(&plain));
+    assert_eq!(
+        crate::word::estimate_word_bytes(&plain),
+        crate::word::estimate_word_bytes(&boxed)
+    );
+}
+
+#[test]
+fn clones_copy_every_part() {
+    let mut w = word();
+    w.non_heads_mut().push(word());
+    w.applied_realizational_rules_mut().push(MorphemeId(3));
+    w.applied_phonological_rules_mut()
+        .push((StratumId(1), PRuleId(2)));
+    w.set_root_runtime_id(Some("r".to_owned()));
+    let mut copy = w.clone();
+    assert_eq!(format!("{w:?}"), format!("{copy:?}"));
+    copy.non_heads_mut().clear();
+    assert_eq!(w.non_heads().len(), 1);
+    assert_eq!(w.root_runtime_id(), Some("r"));
+    assert_ne!(w.dedup_key(), copy.dedup_key());
+}
+
+#[test]
+fn span_marks_follow_a_rebuilt_shape_and_a_node_copied_twice_poisons() {
+    let rule = PRuleId(7);
+    let mut marks = SpanMarks {
+        inserted: vec![(1, rule), (3, rule)],
+        ..SpanMarks::default()
+    };
+    // Old node 1 now sits at 2, old node 3 was copied to 0 and 4.
+    marks.follow(&[Some(3), None, Some(1), None, Some(3)]);
+    assert_eq!(marks.inserted, [(2, rule)]);
+    assert_eq!(marks.poisoned, Some(rule));
+    let mut kept = SpanMarks {
+        inserted: vec![(0, rule)],
+        ..SpanMarks::default()
+    };
+    kept.follow(&[None, Some(0)]);
+    assert_eq!(kept.inserted, [(1, rule)]);
+    assert_eq!(kept.poisoned, None);
+}
+
+#[test]
+fn a_lost_mark_covers_every_run_of_the_morph() {
+    let mut marks = SpanMarks::default();
+    marks.lose((AllomorphId(1), 2, 2), PRuleId(3));
+    marks.lose((AllomorphId(1), 2, 1), PRuleId(4));
+    assert_eq!(marks.lost, [((AllomorphId(1), 2, 0), PRuleId(3))]);
+}

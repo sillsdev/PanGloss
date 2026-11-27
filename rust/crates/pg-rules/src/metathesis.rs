@@ -22,9 +22,10 @@
 //! exactly one shape node wide** (`<Segments>`/`<OptionalSegmentSequence>` switch-tagging is DTD-legal
 //! but fails to compile against the real C# engine — see
 //! `rust/conformance/metathesis/complex_rule/README.md`'s finding), so there is nothing for a
-//! model-level Group to usefully wrap that post-hoc wrapping doesn't already achieve. The general
-//! (multi-node-range) machinery below is still written to handle a wider range correctly — cheap
-//! insurance, not exercised by any grammar the real engine can load.
+//! model-level Group to usefully wrap that post-hoc wrapping doesn't already achieve. A matched
+//! group can still be wider than its node: C# gives a skipped optional boundary to the group of the
+//! node matched just before it, so every swap across a boundary moves a multi-node range, and the
+//! multi-node machinery below is exercised by real grammars.
 //!
 //! ## Synthesis (forward, physical reorder)
 //! Pattern compiled in *document* order (no swap — mirrors `SynthesisMetathesisRuleSpec`'s ctor,
@@ -67,6 +68,8 @@
 //!    carries, but DTD-legal and reachable via `pg_grammar_gen`) is instead preserved, matching
 //!    `synthesis_reorder`'s real behavior (`synthesis_reorder`'s own doc: "a node strictly between
 //!    them keeps its slot untouched") and letting analysis actually confirm it.
+//!    hc.dll's drop of a middle SEGMENT is a C# defect (sillsdev/machine#619): hc.dll misses the
+//!    reorder this port finds. PanGloss deliberately keeps the correct behaviour (divergence 127).
 //!
 //! Matched with `reverse(rule.dir)` over `Segment+Anchor` only (no boundaries), nondeterministic (C#:
 //! shape nodes can be underspecified during analysis). On a match, `ana_union` bitwise-ORs the two
@@ -91,9 +94,9 @@ use pg_grammar_model::chardef::{CharDefId, CharDefKind, CharDefTable};
 use pg_grammar_model::model::{
     Grammar, MetathesisRuleDef, PRuleId, Pattern, PatternNode, StratumId, TableId,
 };
-use pg_shape::{NodeKind, Shape};
+use pg_shape::{CdBits, CdSet, NodeKind, Shape};
 
-use crate::bridge::PatternBridge;
+use crate::bridge::{PatternBridge, StrRepMatcher};
 use crate::rewrite::{dir_from_model, reverse, MutNode, MutShape};
 use crate::trace::{FailureReason, TraceHandle, TraceSink};
 use crate::word::Word;
@@ -109,6 +112,11 @@ struct CompiledSwitchPattern {
     fst: Fst,
     anchor_start: bool,
     anchor_end: bool,
+    right_to_left: bool,
+    /// Per non-anchor pattern node in physical order: whether it is a literal boundary marker.
+    boundary_literal: Vec<bool>,
+    /// Physical non-anchor indices of the left and right switch nodes.
+    switches: (usize, usize),
 }
 
 /// Compile `pattern`, wrapping the compiled nodes at `left_idx`/`right_idx` in named capture groups so `match_candidates` can recover their matched spans; a `RightToLeft` pattern's nodes and anchors must be given to the compiler in physically-reversed order, since traversal index 0 is the physically last segment.
@@ -124,10 +132,12 @@ fn compile_switch_pattern(
 ) -> CompiledSwitchPattern {
     let bridge = PatternBridge::new(g)
         .with_table(table)
-        .deterministic(deterministic);
+        .deterministic(deterministic)
+        .strrep(true);
     let mut compiled = bridge
         .compile_pattern(pattern)
         .expect("metathesis pattern compiles");
+    let switches = (left_idx, right_idx);
     let (mut left_idx, mut right_idx) = (left_idx, right_idx);
     let (anchor_start, anchor_end) = match dir {
         Direction::LeftToRight => (compiled.anchor_start, compiled.anchor_end),
@@ -155,6 +165,14 @@ fn compile_switch_pattern(
         fst,
         anchor_start,
         anchor_end,
+        right_to_left: dir == Direction::RightToLeft,
+        boundary_literal: pattern
+            .nodes
+            .iter()
+            .filter(|n| !matches!(n, PatternNode::Anchor(_)))
+            .map(|n| is_boundary_node(g, table, n))
+            .collect(),
+        switches,
     }
 }
 
@@ -224,7 +242,7 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
         return Vec::new();
     }
     let fst = &pattern.fst;
-    let results = Transduce::new(fst, segs.to_vec())
+    let results = Transduce::new(fst, segs)
         .anchored(pattern.anchor_start, pattern.anchor_end)
         .all_matches();
     let mut out: Vec<(usize, usize, usize, usize, usize, usize)> = results
@@ -257,6 +275,50 @@ fn match_candidates(pattern: &CompiledSwitchPattern, segs: &[Segment]) -> Vec<Ca
         .collect()
 }
 
+/// A candidate's first node in the matcher's direction, as a sort key: the C# matcher tries start nodes in that order.
+fn start_key(pattern: &CompiledSwitchPattern, cand: &Candidate) -> usize {
+    if pattern.right_to_left {
+        usize::MAX - cand.entire.1
+    } else {
+        cand.entire.0
+    }
+}
+
+/// How far `cand` reaches in the matcher's direction, as a sort key that puts the furthest first.
+fn reach_key(pattern: &CompiledSwitchPattern, cand: &Candidate) -> usize {
+    if pattern.right_to_left {
+        cand.entire.0
+    } else {
+        usize::MAX - cand.entire.1
+    }
+}
+
+/// The `ms.nodes` index of the node that ends `cand` in the matcher's direction.
+fn end_node(pattern: &CompiledSwitchPattern, node_of: &[usize], cand: &Candidate) -> usize {
+    if pattern.right_to_left {
+        node_of[cand.entire.0]
+    } else {
+        node_of[cand.entire.1 - 1]
+    }
+}
+
+/// Whether `cand` starts strictly past the node `resume` names, in the matcher's direction; any candidate passes before the first match.
+fn past_resume(
+    pattern: &CompiledSwitchPattern,
+    node_of: &[usize],
+    cand: &Candidate,
+    resume: Option<usize>,
+) -> bool {
+    let Some(last) = resume else {
+        return true;
+    };
+    if pattern.right_to_left {
+        node_of[cand.entire.1 - 1] < last
+    } else {
+        node_of[cand.entire.0] > last
+    }
+}
+
 /// Translate a segment-index range (from a `Candidate`) to the `ms.nodes` indices it covers.
 fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
     node_of[range.0..range.1].to_vec()
@@ -266,7 +328,18 @@ fn seg_range_to_nodes(node_of: &[usize], range: (usize, usize)) -> Vec<usize> {
 
 /// C# `SynthesisMetathesisRuleSpec.ApplyRhs`/`MoveNodesAfter`, ported literally rather than as a "swap the two ranges as blocks" shortcut, since a non-Segment node inside a captured range doesn't move but the loop's cursor still advances past it.
 /// See docs/research/pg-rules-metathesis-design-notes.md for the full width->1 argument and the table-resolution rationale.
-fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: &CharDefTable) {
+fn synthesis_reorder(
+    ms: &mut MutShape,
+    left: &[usize],
+    right: &[usize],
+    table: &CharDefTable,
+) -> (usize, Vec<usize>) {
+    // Machine 1ddef2bd `ApplyRhs` lines 103-109: the splice needs the later group first, so a rule whose `leftSwitch` names the earlier node has its groups swapped.
+    let (left, right) = if left.iter().min() < right.iter().min() {
+        (right, left)
+    } else {
+        (left, right)
+    };
     let lo = *left
         .iter()
         .chain(right)
@@ -319,6 +392,7 @@ fn synthesis_reorder(ms: &mut MutShape, left: &[usize], right: &[usize], table: 
         })
         .collect();
     ms.nodes.splice(lo..hi, new_window);
+    (lo, order)
 }
 
 /// One `MoveNodesAfter` call: walks `range` one node at a time; a Segment-typed node is removed and reinserted immediately after `cur`'s current position, a non-Segment node is never moved, and `cur` advances to that node's identity either way.
@@ -353,23 +427,57 @@ fn move_nodes_after(
 
 /// C# `AnalysisMetathesisRuleSpec.ApplyRhs`: for each Segment-typed `(leftNode, rightNode)` pair, union each node's `FeatureStruct` into the other's (a plain bitwise OR over dense lanes, exact given this port's UNCONSTRAINED=u64::MAX representation) and mark both dirty; also resets both nodes' `char_def`, this port's own addition since C#'s `Union` has no analogous per-node identity to reset.
 /// See docs/research/pg-rules-metathesis-design-notes.md for the full union-semantics and char_def-reset argument.
-fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize]) {
+fn ana_union(ms: &mut MutShape, left: &[usize], right: &[usize], cd_count: Option<usize>) {
     for (&a, &b) in left.iter().zip(right) {
         if ms.nodes[a].kind != NodeKind::Segment || ms.nodes[b].kind != NodeKind::Segment {
             continue;
         }
+        // A featureless grammar keeps each segment's spelling (`StrRep`); `FeatureStruct.Union` merges the two spelling sets, or drops the key when either side has none.
+        let spellings = cd_count.and_then(|n| {
+            let (sa, sb) = (
+                spelling_set(&ms.nodes[a], n)?,
+                spelling_set(&ms.nodes[b], n)?,
+            );
+            let mut all = sa;
+            all.extend(sb);
+            all.sort_unstable();
+            all.dedup();
+            Some(all)
+        });
         let w = ms.nodes[a].lanes.len();
         for f in 0..w {
             let combined = ms.nodes[a].lanes[f] | ms.nodes[b].lanes[f];
             ms.nodes[a].lanes[f] = combined;
             ms.nodes[b].lanes[f] = combined;
         }
-        ms.nodes[a].dirty = true;
-        ms.nodes[b].dirty = true;
-        ms.nodes[a].char_def = pg_shape::NO_CHAR_DEF;
-        ms.nodes[b].char_def = pg_shape::NO_CHAR_DEF;
-        ms.nodes[a].cd_set = pg_shape::CdSet::Unrestricted;
-        ms.nodes[b].cd_set = pg_shape::CdSet::Unrestricted;
+        for i in [a, b] {
+            ms.nodes[i].dirty = true;
+            match &spellings {
+                Some(all) if all.len() == 1 => {
+                    ms.nodes[i].char_def = all[0];
+                    ms.nodes[i].cd_set = CdSet::Unrestricted;
+                }
+                Some(all) => {
+                    ms.nodes[i].char_def = pg_shape::NO_CHAR_DEF;
+                    ms.nodes[i].cd_set = CdSet::Members(CdBits::from_ids(all.iter().copied()));
+                }
+                None => {
+                    ms.nodes[i].char_def = pg_shape::NO_CHAR_DEF;
+                    ms.nodes[i].cd_set = CdSet::Unrestricted;
+                }
+            }
+        }
+    }
+}
+
+/// The spellings a featureless node stands for, or `None` when it is unrestricted.
+fn spelling_set(node: &MutNode, cd_count: usize) -> Option<Vec<u32>> {
+    if node.char_def != pg_shape::NO_CHAR_DEF {
+        return Some(vec![node.char_def]);
+    }
+    match &node.cd_set {
+        CdSet::Unrestricted => None,
+        CdSet::Members(bits) => Some((0..cd_count as u32).filter(|&i| bits.contains(i)).collect()),
     }
 }
 
@@ -391,22 +499,13 @@ pub fn synthesize(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<S
     let pattern_len = non_anchor_count(&rule.pattern.nodes);
     // `table` is `synthesis_reorder`'s own per-node validity check's target -- see its doc.
     let table = &g.char_tables[table_id.0 as usize];
-    synthesize_with_pattern(&compiled, pattern_len, input, table)
-}
-
-/// `g` is needed only to resolve `MetaCache::table_id` into the actual `CharDefTable`
-/// `synthesis_reorder`'s own per-node validity check reads (see its doc); every OTHER input here is
-/// already fully precompiled. Every production call site (`crate::stratum::StratumAnalyzer`) already
-/// holds `self.g`, so this is a cheap, already-in-scope reference, not a new lookup.
-pub(crate) fn synthesize_cached(
-    g: &Grammar,
-    rule: &MetathesisRuleDef,
-    input: &Shape,
-    cache: &MetaCache,
-) -> Vec<Shape> {
-    let pattern_len = non_anchor_count(&rule.pattern.nodes);
-    let table = &g.char_tables[cache.table_id.0 as usize];
-    synthesize_with_pattern(&cache.syn, pattern_len, input, table)
+    synthesize_with_pattern(
+        &compiled,
+        pattern_len,
+        input,
+        table,
+        StrRepMatcher::new(g, table),
+    )
 }
 
 fn synthesize_with_pattern(
@@ -414,39 +513,130 @@ fn synthesize_with_pattern(
     pattern_len: usize,
     input: &Shape,
     table: &CharDefTable,
+    strrep: Option<StrRepMatcher>,
 ) -> Vec<Shape> {
-    let mut ms = MutShape::from_shape(input);
+    synthesize_with_permutation(pattern, pattern_len, input, table, strrep)
+        .map(|(shape, _)| shape)
+        .into_iter()
+        .collect()
+}
+
+/// The rewritten shape and, for each of its nodes (anchors included), the index that node had in `input`; `None` when the rule did not apply.
+fn synthesize_with_permutation(
+    pattern: &CompiledSwitchPattern,
+    pattern_len: usize,
+    input: &Shape,
+    table: &CharDefTable,
+    strrep: Option<StrRepMatcher>,
+) -> Option<(Shape, Vec<usize>)> {
+    let mut ms = MutShape::from_shape_strrep(input, strrep);
+    let mut origin: Vec<usize> = (0..ms.nodes.len()).collect();
     let mut applied = false;
+    // Machine 1ddef2bd `IterativePhonologicalPatternRule.Apply` resumes past the node that ended the match, wherever the swap moved it, so a later match never starts inside an earlier one (#382).
+    let mut resume: Option<usize> = None;
     loop {
         let (segs, node_of) = ms.segs(true);
         let mut acted = false;
+        // Unlike analysis this needs no furthest-first sort: only boundaries are optional here, a skipped trailing boundary joins the right group, the move leaves boundaries in place, and no match starts on one.
         for cand in match_candidates(pattern, &segs) {
-            if cand.entire.1 - cand.entire.0 != pattern_len {
-                continue; // width guard (plan W1.1): reject an Optional-skip over-wide span.
+            if !past_resume(pattern, &node_of, &cand, resume) {
+                continue;
             }
-            let left_nodes = seg_range_to_nodes(&node_of, cand.left);
-            let right_nodes = seg_range_to_nodes(&node_of, cand.right);
+            let width = cand.entire.1 - cand.entire.0;
+            // C# marks boundary nodes optional, so its matcher steps over any number between the switches: a wider span is that only when its non-optional nodes are exactly the pattern's non-boundary ones.
+            let skips_optional = width > pattern_len
+                && segs[cand.entire.0..cand.entire.1]
+                    .iter()
+                    .filter(|s| !s.optional)
+                    .count()
+                    == pattern_len - pattern.boundary_literal.iter().filter(|&&b| b).count();
+            if width != pattern_len && !skips_optional {
+                continue;
+            }
+            let (left_nodes, right_nodes) = if skips_optional {
+                let span = seg_range_to_nodes(&node_of, cand.entire);
+                let Some(groups) = switch_groups(&ms, pattern, &span) else {
+                    continue;
+                };
+                groups
+            } else {
+                (
+                    seg_range_to_nodes(&node_of, cand.left),
+                    seg_range_to_nodes(&node_of, cand.right),
+                )
+            };
             if left_nodes
                 .iter()
                 .chain(&right_nodes)
-                .any(|&n| ms.nodes[n].dirty)
+                .any(|&n| !ms.nodes[n].optional && ms.nodes[n].dirty)
             {
                 continue; // Modified=Clean: only the switch nodes are gated (see module doc).
             }
-            synthesis_reorder(&mut ms, &left_nodes, &right_nodes, table);
+            let last = origin[end_node(pattern, &node_of, &cand)];
+            let (lo, order) = synthesis_reorder(&mut ms, &left_nodes, &right_nodes, table);
+            let window: Vec<usize> = order.iter().map(|&i| origin[lo + i]).collect();
+            origin.splice(lo..lo + window.len(), window);
             applied = true;
             acted = true;
+            resume = origin.iter().position(|&o| o == last);
             break;
         }
         if !acted {
             break;
         }
     }
-    if applied {
-        vec![ms.to_shape()]
+    applied.then(|| (ms.to_shape(), origin))
+}
+
+/// The left and right switch groups as C# captures them. Machine 1ddef2bd `TraversalMethodBase.Advance` (lines 280-300) re-runs the arc's commands for each optional annotation it steps over, so a skipped boundary closes the group of the pattern node matched just before it in traversal order, whether that node is a switch or a context node; a literal boundary marker takes the first boundary it reaches. `None` when the span does not line up with the pattern node for node.
+fn switch_groups(
+    ms: &MutShape,
+    pattern: &CompiledSwitchPattern,
+    span: &[usize],
+) -> Option<(Vec<usize>, Vec<usize>)> {
+    let len = pattern.boundary_literal.len();
+    let pattern_order: Vec<usize> = if pattern.right_to_left {
+        (0..len).rev().collect()
     } else {
-        Vec::new()
+        (0..len).collect()
+    };
+    let nodes: Vec<usize> = if pattern.right_to_left {
+        span.iter().rev().copied().collect()
+    } else {
+        span.to_vec()
+    };
+    let mut owner: Vec<Option<usize>> = vec![None; ms.nodes.len()];
+    let (mut next, mut last) = (0, None);
+    for n in nodes {
+        let pending = pattern_order.get(next).copied();
+        if ms.nodes[n].optional {
+            match pending {
+                Some(p) if pattern.boundary_literal[p] => {
+                    owner[n] = Some(p);
+                    last = Some(p);
+                    next += 1;
+                }
+                // Before the first pattern node nothing has been matched, so the node joins no group.
+                _ => owner[n] = last,
+            }
+        } else {
+            let p = pending.filter(|&p| !pattern.boundary_literal[p])?;
+            owner[n] = Some(p);
+            last = Some(p);
+            next += 1;
+        }
     }
+    if next != len {
+        return None;
+    }
+    let group = |p: usize| -> Vec<usize> {
+        span.iter()
+            .copied()
+            .filter(|&n| owner[n] == Some(p))
+            .collect()
+    };
+    let (left, right) = (group(pattern.switches.0), group(pattern.switches.1));
+    (!left.is_empty() && !right.is_empty()).then_some((left, right))
 }
 
 // Phonological rule tracing (metathesis, synthesis side).
@@ -484,24 +674,33 @@ pub(crate) fn synthesize_cached_traced(
     cache: &MetaCache,
     trace: &dyn TraceSink,
     parent: TraceHandle,
-) -> Vec<Shape> {
-    let result = synthesize_cached(g, rule, &input.shape, cache);
+) -> Option<Word> {
+    let pattern_len = non_anchor_count(&rule.pattern.nodes);
+    let table = &g.char_tables[cache.table_id.0 as usize];
+    let result =
+        synthesize_with_permutation(&cache.syn, pattern_len, &input.shape, table, cache.strrep)
+            .map(|(shape, origin)| {
+                let mut out = input.clone();
+                out.note_metathesis_spans(&origin, pid);
+                out.reorder_morphs(&origin);
+                out.shape = shape;
+                out
+            });
     if trace.is_tracing() {
         let node_parent = input.trace.unwrap_or(parent);
-        let mut out_word = input.clone();
-        if let Some(s) = result.first() {
-            out_word.shape = s.clone();
-        }
-        if result.is_empty() {
-            trace.phonological_rule_not_applied(
-                node_parent,
-                pid,
-                -1,
-                &out_word,
-                FailureReason::Pattern,
-            );
-        } else {
-            trace.phonological_rule_applied(node_parent, pid, -1, input, &out_word);
+        match &result {
+            Some(out_word) => {
+                trace.phonological_rule_applied(node_parent, pid, -1, input, out_word);
+            }
+            None => {
+                trace.phonological_rule_not_applied(
+                    node_parent,
+                    pid,
+                    -1,
+                    input,
+                    FailureReason::Pattern,
+                );
+            }
         }
     }
     result
@@ -547,7 +746,14 @@ pub fn analyze(g: &Grammar, rule: &MetathesisRuleDef, input: &Shape) -> Vec<Shap
     let compiled =
         compile_switch_pattern(g, table_id, &ana_pattern, left_idx, right_idx, dir, false);
     let pattern_len = non_anchor_count(&ana_pattern.nodes);
-    analyze_with_pattern(&compiled, pattern_len, input)
+    let table = &g.char_tables[table_id.0 as usize];
+    analyze_with_pattern(
+        &compiled,
+        pattern_len,
+        input,
+        StrRepMatcher::new(g, table),
+        table.len(),
+    )
 }
 
 pub(crate) fn analyze_cached(
@@ -555,25 +761,59 @@ pub(crate) fn analyze_cached(
     input: &Shape,
     cache: &MetaCache,
 ) -> Vec<Shape> {
-    analyze_with_pattern(&cache.ana, cache.ana_pattern_len, input)
+    analyze_with_pattern(
+        &cache.ana,
+        cache.ana_pattern_len,
+        input,
+        cache.strrep,
+        cache.cd_count,
+    )
 }
 
 fn analyze_with_pattern(
     pattern: &CompiledSwitchPattern,
     pattern_len: usize,
     input: &Shape,
+    strrep: Option<StrRepMatcher>,
+    cd_count: usize,
 ) -> Vec<Shape> {
-    let mut ms = MutShape::from_shape(input);
+    let mut ms = MutShape::from_shape_strrep(input, strrep);
     let mut applied = false;
+    // Machine 1ddef2bd `IterativePhonologicalPatternRule.Apply`: after a match the matcher resumes at the node past the match's end in its direction, so a node the match covered, context included, is never scanned again.
+    let mut resume: Option<usize> = None;
     loop {
         let (segs, node_of) = ms.segs(false);
+        let cands = match_candidates(pattern, &segs);
+        // The earliest start in the matcher's direction wins, as the C# matcher tries starts in order; at one start, Machine 1ddef2bd `Fst.ResultCompare` puts the match that reaches furthest first, so a span widened by skipped optional nodes beats the exact-width one (a51-155).
+        let exact = cands
+            .iter()
+            .filter(|c| c.entire.1 - c.entire.0 == pattern_len)
+            .map(|c| (c, false));
+        let skipping = cands
+            .iter()
+            .filter(|c| {
+                c.entire.1 - c.entire.0 > pattern_len
+                    && segs[c.entire.0..c.entire.1]
+                        .iter()
+                        .filter(|s| !s.optional)
+                        .count()
+                        == pattern_len
+            })
+            .map(|c| (c, true));
+        let mut ordered: Vec<(&Candidate, bool)> = exact.chain(skipping).collect();
+        ordered.sort_by_key(|(c, _)| (start_key(pattern, c), reach_key(pattern, c)));
         let mut acted = false;
-        for cand in match_candidates(pattern, &segs) {
-            if cand.entire.1 - cand.entire.0 != pattern_len {
+        for (cand, skip_optional) in ordered {
+            if !past_resume(pattern, &node_of, cand, resume) {
                 continue;
             }
-            let left_nodes = seg_range_to_nodes(&node_of, cand.left);
-            let right_nodes = seg_range_to_nodes(&node_of, cand.right);
+            let mut left_nodes = seg_range_to_nodes(&node_of, cand.left);
+            let mut right_nodes = seg_range_to_nodes(&node_of, cand.right);
+            // Divergence 132: C# pairs a skipped optional node with a switch (machine#649), so it cannot parse words it generates; PanGloss pairs only the nodes the switches consumed.
+            if skip_optional {
+                left_nodes.retain(|&n| !ms.nodes[n].optional);
+                right_nodes.retain(|&n| !ms.nodes[n].optional);
+            }
             if left_nodes
                 .iter()
                 .chain(&right_nodes)
@@ -581,9 +821,10 @@ fn analyze_with_pattern(
             {
                 continue;
             }
-            ana_union(&mut ms, &left_nodes, &right_nodes);
+            ana_union(&mut ms, &left_nodes, &right_nodes, strrep.map(|_| cd_count));
             applied = true;
             acted = true;
+            resume = Some(end_node(pattern, &node_of, cand));
             break;
         }
         if !acted {
@@ -664,6 +905,9 @@ pub(crate) struct MetaCache {
     /// The rule's own owning table, already resolved once by `crate::cache::owning_table_for_prule`.
     /// See `docs/research/pg-rules-metathesis-design-notes.md`.
     table_id: TableId,
+    /// Spelling matcher on a featureless grammar (`None` when the grammar has features), and the owning table's size.
+    strrep: Option<StrRepMatcher>,
+    cd_count: usize,
 }
 
 pub(crate) fn build_meta_cache(
@@ -710,5 +954,7 @@ pub(crate) fn build_meta_cache(
         ana,
         ana_pattern_len,
         table_id,
+        strrep: StrRepMatcher::new(g, &g.char_tables[table_id.0 as usize]),
+        cd_count: g.char_tables[table_id.0 as usize].len(),
     }
 }

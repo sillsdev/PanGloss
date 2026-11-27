@@ -1,6 +1,56 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
+#[test]
+fn name_interner_has_a_bounded_lookup() {
+    let mut names = NameInterner::default();
+    let first = names.intern(b"shared");
+    assert!(Rc::ptr_eq(&first, &names.intern(b"shared")));
+    for i in 0..20_000 {
+        names.intern(format!("unique-{i}").as_bytes());
+    }
+    assert!(names.accounted_bytes <= 1024 * 1024);
+    let after_limit = names.intern(b"new-after-limit");
+    assert!(!Rc::ptr_eq(&after_limit, &names.intern(b"new-after-limit")));
+}
+
+#[test]
+fn phonology_ranges_preserve_bom_and_multiple_outer_elements() {
+    let xml = "\u{feff}<HermitCrabInput><Language><CharacterDefinitionTable id=\"one\"/></Language><Language><CharacterDefinitionTable id=\"two\"/></Language></HermitCrabInput>";
+    let (_, spans) = parse_document(xml).unwrap();
+    let replay: String = spans.ranges.iter().map(|&(a, b)| &xml[a..b]).collect();
+    let whole = load_char_def_table_from_xml(xml).unwrap();
+    let sliced = load_char_def_table_from_xml(&replay).unwrap();
+    let ids = |p: &GrammarPhonology| {
+        p.tables()
+            .iter()
+            .map(|t| t.xml_id().to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&whole), ["one", "two"]);
+    assert_eq!(ids(&whole), ids(&sliced));
+}
+
+#[test]
+fn unfinished_phonology_reports_the_original_reader_error() {
+    let xml = "<HermitCrabInput><Language><CharacterDefinitionTable id=\"t\">";
+    let expected = match load_char_def_table_from_xml(xml) {
+        Err(error) => error.to_string(),
+        Ok(_) => panic!("expected phonology error"),
+    };
+    assert_eq!(load(xml).unwrap_err().to_string(), expected);
+}
+
+#[test]
+fn phonology_error_precedes_dom_error() {
+    let xml = "<HermitCrabInput><Language><CharacterDefinitionTable id=\"t\"><bad></CharacterDefinitionTable></Language></HermitCrabInput>";
+    let expected = match load_char_def_table_from_xml(xml) {
+        Err(error) => error.to_string(),
+        Ok(_) => panic!("expected phonology error"),
+    };
+    assert_eq!(load(xml).unwrap_err().to_string(), expected);
+}
+
 /// Same self-skipping corpus-file locator as the lib.rs segmentation tests: `*-hc.xml` grammars are untracked local corpus files. Returns `None` if absent so callers self-skip.
 fn sample_path(name: &str) -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -12,6 +62,48 @@ fn pos_symbol_count(g: &Grammar) -> usize {
     match &g.syn_features.features[g.syn_features.pos.0 as usize].kind {
         SynFeatureKind::Symbolic { symbols, .. } => symbols.len(),
         SynFeatureKind::Complex => 0,
+    }
+}
+
+#[test]
+fn duplicate_realizational_labels_keep_distinct_morpheme_ids() {
+    let xml = r#"<HermitCrabInput><Language>
+      <Name>Duplicate labels</Name>
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+        <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="r1 r2">
+        <Name>S</Name><MorphologicalRuleDefinitions>
+          <RealizationalRule id="r1"><Name>first</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="s1"><MorphologicalInput><PhoneticSequence id="p1">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p1" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>shared</MorphemeId></RealizationalRule>
+          <RealizationalRule id="r2"><Name>second</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="s2"><MorphologicalInput><PhoneticSequence id="p2">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p2" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>shared</MorphemeId></RealizationalRule>
+        </MorphologicalRuleDefinitions>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+    let grammar = load(xml).expect("duplicate labels are accepted");
+    let rules = &grammar.strata[0].mrules;
+    assert_eq!(rules.len(), 2);
+    let morphemes: Vec<_> = rules
+        .iter()
+        .map(|id| match &grammar.mrules[id.0 as usize] {
+            MorphRuleDef::Realizational(rule) => rule.morpheme,
+            other => panic!("expected realizational rule, got {other:?}"),
+        })
+        .collect();
+    assert_ne!(morphemes[0], morphemes[1]);
+    for (id, key) in morphemes.into_iter().zip(["r1", "r2"]) {
+        let info = &grammar.morphemes[id.0 as usize];
+        assert_eq!(info.xml_key, key);
+        assert_eq!(info.morph_id.as_deref(), Some("shared"));
     }
 }
 
@@ -986,7 +1078,13 @@ fn pos_symbol_cap_63_ok_64_rejected() {
     );
     let bad = load(&pos_grammar_with_n_symbols(64));
     assert!(
-        matches!(bad, Err(GrammarError::Unsupported(_))),
+        matches!(
+            bad,
+            Err(GrammarError::Limit {
+                code: pg_snapshot::ImportWarningCode::LimitPartsOfSpeech,
+                ..
+            })
+        ),
         "64 parts of speech must be rejected at the 64-symbol boundary, got {bad:?}"
     );
 }
@@ -1016,7 +1114,13 @@ fn phonological_symbolic_feature_cap_63_ok_64_rejected() {
     );
     let bad = load(&phon_feature_grammar_with_n_symbols(64));
     assert!(
-        matches!(bad, Err(GrammarError::Unsupported(_))),
+        matches!(
+            bad,
+            Err(GrammarError::Limit {
+                code: pg_snapshot::ImportWarningCode::LimitFeatureValues,
+                ..
+            })
+        ),
         "a 64-symbol phonological feature must be rejected at the 64-symbol boundary, got {bad:?}"
     );
 }
@@ -1081,4 +1185,97 @@ fn empty_parts_of_speech_block_is_also_refused() {
     let err = load(xml)
         .expect_err("<PartsOfSpeech> with zero <PartOfSpeech> children violates PartOfSpeech+ and must be refused");
     assert!(matches!(err, GrammarError::Xml(_)));
+}
+
+#[test]
+fn mpr_wide_oracle_fixture_loads_every_distinct_feature() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let words = fixture.load_words_yaml();
+    assert_eq!(
+        fixture.oracle_provenance(),
+        Some(pg_conformance_fixtures::OracleProvenance::FoundingOracle)
+    );
+    assert_eq!(words.words.len(), 74);
+    assert_eq!(words.words.iter().filter(|w| w.expect_fail).count(), 49);
+    assert!(words.skip_in_generic_replay().is_none());
+    let xml = fixture.load_grammar_xml();
+    let grammar = load(&xml).expect("wide oracle inventory must load");
+    assert_eq!(grammar.mpr_features.len(), 303);
+    assert_eq!(grammar.mpr_groups[0].members.iter().count(), 300);
+}
+
+/// One affix rule, one realizational rule and three root allomorphs: `dup` appears twice and one root allomorph has no `id`.
+fn allomorph_key_grammar() -> Grammar {
+    let xml = r#"<HermitCrabInput><Language>
+      <Name>Allomorph keys</Name>
+      <PartsOfSpeech><PartOfSpeech id="p"><Name>N</Name></PartOfSpeech></PartsOfSpeech>
+      <CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions>
+        <SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition>
+      </SegmentDefinitions></CharacterDefinitionTable>
+      <NaturalClasses><FeatureNaturalClass id="any"><Name>Any</Name></FeatureNaturalClass></NaturalClasses>
+      <Strata><Stratum characterDefinitionTable="t" morphologicalRules="r1 r2">
+        <Name>S</Name><MorphologicalRuleDefinitions>
+          <MorphologicalRule id="r1" requiredPartsOfSpeech="p" outputPartOfSpeech="p"><Name>one</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="affix-sub"><MorphologicalInput><PhoneticSequence id="p1">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p1" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules></MorphologicalRule>
+          <RealizationalRule id="r2"><Name>two</Name><MorphologicalSubrules>
+            <MorphologicalSubrule id="realizational-sub"><MorphologicalInput><PhoneticSequence id="p2">
+              <SimpleContext naturalClass="any" />
+            </PhoneticSequence></MorphologicalInput><MorphologicalOutput><CopyFromInput index="p2" /></MorphologicalOutput></MorphologicalSubrule>
+          </MorphologicalSubrules><MorphemeId>two</MorphemeId></RealizationalRule>
+        </MorphologicalRuleDefinitions>
+        <LexicalEntries>
+          <LexicalEntry id="e1" partOfSpeech="p"><Allomorphs>
+            <Allomorph id="root-a"><PhoneticShape>a</PhoneticShape></Allomorph>
+            <Allomorph id="dup"><PhoneticShape>a</PhoneticShape></Allomorph>
+          </Allomorphs><Gloss>one</Gloss></LexicalEntry>
+          <LexicalEntry id="e2" partOfSpeech="p"><Allomorphs>
+            <Allomorph id="dup"><PhoneticShape>a</PhoneticShape></Allomorph>
+            <Allomorph><PhoneticShape>a</PhoneticShape></Allomorph>
+          </Allomorphs><Gloss>two</Gloss></LexicalEntry>
+        </LexicalEntries>
+      </Stratum></Strata>
+    </Language></HermitCrabInput>"#;
+    load(xml).expect("allomorph key grammar loads")
+}
+
+#[test]
+fn allomorph_xml_keys_round_trip_for_root_affix_and_realizational_allomorphs() {
+    let g = allomorph_key_grammar();
+    for key in ["root-a", "affix-sub", "realizational-sub"] {
+        let id = g.allomorph_by_xml_key(key).unwrap();
+        assert_eq!(g.allomorph_xml_key(id), Some(key));
+    }
+    assert!(matches!(
+        g.allomorph_owners[g.allomorph_by_xml_key("affix-sub").unwrap().0 as usize],
+        AllomorphOwner::Affix(..)
+    ));
+}
+
+#[test]
+fn a_duplicated_allomorph_xml_key_names_every_holder() {
+    let g = allomorph_key_grammar();
+    match g.allomorph_by_xml_key("dup") {
+        Err(AllomorphKeyError::Duplicate(ids)) => {
+            assert_eq!(ids.len(), 2);
+            assert!(ids.iter().all(|&id| g.allomorph_xml_key(id) == Some("dup")));
+        }
+        other => panic!("expected Duplicate, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_missing_allomorph_xml_key_or_id_is_reported_not_guessed() {
+    let g = allomorph_key_grammar();
+    assert_eq!(
+        g.allomorph_by_xml_key("nope"),
+        Err(AllomorphKeyError::Missing)
+    );
+    assert_eq!(g.allomorph_by_xml_key(""), Err(AllomorphKeyError::Missing));
+    let keyless = AllomorphId(g.allomorph_owners.len() as u32 - 1);
+    assert_eq!(g.allomorph_xml_key(keyless), None);
+    assert_eq!(g.allomorph_xml_key(AllomorphId(u32::MAX)), None);
 }

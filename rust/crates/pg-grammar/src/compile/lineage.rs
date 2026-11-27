@@ -474,8 +474,8 @@ fn root_conditioning(grammar: &Grammar, allomorph: &RootAllomorphDef) -> Allomor
         has_phone_condition,
         has_morph_gate,
         gate_signature: gate_signature(
-            MprSet::EMPTY,
-            MprSet::EMPTY,
+            &MprSet::EMPTY,
+            &MprSet::EMPTY,
             &FeatureStruct::EMPTY,
             stem.as_deref(),
         ),
@@ -495,8 +495,8 @@ fn affix_conditioning(grammar: &Grammar, allomorph: &AffixAllomorphDef) -> Allom
         || allomorph.excluded_mpr != MprSet::EMPTY
         || has_syn_fs;
     let gate_signature = gate_signature(
-        allomorph.required_mpr,
-        allomorph.excluded_mpr,
+        &allomorph.required_mpr,
+        &allomorph.excluded_mpr,
         grammar.fs_interner.get(allomorph.required_syn_fs),
         None,
     );
@@ -576,8 +576,8 @@ fn is_wildcard_context(nodes: &[PatternNode]) -> bool {
 
 /// Canonical gate text; the grammar is documented in docs/grammar-facts-format.md.
 fn gate_signature(
-    required: MprSet,
-    excluded: MprSet,
+    required: &MprSet,
+    excluded: &MprSet,
     syn_fs: &FeatureStruct,
     stem: Option<&str>,
 ) -> String {
@@ -590,10 +590,9 @@ fn gate_signature(
     )
 }
 
-fn mpr_ids(set: MprSet) -> String {
-    (0..64u8)
-        .filter(|bit| set.0 & (1u64 << bit) != 0)
-        .map(|bit| bit.to_string())
+fn mpr_ids(set: &MprSet) -> String {
+    set.iter()
+        .map(|id| id.0.to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -1074,5 +1073,19 @@ fn add_unrepresented_root_order(
         }) {
             out.order(None, Some(&entry.guid), Some(msa), Some(guid), None, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod mpr_identity_tests {
+    use super::*;
+    #[test]
+    fn gate_identity_keeps_high_ids_and_legacy_low_tokens() {
+        let mut set = MprSet::from_bits(1 | (1u64 << 63));
+        assert_eq!(mpr_ids(&set), "0,63");
+        for id in [64, 128, 256, 299] {
+            set.insert(crate::model::MprId(id));
+        }
+        assert_eq!(mpr_ids(&set), "0,63,64,128,256,299");
     }
 }

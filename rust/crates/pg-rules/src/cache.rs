@@ -25,11 +25,13 @@
 use pg_fst::Fst;
 use pg_grammar_model::model::{
     AllomorphId, AllomorphOwner, CompoundingRuleDef, Grammar, MRuleId, MetathesisRuleDef,
-    MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId,
+    MorphRuleDef, MorphemeId, PRuleId, PhonRuleDef, TableId, TemplateId,
 };
 
 use crate::metathesis::{self, MetaCache};
+use crate::morph::edge_index::EdgeIndex;
 use crate::morph::{self, AnalysisLhs, CompoundCache};
+use crate::required_slots::RequiredSlotMaterial;
 use crate::rewrite::{self, EnvFst, PruleCache};
 
 // Owning-table resolution: table zero is never an implicit default, mirroring `pg_foma::replace::owning_table`'s precedent on the compiled-net side.
@@ -143,11 +145,12 @@ pub(crate) fn owning_table_for_compounding_rule(
 /// same global registry, `Grammar::allomorph_owners`). `envs` backs `crate::validity`'s
 /// per-environment gate (populated for both owner kinds); `synth_lhs`/`ana_lhs` are
 /// `AffixAllomorphDef`-only (a root allomorph has no `MorphologicalInput`/RHS to compile, so both
-/// stay `None` for a `AllomorphOwner::Root` entry).
+/// stay `None` for a `AllomorphOwner::Root` entry). Boxing the optional matchers keeps those
+/// numerous empty root slots small; populated matchers retain the same owned values.
 pub(crate) struct AllomorphCache {
     pub(crate) envs: Vec<(Option<EnvFst>, Option<EnvFst>)>,
-    pub(crate) synth_lhs: Option<(Fst, Vec<String>)>,
-    pub(crate) ana_lhs: Option<(Fst, AnalysisLhs)>,
+    pub(crate) synth_lhs: Option<Box<(Fst, Vec<String>)>>,
+    pub(crate) ana_lhs: Option<Box<(Fst, AnalysisLhs)>>,
 }
 
 /// One `RuleCache::prules` slot: which kind of compiled cache depends on the corresponding
@@ -176,6 +179,14 @@ pub struct RuleCache {
     allomorphs: Vec<AllomorphCache>,
     /// Indexed by `MRuleId.0`; `Some` only for a `MorphRuleDef::Compounding` entry (an `AffixProcess` entry's matchers live in `allomorphs` instead).
     compounds: Vec<Option<CompoundCache>>,
+    /// Indexed by `TemplateId.0`; the required-slot look-ahead tables, read from the analysis LHS of `allomorphs`.
+    templates: Vec<RequiredSlotMaterial>,
+    /// Skip an analysis allomorph whose mandatory pattern edge cannot unify with the word's mandatory edge segment. Pure speed; on by default.
+    edge_prefilter: bool,
+    /// Packed necessary-edge candidate rows, built once with the compiled allomorphs.
+    edge_index: EdgeIndex,
+    /// Enables candidate filtering; disabling it leaves the per-allomorph prefilter in place.
+    edge_index_enabled: bool,
 }
 
 impl RuleCache {
@@ -220,11 +231,58 @@ impl RuleCache {
                 MorphRuleDef::AffixProcess(_) | MorphRuleDef::Realizational(_) => None,
             })
             .collect();
-        RuleCache {
+        let mut cache = RuleCache {
             prules,
             allomorphs,
             compounds,
+            templates: Vec::new(),
+            edge_prefilter: true,
+            edge_index: EdgeIndex::default(),
+            edge_index_enabled: true,
+        };
+        let templates = (0..g.templates.len())
+            .map(|t| RequiredSlotMaterial::build(g, TemplateId(t as u32), Some(&cache)))
+            .collect();
+        cache.templates = templates;
+        cache.edge_index = EdgeIndex::build(g, &cache);
+        cache
+    }
+
+    /// Heap bytes retained by the analysis edge index.
+    pub fn edge_index_allocated_bytes(&self) -> usize {
+        self.edge_index.allocated_bytes()
+    }
+
+    pub(crate) fn edge_candidates(
+        &self,
+        g: &Grammar,
+        table: TableId,
+        shape: &pg_shape::Shape,
+    ) -> Option<crate::morph::edge_index::EdgeCandidates<'_>> {
+        if !self.edge_prefilter || !self.edge_index_enabled {
+            return None;
         }
+        self.edge_index.candidates(g, table, shape)
+    }
+
+    /// Turns the rule-level edge index on or off independently of the allomorph prefilter.
+    pub fn with_edge_index(mut self, on: bool) -> Self {
+        self.edge_index_enabled = on;
+        self
+    }
+
+    pub(crate) fn template_material(&self, tid: TemplateId) -> &RequiredSlotMaterial {
+        &self.templates[tid.0 as usize]
+    }
+
+    /// Turns the analysis edge-segment prefilter on or off; it never changes an analysis.
+    pub fn with_edge_prefilter(mut self, on: bool) -> Self {
+        self.edge_prefilter = on;
+        self
+    }
+
+    pub(crate) fn edge_prefilter(&self) -> bool {
+        self.edge_prefilter
     }
 
     pub(crate) fn prule_rewrite(&self, pid: PRuleId) -> &PruleCache {
@@ -277,8 +335,8 @@ fn build_allomorph_cache(g: &Grammar, owner: &AllomorphOwner) -> AllomorphCache 
             let lhs = morph::build_allomorph_lhs_cache(g, table, def);
             AllomorphCache {
                 envs: build_env_cache(g, table, &def.environments),
-                synth_lhs: lhs.synth_lhs,
-                ana_lhs: lhs.ana_lhs,
+                synth_lhs: lhs.synth_lhs.map(Box::new),
+                ana_lhs: lhs.ana_lhs.map(Box::new),
             }
         }
     }

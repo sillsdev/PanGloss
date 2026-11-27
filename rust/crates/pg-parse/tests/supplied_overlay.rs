@@ -152,7 +152,7 @@ fn supplied_root_participates_in_ordinary_inflection() {
             lexical_spelling: "pap".into(),
             gloss: "new verb".into(),
             syn_fs: g.fs_interner.get(exemplar.syn_fs).clone(),
-            mpr: exemplar.mpr,
+            mpr: exemplar.mpr.clone(),
             stratum: StratumId(0),
             authority: RootAuthority::Supplied,
         }],
@@ -178,7 +178,7 @@ fn supplied_root_participates_in_ordinary_inflection() {
         "mrS",
         r#"<LexicalEntry id="compiled-pap" partOfSpeech="posV"><MorphemeId>ROOT</MorphemeId><Allomorphs><Allomorph id="compiled-pap-a"><PhoneticShape>pap</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>"#,
     );
-    let compiled_out = Morpher::new(&compiled, 100_000).parse_word("paps");
+    let compiled_out = Morpher::new(&compiled, 10_000_000).parse_word("paps");
     let compiled_analysis = &compiled_out.structured[0];
     assert_eq!(
         analysis.root_morpheme_index,
@@ -192,7 +192,7 @@ fn supplied_root_participates_in_ordinary_inflection() {
     assert_eq!(analysis.syn_fs, compiled_analysis.syn_fs);
     assert_eq!(analysis.mpr, compiled_analysis.mpr);
     assert_eq!(parsed.analyses[0].1, compiled_out.analyses[0].1);
-    assert!(Morpher::new(&compiled, 100_000)
+    assert!(Morpher::new(&compiled, 10_000_000)
         .generate_words_from_analysis(compiled_analysis)
         .contains(&"paps".to_string()));
 }
@@ -212,7 +212,7 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
                 lexical_spelling: "pap".into(),
                 gloss: "head".into(),
                 syn_fs: g.fs_interner.get(head.syn_fs).clone(),
-                mpr: head.mpr,
+                mpr: head.mpr.clone(),
                 stratum: StratumId(0),
                 authority: RootAuthority::Supplied,
             },
@@ -222,7 +222,7 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
                 lexical_spelling: "das".into(),
                 gloss: "non-head".into(),
                 syn_fs: g.fs_interner.get(non_head.syn_fs).clone(),
-                mpr: non_head.mpr,
+                mpr: non_head.mpr.clone(),
                 stratum: StratumId(0),
                 authority: RootAuthority::Supplied,
             },
@@ -283,7 +283,7 @@ fn supplied_roots_participate_as_compound_heads_and_non_heads() {
         "mrC",
         r#"<LexicalEntry id="compiled-pap" partOfSpeech="posN"><MorphemeId>HEAD</MorphemeId><Allomorphs><Allomorph id="compiled-pap-a"><PhoneticShape>pap</PhoneticShape></Allomorph></Allomorphs></LexicalEntry><LexicalEntry id="compiled-das" partOfSpeech="posN"><MorphemeId>NONHEAD</MorphemeId><Allomorphs><Allomorph id="compiled-das-a"><PhoneticShape>das</PhoneticShape></Allomorph></Allomorphs></LexicalEntry>"#,
     );
-    let compiled_m = Morpher::new(&compiled, 100_000);
+    let compiled_m = Morpher::new(&compiled, 10_000_000);
     let compiled_out = compiled_m.parse_word("papdas");
     let compiled_analysis = &compiled_out.structured[0];
     assert_eq!(
@@ -317,7 +317,7 @@ fn nested_compound_with_supplied_and_official_non_heads_round_trips() {
             lexical_spelling: "das".into(),
             gloss: "supplied non-head".into(),
             syn_fs: g.fs_interner.get(supplied_model.syn_fs).clone(),
-            mpr: supplied_model.mpr,
+            mpr: supplied_model.mpr.clone(),
             stratum: StratumId(0),
             authority: RootAuthority::Supplied,
         }],
@@ -386,7 +386,7 @@ fn overlay_root_matches_the_same_root_compiled_into_the_grammar() {
             lexical_spelling: "b".into(),
             gloss: "compiled-equivalent".into(),
             syn_fs: base.fs_interner.get(exemplar.syn_fs).clone(),
-            mpr: exemplar.mpr,
+            mpr: exemplar.mpr.clone(),
             stratum: StratumId(0),
             authority: RootAuthority::Supplied,
         }],
@@ -396,7 +396,7 @@ fn overlay_root_matches_the_same_root_compiled_into_the_grammar() {
 
     let compiled_xml = r#"<HermitCrabInput><Language><Name>T</Name><PartsOfSpeech><PartOfSpeech id="n"><Name>n</Name></PartOfSpeech></PartsOfSpeech><CharacterDefinitionTable id="t"><Name>T</Name><SegmentDefinitions><SegmentDefinition id="a"><Representations><Representation>a</Representation></Representations></SegmentDefinition><SegmentDefinition id="b"><Representations><Representation>b</Representation></Representations></SegmentDefinition></SegmentDefinitions></CharacterDefinitionTable><Strata><Stratum characterDefinitionTable="t"><Name>S</Name><LexicalEntries><LexicalEntry id="official-b" partOfSpeech="n"><Gloss>compiled-equivalent</Gloss><Allomorphs><Allomorph id="bo"><PhoneticShape>b</PhoneticShape></Allomorph></Allomorphs></LexicalEntry></LexicalEntries></Stratum></Strata></Language></HermitCrabInput>"#;
     let compiled = pg_grammar::load(compiled_xml).unwrap();
-    let compiled_out = Morpher::new(&compiled, 10_000).parse_word("b");
+    let compiled_out = Morpher::new(&compiled, 1_000_000).parse_word("b");
     assert_eq!(
         overlay_out
             .analyses
@@ -413,4 +413,112 @@ fn overlay_root_matches_the_same_root_compiled_into_the_grammar() {
         overlay_out.structured[0].pos_id,
         compiled_out.structured[0].pos_id
     );
+}
+
+#[test]
+fn has_supplied_roots_is_true_only_for_an_overlay_that_adds_or_hides_a_root() {
+    let g = grammar();
+    assert!(!Morpher::new(&g, 10_000).has_supplied_roots());
+    let empty = SuppliedRootOverlay::empty(&g);
+    assert!(!Morpher::new_with_overlay(&g, 10_000, &empty).has_supplied_roots());
+    let added = SuppliedRootOverlay::build(
+        &g,
+        vec![supplied("pgl_a", "b", "added", RootAuthority::Supplied)],
+    )
+    .unwrap();
+    assert!(Morpher::new_with_overlay(&g, 10_000, &added).has_supplied_roots());
+    let hiding = SuppliedRootOverlay::build(
+        &g,
+        vec![supplied(
+            "pgl_h",
+            "b",
+            "override",
+            RootAuthority::SuppliedOverride {
+                official_entry_id: "official-a".into(),
+            },
+        )],
+    )
+    .unwrap();
+    assert!(Morpher::new_with_overlay(&g, 10_000, &hiding).has_supplied_roots());
+}
+
+#[test]
+fn mpr_wire_is_versioned_canonical_and_accepts_legacy_low_words() {
+    use pg_grammar_model::model::MprId;
+    let mut root = supplied("pgl_wide", "b", "wide", RootAuthority::Supplied);
+    for id in [299, 0, 64, 256, 63] {
+        root.mpr.insert(MprId(id));
+    }
+    let json = serde_json::to_value(&root).unwrap();
+    assert_eq!(
+        json["mpr"],
+        serde_json::json!({"version":1,"ids":[0,63,64,256,299]})
+    );
+    let decoded: SuppliedRoot = serde_json::from_value(json.clone()).unwrap();
+    assert_eq!(decoded, root);
+    let mut legacy = json.clone();
+    legacy["mpr"] = serde_json::json!(9223372036854775809u64);
+    let decoded: SuppliedRoot = serde_json::from_value(legacy).unwrap();
+    assert_eq!(decoded.mpr, MprSet::from_bits(9223372036854775809));
+    let mut reordered = json.clone();
+    reordered["mpr"] = serde_json::json!({"version":1,"ids":[299,256,64,63,0,299]});
+    assert_eq!(
+        serde_json::from_value::<SuppliedRoot>(reordered).unwrap(),
+        root
+    );
+    for invalid in [
+        serde_json::json!({"version":2,"ids":[299]}),
+        serde_json::json!({"version":1,"ids":[4294967296u64]}),
+        serde_json::json!({"version":1,"ids":[-1]}),
+    ] {
+        let mut bad = json.clone();
+        bad["mpr"] = invalid;
+        assert!(serde_json::from_value::<SuppliedRoot>(bad).is_err());
+    }
+}
+
+#[test]
+fn wide_supplied_root_survives_analysis_wire_and_generation() {
+    let fixture =
+        pg_conformance_fixtures::require_fixture("edge-cases", "mpr-wide-inflection-classes");
+    let grammar = pg_grammar::load(&fixture.load_grammar_xml()).unwrap();
+    let exemplar = grammar
+        .entries
+        .iter()
+        .find(|e| e.authored_id == "e299")
+        .unwrap();
+    let root = SuppliedRoot {
+        entry_id: "pgl_wide".into(),
+        realization_id: "pgl_wide:299".into(),
+        lexical_spelling: "pala".into(),
+        gloss: "wide".into(),
+        syn_fs: grammar.fs_interner.get(exemplar.syn_fs).clone(),
+        mpr: exemplar.mpr.clone(),
+        stratum: grammar.morphemes[exemplar.morpheme.0 as usize].stratum,
+        authority: RootAuthority::Supplied,
+    };
+    let overlay = SuppliedRootOverlay::build(&grammar, vec![root]).unwrap();
+    let morpher = Morpher::new_with_overlay(&grammar, usize::MAX, &overlay);
+    let parsed = morpher.parse_word("palasaaaaaai");
+    assert!(!parsed.capped);
+    let analysis = parsed
+        .structured
+        .iter()
+        .find(|a| a.supplied_root.is_some())
+        .expect("class299 inflection admitted");
+    let json = serde_json::to_value(analysis).unwrap();
+    assert_eq!(
+        json["suppliedRoot"]["mpr"],
+        serde_json::json!({"version":1,"ids":[299]})
+    );
+    let decoded: pg_parse::WordAnalysis = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        morpher.generate_words_from_analysis(&decoded),
+        vec!["palasaaaaaai"]
+    );
+    assert!(morpher
+        .parse_word("palasi")
+        .structured
+        .iter()
+        .all(|a| a.supplied_root.is_none()));
 }
