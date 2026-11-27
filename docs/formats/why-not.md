@@ -193,7 +193,7 @@ reason (it builds the word and rejects it on the surface), so `provenance` is `d
   as in the suite. `allomorph` ids are `grammar.xml` allomorph ids. On a project or snapshot grammar they are opaque per-grammar keys: do not store them or map them to FieldWorks.
 * Conformance fixtures assert only the kinds C# itself reports: `environment_unmet`,
   `feature_clash`, `adhoc_prohibition` and `stem_name`. The other kinds are **engine-specific**:
-  `no_morph_match`, `slot_order`, `required_slot_empty`, `surface_mismatch`, `inflection_class` and
+  `no_morph_match`, `slot_order`, `required_slot_empty`, `required_co_occurrence`, `surface_mismatch`, `inflection_class` and
   `other_gate` (and the `unknown` result) are kept, documented as such, and are not compared with C#.
 * The `grammar.xml` id is the required identity everywhere. `entry_guid` and `msa_guid` (in a choice's `guid`) and
   `object.guid` are optional and are filled in when the caller has the FieldWorks model, as Motif does.
@@ -258,7 +258,7 @@ PanGloss ships no MCP server; Motif's own tool list is where a host exposes the 
 ### Compatibility
 
 Consumers ignore fields they do not know: the report, `failure` and its parts may gain fields in
-a later slice without a new schema version. A choice and its `guid` object may carry extra fields. Only the `--expect-json` input is strict.
+a later slice without a new schema version. New failure kinds may also be added within v1; a reader that meets a `kind` it does not know must treat it as `unknown`. A choice and its `guid` object may carry extra fields. Only the `--expect-json` input is strict.
 
 ### Ordering and what is promised
 

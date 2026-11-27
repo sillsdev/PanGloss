@@ -613,6 +613,53 @@ fn a_family_block_names_the_blocking_entry() {
 }
 
 #[test]
+fn a_category_clash_in_a_derivation_with_several_rules_stays_unknown() {
+    // mrSufK then mrSufT: the stem requirement mrSufT meets is the result of mrSufK, so no single affix is proven to own the clash.
+    let r = answer_on(
+        "why-not-pos-clash.xml",
+        "loskt",
+        &["--expect", "eLos,mrSufK,mrSufT"],
+    );
+    assert_ne!(r["result"], "rejected", "a wrong owner was named: {r}");
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert!(r.get("failure").is_none_or(Value::is_null), "{r}");
+    assert!(
+        r["stop_note"].as_str().is_some_and(|n| !n.is_empty()),
+        "{r}"
+    );
+}
+
+#[test]
+fn an_empty_required_slot_with_two_applicable_templates_stays_unknown() {
+    let r = answer_on(
+        "why-not-required-slot-two-templates.xml",
+        "ga",
+        &["--expect", "eGa"],
+    );
+    assert_eq!(r["result"], "unknown", "a wrong owner was named: {r}");
+    assert!(r.get("failure").is_none_or(Value::is_null), "{r}");
+    assert!(
+        r["stop_note"].as_str().is_some_and(|n| !n.is_empty()),
+        "{r}"
+    );
+}
+
+#[test]
+fn a_surface_mismatch_is_unknown_and_names_no_object() {
+    // tal+k synthesizes to "tak" (prDelL), not to "talk", and the morphs are otherwise unobjectionable.
+    let r = answer_on(
+        "why-not-surface-mismatch.xml",
+        "talk",
+        &["--expect", "eTal,mrSufK"],
+    );
+    assert_eq!(r["result"], "unknown", "{r}");
+    assert_eq!(r["stop"], "unclassified_failure", "{r}");
+    assert!(r.get("failure").is_none_or(Value::is_null), "{r}");
+    let note = r["stop_note"].as_str().unwrap_or_default();
+    assert!(note.contains("synthesize to \"tak\""), "{r}");
+}
+
+#[test]
 fn a_require_rule_is_a_required_co_occurrence_not_an_adhoc_prohibition() {
     let r = answer_on(
         "why-not-require-rule.xml",

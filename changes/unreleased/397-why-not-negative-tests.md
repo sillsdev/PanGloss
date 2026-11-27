@@ -1,0 +1,1 @@
+- Added negative tests proving `pangloss why-not` leaves the owner `unknown` for a category clash across several rules, an empty required slot with two applicable templates and a surface mismatch, and documented that new failure kinds may appear within v1 and unknown kinds must be read as `unknown` (#397).
