@@ -3350,28 +3350,33 @@ fn ana_narrow_deletion(
     let lhs_vars = pattern_var_occurrences(&rule.lhs);
     let (mut segs, node_of) = ms.segs(false);
     let mut sites: Vec<(usize, Bindings)> = Vec::new(); // shape node index after which to insert
-                                                        // EXPERIMENT (env HC_DEL_DOMGAP, off by default): a gap whose next segment is OPTIONAL and whose right environment fails when that segment is made mandatory can only be a real derivation with the segment absent, which the gap after it already covers; skip it. Only with a right environment, so the last gap of an optional run (next node mandatory or none) always stays.
-    let dom_gap = right.is_some()
-        && std::env::var_os("HC_DEL_DOMGAP").is_some()
-        && dom_gap_eligible(g, table, rule, sr, left, right, &lhs_vars)
-        && (std::env::var_os("HC_DEL_DOMGAP").is_some_and(|v| v != "global")
-            || g.prules.iter().all(|pr| {
-                let pg_grammar_model::model::PhonRuleDef::Rewrite(r) = pr else {
-                    return true;
-                };
-                r.subrules
-                    .iter()
-                    .filter(|s| s.rhs.nodes.is_empty())
-                    .all(|s| {
-                        let vars = |p: &Option<Pattern>| p.as_ref().is_some_and(pattern_has_vars);
-                        !pattern_has_vars(&r.lhs)
-                            && !vars(&s.left_env)
-                            && !vars(&s.right_env)
-                            && dom_gap_eligible(g, table, r, s, &None, &None, &[])
-                    })
-            }));
-    let m655 = std::env::var_os("HC_DEL_DOMGAP").is_some_and(|v| v == "m655");
-    let dom_gap = dom_gap && !m655;
+                                                        // EXPERIMENT (env HC_DEL_DOMGAP): m655 = raw port of machine#655; m655rule = same filter only for a rule with no alpha variable, no reapplications, no right-to-left, whose right environment cannot start with the deleted segment; m655global = m655rule and every deletion subrule in the grammar qualifies.
+    let mode = del_domgap_mode();
+    let m655 = match mode {
+        1 => true,
+        2 | 3 => {
+            right.is_some()
+                && dom_gap_eligible(g, table, rule, sr, left, right, &lhs_vars)
+                && (mode == 2
+                    || g.prules.iter().all(|pr| {
+                        let pg_grammar_model::model::PhonRuleDef::Rewrite(r) = pr else {
+                            return true;
+                        };
+                        r.subrules
+                            .iter()
+                            .filter(|s| s.rhs.nodes.is_empty())
+                            .all(|s| {
+                                let vars =
+                                    |p: &Option<Pattern>| p.as_ref().is_some_and(pattern_has_vars);
+                                !pattern_has_vars(&r.lhs)
+                                    && !vars(&s.left_env)
+                                    && !vars(&s.right_env)
+                                    && dom_gap_eligible(g, table, r, s, &None, &None, &[])
+                            })
+                    }))
+        }
+        _ => false,
+    };
     // Port of sillsdev/machine#655 `RewriteRuleSpec.RedundantMatch`: `side` fails at gap `i` once the optional node next to it is made mandatory.
     let redundant =
         |segs: &mut Vec<Segment>, i: usize, at: usize, is_left: bool, b: &Bindings| -> bool {
@@ -3400,18 +3405,7 @@ fn ana_narrow_deletion(
             .unwrap_or_default();
         redundant(segs, i, i, false, &lb) && !redundant(segs, i + 1, i, true, &Bindings::default())
     };
-    let dominated = |segs: &mut Vec<Segment>, s: usize, e: usize| -> bool {
-        if m655_skip(segs, s) {
-            return true;
-        }
-        if !dom_gap || e >= segs.len() || !segs[e].optional {
-            return false;
-        }
-        segs[e].optional = false;
-        let holds = environment_bindings(g, segs, s, e, left, right, Bindings::default()).is_some();
-        segs[e].optional = true;
-        !holds
-    };
+    let dominated = |segs: &mut Vec<Segment>, s: usize, _e: usize| -> bool { m655_skip(segs, s) };
 
     // The word-initial gap is a real site: C#'s substitute pattern matches the left anchor (node 0, here) and inserts right after it; without this a word-initial deletion can't be re-inserted.
     if let Some(bindings) = environment_bindings(g, &segs, 0, 0, left, right, Bindings::default()) {
@@ -3457,6 +3451,29 @@ fn ana_narrow_deletion(
         ms.nodes.splice(at..at, inserted);
     }
     true
+}
+
+/// EXPERIMENT: 0 off, 1 raw m655, 2 per-rule fixed, 3 grammar-wide fixed.
+fn del_domgap_mode() -> u8 {
+    static M: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *M.get_or_init(|| {
+        // The mode may also ride on the executable's name (pangloss-m655global.exe) so two copies of one binary can be compared by a tool that cannot set an environment per side.
+        let name = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let env = std::env::var("HC_DEL_DOMGAP").unwrap_or_default();
+        let pick = |k: &str| env == k || name.ends_with(k);
+        if pick("m655global") {
+            3
+        } else if pick("m655rule") {
+            2
+        } else if pick("m655") {
+            1
+        } else {
+            0
+        }
+    })
 }
 
 /// EXPERIMENT: whether any context node of `p` carries an alpha variable.
