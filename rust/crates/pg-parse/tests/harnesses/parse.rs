@@ -1,6 +1,8 @@
 // Included test files share support modules (`mod common;`), so each is loaded once per includer.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../mpr_pair_gate.rs"]
+mod mpr_pair_gate;
 #[path = "../partials_preservation.rs"]
 mod partials_preservation;
 

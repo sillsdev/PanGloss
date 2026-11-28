@@ -899,6 +899,29 @@ pub fn build_grammar_linear(
     })
 }
 
+/// A grammar with the caller's own `<MorphologicalPhonologicalRuleFeatures>` block and `<Strata>` body, for tests that need MPR groups or several strata.
+pub fn build_grammar_mpr(mpr_xml: &str, strata_xml: &str) -> Grammar {
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<HermitCrabInput>
+  <Language>
+    <Name>CSharpPortMpr</Name>
+    {POS_XML}
+    {HEAD_FEATURES_XML}
+    {mpr_xml}
+    {PHON_FEATURES_XML}
+    {CHAR_TABLE_XML}
+    {NATURAL_CLASSES_XML}
+    {strata_xml}
+  </Language>
+</HermitCrabInput>
+"#
+    );
+    pg_grammar::load(&xml).unwrap_or_else(|e| {
+        panic!("csharp_port_common MPR grammar failed to load: {e}\n---\n{xml}")
+    })
+}
+
 /// The set of morpheme-join strings among a `ParseOutcome`'s surviving analyses, translated from `pg_parse::Morpher`'s `"+"` join to C#'s `" "` join so expected literals transcribe directly from the C# source.
 pub fn morphs_set(outcome: &ParseOutcome) -> BTreeSet<String> {
     outcome
