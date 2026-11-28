@@ -853,6 +853,12 @@ impl<'g> Morpher<'g> {
         self
     }
 
+    /// Turns the adjacent-rule MPR pair gate on (the default) or off; it never changes an analysis, only search work.
+    pub fn with_mpr_pair_gate(mut self, on: bool) -> Self {
+        self.cache = self.cache.with_mpr_pair_gate(on);
+        self
+    }
+
     /// Turns the rule-level edge index on or off independently of the allomorph prefilter.
     pub fn with_edge_index(mut self, on: bool) -> Self {
         self.cache = self.cache.with_edge_index(on);

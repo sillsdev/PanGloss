@@ -187,6 +187,10 @@ pub struct RuleCache {
     edge_index: EdgeIndex,
     /// Enables candidate filtering; disabling it leaves the per-allomorph prefilter in place.
     edge_index_enabled: bool,
+    /// Adjacent affix pairs whose outer required-feature gate can never pass.
+    mpr_dead_pairs: crate::pair_gate::MprDeadPairs,
+    /// Whether analysis consults `mpr_dead_pairs`; pure speed, on by default.
+    mpr_pair_gate: bool,
 }
 
 impl RuleCache {
@@ -239,6 +243,8 @@ impl RuleCache {
             edge_prefilter: true,
             edge_index: EdgeIndex::default(),
             edge_index_enabled: true,
+            mpr_dead_pairs: crate::pair_gate::MprDeadPairs::build(g),
+            mpr_pair_gate: true,
         };
         let templates = (0..g.templates.len())
             .map(|t| RequiredSlotMaterial::build(g, TemplateId(t as u32), Some(&cache)))
@@ -279,6 +285,17 @@ impl RuleCache {
     pub fn with_edge_prefilter(mut self, on: bool) -> Self {
         self.edge_prefilter = on;
         self
+    }
+
+    /// Turns the adjacent-rule MPR pair gate on or off; it never changes an analysis.
+    pub fn with_mpr_pair_gate(mut self, on: bool) -> Self {
+        self.mpr_pair_gate = on;
+        self
+    }
+
+    /// The dead adjacent affix pairs, or `None` when the gate is off.
+    pub(crate) fn mpr_dead_pairs(&self) -> Option<&crate::pair_gate::MprDeadPairs> {
+        self.mpr_pair_gate.then_some(&self.mpr_dead_pairs)
     }
 
     pub(crate) fn edge_prefilter(&self) -> bool {

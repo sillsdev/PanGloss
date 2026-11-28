@@ -1064,6 +1064,16 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         if w.trail.count_of(id) >= u32::from(rule.max_apps()) {
             return Vec::new();
         }
+        // Synthesis rejects this pair at the outer rule's feature gate for every root (pair_gate.rs).
+        if let (Some(cache), MorphRuleDef::AffixProcess(_)) = (self.cache, rule) {
+            if let (Some(dead), Some((Some(outer), _))) =
+                (cache.mpr_dead_pairs(), w.trail.slots_rev().next())
+            {
+                if dead.is_dead(outer, id) {
+                    return Vec::new();
+                }
+            }
+        }
         if let (Some(candidates), MorphRuleDef::AffixProcess(affix)) = (candidates, rule) {
             let syn_admitted = morph::ana_syn_gate(
                 self.g,

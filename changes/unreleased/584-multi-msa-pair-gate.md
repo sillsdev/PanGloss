@@ -1,0 +1,1 @@
+- Parsing no longer explodes when an affix has several derivational MSAs with different From inflection classes: adjacent affix pairs whose inflection-class gate no synthesis could pass are dropped during analysis, with identical analyses and about 800x fewer work steps on the Swahili R1 grammar (#584).
