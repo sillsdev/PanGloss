@@ -1,4 +1,4 @@
-//! Issue #584: an affix rule that follows another in analysis is skipped when the outer rule's required inflection-class or exception features can never be met by what the inner rule outputs. Pruning must never change an analysis; it must only be applied when the pair provably fails synthesis.
+//! An affix rule that follows another in analysis is skipped when the outer rule's required inflection-class or exception features can never be met by what the inner rule outputs. Pruning must never change an analysis; it must only be applied when the pair provably fails synthesis.
 
 #[path = "csharp_port_common/mod.rs"]
 mod csharp_port_common;
@@ -297,7 +297,7 @@ fn a_second_stratum_does_not_hide_a_class_written_in_between() {
     }
 }
 
-/// The blowup shape of #584: each of four affixes has three rules with different From and To classes, so a word of several affixes multiplies by three per affix until the root's class is checked.
+/// The blowup shape: each of four affixes has three rules with different From and To classes, so a word of several affixes multiplies by three per affix until the root's class is checked.
 fn blowup_rules() -> Vec<String> {
     let mut rules = Vec::new();
     for (letter, name) in [("s", "ca"), ("z", "ap"), ("d", "re"), ("f", "pa")] {
@@ -331,4 +331,144 @@ fn several_msas_per_affix_do_not_multiply_the_search() {
     let (son, soff, parsed) = identical(&g, &["s", "z", "d", "f"], 3);
     assert!(parsed > 20, "{parsed}");
     assert!(son < soff, "on={son} off={soff}");
+}
+
+/// Parses each word with the gate on and off and asserts equal analyses; returns the number of words that have one.
+fn same(g: &Grammar, words: &[String]) -> usize {
+    let on = Morpher::new(g, usize::MAX).with_mpr_pair_gate(true);
+    let off = Morpher::new(g, usize::MAX).with_mpr_pair_gate(false);
+    let mut parsed = 0;
+    for w in words {
+        let (a, b) = (on.parse_word(w), off.parse_word(w));
+        assert_eq!(sorted(a.analyses.clone()), sorted(b.analyses), "{w}");
+        assert!(!a.capped, "{w}");
+        parsed += usize::from(!a.analyses.is_empty());
+    }
+    parsed
+}
+
+fn all_words(prefixes: &[&str], suffixes: &[&str], roots: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in prefixes.iter().chain(std::iter::once(&"")) {
+        for r in roots {
+            out.push(format!("{p}{r}"));
+            for a in suffixes {
+                out.push(format!("{p}{r}{a}"));
+                for b in suffixes {
+                    out.push(format!("{p}{r}{a}{b}"));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn prefix_rule(id: &str, letter: &str, req: &str, out: &str) -> String {
+    rule(id, letter, req, out).replace(
+        &format!("<CopyFromInput index=\"1\" /><InsertSegments><PhoneticShape>+{letter}</PhoneticShape></InsertSegments>"),
+        &format!("<InsertSegments><PhoneticShape>{letter}+</PhoneticShape></InsertSegments><CopyFromInput index=\"1\" />"),
+    )
+}
+
+#[test]
+fn a_clitic_rule_is_never_a_pair_and_its_parses_are_unchanged() {
+    let clitic = rule("outA", "s", "clsA", "").replace(
+        "requiredPartsOfSpeech=\"posV\"",
+        "requiredPartsOfSpeech=\"posV\" isCliticRule=\"true\"",
+    );
+    let g = grammar(&[clitic, rule("inB", "z", "", "clsB")]);
+    assert!(
+        !dead(&g, "outA", "inB"),
+        "a clitic outer rule is not decided"
+    );
+    assert!(
+        !dead(&g, "inB", "outA"),
+        "a clitic inner rule is not decided"
+    );
+    let words = all_words(&[], &["s", "z"], &["pat", "kat", "tat", "dat", "bat"]);
+    assert!(same(&g, &words) > 5);
+}
+
+#[test]
+fn a_compounding_rule_between_the_pair_changes_no_parse() {
+    let compound = r#"<CompoundingRule id="cmp" blockable="false" headPartsOfSpeech="posV" nonHeadPartsOfSpeech="posV"><Name>cmp</Name>
+      <CompoundingSubrules><CompoundingSubrule>
+        <HeadMorphologicalInput><PhoneticSequence id="h"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></HeadMorphologicalInput>
+        <NonHeadMorphologicalInput><PhoneticSequence id="n"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></NonHeadMorphologicalInput>
+        <MorphologicalOutput><CopyFromInput index="h" /><InsertSegments><PhoneticShape>+</PhoneticShape></InsertSegments><CopyFromInput index="n" /></MorphologicalOutput>
+      </CompoundingSubrule></CompoundingSubrules></CompoundingRule>"#;
+    let g = grammar(&[
+        rule("outA", "s", "clsA", ""),
+        rule("inB", "z", "", "clsB"),
+        compound.to_string(),
+    ]);
+    // The pair is still decided between the two affix rules; compounding is only a trail slot that breaks adjacency.
+    assert!(dead(&g, "outA", "inB"));
+    let mut words = all_words(&[], &["s", "z"], &["pat", "kat", "tat"]);
+    for (h, n) in [("pat", "kat"), ("kat", "tat"), ("tat", "pat")] {
+        for h_suffix in ["", "z", "s", "zs"] {
+            for n_suffix in ["", "z", "s", "zs"] {
+                words.push(format!("{h}{h_suffix}{n}{n_suffix}"));
+            }
+        }
+    }
+    let plain = all_words(&[], &["s", "z"], &["pat", "kat", "tat"]).len();
+    let parsed = same(&g, &words);
+    println!(
+        "compounding: parsed {parsed} of {} ({plain} plain)",
+        words.len()
+    );
+    assert!(parsed > 5);
+}
+
+#[test]
+fn a_prefix_and_suffix_in_an_unordered_stratum_fold_the_same_with_the_gate() {
+    let g = grammar(&[
+        rule("outA", "s", "clsA", ""),
+        rule("inB", "z", "", "clsB"),
+        prefix_rule("preB", "m", "", "clsB"),
+        prefix_rule("preA", "n", "clsA", ""),
+    ]);
+    assert!(dead(&g, "outA", "inB"));
+    assert!(dead(&g, "outA", "preB"));
+    let words = all_words(
+        &["m", "n", "mn", "nm"],
+        &["s", "z"],
+        &["pat", "kat", "tat", "dat", "bat"],
+    );
+    assert!(same(&g, &words) > 20);
+}
+
+#[test]
+fn a_realizational_rule_between_the_pair_changes_no_parse() {
+    let realizational = |id: &str, letter: &str, out: &str| {
+        let out = if out.is_empty() {
+            String::new()
+        } else {
+            format!(r#" MPRFeatures="{out}""#)
+        };
+        format!(
+            r#"<RealizationalRule id="{id}"><Name>{id}</Name><MorphologicalSubrules><MorphologicalSubrule id="{id}Sub">
+              <MorphologicalInput><PhoneticSequence id="1"><OptionalSegmentSequence min="1" max="-1"><SimpleContext naturalClass="ncAny" /></OptionalSegmentSequence></PhoneticSequence></MorphologicalInput>
+              <MorphologicalOutput{out}><CopyFromInput index="1" /><InsertSegments><PhoneticShape>+{letter}</PhoneticShape></InsertSegments></MorphologicalOutput>
+            </MorphologicalSubrule></MorphologicalSubrules><MorphemeId>{id}M</MorphemeId></RealizationalRule>"#
+        )
+    };
+    let words = all_words(&[], &["s", "z", "f"], &["pat", "kat", "tat", "dat", "bat"]);
+    // A realizational rule that writes no class leaves the pair decided.
+    let quiet = grammar(&[
+        rule("outA", "s", "clsA", ""),
+        rule("inB", "z", "", "clsB"),
+        realizational("rr", "f", ""),
+    ]);
+    assert!(dead(&quiet, "outA", "inB"));
+    same(&quiet, &words);
+    // One that writes the group makes the group undecidable, so nothing is pruned.
+    let writes = grammar(&[
+        rule("outA", "s", "clsA", ""),
+        rule("inB", "z", "", "clsB"),
+        realizational("rr", "f", "clsA"),
+    ]);
+    assert!(!dead(&writes, "outA", "inB"));
+    same(&writes, &words);
 }

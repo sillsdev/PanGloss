@@ -293,9 +293,9 @@ impl RuleCache {
         self
     }
 
-    /// The dead adjacent affix pairs, or `None` when the gate is off.
+    /// The dead adjacent affix pairs, or `None` when the gate is off or no pair is dead.
     pub(crate) fn mpr_dead_pairs(&self) -> Option<&crate::pair_gate::MprDeadPairs> {
-        self.mpr_pair_gate.then_some(&self.mpr_dead_pairs)
+        (self.mpr_pair_gate && !self.mpr_dead_pairs.is_empty()).then_some(&self.mpr_dead_pairs)
     }
 
     pub(crate) fn edge_prefilter(&self) -> bool {

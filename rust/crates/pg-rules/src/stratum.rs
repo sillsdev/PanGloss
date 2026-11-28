@@ -1066,11 +1066,11 @@ impl<'g, 'f, 'r, 'c, 'b, 't> StratumAnalyzer<'g, 'f, 'r, 'c, 'b, 't> {
         }
         // Synthesis rejects this pair at the outer rule's feature gate for every root (pair_gate.rs).
         if let (Some(cache), MorphRuleDef::AffixProcess(_)) = (self.cache, rule) {
-            if let (Some(dead), Some((Some(outer), _))) =
-                (cache.mpr_dead_pairs(), w.trail.slots_rev().next())
-            {
-                if dead.is_dead(outer, id) {
-                    return Vec::new();
+            if let Some(dead) = cache.mpr_dead_pairs() {
+                if let Some((Some(outer), _)) = w.trail.slots_rev().next() {
+                    if dead.is_dead(outer, id) {
+                        return Vec::new();
+                    }
                 }
             }
         }

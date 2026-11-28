@@ -1,8 +1,8 @@
-//! Adjacent affix rules whose required-feature gate can never pass against what the inner rule leaves behind (issue #584).
+//! Adjacent affix rules whose required-feature gate can never pass against what the inner rule leaves behind.
 //!
 //! Analysis unapplies the outer rule first, so a rule `O` already on a trail is followed in synthesis by the next rule `I` unapplied. Synthesis applies `I`, which writes its allomorph's `out_mpr` through an overwrite group (`mpr_add_output`), and then tests `O`'s required features against that word. For a group `I` always overwrites, the word's members of the group after `I` are exactly the members `I`'s allomorph outputs, whatever the root is. If `O`'s required members in that group cannot be met by anything `I` outputs, `O` fails its gate in every synthesis of every candidate that has `I` directly inside `O`. The pair is dead before any root is known.
 //!
-//! Only the failing direction is proved: a pair is dead when some single group fails for every allomorph of `O`. Anything this cannot decide (an ungrouped feature, a group `I` does not always overwrite, a group a realizational rule also writes, a template rule) leaves the pair alive. The final lookup check (`pg_parse` `lookup_replay`) and synthesis still run on every surviving candidate, so this only removes candidates they would reject.
+//! Only the failing direction is proved: a pair is dead when some single group fails for every allomorph of `O`. Anything this cannot decide (an ungrouped feature, a group `I` does not always overwrite, a group a realizational rule also writes, a template rule) leaves the pair alive. Surviving candidates are still checked in full, so this only removes candidates synthesis would reject.
 
 use pg_grammar_model::model::{
     mpr_required_ok, AffixProcessRuleDef, Grammar, MRuleId, MorphRuleDef, MprGroupOutput, MprSet,
