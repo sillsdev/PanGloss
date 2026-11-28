@@ -3808,10 +3808,10 @@ fn ana_allomorph_matches(
     {
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
-    // Register-free acceptance pass first, one work step per arc check: a rejection proves the traversal would find nothing, so it is skipped.
-    let (accepts, arc_checks) = transduce.may_accept();
+    // Register-free acceptance pass first, charged by its own work count: a rejection proves the traversal would find nothing, so it is skipped.
+    let (accepts, pass_work) = transduce.may_accept();
     let mut paid = true;
-    for _ in 0..arc_checks {
+    for _ in 0..pass_work {
         if !pg_fst::work::consume() {
             paid = false;
             break;

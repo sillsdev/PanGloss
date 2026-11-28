@@ -39,10 +39,10 @@ fn req(word: &[u64]) -> Vec<(u64, bool)> {
 #[test]
 fn a_word_the_pattern_cannot_match_is_rejected() {
     let fst = compile(vec![k(A), k(B)], true);
-    let (accepts, arc_checks) = t(&fst, &req(&[A, C]), true, true).may_accept();
+    let (accepts, work) = t(&fst, &req(&[A, C]), true, true).may_accept();
     assert!(!accepts);
     assert!(
-        arc_checks > 0,
+        work > 0,
         "the pass reports the arcs it checked so the caller can charge them"
     );
     assert!(!t(&fst, &req(&[B, A]), true, true).may_accept().0);
@@ -212,4 +212,30 @@ fn a_right_to_left_traversal_accepts_what_it_matches_and_rejects_what_it_cannot(
         !transduce.all_matches().is_empty()
     );
     assert!(!t(&fst, &req(&[A, C]), true, true).may_accept().0);
+}
+
+#[test]
+fn an_automaton_of_more_than_64_states_is_not_tested_and_costs_nothing() {
+    let fst = compile(vec![k(A); 70], true);
+    assert!(fst.state_count() > 64);
+    let (accepts, work) = t(&fst, &req(&[B]), true, true).may_accept();
+    assert!(accepts, "an untested automaton must answer true");
+    assert_eq!(work, 0);
+}
+
+#[test]
+fn a_constraint_shared_by_live_states_is_charged_once_per_position() {
+    let fst = compile(
+        vec![CompileNode::Alternation(vec![
+            vec![k(A), k(A)],
+            vec![k(A), k(B)],
+        ])],
+        false,
+    );
+    let (accepts, work) = t(&fst, &req(&[A, B]), true, true).may_accept();
+    assert!(accepts);
+    assert_eq!(
+        work, 3,
+        "A at the first position, then A and B at the second, each once"
+    );
 }
