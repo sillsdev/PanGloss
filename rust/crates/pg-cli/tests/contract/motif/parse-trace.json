@@ -1,0 +1,937 @@
+{
+  "description": "parse with --trace-details (trace-details v5) and with --trace-rejections (diagnostic.v1).",
+  "scenario": "parse-trace",
+  "steps": [
+    {
+      "argv": [
+        "parse",
+        "{scratch}/kat-snapshot.json",
+        "kad",
+        "--trace",
+        "--trace-format",
+        "json",
+        "--trace-details",
+        "--work-cap",
+        "20000000"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "categories": {
+            "guesser": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "lexEntry": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "morphRule": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "overlay": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "phases": {
+                "gate": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                },
+                "materialize": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                },
+                "search": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                }
+              },
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "parser": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "workStepsByPhase": {
+                "candidate_expansion": "integer",
+                "stratum_transition": "integer",
+                "surface_match": "integer"
+              },
+              "work_steps": "integer"
+            },
+            "phonRule": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "rootIndex": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "unattributed": {
+              "work_steps": "integer"
+            }
+          },
+          "hostCapture": "null",
+          "provenance": {
+            "grammar": {
+              "grammarHash": "string",
+              "grammarHashSemantics": "string",
+              "name": "string",
+              "sourceKind": "string"
+            },
+            "parser": {
+              "name": "string",
+              "traceProfile": "string",
+              "version": "string"
+            },
+            "project": "string",
+            "writingSystems": {
+              "analysis": [
+                "string"
+              ],
+              "vernacular": [
+                "string"
+              ]
+            }
+          },
+          "result": {
+            "analyses": [
+              {
+                "analysisId": "string",
+                "index": "integer",
+                "morphemes": "string",
+                "morphs": [
+                  {
+                    "features": {
+                      "source": {
+                        "values": [
+                          {
+                            "feature": "string",
+                            "value": {
+                              "kind": "string",
+                              "value": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "status": "string"
+                    },
+                    "form": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "gloss": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "guessedString": "null",
+                    "headword": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "identity": {
+                      "entryId": "string",
+                      "formId": "string",
+                      "inflTypeId": "null",
+                      "msaId": "string",
+                      "quality": "string"
+                    },
+                    "inflectionClass": "null",
+                    "msa": {
+                      "attachesTo": {
+                        "partOfSpeechIds": [],
+                        "slotIds": []
+                      },
+                      "category": {
+                        "abbreviation": "string",
+                        "id": "string",
+                        "name": "string"
+                      },
+                      "features": {
+                        "source": {
+                          "values": [
+                            {
+                              "feature": "string",
+                              "value": {
+                                "kind": "string",
+                                "value": "string"
+                              }
+                            }
+                          ]
+                        },
+                        "status": "string"
+                      },
+                      "id": "string",
+                      "inflectionClass": "null",
+                      "kind": "string",
+                      "slot": "null",
+                      "slots": []
+                    },
+                    "slot": "null"
+                  }
+                ],
+                "projection": {
+                  "error": "null",
+                  "profile": "string",
+                  "status": "string"
+                },
+                "surface": "string"
+              }
+            ],
+            "guessed": "boolean",
+            "signature": "string"
+          },
+          "schemaVersion": "string",
+          "search": {
+            "capped": "boolean",
+            "completed": "boolean",
+            "elapsedNs": "integer",
+            "invalidShape": "boolean",
+            "timedNs": "integer",
+            "timedOut": "boolean",
+            "timingOverrunNs": "integer",
+            "unattributedNs": "integer",
+            "workSteps": "integer"
+          },
+          "trace": {
+            "attemptedMorphs": [],
+            "children": [
+              {
+                "attemptedMorphs": [
+                  {
+                    "features": {
+                      "source": {
+                        "values": [
+                          {
+                            "feature": "string",
+                            "value": {
+                              "kind": "string",
+                              "value": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "status": "string"
+                    },
+                    "form": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "gloss": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "guessedString": "null",
+                    "headword": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "identity": {
+                      "allomorphId": "integer",
+                      "entryId": "string",
+                      "formId": "string",
+                      "inflTypeId": "null",
+                      "morphemeId": "integer",
+                      "msaId": "string",
+                      "quality": "string",
+                      "sourceFormIds": [
+                        "string"
+                      ]
+                    },
+                    "inflectionClass": "null",
+                    "msa": {
+                      "attachesTo": {
+                        "partOfSpeechIds": [],
+                        "slotIds": []
+                      },
+                      "category": {
+                        "abbreviation": "string",
+                        "id": "string",
+                        "name": "string"
+                      },
+                      "features": {
+                        "source": {
+                          "values": [
+                            {
+                              "feature": "string",
+                              "value": {
+                                "kind": "string",
+                                "value": "string"
+                              }
+                            }
+                          ]
+                        },
+                        "status": "string"
+                      },
+                      "id": "string",
+                      "inflectionClass": "null",
+                      "kind": "string",
+                      "slot": "null",
+                      "slots": []
+                    },
+                    "order": "integer",
+                    "runtime": "null",
+                    "slot": "null",
+                    "status": "string"
+                  }
+                ],
+                "children": [],
+                "failureContext": "mixed|null",
+                "failureReason": "string",
+                "inputShape": "string",
+                "lookupResult": {
+                  "completed": "boolean",
+                  "matchCount": "integer",
+                  "mode": "string",
+                  "status": "string"
+                },
+                "outcome": {
+                  "eventType": "string",
+                  "status": "string"
+                },
+                "outputShape": "string",
+                "source": "string",
+                "sourceIdentity": "mixed",
+                "stepId": "string",
+                "subrule": "integer",
+                "type": "CompoundingRuleAnalysis|LexicalLookup|PhonologicalRuleAnalysis|PhonologicalRuleSynthesis|StratumAnalysisInput|StratumAnalysisOutput|StratumSynthesisInput|StratumSynthesisOutput|Successful|TemplateAnalysisInput|TemplateAnalysisOutput"
+              }
+            ],
+            "failureContext": "null",
+            "inputShape": "string",
+            "outcome": {
+              "eventType": "string",
+              "status": "string"
+            },
+            "sourceIdentity": "null",
+            "stepId": "string",
+            "type": "WordAnalysis"
+          },
+          "word": "string"
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Trace.AddArguments",
+      "name": "trace-details-accepted-word",
+      "stdout": "json"
+    },
+    {
+      "argv": [
+        "parse",
+        "{scratch}/kat-snapshot.json",
+        "kat",
+        "--trace",
+        "--trace-format",
+        "json",
+        "--trace-details"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "categories": {
+            "guesser": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "lexEntry": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "morphRule": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "overlay": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "phases": {
+                "gate": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                },
+                "materialize": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                },
+                "search": {
+                  "attempts": "integer",
+                  "selfElapsedNs": "integer",
+                  "work": "integer"
+                }
+              },
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "parser": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "workStepsByPhase": {
+                "candidate_expansion": "integer",
+                "stratum_transition": "integer",
+                "surface_match": "integer"
+              },
+              "work_steps": "integer"
+            },
+            "phonRule": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "integer",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "rootIndex": {
+              "analysisSelfElapsedNs": "integer",
+              "attempts": "integer",
+              "noRoot": "integer",
+              "notApplied": "integer",
+              "outputs": "integer",
+              "selfElapsedNs": "integer",
+              "surfaceMismatch": "integer",
+              "synthesisSelfElapsedNs": "null",
+              "timingAvailable": "boolean",
+              "uses": "integer",
+              "work": "integer",
+              "work_steps": "integer"
+            },
+            "unattributed": {
+              "work_steps": "integer"
+            }
+          },
+          "hostCapture": "null",
+          "provenance": {
+            "grammar": {
+              "grammarHash": "string",
+              "grammarHashSemantics": "string",
+              "name": "string",
+              "sourceKind": "string"
+            },
+            "parser": {
+              "name": "string",
+              "traceProfile": "string",
+              "version": "string"
+            },
+            "project": "string",
+            "writingSystems": {
+              "analysis": [
+                "string"
+              ],
+              "vernacular": [
+                "string"
+              ]
+            }
+          },
+          "result": {
+            "analyses": [],
+            "guessed": "boolean",
+            "signature": "string"
+          },
+          "schemaVersion": "string",
+          "search": {
+            "capped": "boolean",
+            "completed": "boolean",
+            "elapsedNs": "integer",
+            "invalidShape": "boolean",
+            "timedNs": "integer",
+            "timedOut": "boolean",
+            "timingOverrunNs": "integer",
+            "unattributedNs": "integer",
+            "workSteps": "integer"
+          },
+          "trace": {
+            "attemptedMorphs": [],
+            "children": [
+              {
+                "attemptedMorphs": [
+                  {
+                    "features": {
+                      "source": {
+                        "values": [
+                          {
+                            "feature": "string",
+                            "value": {
+                              "kind": "string",
+                              "value": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "status": "string"
+                    },
+                    "form": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "gloss": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "guessedString": "null",
+                    "headword": {
+                      "sourceId": "string",
+                      "text": "string",
+                      "writingSystem": "string"
+                    },
+                    "identity": {
+                      "allomorphId": "integer",
+                      "entryId": "string",
+                      "formId": "string",
+                      "inflTypeId": "null",
+                      "morphemeId": "integer",
+                      "msaId": "string",
+                      "quality": "string",
+                      "sourceFormIds": [
+                        "string"
+                      ]
+                    },
+                    "inflectionClass": "null",
+                    "msa": {
+                      "attachesTo": {
+                        "partOfSpeechIds": [],
+                        "slotIds": []
+                      },
+                      "category": {
+                        "abbreviation": "string",
+                        "id": "string",
+                        "name": "string"
+                      },
+                      "features": {
+                        "source": {
+                          "values": [
+                            {
+                              "feature": "string",
+                              "value": {
+                                "kind": "string",
+                                "value": "string"
+                              }
+                            }
+                          ]
+                        },
+                        "status": "string"
+                      },
+                      "id": "string",
+                      "inflectionClass": "null",
+                      "kind": "string",
+                      "slot": "null",
+                      "slots": []
+                    },
+                    "order": "integer",
+                    "runtime": "null",
+                    "slot": "null",
+                    "status": "string"
+                  }
+                ],
+                "children": [],
+                "failureContext": "mixed",
+                "failureReason": "string",
+                "inputShape": "string",
+                "lookupResult": {
+                  "completed": "boolean",
+                  "matchCount": "integer",
+                  "mode": "string",
+                  "status": "string"
+                },
+                "nonUnapplicationReason": {
+                  "status": "string",
+                  "unavailableReason": "string"
+                },
+                "outcome": {
+                  "eventType": "string",
+                  "status": "string"
+                },
+                "outputShape": "string",
+                "source": "string",
+                "sourceIdentity": "mixed",
+                "stepId": "string",
+                "subrule": "integer",
+                "type": "CompoundingRuleAnalysis|Failed|LexicalLookup|PhonologicalRuleAnalysis|PhonologicalRuleSynthesis|StratumAnalysisInput|StratumAnalysisOutput|StratumSynthesisInput|StratumSynthesisOutput|TemplateAnalysisInput|TemplateAnalysisOutput"
+              }
+            ],
+            "failureContext": "null",
+            "inputShape": "string",
+            "outcome": {
+              "eventType": "string",
+              "status": "string"
+            },
+            "sourceIdentity": "null",
+            "stepId": "string",
+            "type": "WordAnalysis"
+          },
+          "word": "string"
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Trace.AddArguments",
+      "name": "trace-details-rejected-word",
+      "stdout": "json"
+    },
+    {
+      "argv": [
+        "parse",
+        "{scratch}/kat-snapshot.json",
+        "kat",
+        "--trace-rejections",
+        "{scratch}/rejections.jsonl",
+        "--trace-max-paths",
+        "8",
+        "--work-cap",
+        "20000000"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "rejections.jsonl": {
+            "event": {
+              "direction": "string",
+              "evaluationOrder": "integer",
+              "eventId": "integer",
+              "kind": "string",
+              "objectRefs": [
+                {
+                  "key": "string",
+                  "kind": "string",
+                  "role": "string"
+                }
+              ],
+              "operands": {
+                "built": "mixed",
+                "clause": "string",
+                "eligibleTemplates": "null",
+                "kind": "string",
+                "materializedCount": "integer",
+                "requested": "null|string",
+                "root": "mixed",
+                "slot": "mixed",
+                "status": "string",
+                "template": {
+                  "key": "string",
+                  "kind": "string"
+                }
+              },
+              "parentPathId": "integer",
+              "pathId": "integer",
+              "reason": "string",
+              "row": "integer",
+              "stage": "string",
+              "type": "event"
+            },
+            "footer": {
+              "capture": {
+                "evidenceBytes": "integer",
+                "omittedEvents": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedInputs": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedOutputs": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedPaths": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "truncatedBy": []
+              },
+              "error": "null",
+              "processedRows": "integer",
+              "searchStatuses": {
+                "complete": "integer",
+                "invalid": "integer",
+                "refused": "integer",
+                "stopped": "integer"
+              },
+              "status": "string",
+              "type": "footer",
+              "unprocessedRows": "integer"
+            },
+            "header": {
+              "captureLimits": {
+                "maxBytes": "integer",
+                "maxDepth": "integer",
+                "maxEvents": "integer",
+                "maxPaths": "integer"
+              },
+              "engine": "string",
+              "grammar": {
+                "hash": "string",
+                "semantics": "string",
+                "sourceKind": "string"
+              },
+              "mode": "string",
+              "operation": "string",
+              "parserBuild": "string",
+              "parserVersion": "string",
+              "schemaVersion": "string",
+              "scope": {
+                "inputSha256": "string",
+                "passId": "null",
+                "requestedRowCount": "integer",
+                "sourceRowCount": "integer",
+                "spellingPolicy": "string",
+                "startRow": "integer",
+                "writingSystem": "string"
+              },
+              "searchOptions": {
+                "alwaysEnforceFinalTemplates": "boolean",
+                "guessRoots": "boolean",
+                "prefilter": "string",
+                "searchCaptureCapBytes": {
+                  "state": "string"
+                },
+                "wordMemoryCapBytes": {
+                  "state": "string",
+                  "value": "integer"
+                },
+                "wordTimeoutMs": {
+                  "state": "string"
+                },
+                "workCap": {
+                  "state": "string",
+                  "value": "integer"
+                }
+              },
+              "type": "header"
+            },
+            "input": {
+              "input": {
+                "kind": "string",
+                "spelling": "string"
+              },
+              "requestId": "null",
+              "row": "integer",
+              "type": "input"
+            },
+            "mapping": {
+              "object": {
+                "address": {
+                  "compiledSlotIndex": "integer",
+                  "templateKey": "string"
+                },
+                "bindingStatus": "string",
+                "key": "string",
+                "kind": "string",
+                "quality": "string",
+                "sources": [
+                  {
+                    "guid": "string",
+                    "kind": "string",
+                    "ordinal": "integer",
+                    "relation": "string"
+                  }
+                ]
+              },
+              "row": "integer",
+              "type": "mapping"
+            },
+            "path": {
+              "depth": "integer",
+              "firstRejectEventId": "integer|null",
+              "mergeStatus": "string",
+              "mergedIntoPathId": "null",
+              "outcome": "string",
+              "outputId": "null",
+              "outputStatus": "string",
+              "parentPathId": "integer|null",
+              "parentStatus": "string",
+              "pathId": "integer",
+              "row": "integer",
+              "target": {
+                "boundOccurrences": [],
+                "incompatibleOccurrences": [],
+                "relation": "string"
+              },
+              "type": "path"
+            },
+            "word_end": {
+              "capture": {
+                "coverage": "string",
+                "omittedEvents": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedInputs": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedOutputs": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "omittedPaths": {
+                  "accuracy": "string",
+                  "value": "integer"
+                },
+                "truncatedBy": []
+              },
+              "requestId": "null",
+              "row": "integer",
+              "search": {
+                "error": "null",
+                "outputCensus": "string",
+                "outputCount": "integer",
+                "status": "string",
+                "stopReasons": [],
+                "workUnits": "integer"
+              },
+              "target": {
+                "coverage": "string",
+                "error": "null",
+                "limitations": [],
+                "membership": "string",
+                "status": "string"
+              },
+              "type": "word_end"
+            }
+          }
+        }
+      },
+      "files": {
+        "rejections.jsonl": "jsonl"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs RejectionTrace.AddArguments",
+      "name": "rejection-trace"
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "description": "why-not with --expect-json, a guid-only choice.",
+  "scenario": "why-not",
+  "steps": [
+    {
+      "argv": [
+        "why-not",
+        "{scratch}/kat-snapshot.json",
+        "kad",
+        "--expect-json",
+        "{scratch}/expect.json",
+        "--json",
+        "--work-cap",
+        "5000000000",
+        "--word-timeout-ms",
+        "30000"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "best": "integer",
+          "results": [
+            {
+              "analysis": {
+                "analysis": {
+                  "category": "string",
+                  "guessed": "boolean",
+                  "morphs": [
+                    {
+                      "allomorph": "string",
+                      "form_guid": "string",
+                      "guid": {
+                        "entry_guid": "string",
+                        "msa_guid": "string"
+                      },
+                      "morpheme": "string"
+                    }
+                  ],
+                  "root_index": "integer"
+                },
+                "used": [
+                  {
+                    "allomorph": "string",
+                    "form_guid": "string",
+                    "guid": {
+                      "entry_guid": "string",
+                      "msa_guid": "string"
+                    },
+                    "morpheme": "string"
+                  }
+                ]
+              },
+              "expect": [
+                [
+                  {
+                    "guid": {
+                      "entry_guid": "string",
+                      "msa_guid": "string"
+                    },
+                    "morpheme": "string"
+                  }
+                ]
+              ],
+              "failure": "null",
+              "result": "string",
+              "stop": "null"
+            }
+          ],
+          "schema": "pangloss.whynot.v1",
+          "word": "string"
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs WhyNot.AddArguments and WhyNotInput.ToJson in WhyNotCandidate.cs",
+      "name": "why-not-guid-choice",
+      "stdout": "json",
+      "writeFiles": {
+        "expect.json": "[[[{\"guid\":{\"entry_guid\":\"00000000-0000-0000-0000-000000000030\",\"msa_guid\":\"00000000-0000-0000-0000-000000000032\"}}]]]"
+      }
+    }
+  ]
+}

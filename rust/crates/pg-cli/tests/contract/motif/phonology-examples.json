@@ -1,0 +1,100 @@
+{
+  "description": "phonology-examples: the HC-established synthesis of the root kat is kad.",
+  "scenario": "phonology-examples",
+  "steps": [
+    {
+      "argv": [
+        "phonology-examples",
+        "{scratch}/kat-snapshot.json",
+        "{scratch}/request.json",
+        "{scratch}/result.json"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "result.json": {
+            "build": "string",
+            "completionCounts": {
+              "complete": "integer",
+              "incomplete": "integer",
+              "notStarted": "integer"
+            },
+            "counts": {
+              "agree": "integer",
+              "disagree": "integer",
+              "total": "integer",
+              "unavailable": "integer"
+            },
+            "grammarDependencies": [],
+            "grammarSha256": "string",
+            "limits": {
+              "scope": "string",
+              "timeAllocation": "string",
+              "timeoutMs": "integer",
+              "workAllocation": "string",
+              "workCap": "integer"
+            },
+            "measuredEntryCount": "integer",
+            "requestFileSha256": "string",
+            "requestSha256": "string",
+            "rows": [
+              {
+                "appliedRuleIds": [
+                  "string"
+                ],
+                "capped": "boolean",
+                "completion": "string",
+                "disposition": "string",
+                "effectiveLimits": {
+                  "timeoutMs": "integer",
+                  "workCap": "integer"
+                },
+                "expected": [
+                  "string"
+                ],
+                "expectedObserved": [
+                  "boolean"
+                ],
+                "id": "string",
+                "observed": "string",
+                "orderedRuleIds": [
+                  "string"
+                ],
+                "reason": "null",
+                "requestedContext": {
+                  "entryGuid": "string",
+                  "kind": "string",
+                  "msaClass": "string",
+                  "msaGuid": "string"
+                },
+                "resolvedContext": {
+                  "entryGuid": "string",
+                  "kind": "string",
+                  "msaClass": "string",
+                  "msaGuid": "string"
+                },
+                "timedOut": "boolean",
+                "underlying": "string",
+                "visitedRuleIds": [
+                  "string"
+                ],
+                "workSteps": "integer"
+              }
+            ],
+            "version": 2
+          }
+        }
+      },
+      "files": {
+        "result.json": "json"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs PhonologyExamples.AddArguments and PhonologyInvocationInputs.cs",
+      "name": "phonology-examples",
+      "writeFiles": {
+        "request.json": "{\"version\":2,\"limits\":{\"workCap\":5000000,\"timeoutMs\":10000},\"examples\":[{\"id\":\"e1\",\"context\":{\"kind\":\"fwdataEntry\",\"entryGuid\":\"00000000-0000-0000-0000-000000000030\",\"msaGuid\":\"00000000-0000-0000-0000-000000000032\",\"msaClass\":\"MoStemMsa\"},\"underlying\":\"kat\",\"expected\":[\"kad\"]}]}"
+      }
+    }
+  ]
+}

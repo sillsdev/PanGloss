@@ -1,0 +1,896 @@
+{
+  "description": "grammar-health with the snapshot and facts outputs, then facts and import, the Snapshot producers.",
+  "scenario": "grammar-health",
+  "steps": [
+    {
+      "argv": [
+        "grammar-health",
+        "{scratch}/kat.fwdata",
+        "--fw-project",
+        "KatProject",
+        "--stored-analyses",
+        "bounded",
+        "--snapshot-out",
+        "{scratch}/health-snapshot.json",
+        "--facts-out",
+        "{scratch}/health-facts.sqlite",
+        "--facts-context",
+        "{scratch}/facts-context.json",
+        "--facts-light"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "expect": {
+        "files": {
+          "health-facts.sqlite": {
+            "nonEmpty": true
+          },
+          "health-snapshot.json": {
+            "nonEmpty": true
+          }
+        },
+        "stdout": {
+          "diagnostics": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "description": "string",
+              "explanation": "string",
+              "fieldworks_places": [
+                {
+                  "field": "string",
+                  "tool": "string"
+                }
+              ],
+              "fst_reason": "null",
+              "group_name": "string",
+              "guidance": "string",
+              "help_body": "string",
+              "help_path": "string",
+              "level": "string",
+              "origin": "string",
+              "scope": "string",
+              "subjects": [
+                {
+                  "field": "null|string",
+                  "fieldworks": {
+                    "guid": "string",
+                    "reason": "string",
+                    "status": "string",
+                    "tool": "string",
+                    "url": "string"
+                  },
+                  "guid": "null|string",
+                  "internal_id": "null",
+                  "kind": "string",
+                  "opens_in": {
+                    "guid": "string",
+                    "tool": "string"
+                  },
+                  "source_class": "null|string",
+                  "status": "string",
+                  "subtitle": "null",
+                  "title": "string"
+                }
+              ],
+              "title": "string"
+            }
+          ],
+          "fieldworks_project": {
+            "name": "string",
+            "source": "string"
+          },
+          "fst_check_error": "null",
+          "fst_checked": "boolean",
+          "locale": "string",
+          "schema_version": 5,
+          "summary": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "count": "integer",
+              "fst_reason": "null",
+              "group_name": "string",
+              "level": "string"
+            }
+          ]
+        }
+      },
+      "files": {
+        "health-facts.sqlite": "exists",
+        "health-snapshot.json": "exists"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs GrammarHealth.AddArguments",
+      "name": "grammar-health-snapshot-facts",
+      "stdout": "json",
+      "writeFiles": {
+        "facts-context.json": "{\"format\":\"pangloss-facts-context\",\"version\":1,\"baselineToken\":{\"id\":\"cli-test\"},\"inputKind\":\"baseline\",\"dryRunDigest\":null}"
+      }
+    },
+    {
+      "argv": [
+        "grammar-health",
+        "{scratch}/kat.fwdata",
+        "--fw-project",
+        "KatProject",
+        "--stored-analyses",
+        "off"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "expect": {
+        "stdout": {
+          "diagnostics": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "description": "string",
+              "explanation": "string",
+              "fieldworks_places": [
+                {
+                  "field": "string",
+                  "tool": "string"
+                }
+              ],
+              "fst_reason": "null",
+              "group_name": "string",
+              "guidance": "string",
+              "help_body": "string",
+              "help_path": "string",
+              "level": "string",
+              "origin": "string",
+              "scope": "string",
+              "subjects": [
+                {
+                  "field": "null|string",
+                  "fieldworks": {
+                    "guid": "string",
+                    "reason": "string",
+                    "status": "string",
+                    "tool": "string",
+                    "url": "string"
+                  },
+                  "guid": "null|string",
+                  "internal_id": "null",
+                  "kind": "string",
+                  "opens_in": {
+                    "guid": "string",
+                    "tool": "string"
+                  },
+                  "source_class": "null|string",
+                  "status": "string",
+                  "subtitle": "null",
+                  "title": "string"
+                }
+              ],
+              "title": "string"
+            }
+          ],
+          "fieldworks_project": {
+            "name": "string",
+            "source": "string"
+          },
+          "fst_check_error": "null",
+          "fst_checked": "boolean",
+          "locale": "string",
+          "schema_version": 5,
+          "summary": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "count": "integer",
+              "fst_reason": "null",
+              "group_name": "string",
+              "level": "string"
+            }
+          ]
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs GrammarHealth.AddArguments",
+      "name": "grammar-health-report-only",
+      "stdout": "json"
+    },
+    {
+      "argv": [
+        "grammar-health",
+        "{scratch}/kat.fwdata",
+        "--fw-project",
+        "KatProject",
+        "--stored-analyses",
+        "all"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "expect": {
+        "stdout": {
+          "diagnostics": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "description": "string",
+              "explanation": "string",
+              "fieldworks_places": [
+                {
+                  "field": "string",
+                  "tool": "string"
+                }
+              ],
+              "fst_reason": "null",
+              "group_name": "string",
+              "guidance": "string",
+              "help_body": "string",
+              "help_path": "string",
+              "level": "string",
+              "origin": "string",
+              "scope": "string",
+              "subjects": [
+                {
+                  "field": "null|string",
+                  "fieldworks": {
+                    "guid": "string",
+                    "reason": "string",
+                    "status": "string",
+                    "tool": "string",
+                    "url": "string"
+                  },
+                  "guid": "null|string",
+                  "internal_id": "null",
+                  "kind": "string",
+                  "opens_in": {
+                    "guid": "string",
+                    "tool": "string"
+                  },
+                  "source_class": "null|string",
+                  "status": "string",
+                  "subtitle": "null",
+                  "title": "string"
+                }
+              ],
+              "title": "string"
+            }
+          ],
+          "fieldworks_project": {
+            "name": "string",
+            "source": "string"
+          },
+          "fst_check_error": "null",
+          "fst_checked": "boolean",
+          "locale": "string",
+          "schema_version": 5,
+          "summary": [
+            {
+              "blocks_fst": "boolean",
+              "code": "string",
+              "count": "integer",
+              "fst_reason": "null",
+              "group_name": "string",
+              "level": "string"
+            }
+          ]
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs GrammarHealth.AddArguments",
+      "name": "grammar-health-stored-all",
+      "stdout": "json"
+    },
+    {
+      "argv": [
+        "import",
+        "{scratch}/kat.fwdata",
+        "{scratch}/imported.json"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "imported.json": {
+            "conversionProvenance": {
+              "graphToSnapshot": {
+                "authored": [
+                  {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string",
+                      "name": "string",
+                      "owner_guid": "string",
+                      "role": "string",
+                      "target_guid": "string"
+                    },
+                    "kind": "string"
+                  }
+                ],
+                "considered": [
+                  {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string",
+                      "name": "string",
+                      "owner_guid": "string",
+                      "role": "string",
+                      "target_guid": "string"
+                    },
+                    "kind": "string"
+                  }
+                ],
+                "rejected": [
+                  {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string"
+                    },
+                    "kind": "string"
+                  }
+                ],
+                "represented": [
+                  {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string",
+                      "name": "string",
+                      "owner_guid": "string",
+                      "role": "string",
+                      "target_guid": "string"
+                    },
+                    "kind": "string"
+                  }
+                ],
+                "selected": [
+                  {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string",
+                      "name": "string",
+                      "owner_guid": "string",
+                      "role": "string",
+                      "target_guid": "string"
+                    },
+                    "kind": "string"
+                  }
+                ],
+                "synthesized": []
+              },
+              "importIssues": [
+                {
+                  "class": "string",
+                  "code": "string",
+                  "fatal": "boolean",
+                  "message": "string",
+                  "source": {
+                    "id": "string",
+                    "kind": "string"
+                  }
+                }
+              ],
+              "importLoadDecisions": [
+                {
+                  "contextKey": "string",
+                  "decisionOrdinal": "integer",
+                  "disposition": "string",
+                  "effectiveValueJson": "null",
+                  "issueCode": "null|string",
+                  "loaded": "boolean",
+                  "pipelineStage": "string",
+                  "reasonCode": {
+                    "code": "string",
+                    "kind": "string"
+                  },
+                  "subject": {
+                    "identity": {
+                      "guid": "string",
+                      "kind": "string",
+                      "name": "string",
+                      "owner_guid": "string",
+                      "role": "string",
+                      "target_guid": "string"
+                    },
+                    "kind": "string"
+                  }
+                }
+              ],
+              "schemaVersion": 2,
+              "sourceCensus": {
+                "classOccurrences": {
+                  "CmPossibility": "integer",
+                  "CmPossibilityList": "integer",
+                  "FsClosedFeature": "integer",
+                  "FsClosedValue": "integer",
+                  "FsFeatStruc": "integer",
+                  "FsFeatureSystem": "integer",
+                  "FsSymFeatVal": "integer",
+                  "LangProject": "integer",
+                  "LexDb": "integer",
+                  "LexEntry": "integer",
+                  "LexSense": "integer",
+                  "MoAffixAllomorph": "integer",
+                  "MoInflAffMsa": "integer",
+                  "MoInflAffixSlot": "integer",
+                  "MoInflAffixTemplate": "integer",
+                  "MoMorphData": "integer",
+                  "MoStemAllomorph": "integer",
+                  "MoStemMsa": "integer",
+                  "PartOfSpeech": "integer",
+                  "PhBdryMarker": "integer",
+                  "PhCode": "integer",
+                  "PhEnvironment": "integer",
+                  "PhNCSegments": "integer",
+                  "PhPhonData": "integer",
+                  "PhPhoneme": "integer",
+                  "PhPhonemeSet": "integer",
+                  "PhRegularRule": "integer",
+                  "PhSegRuleRHS": "integer",
+                  "PhSimpleContextNC": "integer",
+                  "PhSimpleContextSeg": "integer"
+                },
+                "orderedHeaderSha256": "string",
+                "totalOccurrences": "integer",
+                "unhandledClassOccurrences": {}
+              },
+              "sourceInventoryStatus": "string",
+              "sourceObjects": [
+                {
+                  "canonicalGuid": "string",
+                  "className": "string",
+                  "duplicate": "boolean",
+                  "handled": "boolean",
+                  "inventoryKind": "null|string",
+                  "ordinal": "integer",
+                  "rawGuid": "string",
+                  "retained": "boolean"
+                }
+              ]
+            },
+            "featureSystems": {
+              "morphosyntactic": {
+                "closedFeatures": [
+                  {
+                    "abbreviation": "string",
+                    "guid": "string",
+                    "name": "string",
+                    "values": [
+                      {
+                        "abbreviation": "string",
+                        "guid": "string",
+                        "name": "string"
+                      }
+                    ]
+                  }
+                ],
+                "complexFeatures": []
+              },
+              "phonological": {
+                "closedFeatures": [],
+                "complexFeatures": []
+              }
+            },
+            "format": "string",
+            "lexicon": {
+              "entries": [
+                {
+                  "allomorphs": [
+                    {
+                      "environments": [
+                        "string"
+                      ],
+                      "forms": [
+                        {
+                          "form": "string",
+                          "ws": "string"
+                        }
+                      ],
+                      "guid": "string",
+                      "isAbstract": "boolean",
+                      "morphType": "string"
+                    }
+                  ],
+                  "citationForm": [
+                    {
+                      "form": "string",
+                      "ws": "string"
+                    }
+                  ],
+                  "guid": "string",
+                  "lexemeMorphType": "string",
+                  "msas": [
+                    {
+                      "features": {
+                        "values": [
+                          {
+                            "feature": "string",
+                            "value": {
+                              "kind": "string",
+                              "value": "string"
+                            }
+                          }
+                        ]
+                      },
+                      "guid": "string",
+                      "kind": "string",
+                      "part_of_speech": "string",
+                      "slots": [
+                        "string"
+                      ]
+                    }
+                  ],
+                  "senses": [
+                    {
+                      "gloss": [
+                        {
+                          "form": "string",
+                          "ws": "string"
+                        }
+                      ],
+                      "guid": "string",
+                      "msa": "string"
+                    }
+                  ]
+                }
+              ],
+              "msaEquality": []
+            },
+            "morphology": {
+              "adhocProhibitionGroups": [],
+              "adhocProhibitions": [],
+              "compoundRules": [],
+              "exceptionFeatures": [
+                {
+                  "abbreviation": "string",
+                  "guid": "string",
+                  "name": "string"
+                }
+              ],
+              "lexEntryInflTypes": [],
+              "parserParameters": {
+                "acceptUnspecifiedGraphemes": "boolean",
+                "activeParser": "string",
+                "noDefaultCompounding": "boolean",
+                "notOnClitics": "boolean",
+                "strata": "string",
+                "xample": {
+                  "maxAnalysesToReturn": "integer",
+                  "maxNulls": "integer",
+                  "maxPrefixes": "integer"
+                }
+              },
+              "partsOfSpeech": [
+                {
+                  "abbreviation": "string",
+                  "affixSlots": [
+                    {
+                      "guid": "string",
+                      "name": "string",
+                      "optional": "boolean"
+                    }
+                  ],
+                  "affixTemplates": [
+                    {
+                      "disabled": "boolean",
+                      "guid": "string",
+                      "isFinal": "boolean",
+                      "name": "string",
+                      "suffixSlots": [
+                        "string"
+                      ]
+                    }
+                  ],
+                  "guid": "string",
+                  "name": "string"
+                }
+              ]
+            },
+            "phonology": {
+              "boundaryMarkers": [
+                {
+                  "guid": "string",
+                  "name": "string",
+                  "representations": [
+                    {
+                      "form": "string",
+                      "ws": "string"
+                    }
+                  ]
+                }
+              ],
+              "environments": [
+                {
+                  "guid": "string",
+                  "name": "string",
+                  "representation": "string"
+                }
+              ],
+              "featureConstraints": [],
+              "naturalClasses": [
+                {
+                  "display_name": "string",
+                  "guid": "string",
+                  "kind": "string",
+                  "name": "string",
+                  "phonemes": [
+                    "string"
+                  ]
+                }
+              ],
+              "phonemeSet": "string",
+              "phonemes": [
+                {
+                  "basicIpaSymbol": "null",
+                  "features": "null",
+                  "guid": "string",
+                  "name": "string",
+                  "representations": [
+                    {
+                      "form": "string",
+                      "ws": "string"
+                    }
+                  ]
+                }
+              ],
+              "rules": [
+                {
+                  "direction": "string",
+                  "guid": "string",
+                  "kind": "string",
+                  "name": "string",
+                  "rightHandSides": [
+                    {
+                      "leftContext": {
+                        "kind": "string",
+                        "natural_class": "string"
+                      },
+                      "structuralChange": [
+                        {
+                          "kind": "string",
+                          "phoneme": "string"
+                        }
+                      ]
+                    }
+                  ],
+                  "structuralDescription": [
+                    {
+                      "kind": "string",
+                      "phoneme": "string"
+                    }
+                  ]
+                }
+              ]
+            },
+            "project": {
+              "analysisWritingSystems": [
+                "string"
+              ],
+              "name": "string",
+              "vernacularWritingSystems": [
+                "string"
+              ]
+            },
+            "version": 1
+          }
+        }
+      },
+      "files": {
+        "imported.json": "json"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Import.AddArguments",
+      "name": "import"
+    },
+    {
+      "argv": [
+        "facts",
+        "{scratch}/kat-snapshot.json",
+        "--out",
+        "{scratch}/facts.sqlite",
+        "--context",
+        "{scratch}/facts-context.json",
+        "--light",
+        "--json"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "expect": {
+        "files": {
+          "facts.sqlite": {
+            "nonEmpty": true
+          }
+        },
+        "stdout": {
+          "applicationId": "integer",
+          "baselineKey": "string",
+          "compileStatus": "string",
+          "dryRunDigest": "null",
+          "format": "string",
+          "grammarHash": "string",
+          "inputKind": "string",
+          "modelFingerprint": "string",
+          "outputBytes": "integer",
+          "outputSha256": "string",
+          "schemaVersion": 9,
+          "sections": [
+            {
+              "reasonCode": "null|string",
+              "section": "string",
+              "sourceScope": "string",
+              "status": "string"
+            }
+          ],
+          "sourceSha256": "string"
+        }
+      },
+      "files": {
+        "facts.sqlite": "exists"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Facts.AddArguments",
+      "name": "facts",
+      "stdout": "json",
+      "writeFiles": {
+        "facts-context.json": "{\"format\":\"pangloss-facts-context\",\"version\":1,\"baselineToken\":{\"id\":\"cli-test\"},\"inputKind\":\"baseline\",\"dryRunDigest\":null}"
+      }
+    },
+    {
+      "argv": [
+        "batch",
+        "{scratch}/kat-snapshot.json",
+        "{scratch}/words.txt",
+        "{scratch}/facts-out.tsv",
+        "--word-timeout-ms",
+        "10000",
+        "--work-cap",
+        "20000000",
+        "--threads",
+        "1",
+        "--stats",
+        "--cache",
+        "{scratch}/stats.sqlite",
+        "--stats-manifest",
+        "{scratch}/stats-manifest.json"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "files": {
+          "facts-out.tsv": {
+            "tsv": "0\tkat\tSTARTED\n0\tkat\t<ms>\tok\t-\n1\tkad\tSTARTED\n1\tkad\t<ms>\tok\t|kad\n2\tkak\tSTARTED\n2\tkak\t<ms>\tok\t-"
+          },
+          "stats-manifest.json": {
+            "batch": {
+              "always_enforce_final_templates": "boolean",
+              "analyses_requested": "boolean",
+              "engine": "string",
+              "guess": "boolean",
+              "search_budget_semantics": "integer",
+              "start": "integer",
+              "threads": "integer",
+              "word_mem_cap": "integer",
+              "word_timeout_ms": "integer",
+              "work_cap": "string"
+            },
+            "cache": {
+              "bytes": "integer",
+              "counter_semantics_version": 8,
+              "schema_version": 13,
+              "sha256": "string"
+            },
+            "compiler": {
+              "build_identity": "string",
+              "version": "string"
+            },
+            "completion": {
+              "complete": "integer",
+              "incomplete": "integer",
+              "invalid_shape": "integer",
+              "missing": "integer",
+              "requested": "integer",
+              "words": [
+                {
+                  "capped": "boolean",
+                  "form": "string",
+                  "index": "integer",
+                  "invalid_shape": "boolean",
+                  "status": "string",
+                  "timed_out": "boolean"
+                }
+              ]
+            },
+            "format": "string",
+            "input": {
+              "word_count": "integer",
+              "word_list_sha256": "string",
+              "words": [
+                "string"
+              ]
+            },
+            "run": {
+              "engine": "string",
+              "grammar_hash": "string",
+              "id": "integer",
+              "options_hash": "string",
+              "options_json": "string"
+            },
+            "source": {
+              "compile_options_json": "string",
+              "grammar_hash": "string",
+              "kind": "string",
+              "model_fingerprint": "string",
+              "source_sha256": "string"
+            },
+            "version": 2
+          }
+        }
+      },
+      "files": {
+        "facts-out.tsv": "tsv",
+        "stats-manifest.json": "json"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Batch.AddArguments (produces the stats cache facts --stats reads)",
+      "name": "batch-stats-for-facts",
+      "writeFiles": {
+        "words.txt": "kat\nkad\nkak\n"
+      }
+    },
+    {
+      "argv": [
+        "facts",
+        "{scratch}/kat-snapshot.json",
+        "--out",
+        "{scratch}/facts-stats.sqlite",
+        "--context",
+        "{scratch}/facts-context.json",
+        "--stats",
+        "{scratch}/stats.sqlite",
+        "--stats-manifest",
+        "{scratch}/stats-manifest.json",
+        "--json"
+      ],
+      "exits": [
+        0,
+        1
+      ],
+      "expect": {
+        "files": {
+          "facts-stats.sqlite": {
+            "nonEmpty": true
+          }
+        },
+        "stdout": {
+          "applicationId": "integer",
+          "baselineKey": "string",
+          "compileStatus": "string",
+          "dryRunDigest": "null",
+          "format": "string",
+          "grammarHash": "string",
+          "inputKind": "string",
+          "modelFingerprint": "string",
+          "outputBytes": "integer",
+          "outputSha256": "string",
+          "schemaVersion": 9,
+          "sections": [
+            {
+              "reasonCode": "null|string",
+              "section": "string",
+              "sourceScope": "string",
+              "status": "string"
+            }
+          ],
+          "sourceSha256": "string"
+        }
+      },
+      "files": {
+        "facts-stats.sqlite": "exists"
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossRequest.cs Facts.AddArguments (StatsCachePath set)",
+      "name": "facts-stats",
+      "stdout": "json",
+      "writeFiles": {
+        "facts-context.json": "{\"format\":\"pangloss-facts-context\",\"version\":1,\"baselineToken\":{\"id\":\"cli-test\"},\"inputKind\":\"baseline\",\"dryRunDigest\":null}"
+      }
+    }
+  ]
+}

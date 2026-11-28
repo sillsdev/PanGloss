@@ -1,0 +1,529 @@
+{
+  "description": "serve: ready line and one reply per op Motif sends.",
+  "scenario": "serve",
+  "steps": [
+    {
+      "argv": [
+        "serve",
+        "--project",
+        "{scratch}/kat-snapshot.json",
+        "--work-cap",
+        "20000000"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "replies": {
+          "effects": {
+            "allomorphs": [
+              {
+                "allomorphId": "integer",
+                "form": "string",
+                "formPartial": "boolean",
+                "segments": [
+                  "string"
+                ]
+              }
+            ],
+            "complete": "boolean",
+            "effects": [
+              {
+                "allomorphId": "integer",
+                "boundaryMarker": "null",
+                "edge": "string",
+                "environment": "string",
+                "lhs": "string",
+                "matchPattern": "string",
+                "mayApply": "string",
+                "nonLocal": "boolean",
+                "nonLocalReasons": [],
+                "outputMatchPattern": "string",
+                "outputMayBeAltered": "boolean",
+                "outputMayBeAlteredReasons": [],
+                "outputUnprintable": [],
+                "reason": "string",
+                "rhs": "string",
+                "rule": {
+                  "guid": "string",
+                  "id": "string",
+                  "kind": "string",
+                  "name": "string",
+                  "ordinal": "integer",
+                  "status": "string",
+                  "stratum": "string"
+                },
+                "subrule": "integer",
+                "unprintable": []
+              }
+            ],
+            "id": "string",
+            "limits": {
+              "maxWork": "integer",
+              "rootsPerEnvironment": "integer",
+              "wordTimeoutMs": "integer"
+            },
+            "morpheme": {
+              "entryGuid": "string",
+              "msaClass": "string",
+              "msaGuid": "string"
+            },
+            "op": "effects",
+            "partial": "boolean",
+            "stopReason": "null",
+            "type": "result"
+          },
+          "generate": {
+            "complete": "boolean",
+            "id": "string",
+            "limits": {
+              "generationCap": "integer",
+              "maxSeeds": "integer",
+              "maxTraceSteps": "integer"
+            },
+            "op": "generate",
+            "seedChoices": "integer",
+            "seeds": [
+              {
+                "allomorphs": [
+                  {
+                    "allomorphId": "integer|null",
+                    "entryGuid": "string",
+                    "formGuid": "null|string",
+                    "msaGuid": "string",
+                    "role": "string",
+                    "ruleName": "null|string",
+                    "shape": "null|string"
+                  }
+                ],
+                "seedKey": "string",
+                "surfaces": [],
+                "traceTruncated": "boolean"
+              }
+            ],
+            "stopReason": "null",
+            "traceSteps": "integer",
+            "type": "result",
+            "workUnits": "integer"
+          },
+          "parse": {
+            "exitCode": "integer",
+            "guessed": "boolean",
+            "id": "string",
+            "result": "string",
+            "status": "string",
+            "type": "result",
+            "workSteps": "integer"
+          },
+          "parse-trace-details": {
+            "exitCode": "integer",
+            "guessed": "boolean",
+            "id": "string",
+            "result": {
+              "categories": {
+                "guesser": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "null",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "lexEntry": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "integer",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "morphRule": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "integer",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "overlay": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "phases": {
+                    "gate": {
+                      "attempts": "integer",
+                      "selfElapsedNs": "integer",
+                      "work": "integer"
+                    },
+                    "materialize": {
+                      "attempts": "integer",
+                      "selfElapsedNs": "integer",
+                      "work": "integer"
+                    },
+                    "search": {
+                      "attempts": "integer",
+                      "selfElapsedNs": "integer",
+                      "work": "integer"
+                    }
+                  },
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "null",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "parser": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "integer",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "workStepsByPhase": {
+                    "candidate_expansion": "integer",
+                    "stratum_transition": "integer",
+                    "surface_match": "integer"
+                  },
+                  "work_steps": "integer"
+                },
+                "phonRule": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "integer",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "rootIndex": {
+                  "analysisSelfElapsedNs": "integer",
+                  "attempts": "integer",
+                  "noRoot": "integer",
+                  "notApplied": "integer",
+                  "outputs": "integer",
+                  "selfElapsedNs": "integer",
+                  "surfaceMismatch": "integer",
+                  "synthesisSelfElapsedNs": "null",
+                  "timingAvailable": "boolean",
+                  "uses": "integer",
+                  "work": "integer",
+                  "work_steps": "integer"
+                },
+                "unattributed": {
+                  "work_steps": "integer"
+                }
+              },
+              "hostCapture": "null",
+              "provenance": {
+                "grammar": {
+                  "grammarHash": "string",
+                  "grammarHashSemantics": "string",
+                  "name": "string",
+                  "sourceKind": "string"
+                },
+                "parser": {
+                  "name": "string",
+                  "traceProfile": "string",
+                  "version": "string"
+                },
+                "project": "string",
+                "writingSystems": {
+                  "analysis": [
+                    "string"
+                  ],
+                  "vernacular": [
+                    "string"
+                  ]
+                }
+              },
+              "result": {
+                "analyses": [],
+                "guessed": "boolean",
+                "signature": "string"
+              },
+              "schemaVersion": "string",
+              "search": {
+                "capped": "boolean",
+                "completed": "boolean",
+                "elapsedNs": "integer",
+                "invalidShape": "boolean",
+                "timedNs": "integer",
+                "timedOut": "boolean",
+                "timingOverrunNs": "integer",
+                "unattributedNs": "integer",
+                "workSteps": "integer"
+              },
+              "trace": {
+                "attemptedMorphs": [],
+                "children": [
+                  {
+                    "attemptedMorphs": [
+                      {
+                        "features": {
+                          "source": {
+                            "values": [
+                              {
+                                "feature": "string",
+                                "value": {
+                                  "kind": "string",
+                                  "value": "string"
+                                }
+                              }
+                            ]
+                          },
+                          "status": "string"
+                        },
+                        "form": {
+                          "sourceId": "string",
+                          "text": "string",
+                          "writingSystem": "string"
+                        },
+                        "gloss": {
+                          "sourceId": "string",
+                          "text": "string",
+                          "writingSystem": "string"
+                        },
+                        "guessedString": "null",
+                        "headword": {
+                          "sourceId": "string",
+                          "text": "string",
+                          "writingSystem": "string"
+                        },
+                        "identity": {
+                          "allomorphId": "integer",
+                          "entryId": "string",
+                          "formId": "string",
+                          "inflTypeId": "null",
+                          "morphemeId": "integer",
+                          "msaId": "string",
+                          "quality": "string",
+                          "sourceFormIds": [
+                            "string"
+                          ]
+                        },
+                        "inflectionClass": "null",
+                        "msa": {
+                          "attachesTo": {
+                            "partOfSpeechIds": [],
+                            "slotIds": []
+                          },
+                          "category": {
+                            "abbreviation": "string",
+                            "id": "string",
+                            "name": "string"
+                          },
+                          "features": {
+                            "source": {
+                              "values": [
+                                {
+                                  "feature": "string",
+                                  "value": {
+                                    "kind": "string",
+                                    "value": "string"
+                                  }
+                                }
+                              ]
+                            },
+                            "status": "string"
+                          },
+                          "id": "string",
+                          "inflectionClass": "null",
+                          "kind": "string",
+                          "slot": "null",
+                          "slots": []
+                        },
+                        "order": "integer",
+                        "runtime": "null",
+                        "slot": "null",
+                        "status": "string"
+                      }
+                    ],
+                    "children": [],
+                    "failureContext": "mixed",
+                    "failureReason": "string",
+                    "inputShape": "string",
+                    "lookupResult": {
+                      "completed": "boolean",
+                      "matchCount": "integer",
+                      "mode": "string",
+                      "status": "string"
+                    },
+                    "nonUnapplicationReason": {
+                      "status": "string",
+                      "unavailableReason": "string"
+                    },
+                    "outcome": {
+                      "eventType": "string",
+                      "status": "string"
+                    },
+                    "outputShape": "string",
+                    "source": "string",
+                    "sourceIdentity": "mixed",
+                    "stepId": "string",
+                    "subrule": "integer",
+                    "type": "CompoundingRuleAnalysis|Failed|LexicalLookup|PhonologicalRuleAnalysis|PhonologicalRuleSynthesis|StratumAnalysisInput|StratumAnalysisOutput|StratumSynthesisInput|StratumSynthesisOutput|TemplateAnalysisInput|TemplateAnalysisOutput"
+                  }
+                ],
+                "failureContext": "null",
+                "inputShape": "string",
+                "outcome": {
+                  "eventType": "string",
+                  "status": "string"
+                },
+                "sourceIdentity": "null",
+                "stepId": "string",
+                "type": "WordAnalysis"
+              },
+              "word": "string"
+            },
+            "status": "string",
+            "type": "result",
+            "workSteps": "integer"
+          },
+          "ready": {
+            "loadMs": "integer",
+            "protocol": 2,
+            "type": "ready"
+          }
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/WarmPanGlossPool.cs session start, ParseAsync and ServeGenerateRequest/ServeEffectsRequest.ToLine",
+      "name": "serve-grammar-ops",
+      "serveRequests": [
+        {
+          "line": "{\"id\":\"1\",\"op\":\"parse\",\"word\":\"kad\",\"traceDetails\":false}",
+          "name": "parse"
+        },
+        {
+          "line": "{\"id\":\"2\",\"op\":\"parse\",\"word\":\"kat\",\"traceDetails\":true}",
+          "name": "parse-trace-details"
+        },
+        {
+          "line": "{\"id\":\"3\",\"op\":\"generate\",\"request\":{\"schemaVersion\":1,\"root\":{\"entryGuid\":\"00000000-0000-0000-0000-000000000030\",\"msaGuid\":\"00000000-0000-0000-0000-000000000032\",\"msaClass\":\"MoStemMsa\"},\"morphemes\":[{\"entryGuid\":\"00000000-0000-0000-0000-000000000050\",\"msaGuid\":\"00000000-0000-0000-0000-000000000052\",\"msaClass\":\"MoInflAffMsa\"}]},\"trace\":true}",
+          "name": "generate"
+        },
+        {
+          "line": "{\"id\":\"4\",\"op\":\"effects\",\"morpheme\":{\"entryGuid\":\"00000000-0000-0000-0000-000000000050\",\"msaGuid\":\"00000000-0000-0000-0000-000000000052\"},\"edges\":[\"left\",\"right\"]}",
+          "name": "effects"
+        }
+      ]
+    },
+    {
+      "argv": [
+        "serve",
+        "--project",
+        "{scratch}/match-fixture.xml"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "replies": {
+          "inventory": {
+            "classes": [
+              {
+                "fullName": "null",
+                "id": "string",
+                "kind": "string",
+                "name": "string",
+                "token": "null|string"
+              }
+            ],
+            "complete": "boolean",
+            "features": [
+              {
+                "id": "string",
+                "name": "string",
+                "values": [
+                  "string"
+                ]
+              }
+            ],
+            "id": "string",
+            "op": "inventory",
+            "stopReason": "null",
+            "type": "result"
+          },
+          "match": {
+            "complete": "boolean",
+            "id": "string",
+            "op": "match",
+            "stopReason": "null",
+            "type": "result",
+            "words": [
+              {
+                "matches": [
+                  {
+                    "left": [
+                      "integer"
+                    ],
+                    "offsets": [
+                      "integer"
+                    ],
+                    "right": [
+                      "integer"
+                    ],
+                    "segments": [
+                      "integer"
+                    ]
+                  }
+                ],
+                "status": "string",
+                "word": "string"
+              }
+            ]
+          },
+          "ready": {
+            "loadMs": "integer",
+            "protocol": 2,
+            "type": "ready"
+          }
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/ServeMatchRequest.cs ToLine, ServeInventoryRequest.cs ToLine",
+      "name": "serve-match-ops",
+      "serveRequests": [
+        {
+          "line": "{\"id\":\"1\",\"op\":\"inventory\"}",
+          "name": "inventory"
+        },
+        {
+          "line": "{\"id\":\"2\",\"op\":\"match\",\"pattern\":\"[V]\",\"words\":[\"pbtdkgaiunŋ\"],\"segmentTest\":\"identity\"}",
+          "name": "match"
+        }
+      ]
+    }
+  ]
+}

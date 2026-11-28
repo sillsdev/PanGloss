@@ -1,0 +1,1337 @@
+{
+  "description": "The surface probe: `pangloss --describe` read by PanGlossSurface.",
+  "scenario": "describe",
+  "steps": [
+    {
+      "argv": [
+        "--describe"
+      ],
+      "exits": [
+        0
+      ],
+      "expect": {
+        "stdout": {
+          "binary": "pangloss",
+          "commands": [
+            {
+              "flags": [
+                {
+                  "name": "--word-mem-cap-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--profile",
+                  "takes_value": true
+                },
+                {
+                  "name": "--pack",
+                  "takes_value": true
+                },
+                {
+                  "name": "--work-cap",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-timeout-ms",
+                  "takes_value": true
+                },
+                {
+                  "name": "--max-checked-occurrences",
+                  "takes_value": true
+                },
+                {
+                  "name": "--max-alternatives",
+                  "takes_value": true
+                },
+                {
+                  "name": "--all-readings",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "analyze-text",
+              "positionals": [
+                "text-file..."
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--trace-rejections",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-options",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-paths",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-depth",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-events",
+                  "takes_value": true
+                },
+                {
+                  "name": "--engine",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-mem-cap-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--work-cap",
+                  "takes_value": true
+                },
+                {
+                  "name": "--capture-cap-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-timeout-ms",
+                  "takes_value": true
+                },
+                {
+                  "name": "--threads",
+                  "takes_value": true
+                },
+                {
+                  "name": "--start",
+                  "takes_value": true
+                },
+                {
+                  "name": "--analyses",
+                  "takes_value": true
+                },
+                {
+                  "name": "--morph-spans",
+                  "takes_value": false
+                },
+                {
+                  "name": "--retire",
+                  "takes_value": true
+                },
+                {
+                  "name": "--retire-out",
+                  "takes_value": true
+                },
+                {
+                  "name": "--without",
+                  "takes_value": true
+                },
+                {
+                  "name": "--query-fields",
+                  "takes_value": false
+                },
+                {
+                  "name": "--result-cache",
+                  "takes_value": true
+                },
+                {
+                  "name": "--result-cache-max-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--guess",
+                  "takes_value": false
+                },
+                {
+                  "name": "--partials",
+                  "takes_value": true
+                },
+                {
+                  "name": "--work-columns",
+                  "takes_value": false
+                },
+                {
+                  "name": "--cost-column",
+                  "takes_value": false
+                },
+                {
+                  "name": "--no-flush",
+                  "takes_value": false
+                },
+                {
+                  "name": "--phase-marks",
+                  "takes_value": false
+                },
+                {
+                  "name": "--stats",
+                  "takes_value": false
+                },
+                {
+                  "name": "--stats-profile",
+                  "takes_value": true
+                },
+                {
+                  "name": "--cache-pack",
+                  "takes_value": false
+                },
+                {
+                  "name": "--stats-compact",
+                  "takes_value": false
+                },
+                {
+                  "name": "--cache",
+                  "takes_value": true
+                },
+                {
+                  "name": "--stats-manifest",
+                  "takes_value": true
+                },
+                {
+                  "name": "--always-enforce-final-templates",
+                  "takes_value": false
+                },
+                {
+                  "name": "--prefilter",
+                  "takes_value": true
+                }
+              ],
+              "hidden": false,
+              "name": "batch",
+              "positionals": [
+                "grammar",
+                "words.txt",
+                "out.tsv"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--json",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "cost-compare",
+              "positionals": [
+                "before.tsv",
+                "after.tsv"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--json",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "readings-histogram",
+              "positionals": [
+                "batch.tsv"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--request",
+                  "takes_value": true
+                },
+                {
+                  "name": "--requests",
+                  "takes_value": true
+                },
+                {
+                  "name": "--attested",
+                  "takes_value": true
+                }
+              ],
+              "hidden": false,
+              "name": "generate",
+              "positionals": [
+                "grammar",
+                "root-morpheme-id",
+                "other-morpheme-id..."
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--without",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-rejections",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-options",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-paths",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-depth",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-max-events",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-mem-cap-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--work-cap",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-timeout-ms",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-format",
+                  "takes_value": true
+                },
+                {
+                  "name": "--rule-costs",
+                  "takes_value": true
+                },
+                {
+                  "name": "--trace-details",
+                  "takes_value": false
+                },
+                {
+                  "name": "--gloss",
+                  "takes_value": false
+                },
+                {
+                  "name": "--natural-gloss",
+                  "takes_value": true
+                },
+                {
+                  "name": "--realize-map",
+                  "takes_value": true
+                },
+                {
+                  "name": "--guess",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "parse",
+              "positionals": [
+                "grammar",
+                "word"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--expect",
+                  "takes_value": true
+                },
+                {
+                  "name": "--allomorphs",
+                  "takes_value": true
+                },
+                {
+                  "name": "--expect-guid",
+                  "takes_value": true
+                },
+                {
+                  "name": "--expect-json",
+                  "takes_value": true
+                },
+                {
+                  "name": "--json",
+                  "takes_value": false
+                },
+                {
+                  "name": "--work-cap",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-timeout-ms",
+                  "takes_value": true
+                }
+              ],
+              "hidden": false,
+              "name": "why-not",
+              "positionals": [
+                "grammar",
+                "word|queries.jsonl",
+                "output.jsonl?"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--word-mem-cap-mib",
+                  "takes_value": true
+                },
+                {
+                  "name": "--project",
+                  "takes_value": true
+                },
+                {
+                  "name": "--work-cap",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word-timeout-ms",
+                  "takes_value": true
+                },
+                {
+                  "name": "--guess",
+                  "takes_value": false
+                },
+                {
+                  "name": "--timing",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "serve",
+              "positionals": []
+            },
+            {
+              "flags": [],
+              "hidden": false,
+              "name": "import",
+              "positionals": [
+                "project.fwdata",
+                "out.json"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--out",
+                  "takes_value": true
+                },
+                {
+                  "name": "--context",
+                  "takes_value": true
+                },
+                {
+                  "name": "--stats",
+                  "takes_value": true
+                },
+                {
+                  "name": "--stats-manifest",
+                  "takes_value": true
+                },
+                {
+                  "name": "--light",
+                  "takes_value": false
+                },
+                {
+                  "name": "--json",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "facts",
+              "positionals": [
+                "snapshot.json"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--fst",
+                  "takes_value": false
+                },
+                {
+                  "name": "--fw-project",
+                  "takes_value": true
+                },
+                {
+                  "name": "--log-guids",
+                  "takes_value": false
+                },
+                {
+                  "name": "--shadowed",
+                  "takes_value": false
+                },
+                {
+                  "name": "--include-selectable",
+                  "takes_value": false
+                },
+                {
+                  "name": "--stored-analyses",
+                  "takes_value": true
+                },
+                {
+                  "name": "--snapshot-out",
+                  "takes_value": true
+                },
+                {
+                  "name": "--facts-out",
+                  "takes_value": true
+                },
+                {
+                  "name": "--facts-context",
+                  "takes_value": true
+                },
+                {
+                  "name": "--facts-light",
+                  "takes_value": false
+                }
+              ],
+              "hidden": false,
+              "name": "grammar-health",
+              "positionals": [
+                "grammar",
+                "out.json?"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--cache",
+                  "takes_value": true
+                },
+                {
+                  "name": "--out",
+                  "takes_value": true
+                }
+              ],
+              "hidden": false,
+              "name": "stats-cache",
+              "positionals": [
+                "pack|unpack"
+              ]
+            },
+            {
+              "flags": [
+                {
+                  "name": "--stats-profile",
+                  "takes_value": true
+                },
+                {
+                  "name": "--group",
+                  "takes_value": true
+                },
+                {
+                  "name": "--kind",
+                  "takes_value": true
+                },
+                {
+                  "name": "--object",
+                  "takes_value": true
+                },
+                {
+                  "name": "--stratum",
+                  "takes_value": true
+                },
+                {
+                  "name": "--direction",
+                  "takes_value": true
+                },
+                {
+                  "name": "--word",
+                  "takes_value": true
+                },
+                {
+                  "name": "--top",
+                  "takes_value": true
+                },
+                {
+                  "name": "--sort",
+                  "takes_value": true
+                },
+                {
+                  "name": "--exclude-censored",
+                  "takes_value": false
+                },
+                {
+                  "name": "--wide",
+                  "takes_value": false
+                },
+                {
+                  "name": "--by-kind",
+                  "takes_value": false
+                },
+                {
+                  "name": "--format",
+                  "takes_value": true
+                },
+                {
+                  "name": "--cache",
+                  "takes_value": true
+                },
+                {
+                  "name": "--out",
+                  "takes_value": true
+                }
+              ],
+              "hidden": false,
+              "name": "stats",
+              "positionals": [
+                "project-or-grammar"
+              ]
+            },
+            {
+              "flags": [],
+              "hidden": false,
+              "name": "phonology-examples",
+              "positionals": [
+                "grammar",
+                "request.json",
+                "out.json?"
+              ]
+            },
+            {
+              "flags": [],
+              "hidden": false,
+              "name": "describe",
+              "positionals": []
+            }
+          ],
+          "interfaces": {
+            "batchTsv": 5,
+            "diagnostic": {
+              "batchCostColumn": "unavailable_when_tracing",
+              "engine": "hc",
+              "eventTuples": [
+                [
+                  "none",
+                  "reject",
+                  "input",
+                  "invalid_shape",
+                  "shape"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "lookup",
+                  "lookup_completed",
+                  "lookup"
+                ],
+                [
+                  "analysis",
+                  "reject",
+                  "lookup",
+                  "lookup_no_seed",
+                  "lookup"
+                ],
+                [
+                  "analysis",
+                  "reject",
+                  "lookup",
+                  "lookup_features",
+                  "features"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "lookup",
+                  "required_mpr_features",
+                  "features"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "lookup",
+                  "excluded_mpr_features",
+                  "features"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "lookup",
+                  "required_stem_name",
+                  "stem_name"
+                ],
+                [
+                  "analysis",
+                  "reject",
+                  "lookup",
+                  "root_not_viable",
+                  "lookup"
+                ],
+                [
+                  "analysis",
+                  "reject",
+                  "template",
+                  "required_slot_unfilled",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "template",
+                  "required_slot_unfilled",
+                  "template_slot"
+                ],
+                [
+                  "analysis",
+                  "reject",
+                  "template",
+                  "required_slot_uncoverable",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "completion",
+                  "applicable_templates_not_applied",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "completion",
+                  "nonfinal_template_last",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "completion",
+                  "remaining_rules_in_stratum",
+                  "count"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "completion",
+                  "remaining_analyzed_rules",
+                  "count"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "validity",
+                  "bound_root",
+                  "none"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "validity",
+                  "allomorph_blocked",
+                  "none"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "morphology",
+                  "allomorph_blocked",
+                  "none"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "surface",
+                  "surface_mismatch",
+                  "shape"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "template",
+                  "template_ineligible",
+                  "template_slot"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "template",
+                  "optional_slot_skipped",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "template",
+                  "optional_slot_skipped",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "morphology",
+                  "nonpartial_rule_prohibited_after_final_template",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "morphology",
+                  "nonpartial_rule_required_after_nonfinal_template",
+                  "template_slot"
+                ],
+                [
+                  "synthesis",
+                  "reject",
+                  "validity",
+                  "environment",
+                  "environment"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "phonology",
+                  "pattern_no_output",
+                  "shape"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "phonology",
+                  "pattern_no_output",
+                  "shape"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "morphology",
+                  "pattern_no_match",
+                  "shape"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "morphology",
+                  "pattern_no_match",
+                  "shape"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "morphology",
+                  "required_mpr_features",
+                  "features"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "morphology",
+                  "excluded_mpr_features",
+                  "features"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "phonology",
+                  "required_mpr_features",
+                  "features"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "phonology",
+                  "excluded_mpr_features",
+                  "features"
+                ],
+                [
+                  "analysis",
+                  "observe",
+                  "merge",
+                  "equivalent_history",
+                  "merge"
+                ],
+                [
+                  "synthesis",
+                  "observe",
+                  "merge",
+                  "equivalent_history",
+                  "merge"
+                ]
+              ],
+              "limits": {
+                "evidenceAllocation": "equal_rows_first_remainder",
+                "maxBytes": {
+                  "default": 16777216,
+                  "max": 67108864,
+                  "min": 1024
+                },
+                "maxDepth": {
+                  "default": 32,
+                  "max": 256,
+                  "min": 1,
+                  "supported": true
+                },
+                "maxEvents": {
+                  "default": 128,
+                  "max": 4096,
+                  "min": 1
+                },
+                "maxPaths": {
+                  "default": 16,
+                  "max": 64,
+                  "min": 1
+                },
+                "rowControlBytes": 3072,
+                "runControlBytes": 4096,
+                "summaryBytes": 2048
+              },
+              "maxFeaturePathDepth": 8,
+              "modes": [
+                "lineage"
+              ],
+              "operations": [
+                "parse",
+                "batch"
+              ],
+              "options": [
+                "--trace-rejections",
+                "--trace-options",
+                "--trace-max-paths",
+                "--trace-max-depth",
+                "--trace-max-events",
+                "--trace-max-bytes"
+              ],
+              "prefilter": [
+                "off"
+              ],
+              "projections": [
+                "parse_outputs",
+                "authored_morphs",
+                "syntactic_features"
+              ],
+              "schemaVersion": "pangloss.diagnostic.v1",
+              "selectors": [
+                "authored_morphs",
+                "structural_zero",
+                "syntactic_features"
+              ],
+              "unsupportedCombinations": [
+                "legacy_trace",
+                "fst",
+                "prefilter",
+                "stats",
+                "cache",
+                "stats_manifest"
+              ]
+            },
+            "serveOps": {
+              "effects": {
+                "allomorphFields": [
+                  "allomorphId",
+                  "form",
+                  "segments",
+                  "formPartial"
+                ],
+                "contract": "conservative: a rule is never claimed unable to change a form without proof; unproven is unknown with a reason. notOnForm (reason no_lhs_match) means the rule's target has no match on the allomorph's own form, including across its morpheme edges, and nothing earlier can change the form: no earlier rule in application order is anything but notOnForm on it (else may_be_fed), and no affix modifies stem material. It is not 'cannot change': bleeding is not considered",
+                "edges": [
+                  "left",
+                  "right"
+                ],
+                "effectFields": [
+                  "rule",
+                  "subrule",
+                  "allomorphId",
+                  "edge",
+                  "mayApply",
+                  "reason",
+                  "lhsSpans",
+                  "lhs",
+                  "environment",
+                  "matchPattern",
+                  "rhs",
+                  "boundaryMarker",
+                  "unprintable",
+                  "nonLocal",
+                  "nonLocalReasons",
+                  "outputMatchPattern",
+                  "outputUnprintable",
+                  "outputMayBeAltered",
+                  "outputMayBeAlteredReasons"
+                ],
+                "errors": [
+                  "bad_request",
+                  "form_not_segmentable",
+                  "unknown_morpheme",
+                  "ambiguous_identity",
+                  "authored_identity_unavailable",
+                  "internal"
+                ],
+                "limits": {
+                  "defaultMaxWork": 50000000,
+                  "defaultRootsPerEnvironment": 3,
+                  "defaultWordTimeoutMs": 10000,
+                  "maxWordTimeoutMs": 600000,
+                  "rootsPerEnvironmentMax": 50
+                },
+                "listedRuleReasons": "the loader's own text for a rule that is not compiled or disabled",
+                "mayApply": [
+                  "unknown",
+                  "notOnForm"
+                ],
+                "nonLocalCriteria": [
+                  "unboundedQuantifier",
+                  "alphaAgreement",
+                  "iterativeSpreading",
+                  "iterativeLengthChange"
+                ],
+                "outputAlteredReasons": [
+                  "nonLocal",
+                  "laterRewrite",
+                  "laterInsertion",
+                  "wordEdgeLaterStratum",
+                  "selfInteraction",
+                  "laterMorphology"
+                ],
+                "outputMatchPattern": "where the rule's output sits immediately after this rule applies: the environment with the target replaced by what the rule writes (lhs unified with rhs as the engine does), as match text; hand it to match with boundaryMarker when set. Null with an outputUnprintable entry (part outputMatchPattern, typed reason) when it cannot be exact; never approximate. Later rules can change those segments or their environment: outputMayBeAltered is true when the rule is nonLocal a later rule in the same or a later stratum could rewrite a segment the pattern covers, the rule's own output can satisfy its own environment at another site (selfInteraction), or a later stratum has a morphological rule that is not a plain prefix or suffix (laterMorphology); all conservative, with outputMayBeAlteredReasons [{reason, rule}]; null when there is no pattern",
+                "reasons": [
+                  "environment_unchecked",
+                  "lhs_may_straddle_edge",
+                  "empty_lhs_epenthesis",
+                  "lhs_not_modelable",
+                  "lhs_boundary",
+                  "underspecified_segments",
+                  "stratum_precedes_morpheme",
+                  "lhs_match_budget",
+                  "form_not_segmentable_in_stratum",
+                  "form_partly_unmodelled",
+                  "may_be_fed",
+                  "no_lhs_match"
+                ],
+                "request": [
+                  "morpheme",
+                  "edges",
+                  "rootsPerEnvironment",
+                  "maxWork",
+                  "wordTimeoutMs"
+                ],
+                "resultFields": [
+                  "complete",
+                  "stopReason",
+                  "partial",
+                  "morpheme",
+                  "allomorphs",
+                  "effects",
+                  "limits"
+                ],
+                "ruleText": "lhs, environment (left _ right) and rhs are pattern text in the syntax serve match reads, printed exactly or null with an unprintable entry; matchPattern is lhs / environment, to hand match with boundaryMarker when set. A subrule is one rhs alternative; nonLocal is null for a rule that is not compiled",
+                "stopReasons": [
+                  "work_limit",
+                  "deadline"
+                ],
+                "unprintableParts": [
+                  "lhs",
+                  "environment",
+                  "matchPattern",
+                  "rhs",
+                  "rule",
+                  "outputMatchPattern"
+                ],
+                "unprintableReasons": [
+                  "stratum_table_differs",
+                  "segment_not_writable",
+                  "segment_not_in_surface_table",
+                  "boundary_not_writable",
+                  "multiple_boundaries",
+                  "class_not_writable",
+                  "feature_value",
+                  "feature_name",
+                  "alpha_across_features",
+                  "too_many_variables",
+                  "quantifier_bounds",
+                  "segments_node",
+                  "anchor_position",
+                  "unknown_class",
+                  "rule_not_printed",
+                  "metathesis",
+                  "environment_not_printed",
+                  "output_not_single_class",
+                  "alpha_not_in_environment",
+                  "boundary_rewrite",
+                  "rhs_node_kind",
+                  "lhs_node_kind",
+                  "output_underspecified_segments"
+                ],
+                "version": 1
+              },
+              "generate": {
+                "allomorphFields": [
+                  "role",
+                  "entryGuid",
+                  "msaGuid",
+                  "allomorphId",
+                  "formGuid",
+                  "shape",
+                  "ruleName"
+                ],
+                "errorCodes": [
+                  "bad_request",
+                  "request_too_large",
+                  "authored_identity_unavailable",
+                  "unknown_entry",
+                  "unknown_msa",
+                  "msa_not_owned_by_entry",
+                  "ambiguous_identity",
+                  "unsupported_msa_class",
+                  "unsupported_form_selection",
+                  "unknown_form",
+                  "unsupported_schema_version",
+                  "internal"
+                ],
+                "limits": {
+                  "generationCap": 50000000,
+                  "maxSeeds": {
+                    "default": 10000,
+                    "max": 1000000
+                  },
+                  "maxTraceSteps": {
+                    "default": 50000,
+                    "max": 5000000
+                  }
+                },
+                "morphSpanFields": [
+                  "derivations",
+                  "segmentCount",
+                  "morphemes",
+                  "unattributed"
+                ],
+                "morphemeSpanFields": [
+                  "item",
+                  "spans",
+                  "reason",
+                  "rule"
+                ],
+                "requestFields": {
+                  "attestedWords": "array of strings; each surface then carries attested, true when its NFD form is in the list",
+                  "attestedWordsFile": "path to a word list, one word per line; as attestedWords. At most one of the two",
+                  "maxSeeds": "integer >= 1",
+                  "maxTraceSteps": "integer >= 1; counts retained trace nodes across every seed",
+                  "maxWork": "integer >= 1; lowers the generation cap for this request",
+                  "request": "the generate --request v1 object; a root or stem morpheme may carry formGuid to run only the seeds that use that form (an affix may not)",
+                  "trace": "boolean, default false; true records each surface's rule steps",
+                  "wordTimeoutMs": "integer >= 0; wall-clock deadline for this request"
+                },
+                "requestSchema": 1,
+                "resultFields": [
+                  "complete",
+                  "stopReason",
+                  "workUnits",
+                  "seedChoices",
+                  "traceSteps",
+                  "limits",
+                  "seeds"
+                ],
+                "ruleFields": [
+                  "kind",
+                  "id",
+                  "name",
+                  "guid"
+                ],
+                "seedFields": [
+                  "seedKey",
+                  "allomorphs",
+                  "surfaces",
+                  "traceTruncated"
+                ],
+                "spanFields": [
+                  "segments",
+                  "offsets"
+                ],
+                "spanReasons": [
+                  "span_unknown_truncation",
+                  "span_ambiguous_copy",
+                  "span_lost_by_rule",
+                  "nested_morph",
+                  "compound_unsupported",
+                  "repeated_morpheme",
+                  "morph_not_recorded",
+                  "segments_not_aligned",
+                  "inserted_by_rule",
+                  "no_morph_owner",
+                  "unrequested_morpheme"
+                ],
+                "stepFields": [
+                  "stratum",
+                  "rule",
+                  "input",
+                  "output",
+                  "subrule"
+                ],
+                "stopReasons": [
+                  "seed_product_exceeds_budget",
+                  "work_limit",
+                  "deadline",
+                  "trace_limit",
+                  "seed_limit"
+                ],
+                "surfaceFields": [
+                  "surface",
+                  "derivations",
+                  "attested",
+                  "steps",
+                  "stepsUnresolved",
+                  "alternatives",
+                  "normalized",
+                  "morphSpans"
+                ],
+                "trace": true,
+                "unattributedFields": [
+                  "segments",
+                  "offsets",
+                  "reason",
+                  "rule"
+                ],
+                "version": 1
+              },
+              "inventory": {
+                "classFields": [
+                  "token",
+                  "name",
+                  "fullName",
+                  "id",
+                  "kind"
+                ],
+                "classKinds": [
+                  "segment",
+                  "feature"
+                ],
+                "classToken": "the text between the brackets of [token] in a match pattern: the class name, else its XML id when the name is empty, repeated by an earlier class, or not writable in brackets; null when neither spelling reaches the class",
+                "errors": [
+                  "bad_request",
+                  "internal"
+                ],
+                "featureFields": [
+                  "name",
+                  "id",
+                  "values"
+                ],
+                "readOnly": true,
+                "request": [
+                  "maxWork",
+                  "wordTimeoutMs"
+                ],
+                "stopReasons": [
+                  "work_limit",
+                  "deadline"
+                ],
+                "version": 1,
+                "work": "one unit per class and per feature value listed"
+              },
+              "match": {
+                "constructs": {
+                  "gated": [
+                    "featureValue",
+                    "alphaAcrossFeatures"
+                  ],
+                  "supported": [
+                    "naturalClass",
+                    "literal",
+                    "optional",
+                    "repeat",
+                    "wordEdge",
+                    "morphemeBoundary",
+                    "environment",
+                    "featureBundle",
+                    "alphaVariable"
+                  ]
+                },
+                "defaultSegmentTest": "engine",
+                "errors": [
+                  "bad_request",
+                  "pattern_parse",
+                  "unknown_natural_class",
+                  "unknown_feature",
+                  "unsupported_construct",
+                  "boundary_needs_marked_input",
+                  "unknown_boundary_marker",
+                  "too_many_words",
+                  "words_file_unreadable",
+                  "pattern_compile_failed",
+                  "internal"
+                ],
+                "limits": {
+                  "defaultMaxMatchesPerWord": 1000,
+                  "defaultMaxWords": 100000,
+                  "defaultMaxWork": 50000000,
+                  "defaultWordTimeoutMs": 10000,
+                  "maxMatchesPerWord": 100000,
+                  "maxMatchesTotal": 1000000,
+                  "maxPatternBytes": 4096,
+                  "maxWordTimeoutMs": 600000,
+                  "maxWords": 1000000
+                },
+                "offsets": "utf8ByteOffsetsInNfdText",
+                "request": [
+                  "pattern",
+                  "words",
+                  "wordsFile",
+                  "boundaryMarker",
+                  "boundaryMarkers",
+                  "maxWords",
+                  "maxMatchesPerWord",
+                  "maxWork",
+                  "wordTimeoutMs",
+                  "segmentTest"
+                ],
+                "segmentTests": [
+                  "engine",
+                  "identity"
+                ],
+                "statuses": [
+                  "ok",
+                  "unsegmentable",
+                  "incomplete"
+                ],
+                "stopReasons": [
+                  "match_cap",
+                  "total_match_cap",
+                  "work_limit",
+                  "deadline"
+                ],
+                "version": 1,
+                "wordReasons": [
+                  "no_character_definition",
+                  "boundary_in_unmarked_word",
+                  "unexpected_boundary"
+                ],
+                "zeroWidth": "reported: a pattern that can match the empty string reports an empty match at every position its anchors allow"
+              },
+              "parse": {
+                "defaultRuleCosts": false,
+                "defaultRuleTrace": false,
+                "defaultTraceDetails": false,
+                "request": [
+                  "id",
+                  "op",
+                  "word",
+                  "traceDetails",
+                  "ruleTrace",
+                  "ruleCosts"
+                ],
+                "ruleCosts": "true or a positive integer N (true is 8): the response gains a top-level ruleCosts object listing the N objects that reserved the most work steps for this word, with the unattributed remainder; it works on a word the parser stops on. It runs the parse with a stats collector, which does not change workSteps; with traceDetails false and no ruleTrace the parse stays untraced",
+                "ruleTrace": "with traceDetails false, the JSON rule-trace tree is appended to result only when ruleTrace is true; it is neither built nor sent otherwise. traceDetails true ignores ruleTrace"
+              }
+            },
+            "serveProtocol": 2,
+            "whyNot": {
+              "expectGuidChoices": true,
+              "ids": "grammar-xml",
+              "kinds": [
+                "no_morph_match",
+                "environment_unmet",
+                "required_slot_empty",
+                "feature_clash",
+                "adhoc_prohibition",
+                "other_gate",
+                "required_co_occurrence"
+              ],
+              "schema": "pangloss.whynot.v1",
+              "suiteRows": true
+            }
+          },
+          "schema_version": 1
+        }
+      },
+      "motifSource": "src/SIL.Motif.Host/PanGloss/PanGlossSurface.cs CheckAsync",
+      "name": "describe",
+      "stdout": "describe"
+    }
+  ]
+}
