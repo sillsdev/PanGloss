@@ -3456,11 +3456,23 @@ fn ana_narrow_deletion(
 /// EXPERIMENT: 0 off, 1 raw m655, 2 per-rule fixed, 3 grammar-wide fixed.
 fn del_domgap_mode() -> u8 {
     static M: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
-    *M.get_or_init(|| match std::env::var("HC_DEL_DOMGAP").as_deref() {
-        Ok("m655") => 1,
-        Ok("m655rule") => 2,
-        Ok("m655global") => 3,
-        _ => 0,
+    *M.get_or_init(|| {
+        // The mode may also ride on the executable's name (pangloss-m655global.exe) so two copies of one binary can be compared by a tool that cannot set an environment per side.
+        let name = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let env = std::env::var("HC_DEL_DOMGAP").unwrap_or_default();
+        let pick = |k: &str| env == k || name.ends_with(k);
+        if pick("m655global") {
+            3
+        } else if pick("m655rule") {
+            2
+        } else if pick("m655") {
+            1
+        } else {
+            0
+        }
     })
 }
 
