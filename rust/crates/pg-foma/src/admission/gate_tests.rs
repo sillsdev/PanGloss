@@ -294,7 +294,7 @@ fn a_restricted_parse_that_loses_an_analysis_is_a_hard_error() {
 #[test]
 fn a_word_that_reaches_the_work_cap_takes_the_restricted_outcome_with_every_plain_analysis() {
     let g = affix_grammar();
-    let word = "nipatgo";
+    let word = "nonoputkakaka";
     let big = Morpher::new(&g, 2_000_000);
     let opts = ParseOptions::default();
     let probe = |m: &Morpher| m.parse_word_opts(word, &opts);
@@ -331,7 +331,7 @@ fn a_batch_of_capped_words_decides_on_the_restricted_outcomes() {
     let g = affix_grammar();
     let opts = ParseOptions::default();
     let big = Morpher::new(&g, 2_000_000);
-    let words: Vec<String> = (0..ON).map(|_| "nipatgo".to_owned()).collect();
+    let words: Vec<String> = (0..ON).map(|_| "nonoputkakaka".to_owned()).collect();
     let full = big.parse_word_opts(&words[0], &opts);
     let restricted_steps = {
         let decided = decide(&g, &big, &opts, &batch(ON)).expect("sound");
