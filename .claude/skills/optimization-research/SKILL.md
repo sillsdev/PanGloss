@@ -22,6 +22,9 @@ This skill ends where `land-an-optimization` begins. Never skip the ledger: idea
   under a home directory. Real grammars are for local measurement; say "a heavy real grammar" and give counts.
 - A speedup is not a divergence entry; a planned speedup is a GitHub issue (`docs/divergences/README.md`).
 - Measure work steps and instructions, not wall time (`docs/design/parse-cost.md`). One core, one run, `nice -n 19` (`land-an-optimization/sweep.md`).
+- Linux and WSL numbers (wall, callgrind) screen only and are labelled provisional in every ledger row and issue; the Windows counters decide
+  (`land-an-optimization/SKILL.md`, "Timing truth"). Sample size and statistics: `references/sampling.md`.
+- Keep scripts and logs in your own scratch subdirectory, never at the root of a shared scratchpad (`land-an-optimization/sweep.md`, "Scratch hygiene").
 
 ## The loop
 
@@ -80,6 +83,8 @@ the work with `.claude/skills/land-an-optimization/SKILL.md`: its four steps are
 
 ## References
 
+- `references/sampling.md`: how many words, paired log-ratio, bootstrap, sequential stopping, random versus chosen words.
+- `references/upstream-optimizations.md`: reviewing a C# change in `sillsdev/machine`, and combining it with a Rust speedup.
 - `references/finding.md`: attribution commands, calibration grammars, sweep data.
 - `references/sources.md`: ledger, research notes, issue lists, tooling.
 - `references/ledger-format.md`: the entry format and status values.

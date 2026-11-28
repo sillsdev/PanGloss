@@ -2,6 +2,11 @@
 
 Reached from step 3 and step 4 of `SKILL.md`. Paths below are from this machine; `<scratch>` is the session scratchpad, never the repo.
 
+## Scratch hygiene
+
+Keep your scripts, lists and logs in your own subdirectory of `<scratch>` (or the lane directory), for example `<scratch>/<lane>/`, never at
+the root of a shared session scratchpad: a shared `build.sh` was clobbered by another worker on 2026-11-27. Every `<scratch>/...` path below means that subdirectory.
+
 ## One core, one run (default)
 
 The sweep takes one core. One grammar at a time, `--threads=1`, one process, never beside another sweep run:
@@ -109,6 +114,7 @@ The inventory leaves three choices open; the v0.35.0 sweep took these, and the P
 
 ## Windows (instruction-compare)
 
+- Windows is where the verdict comes from; the Linux commands above only screen (`SKILL.md`, "Timing truth").
 - Run `stile admit --placement windows --jobs 1` first. `herdr-x run win` runs PowerShell, not bash (no `tail`, `grep`).
 - No push needed: in the Windows PanGloss clone run `git fetch origin main refs/pull/<N>/head`, then make both trees with
   `stile worktree new <windows clone> --detach <sha> --path H:\repos\PanGloss.worktrees\sweep-before-<N>` (origin/main sha) and

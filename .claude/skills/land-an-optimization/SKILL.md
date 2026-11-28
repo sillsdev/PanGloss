@@ -16,6 +16,13 @@ steps 1, 2, 3 (beyond samples) and 4 unchecked. Put all four steps in the brief.
 Finding and researching the idea comes first: `.claude/skills/optimization-research/SKILL.md` and its ledger, `docs/research/optimization/README.md`.
 Start from the idea's ledger entry, and update its status here as the PR lands.
 
+## Timing truth
+
+WSL and Linux measurements of a filter's cost (wall time and callgrind instruction counts) can be off by an order of magnitude in either
+direction. Only the Windows counters decide a speed claim (`docs/design/parse-cost.md`, "Where instructions are measured").
+- Every speed claim that lands has a Windows measurement on at least a subset of words (sample size: `.claude/skills/optimization-research/references/sampling.md`).
+- Linux numbers screen ideas. Label each one provisional wherever it is written (PR, issue, ledger, Machine comment).
+
 ## 0. Is it allowed at all?
 
 CLAUDE.md allows one memo or cache: the root-trie exception (per-word, exact stratum and shape key, 1 MiB cap, immutable index results
@@ -68,6 +75,7 @@ Run every grammar we have, not one sample, and the conformance suite (`pg.ps1 -M
     A cap order change (Before CAP at the work cap, After MEMCAP at the memory ceiling, fewer steps) is the expected form; say so.
   - A drop on any grammar blocks landing until explained.
 - Report the speedup per grammar, as instructions (step 4), not wall time.
+- A new check or filter is also measured where it cannot help, not only where it does (step 4, "Filter cost").
 
 ## 4. Recalibrate
 
@@ -85,13 +93,24 @@ difference; say so in the PR. Reading verdicts:
 - The control (Before against Before) must not read GO or NO-GO (regression); NO-GO (no change) is expected, and INCONCLUSIVE on a tiny control is fine.
 - retune-parser-work takes over an hour and repeats its own callgrind compare; pass `-PairResult` and `-ControlResult` only from runs on retune's own manifest and samples (it binds them by grammar file name and count alone); how to make them: `sweep.md`, "Retune on Windows runs".
 
+### Filter cost
+
+Every new check or filter is measured where it does NOT help, as well as where it does: grammars where it rarely rejects (for the
+affix-acceptance prefilter, #585: Mbugwe and Swahili). Use the chosen-words sample for "where it cannot help" and the random sample for the
+corpus (`optimization-research/references/sampling.md`). A filter that adds time there needs a deterministic way to cost nothing: a static
+per-grammar or per-allomorph gate, sharing work with the full search, or a cheaper check. No adaptive per-run state (hit counters, learned
+skips) whose results depend on word order or thread count.
+
 ### When instruction-compare cannot run on this machine
 
-The verdict needs the Windows counters (`docs/design/parse-cost.md`, "Where instructions are measured"). Do not skip the step and
-do not report WSL callgrind as the verdict. From WSL, place the run on Windows with `herdr-x run win` and the steps in
+The verdict needs the Windows counters (see "Timing truth"). Do not skip the step and do not report WSL callgrind as the verdict. From WSL, place the run on Windows with `herdr-x run win` and the steps in
 `sweep.md` ("Windows"). One Windows run at a time: the lock is machine-wide.
 - If Windows is unreachable, say so in the PR, give the WSL callgrind result labelled provisional, and leave the PR draft.
 - `retune-parser-work` runs on Linux and WSL as is.
+
+## Upstream and combined speedups
+
+Reviewing someone else's C# change, or choosing between it and ours: `.claude/skills/optimization-research/references/upstream-optimizations.md`.
 
 ## Completion check
 
@@ -99,5 +118,5 @@ do not report WSL callgrind as the verdict. From WSL, place the run on Windows w
 - [ ] `sillsdev/machine` issue labelled `Hermit Crab` and `performance`, linked; hand-off design file posted for the `conformance` lead.
 - [ ] Breakage list answered per item, with fixtures added or gaps named.
 - [ ] Every grammar compared: every word IDENTICAL under `--multiset`; STATUS_DIFF and CAP words rerun at raised caps; SKIPPED counted; grammars not run named with reasons; speedup per grammar.
-- [ ] instruction-compare verdict from the Windows counters; retune-parser-work run or skipped by its path rule.
+- [ ] instruction-compare verdict from the Windows counters on a sample sized per `sampling.md`, Linux numbers labelled provisional; a new filter also measured where it cannot help; retune-parser-work run or skipped by its path rule.
 - [ ] `pg.ps1 -Mode preland` exits 0 in the rebased branch's worktree.
