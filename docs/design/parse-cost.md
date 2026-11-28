@@ -114,8 +114,8 @@ of CPU 4, did not narrow it.
 ### Where instructions are measured
 
 Instructions come from the CPU's hardware counters, so `rust/tools/instruction-compare.ps1` runs on
-Windows. WSL does not expose the counters. Callgrind in WSL counts simulated instructions; use it only
-as a provisional signal, never as the verdict.
+Windows. WSL does not expose the counters. Callgrind and wall time in WSL or Linux can be off by an order of magnitude in either direction
+for a filter's cost; use them only to screen, labelled provisional, never as the verdict.
 From a WSL session, run the comparison on Windows with `herdr-x run win`; the steps are in `.claude/skills/land-an-optimization/SKILL.md`.
 
 The two tools do not count the same thing, so a count is compared only with a count from the same tool.
