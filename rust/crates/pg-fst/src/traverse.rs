@@ -1198,72 +1198,78 @@ impl<'f> Transduce<'f> {
         self.run(false).into_iter().next()
     }
 
-    /// A register-free superset acceptance test over the same arcs and shapes: `false` proves `all_matches` is empty, `true` proves nothing. Returns `(accepts, arc checks)`. It ignores registers, commands, the tiling guard, hop pruning and work budgets, so it can only accept more than `all_matches` finds; it never consumes work itself, and the caller charges the arc checks.
+    /// A register-free superset acceptance test over the same arcs and shapes: `false` proves `all_matches` is empty, `true` proves nothing. Returns `(accepts, work)`. It ignores registers, commands, the tiling guard, hop pruning and work budgets, so it can only accept more than `all_matches` finds; it never consumes work itself, and the caller charges `work`. The live states at a position are one `u64`, so the pass allocates nothing; an automaton of more than 64 states or constraints is not tested and always answers `true` at no charge. Work is one per constraint evaluated against a segment, each at most once per position however many arcs share it.
     pub fn may_accept(&self) -> (bool, u64) {
         let n = self.n();
         if n == 0 {
             return (false, 0);
         }
-        let states = self.fst.states.len();
+        if self.fst.states.len() > 64 || self.fst.constraints.len() > 64 {
+            return (true, 0);
+        }
         let deterministic = self.fst.is_deterministic();
-        let mut seen = vec![false; (n + 1) * states];
-        let mut lists: Vec<Vec<usize>> = vec![Vec::new(); n + 1];
-        let mut arc_checks = 0u64;
-        let start = self.fst.start() as usize;
-        let mut seeds = vec![0usize];
+        let start = 1u64 << self.fst.start();
+        // The start state is seeded at position 0, and under a start anchor at each position reached by skipping optional segments; otherwise at every position before the end.
+        let mut seed_end = 0;
         if self.start_anchor {
-            let mut k = 0;
-            while k + 1 < n && self.seg(k).optional {
-                k += 1;
-                seeds.push(k);
+            while seed_end + 1 < n && self.seg(seed_end).optional {
+                seed_end += 1;
             }
         } else {
-            seeds = (0..n).collect();
+            seed_end = n - 1;
         }
-        let mut accepts = false;
-        for s in seeds {
-            if !seen[s * states + start] {
-                seen[s * states + start] = true;
-                lists[s].push(start);
-            }
-        }
+        // States that arrived by an arc (or by skipping an optional segment), as opposed to seeds.
+        let mut arrived = 0u64;
+        let mut work = 0u64;
         for i in 0..=n {
-            let mut idx = 0;
-            while idx < lists[i].len() {
-                let st = lists[i][idx];
-                idx += 1;
-                if self.fst.states[st].accepting && (!self.end_anchor || i == n) {
-                    accepts = true;
+            let live = arrived | if i <= seed_end { start } else { 0 };
+            if live == 0 {
+                if i > seed_end {
+                    return (false, work);
                 }
-                if i == n {
-                    continue;
-                }
-                for arc in self.state_arcs(st) {
-                    arc_checks += 1;
-                    if !self.check_input_match(arc, i) {
-                        continue;
+                continue;
+            }
+            if i == n || !self.end_anchor {
+                let mut bits = live;
+                while bits != 0 {
+                    let st = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    if self.fst.states[st].accepting {
+                        return (true, work);
                     }
-                    let target = arc.target as usize;
-                    // The arc consumes segment i, then may skip any run of optional segments.
-                    let mut pos = i + 1;
-                    loop {
-                        if !seen[pos * states + target] {
-                            seen[pos * states + target] = true;
-                            lists[pos].push(target);
+                }
+            }
+            if i == n {
+                break;
+            }
+            let seg = self.seg(i);
+            let mut evaluated = 0u64;
+            let mut matched = 0u64;
+            let mut next = 0u64;
+            let mut bits = live;
+            while bits != 0 {
+                let st = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                for arc in self.state_arcs(st) {
+                    let bit = 1u64 << arc.constraint.0;
+                    if evaluated & bit == 0 {
+                        evaluated |= bit;
+                        work += 1;
+                        if self.fst.constraint(arc.constraint).matches(&seg.lanes) {
+                            matched |= bit;
                         }
-                        if pos < n && self.seg(pos).optional {
-                            pos += 1;
-                        } else {
+                    }
+                    if matched & bit != 0 {
+                        next |= 1u64 << arc.target;
+                        if deterministic {
                             break;
                         }
                     }
-                    if deterministic {
-                        break;
-                    }
                 }
             }
+            arrived = next | if seg.optional { arrived } else { 0 };
         }
-        (accepts, arc_checks)
+        (false, work)
     }
 
     /// Does the automaton accept? (any match exists).
