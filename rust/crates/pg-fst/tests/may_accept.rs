@@ -1,6 +1,6 @@
 //! The affix-acceptance prefilter: `Transduce::may_accept` is a register-free superset of `all_matches`. `false` must prove the traversal finds nothing (a wrong reject would silently drop analyses); `true` may be a false alarm. Alphabet: one-hot bits in lane 0 (`a=0b001,b=0b010,c=0b100`).
 
-use pg_fst::{CompileInput, CompileNode, Fst, Segment, Transduce};
+use pg_fst::{CompileInput, CompileNode, Direction, Fst, Segment, Transduce};
 
 const A: u64 = 0b001;
 const B: u64 = 0b010;
@@ -96,9 +96,9 @@ fn an_empty_word_is_rejected_without_checking_arcs() {
     assert_eq!(t(&fst, &[], true, true).may_accept(), (false, 0));
 }
 
-/// Exhaustive: over every word up to length 4 and a spread of patterns, a rejection never coincides with a match.
+/// Bounded sweep (not a proof): over every word up to length 4, every subset of optional segments (so a leading optional segment and runs of consecutive ones), both directions, a spread of patterns and four anchor settings, a rejection never coincides with a match.
 #[test]
-fn a_rejection_never_coincides_with_a_match() {
+fn a_bounded_sweep_finds_no_rejection_that_coincides_with_a_match() {
     let patterns: Vec<(Vec<CompileNode>, bool)> = vec![
         (vec![k(A)], true),
         (vec![k(A), k(B)], true),
@@ -151,26 +151,30 @@ fn a_rejection_never_coincides_with_a_match() {
     let mut rejected = 0;
     let mut matched = 0;
     for (nodes, deterministic) in &patterns {
-        let fst = compile(nodes.clone(), *deterministic);
-        for w in &words {
-            // Every second segment optional, so the optional-skip path is covered too.
-            for flags in [false, true] {
-                let word: Vec<(u64, bool)> = w
-                    .iter()
-                    .enumerate()
-                    .map(|(i, &b)| (b, flags && i % 2 == 1))
-                    .collect();
-                for (s, e) in [(true, true), (true, false), (false, true), (false, false)] {
-                    let transduce = t(&fst, &word, s, e);
-                    let found = !transduce.all_matches().is_empty();
-                    let accepts = transduce.may_accept().0;
-                    assert!(
-                        accepts || !found,
-                        "wrong reject: word {w:?} optional-alternate {flags} anchors ({s},{e})"
-                    );
-                    checked += 1;
-                    rejected += usize::from(!accepts);
-                    matched += usize::from(found);
+        for direction in [Direction::LeftToRight, Direction::RightToLeft] {
+            let fst = CompileInput::new(nodes.clone())
+                .deterministic(*deterministic)
+                .compile_with_direction(direction);
+            for w in &words {
+                // Every subset of optional segments: index 0 optional exercises the start-anchor seed loop, adjacent flags make runs.
+                for flags in 0u32..(1 << w.len()) {
+                    let word: Vec<(u64, bool)> = w
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &b)| (b, flags >> i & 1 == 1))
+                        .collect();
+                    for (s, e) in [(true, true), (true, false), (false, true), (false, false)] {
+                        let transduce = t(&fst, &word, s, e);
+                        let found = !transduce.all_matches().is_empty();
+                        let accepts = transduce.may_accept().0;
+                        assert!(
+                            accepts || !found,
+                            "wrong reject: word {w:?} optional-alternate {flags} anchors ({s},{e})"
+                        );
+                        checked += 1;
+                        rejected += usize::from(!accepts);
+                        matched += usize::from(found);
+                    }
                 }
             }
         }
@@ -179,4 +183,33 @@ fn a_rejection_never_coincides_with_a_match() {
         rejected > 0 && matched > 0,
         "the sweep must exercise both outcomes ({checked} calls)"
     );
+}
+
+#[test]
+fn a_leading_optional_segment_is_skipped_under_a_start_anchor() {
+    let fst = compile(vec![k(A), k(B)], true);
+    let word = [(C, true), (A, false), (B, false)];
+    let transduce = t(&fst, &word, true, true);
+    assert!(!transduce.all_matches().is_empty());
+    assert!(transduce.may_accept().0);
+    // A run of optional segments before the match.
+    let word = [(C, true), (C, true), (A, false), (B, false)];
+    assert!(t(&fst, &word, true, true).may_accept().0);
+    // A leading required segment that cannot be skipped is rejected.
+    let word = [(C, false), (A, false), (B, false)];
+    assert!(!t(&fst, &word, true, true).may_accept().0);
+}
+
+#[test]
+fn a_right_to_left_traversal_accepts_what_it_matches_and_rejects_what_it_cannot() {
+    let fst = CompileInput::new(vec![k(A), k(B)])
+        .deterministic(true)
+        .compile_with_direction(Direction::RightToLeft);
+    let word = req(&[A, B]);
+    let transduce = t(&fst, &word, true, true);
+    assert_eq!(
+        transduce.may_accept().0,
+        !transduce.all_matches().is_empty()
+    );
+    assert!(!t(&fst, &req(&[A, C]), true, true).may_accept().0);
 }
