@@ -14,6 +14,7 @@ Sections: [owner policy on memos](#owner-policy-on-memos-2026-11-27), [2026-11-2
 
 | Idea | Status | Target blowup | Issues | Entry |
 |---|---|---|---|---|
+| multi-msa-pair-gate (dead adjacent affix pairs) | landed (PR #587) | sibling MSAs of one affix multiplying analysis candidates that synthesis rejects at the outer rule's feature gate | PanGloss #584 | [entry](#multi-msa-pair-gate) |
 | shape-table (per-word shape graph) | landed | same rule re-matched on the same shape across parent paths | PanGloss #481, PR #488; machine#653 | [entry](#shape-table) |
 | match-memo (per-parse rule-match memo) | landed, superseded by shape-table | same as above | PanGloss #477, PR #480 | [entry](#match-memo) |
 | root-trie-cache | landed (the one owner-approved cache) | repeated root-trie searches in one word | PanGloss #92 | [entry](#root-trie-cache) |
@@ -645,3 +646,15 @@ Not a dead end, listed so nobody re-proposes it: shape graph, shape and feature-
 - **Prior art:** none needed.
 - **Issues:** sillsdev/PanGloss#535, PR #566.
 - **Next step (what would revive it):** a cheaper design with no retained state, or a grammar where `synthesize_sites` dominates total work (it is 26% on Mbugwe and inlined or small on Tamil base and Sena). Still owed had it gone on: Windows instruction-compare, retune-parser-work, the remaining all-grammars sweep.
+
+## multi-msa-pair-gate
+- **Status:** landed (PR #587, closes #584). Every-grammar sweep at head 84ef49237 against main 36dbfff2e: 369 grammars, 450,277 of 450,277 words IDENTICAL under `--multiset`, plus a lowered work-cap pass over 13 lists with all 9,172 capped words' partial signatures equal.
+- **Blowup it targets:** an affix with several equal MSAs compiles to sibling rules; analysis carries each sibling through the search although synthesis rejects the outer rule at its required-feature gate for every root.
+- **Mechanism:** a static per-grammar table of dead adjacent affix pairs (`pg-rules/src/pair_gate.rs`) drops the pair at the stratum before the next unapplication. Where no pair is dead the cost is one emptiness check per parse.
+- **Where in PanGloss:** `pg-rules/src/pair_gate.rs`, `cache.rs`, `stratum.rs`.
+- **Expected gain (measured, Linux work steps, provisional, not time):** Real grammars at default caps: Swahili 1,589,991,343 to 1,588,147,335 (-0.12%), Tamil p145 and p147 -0.02%, Tamil base -0.00%, Mbugwe +0.08% (TIMEOUT and MEMCAP rows make its total load-dependent), Indonesian, Amharic, Aweti, Sena, Cebuano, Tamil core unchanged. Conformance grammars 11,355,001 to 11,354,195 (-0.007%); largest mover `edge-cases/morphotactic-attribute-breadth` -7.5%.
+- **Parity risk:** no analysis changed in the sweep. The pair is dropped only when a single group fails for every allomorph of the outer rule; anything undecidable leaves the pair alive.
+- **Memo/cache?** No: a static table built from the grammar.
+- **Prior art:** none needed.
+- **Issues:** sillsdev/PanGloss#584, PR #587.
+- **Next step:** Windows instruction-compare for the speed claim (this sweep gives work steps only).
