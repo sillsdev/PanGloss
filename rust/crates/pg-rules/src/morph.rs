@@ -3808,7 +3808,20 @@ fn ana_allomorph_matches(
     {
         transduce = transduce.interchangeable_runs(plan.run_end, plan.arc_ok);
     }
-    let matches = transduce.all_matches();
+    // Register-free acceptance pass first, charged by its own work count: a rejection proves the traversal would find nothing, so it is skipped.
+    let (accepts, pass_work) = transduce.may_accept();
+    let mut paid = true;
+    for _ in 0..pass_work {
+        if !pg_fst::work::consume() {
+            paid = false;
+            break;
+        }
+    }
+    let matches = if paid && accepts {
+        transduce.all_matches()
+    } else {
+        Vec::new()
+    };
     if let Some(recorder) = recorder {
         if matches.is_empty()
             && pg_fst::work::active_budget()

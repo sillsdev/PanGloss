@@ -1198,6 +1198,80 @@ impl<'f> Transduce<'f> {
         self.run(false).into_iter().next()
     }
 
+    /// A register-free superset acceptance test over the same arcs and shapes: `false` proves `all_matches` is empty, `true` proves nothing. Returns `(accepts, work)`. It ignores registers, commands, the tiling guard, hop pruning and work budgets, so it can only accept more than `all_matches` finds; it never consumes work itself, and the caller charges `work`. The live states at a position are one `u64`, so the pass allocates nothing; an automaton of more than 64 states or constraints is not tested and always answers `true` at no charge. Work is one per constraint evaluated against a segment, each at most once per position however many arcs share it.
+    pub fn may_accept(&self) -> (bool, u64) {
+        let n = self.n();
+        if n == 0 {
+            return (false, 0);
+        }
+        if self.fst.states.len() > 64 || self.fst.constraints.len() > 64 {
+            return (true, 0);
+        }
+        let deterministic = self.fst.is_deterministic();
+        let start = 1u64 << self.fst.start();
+        // The start state is seeded at position 0, and under a start anchor at each position reached by skipping optional segments; otherwise at every position before the end.
+        let mut seed_end = 0;
+        if self.start_anchor {
+            while seed_end + 1 < n && self.seg(seed_end).optional {
+                seed_end += 1;
+            }
+        } else {
+            seed_end = n - 1;
+        }
+        // States that arrived by an arc (or by skipping an optional segment), as opposed to seeds.
+        let mut arrived = 0u64;
+        let mut work = 0u64;
+        for i in 0..=n {
+            let live = arrived | if i <= seed_end { start } else { 0 };
+            if live == 0 {
+                if i > seed_end {
+                    return (false, work);
+                }
+                continue;
+            }
+            if i == n || !self.end_anchor {
+                let mut bits = live;
+                while bits != 0 {
+                    let st = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    if self.fst.states[st].accepting {
+                        return (true, work);
+                    }
+                }
+            }
+            if i == n {
+                break;
+            }
+            let seg = self.seg(i);
+            let mut evaluated = 0u64;
+            let mut matched = 0u64;
+            let mut next = 0u64;
+            let mut bits = live;
+            while bits != 0 {
+                let st = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                for arc in self.state_arcs(st) {
+                    let bit = 1u64 << arc.constraint.0;
+                    if evaluated & bit == 0 {
+                        evaluated |= bit;
+                        work += 1;
+                        if self.fst.constraint(arc.constraint).matches(&seg.lanes) {
+                            matched |= bit;
+                        }
+                    }
+                    if matched & bit != 0 {
+                        next |= 1u64 << arc.target;
+                        if deterministic {
+                            break;
+                        }
+                    }
+                }
+            }
+            arrived = next | if seg.optional { arrived } else { 0 };
+        }
+        (false, work)
+    }
+
     /// Does the automaton accept? (any match exists).
     pub fn accepts(&self) -> bool {
         self.first_match().is_some()
