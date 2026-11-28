@@ -18,6 +18,7 @@ mod gates;
 pub mod metathesis;
 pub mod morph;
 pub mod observations;
+pub mod pair_gate;
 pub mod partials;
 pub mod pattern_match;
 pub mod pattern_text;
